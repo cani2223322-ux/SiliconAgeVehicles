@@ -20,7 +20,9 @@ public class VehicleState {
             K_GASES = "Gases",
             // stage C: the hitched trailer, the drill's head / module / mode / count, the auto-delivery route and its state
             K_TRAILER = "Trailer", K_HEAD = "DrillHead", K_MODULE = "DrillModule", K_DRILL_MODE = "DrillMode", K_DUG = "Dug",
-            K_ROUTE_A = "RouteA", K_ROUTE_B = "RouteB", K_ROUTE_NEXT = "RouteNextB", K_AUTO_ON = "AutoOn", K_AUTO_STATE = "AutoState";
+            K_ROUTE_A = "RouteA", K_ROUTE_B = "RouteB", K_ROUTE_NEXT = "RouteNextB", K_AUTO_ON = "AutoOn", K_AUTO_STATE = "AutoState",
+            // stage D: the tiltrotor's wanted mode (airplane) and its nacelles (0 vertical .. TiltMath.TRANSITION_TICKS airplane)
+            K_TILT_PLANE = "TiltPlane", K_TILT_STEP = "TiltStep";
 
     public VehicleType type;
     public double energy;
@@ -45,6 +47,9 @@ public class VehicleState {
     public int[] routeA, routeB;
     public boolean routeNextB, autoOn;
     public int autoState;
+    /** Tiltrotor: the mode it is turning to / in (true: airplane) and the nacelles, 0 (vertical) .. TRANSITION_TICKS (airplane). */
+    public boolean tiltPlane;
+    public int tiltStep;
 
     public VehicleState(VehicleType type) {
         this.type = type;
@@ -213,6 +218,13 @@ public class VehicleState {
         t.setBoolean(K_ROUTE_NEXT, routeNextB);
         t.setBoolean(K_AUTO_ON, autoOn);
         t.setInteger(K_AUTO_STATE, autoState);
+        t.setBoolean(K_TILT_PLANE, tiltPlane);
+        t.setInteger(K_TILT_STEP, tiltStep);
+    }
+
+    /** Tiltrotor nacelles 0 (vertical) .. 1 (airplane). */
+    public double tiltPos() {
+        return tiltStep / (double) TiltMath.TRANSITION_TICKS;
     }
 
     /** Reads into this state; a missing key keeps the current value (a fresh item: full hull, empty). */
@@ -259,6 +271,9 @@ public class VehicleState {
         routeNextB = t.getBoolean(K_ROUTE_NEXT);
         autoOn = t.getBoolean(K_AUTO_ON) && routeA != null && routeB != null;
         autoState = autoOn ? Math.max(0, Math.min(AutoDelivery.STATES - 1, t.getInteger(K_AUTO_STATE))) : AutoDelivery.OFF;
+        boolean tilt = type.movement == Movement.TILT;
+        tiltPlane = tilt && t.getBoolean(K_TILT_PLANE);
+        tiltStep = tilt ? Math.max(0, Math.min(TiltMath.TRANSITION_TICKS, t.getInteger(K_TILT_STEP))) : 0;
     }
 
     private static int[] point(int[] a) {

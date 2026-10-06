@@ -154,11 +154,13 @@ public class ItemVehicleSVA extends Item {
                 Integer.valueOf(VehicleMath.kmh(t.topSpeed)),
                 Integer.valueOf(t.seats), Integer.valueOf(t.cargoSlots)) + "\n"
                 + (flies ? Lang.tr("sva.tooltip.energy." + t.key, fmt((long) (t.peakCost * cons)), fmt((long) (t.cruiseCost * cons)),
-                        fmt((long) (t.idleCost * cons)), fmt((long) VehicleMath.range(t, t.buffer, 0, cons)))
+                        fmt((long) (t.idleCost * cons)), fmt((long) VehicleMath.range(t, t.buffer, 0, cons)),
+                        fmt((long) (t.vtolPeak * cons)), fmt((long) (t.vtolCruise * cons)))
                         : Lang.tr("sva.tooltip.vehicle.energy", fmt((long) (t.cruiseCost * cons)), fmt((long) (t.idleCost * cons)),
                         fmt((long) VehicleMath.range(t, t.buffer, 0, cons)))) + "\n"
                 + (t.gases.liftGas != null || flies || crawler ? Lang.tr("sva.tooltip.vehicle.gas." + t.key, fmt(Math.round(t.gases.liftPerSecond)),
-                        fmt(Math.round(t.gases.boostPerSecond))) + "\n" : "")
+                        fmt(Math.round(t.gases.boostPerSecond)), fmt(Math.round(t.gases.boostGasPerSecond)),
+                        String.valueOf(t.gases.boostMul).replace('.', ',')) + "\n" : "")
                 + Lang.tr(ground ? "sva.tooltip.vehicle.limits" : "sva.tooltip.limits." + t.key, new Object[0]);
         TooltipSC.more(list, details, Lang.tr("sva.tooltip.howto.vehicle1") + "\n"
                 + Lang.tr(ground ? "sva.tooltip.howto.vehicle2" : "sva.tooltip.howto." + t.key + "2") + "\n"

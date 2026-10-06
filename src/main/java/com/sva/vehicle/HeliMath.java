@@ -52,14 +52,25 @@ public final class HeliMath {
      * x the cargo factor. Not working (no power, nobody at the controls): 0.
      */
     public static double cost(VehicleType t, boolean airborne, double speed, double vy, double fill, boolean working) {
+        return cost(t.idleCost, t.peakCost, t.cruiseCost, t.topSpeed, airborne, speed, vy, fill, working);
+    }
+
+    /** The tiltrotor's vertical mode (and its transition): its vtolPeak hovering .. vtolCruise at vtolTop. */
+    public static double vtolCost(VehicleType t, boolean airborne, double speed, double vy, double fill, boolean working) {
+        return cost(t.idleCost, t.vtolPeak, t.vtolCruise, t.vtolTop, airborne, speed, vy, fill, working);
+    }
+
+    /** The same from the numbers: idle on the ground, `peak` hovering .. `cruise` at `top` speed. */
+    public static double cost(double idle, double peak, double cruise, double top, boolean airborne, double speed, double vy, double fill,
+                              boolean working) {
         if (!working) {
             return 0;
         }
         if (!airborne && vy <= 0.01) {
-            return t.idleCost;
+            return idle;
         }
-        double s = VehicleMath.clamp(Math.abs(speed) / t.topSpeed, 0, 1);
-        double c = t.peakCost - (t.peakCost - t.cruiseCost) * s;
+        double s = VehicleMath.clamp(Math.abs(speed) / top, 0, 1);
+        double c = peak - (peak - cruise) * s;
         if (vy > 0) {
             c += CLIMB_EXTRA * VehicleMath.clamp(vy / CLIMB, 0, 1);
         } else {

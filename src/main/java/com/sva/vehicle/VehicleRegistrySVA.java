@@ -61,6 +61,21 @@ public class VehicleRegistrySVA extends WorldSavedData {
         }
     }
 
+    /** Forgets every vehicle of `owner` (the world test's leftovers from an interrupted run). @return how many */
+    public int removeOwner(String owner) {
+        int n = 0;
+        for (java.util.Iterator<Map.Entry<String, String>> it = owners.entrySet().iterator(); it.hasNext();) {
+            if (it.next().getValue().equals(owner)) {
+                it.remove();
+                n++;
+            }
+        }
+        if (n > 0) {
+            markDirty();
+        }
+        return n;
+    }
+
     public void remove(String vehId) {
         if (vehId != null && owners.remove(vehId) != null) {
             markDirty();

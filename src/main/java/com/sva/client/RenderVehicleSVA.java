@@ -67,11 +67,19 @@ public class RenderVehicleSVA extends Render {
                     }
                 } else if (p.kind == ObjModelSVA.Part.BORE) {
                     m.renderPart(p, v.drillAngle(pt) * p.speed, shade);
+                } else if (p.kind == ObjModelSVA.Part.NACELLE) {
+                    m.renderNacelle(p, com.sva.vehicle.TiltMath.nacelleAngle(v.getTiltPos()), a * p.speed, shade, blur);
                 } else {
                     m.renderPart(p, a * p.speed, shade);
                     ObjModelSVA.renderDisc(p, blur);
                 }
             }
+        }
+        if (v.isBoosting() && v.getVehicleType().gases.boostGas != null && v.getVehicleType().movement == com.sva.vehicle.Movement.PLANE
+                && shade >= 1F) {
+            // the jet's afterburner: a flickering flame cone out of the nozzle (EntityVehicleSVA adds flame particles)
+            float flicker = 0.85F + 0.15F * (float) Math.sin((v.ticksExisted + pt) * 2.3F);
+            ObjModelSVA.renderFlame(EntityVehicleSVA.NOZZLE_X, EntityVehicleSVA.NOZZLE_Y, EntityVehicleSVA.NOZZLE_R, 0.9F, flicker);
         }
         GL11.glPopAttrib();
         GL11.glPopMatrix();

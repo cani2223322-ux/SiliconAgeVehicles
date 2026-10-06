@@ -49,7 +49,7 @@ public final class HoverPhysicsSVA {
     public static void step(EntityVehicleSVA v, VehicleType t, int in) {
         boolean fwd = (in & EntityVehicleSVA.IN_FWD) != 0, back = (in & EntityVehicleSVA.IN_BACK) != 0,
                 left = (in & EntityVehicleSVA.IN_LEFT) != 0, right = (in & EntityVehicleSVA.IN_RIGHT) != 0,
-                high = (in & EntityVehicleSVA.IN_BRAKE) != 0, boostKey = (in & EntityVehicleSVA.IN_BOOST) != 0;
+                high = (in & EntityVehicleSVA.IN_BRAKE) != 0, boostKey = (in & (EntityVehicleSVA.IN_BOOST | EntityVehicleSVA.IN_AFTER)) != 0;
         boolean lift = v.hasLift() && v.canThrust();
         boolean boost = lift && boostKey && fwd;
         double top = HoverMath.maxSpeed(t, lift, boost);

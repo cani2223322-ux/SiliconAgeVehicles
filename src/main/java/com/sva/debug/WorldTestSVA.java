@@ -9,6 +9,7 @@ import com.sva.entity.EntitySeatSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.PlaneMath;
+import com.sva.vehicle.TiltMath;
 import com.sva.init.ModContentSVA;
 import com.sva.item.ItemVehicleSVA;
 import com.sva.vehicle.VehicleMath;
@@ -97,6 +98,8 @@ public class WorldTestSVA {
                 aircraftTick(w);
             } else if (cvAt > 0 && ticks >= cvAt && cvPhase < CV_DONE) {
                 stageCTick(w);
+            } else if (sdAt > 0 && ticks >= sdAt && sdPhase < SD_DONE) {
+                stageDTick(w);
             }
         } catch (Throwable t) {
             failed++;
@@ -119,11 +122,14 @@ public class WorldTestSVA {
                 aircraftFinish(w);
             } else if (cvAt > 0 && cvPhase < CV_DONE) {
                 stageCFinish(w);
+            } else if (sdAt > 0 && sdPhase < SD_DONE) {
+                stageDFinish(w);
             }
         }
     }
 
     private void setup(World w) {
+        purgeLeftovers(w, null);
         ChunkCoordinates sp = w.getSpawnPoint();
         bx = sp.posX + 4;
         bz = sp.posZ + 4;
@@ -1506,6 +1512,372 @@ public class WorldTestSVA {
         }
         VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
         check(reg.count(OWNER) == 0, "stage C cleanup: no test vehicles left in the registry");
+        sdAt = ticks + 20;                                      // stage D next
+    }
+
+    // ------------------------------------------------------------------ stage D: jet and tiltrotor (phase 7)
+
+    /**
+     * A run stopped half way (server stopped mid-test) leaves its test vehicles in the save: kills the loaded ones of
+     * the test owner (in `box`, or anywhere) and forgets the rest in the registry.
+     */
+    private void purgeLeftovers(World w, net.minecraft.util.AxisAlignedBB box) {
+        int n = 0;
+        java.util.List<?> list = box == null ? new java.util.ArrayList<Object>(w.loadedEntityList)
+                : w.getEntitiesWithinAABB(EntityVehicleSVA.class, box);
+        for (Object o : list) {
+            if (o instanceof EntityVehicleSVA && OWNER.equals(((EntityVehicleSVA) o).state.ownerId) && !((EntityVehicleSVA) o).isDead) {
+                ((EntityVehicleSVA) o).dismountAll();
+                ((EntityVehicleSVA) o).setDead();
+                n++;
+            }
+        }
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        if (box == null && reg != null) {
+            n += reg.removeOwner(OWNER);
+        }
+        if (n > 0) {
+            System.out.println("[SVA-WORLDTEST] note: removed " + n + " leftover test vehicle(s) of an interrupted run");
+        }
+    }
+
+    private static final int SD_DONE = 99, SD_HALF = 172;
+    private int sdAt = -1, sdPhase, sdT0;
+    private int sx0, sz;
+    private EntityVehicleSVA jet, tilt;
+    private net.minecraft.entity.passive.EntityVillager tiltPilot;
+    private int tiltInput;
+    private double sdLift = -1, sdEu0, sdY0, sdYMin, sdYMax, sdV0, sdHp0;
+    private int sdH2;
+
+    /** The stage D lane: z = sz +- 2, x = spawn +- SD_HALF, cleared AY .. AY + 30, stone at AY, runway blocks for the first 30. */
+    private void sdLane(World w, boolean build) {
+        ChunkCoordinates sp = w.getSpawnPoint();
+        for (int x = sp.posX - SD_HALF; x <= sp.posX + SD_HALF; x++) {
+            for (int z = sz - 2; z <= sz + 2; z++) {
+                for (int y = AY; y <= AY + 30; y++) {
+                    if (!w.isAirBlock(x, y, z)) {
+                        w.setBlockToAir(x, y, z);
+                    }
+                }
+                if (build) {
+                    if (x <= sx0 + 30) {
+                        w.setBlock(x, AY, z, ModContentSVA.runway, Math.abs(z - sz) == 2 ? 1 | 2 : 2, 2);
+                    } else {
+                        w.setBlock(x, AY, z, Blocks.stone, 0, 2);
+                    }
+                }
+            }
+        }
+    }
+
+    private void stageDTick(World w) {
+        if (sdPhase == 0) {
+            ChunkCoordinates sp = w.getSpawnPoint();
+            sx0 = sp.posX - SD_HALF + 3;
+            sz = sp.posZ - 120;
+            sdLane(w, true);
+            purgeLeftovers(w, net.minecraft.util.AxisAlignedBB.getBoundingBox(sp.posX - SD_HALF - 40, AY - 5, sz - 40,
+                    sp.posX + SD_HALF + 40, AY + 60, sz + 40));
+            jet = afSpawn(w, VehicleType.JET, sx0 + 0.5, sz + 0.5);
+            check(jet != null && jet.onRunway() && jet.state.gas(H2) == 4000 && jet.state.gas(HE) == 2000,
+                    "jet: placed on the runway, full (16M EU, H2 4000, He 2000)");
+            if (jet == null) {
+                tiltSetup(w);
+                return;
+            }
+            jet.debugDrive(EntityVehicleSVA.IN_FWD | EntityVehicleSVA.IN_BRAKE);   // full throttle, stick back
+            sdPhase = 1;
+            sdT0 = ticks;
+            sdLift = -1;
+            return;
+        }
+        keepLoaded(w, sdPhase < 20 ? jet : tilt);
+        if (sdPhase < 20) {
+            jetTick(w);
+        } else {
+            tiltTick(w);
+        }
+    }
+
+    /**
+     * The lane reaches past the always-loaded spawn chunks (a fast jet needs ~270 blocks): the chunks within 3 of the
+     * flying vehicle are loaded every tick (an entity only updates with its +-32 blocks loaded).
+     */
+    private static void keepLoaded(World w, EntityVehicleSVA v) {
+        if (v == null || !(w instanceof net.minecraft.world.WorldServer)) {
+            return;
+        }
+        int cx = MathHelper.floor_double(v.posX) >> 4, cz = MathHelper.floor_double(v.posZ) >> 4;
+        net.minecraft.world.gen.ChunkProviderServer cp = ((net.minecraft.world.WorldServer) w).theChunkProviderServer;
+        for (int x = cx - 3; x <= cx + 3; x++) {
+            for (int z = cz - 3; z <= cz + 3; z++) {
+                cp.loadChunk(x, z);
+            }
+        }
+    }
+
+    // ---- the jet: runway take-off, climb, cruise, afterburner, descent, landing and rollout on stone
+
+    private void jetTick(World w) {
+        if (jet == null) {
+            tiltSetup(w);
+            return;
+        }
+        int pt = ticks - sdT0;
+        double h = jet.posY - (AY + 1);
+        boolean air = jet.airborneAt(jet.posX, jet.posY, jet.posZ);
+        if (jet.posX > sx0 + 2 * SD_HALF - 6 || pt > 1200 || jet.isDead) {
+            check(false, "jet: ran out of strip / time (phase " + sdPhase + ", x+" + Math.round(jet.posX - sx0) + ")");
+            jetFinish(w);
+            return;
+        }
+        if (sdPhase == 1) {
+            if (sdLift < 0 && h > 0.05) {
+                sdLift = jet.posX - (sx0 + 0.5);
+                double want = PlaneMath.takeoffDistance(VehicleType.JET, true), ground = PlaneMath.takeoffDistance(VehicleType.JET, false);
+                check(Math.abs(sdLift - want) < 6 && sdLift < ground * 0.7, "jet: lifted off the runway after " + Math.round(sdLift)
+                        + " blocks (runway ~" + Math.round(want) + ", without ~" + Math.round(ground) + ")");
+            }
+            if (h >= 6) {
+                check(!jet.isStalling() && jet.isLifting() && pt < 200, "jet: climbed 6 blocks in " + pt + " ticks");
+                jet.debugDrive(EntityVehicleSVA.IN_FWD);
+                sdPhase = 2;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 2) {
+            if (pt == 10) {
+                sdEu0 = jet.state.energy;
+                sdYMin = sdYMax = jet.posY;
+            } else if (pt > 10) {
+                sdYMin = Math.min(sdYMin, jet.posY);
+                sdYMax = Math.max(sdYMax, jet.posY);
+            }
+            if (pt == 30) {
+                double perTick = (sdEu0 - jet.state.energy) / 20.0;
+                check(sdYMax - sdYMin < 0.6 && air && !jet.isStalling(), "jet: level flight at Y " + Math.round(jet.posY) + ", "
+                        + VehicleMath.kmh(jet.speed) + " km/h");
+                check(perTick > 60 && perTick < 85, "jet: cruising at Y >= 100 costs " + Math.round(perTick) + " EU/t (90 - 20% = 72)");
+                sdV0 = jet.speed;
+                sdH2 = jet.state.gas(H2);
+                sdY0 = jet.state.heat;
+                jet.debugDrive(EntityVehicleSVA.IN_FWD | EntityVehicleSVA.IN_AFTER);   // «Форсаж»
+                sdPhase = 3;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 3) {
+            if (pt == 3) {
+                check(jet.isBoosting(), "jet: afterburner lit (full throttle + «Форсаж»)");
+            }
+            if (pt == 40) {
+                int burnt = sdH2 - jet.state.gas(H2);
+                check(jet.speed > sdV0 + 0.3 && jet.speed <= com.sva.vehicle.FlightMath.SPEED_CAP + 1e-6, "jet: the afterburner took it from "
+                        + VehicleMath.kmh(sdV0) + " to " + VehicleMath.kmh(jet.speed) + " km/h in 2 s (cap 180)");
+                check(burnt >= 7 && burnt <= 9, "jet: the afterburner burnt " + burnt + " mB of H2 in 2 s (4 mB/s)");
+                check(jet.state.heat > sdY0, "jet: the afterburner heats the engine (" + Math.round(sdY0 * 10) / 10.0 + " -> "
+                        + Math.round(jet.state.heat * 10) / 10.0 + "%)");
+                jet.debugDrive(EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BACK);   // nose down, throttle back
+                sdPhase = 4;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 4) {
+            if (pt == 3) {
+                check(!jet.isBoosting(), "jet: afterburner off with the throttle back");
+            }
+            if (h <= 3) {
+                jet.debugDrive(EntityVehicleSVA.IN_BACK);   // flare
+                sdHp0 = jet.state.hp;
+                sdPhase = 5;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 5) {
+            if (!air) {
+                check(jet.state.hp > (float) sdHp0 - 1F, "jet: touched down at " + VehicleMath.kmh(jet.speed) + " km/h without landing damage ("
+                        + Math.round(sdHp0 - jet.state.hp) + " HP)");
+                sdPhase = 6;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 6) {
+            if (jet.speed < 0.01 && pt > 3) {
+                float max = VehicleType.JET.maxHp;
+                check(Math.abs(jet.posY - (AY + 1)) < 0.05 && !jet.isWrecked() && jet.state.hp > max - 40, "jet: stopped on the strip after a "
+                        + pt + "-tick rollout, x+" + Math.round(jet.posX - sx0) + ", hull " + Math.round(jet.state.hp) + " / " + Math.round(max));
+                jetFinish(w);
+            }
+        }
+    }
+
+    private void jetFinish(World w) {
+        if (jet != null) {
+            jet.debugDrive(0);
+            jet.setDead();
+            jet = null;
+        }
+        tiltSetup(w);
+    }
+
+    // ---- the tiltrotor: vertical take-off, airplane mode in the air (and the refusals), faster, back, vertical landing
+
+    private void tiltSetup(World w) {
+        tilt = afSpawn(w, VehicleType.TILT, sx0 + 22.5, sz + 0.5);
+        check(tilt != null && tilt.state.gas(H2) == 3000 && tilt.state.tiltStep == 0, "tilt: placed in vertical mode, full (32M EU, H2 3000, He 2000)");
+        sdPhase = tilt == null ? 30 : 21;
+        sdT0 = ticks;
+        if (tilt != null) {
+            tiltPilot = new net.minecraft.entity.passive.EntityVillager(w);
+            tiltPilot.setPosition(tilt.posX, tilt.posY, tilt.posZ);
+            w.spawnEntityInWorld(tiltPilot);
+            tiltPilot.mountEntity(tilt);                  // a villager at the controls: the motor runs with neutral keys too
+            tiltKeys(EntityVehicleSVA.IN_BRAKE);           // Space: collective up
+            sdY0 = tilt.posY;
+        }
+    }
+
+    private void tiltKeys(int in) {
+        tiltInput = in;
+        tilt.serverInput(in);
+    }
+
+    private void tiltTick(World w) {
+        if (tilt == null || sdPhase >= 30) {
+            stageDFinish(w);
+            return;
+        }
+        tiltKeys(tiltInput);                               // the Input packet's path, refreshed every tick
+        int pt = ticks - sdT0;
+        double h = tilt.posY - (AY + 1);
+        boolean air = tilt.airborneAt(tilt.posX, tilt.posY, tilt.posZ);
+        if (tilt.posX > sx0 + 2 * SD_HALF - 6 || pt > 900 || tilt.isDead) {
+            check(false, "tilt: ran out of strip / time (phase " + sdPhase + ", x+" + Math.round(tilt.posX - sx0) + ", h " + Math.round(h) + ")");
+            stageDFinish(w);
+            return;
+        }
+        if (sdPhase == 21) {
+            if (pt == 1) {
+                check(tilt.toggleFlightMode() == TiltMath.ON_GROUND && !tilt.state.tiltPlane, "tilt: airplane mode refused on the ground");
+            }
+            if (pt == 12 && h > 0.5 && h < 6) {
+                check(tilt.toggleFlightMode() == TiltMath.TOO_SLOW_LOW && !tilt.state.tiltPlane, "tilt: airplane mode refused low and slow ("
+                        + Math.round(h * 10) / 10.0 + " blocks up)");
+            }
+            if (h >= 8) {
+                check(Math.abs(tilt.posX - (sx0 + 22.5)) < 1 && tilt.isLifting() && !tilt.planeNow(), "tilt: vertical take-off, +8 blocks in "
+                        + pt + " ticks, drifted " + Math.round(Math.abs(tilt.posX - (sx0 + 22.5)) * 100) / 100.0);
+                tiltKeys(0);                         // hover
+                sdPhase = 22;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 22) {
+            if (pt == 15) {
+                sdEu0 = tilt.state.energy;
+                sdYMin = sdYMax = tilt.posY;
+            } else if (pt > 15) {
+                sdYMin = Math.min(sdYMin, tilt.posY);
+                sdYMax = Math.max(sdYMax, tilt.posY);
+            }
+            if (pt == 35) {
+                double perTick = (sdEu0 - tilt.state.energy) / 20.0;
+                check(sdYMax - sdYMin < 0.3 && perTick > 135 && perTick < 165, "tilt: hovers in vertical mode at " + Math.round(perTick)
+                        + " EU/t (150), height held within " + Math.round((sdYMax - sdYMin) * 100) / 100.0);
+                int r = tilt.toggleFlightMode();
+                check(r == TiltMath.OK && tilt.state.tiltPlane, "tilt: «Режим» in the air, " + Math.round(h) + " blocks up - airplane mode (result " + r + ")");
+                sdY0 = tilt.posY;
+                sdYMin = sdYMax = tilt.posY;
+                tiltKeys(EntityVehicleSVA.IN_FWD);
+                sdPhase = 23;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 23) {
+            sdYMin = Math.min(sdYMin, tilt.posY);
+            sdYMax = Math.max(sdYMax, tilt.posY);
+            if (pt == 20) {
+                double pos = tilt.getTiltPos();
+                check(pos > 0.4 && pos < 0.6 && !tilt.planeNow() && tilt.toggleFlightMode() == TiltMath.BUSY,
+                        "tilt: the nacelles half way after 1 s (" + Math.round(pos * 100) + "%), no switching mid-turn");
+            }
+            if (pt == 45) {
+                check(tilt.planeNow() && !tilt.isStalling() && tilt.speed > VehicleType.TILT.plane.stall && sdYMax - sdYMin < 1.0,
+                        "tilt: airplane mode after 2 s at " + VehicleMath.kmh(tilt.speed) + " km/h, height held within "
+                                + Math.round((sdYMax - sdYMin) * 100) / 100.0);
+            }
+            if (pt == 90) {
+                sdEu0 = tilt.state.energy;
+            }
+            if (pt == 110) {
+                double perTick = (sdEu0 - tilt.state.energy) / 20.0;
+                check(tilt.speed > VehicleType.TILT.vtolTop * 1.5 && air, "tilt: flies faster as a plane - " + VehicleMath.kmh(tilt.speed)
+                        + " km/h (vertical mode " + VehicleMath.kmh(VehicleType.TILT.vtolTop) + ")");
+                check(perTick > 75 && perTick < 100, "tilt: airplane cruise at Y >= 100 " + Math.round(perTick) + " EU/t (110 - 20% = 88)");
+                check(tilt.toggleFlightMode() == TiltMath.TOO_FAST && tilt.state.tiltPlane, "tilt: back to vertical refused at "
+                        + VehicleMath.kmh(tilt.speed) + " km/h");
+                tiltKeys(EntityVehicleSVA.IN_BACK);      // throttle back, level
+                sdPhase = 24;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 24) {
+            if (tilt.isStalling()) {
+                check(false, "tilt: stalled while slowing down");
+                stageDFinish(w);
+                return;
+            }
+            if (tilt.speed <= VehicleType.TILT.plane.stall * 1.12) {
+                int r = tilt.toggleFlightMode();
+                check(r == TiltMath.OK && !tilt.state.tiltPlane, "tilt: slowed to " + VehicleMath.kmh(tilt.speed) + " km/h in " + pt
+                        + " ticks - back to vertical mode (result " + r + ")");
+                tiltKeys(0);
+                sdYMin = sdYMax = tilt.posY;
+                sdPhase = 25;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 25) {
+            sdYMin = Math.min(sdYMin, tilt.posY);
+            sdYMax = Math.max(sdYMax, tilt.posY);
+            if (pt == 45) {
+                check(!tilt.planeNow() && tilt.getTiltPos() == 0 && sdYMax - sdYMin < 1.0 && Math.abs(tilt.speed) <= VehicleType.TILT.vtolTop + 0.01,
+                        "tilt: vertical mode again, height held within " + Math.round((sdYMax - sdYMin) * 100) / 100.0 + ", "
+                                + VehicleMath.kmh(tilt.speed) + " km/h");
+                sdHp0 = tilt.state.hp;
+                tiltKeys(EntityVehicleSVA.IN_DOWN);     // collective down
+                sdPhase = 26;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 26) {
+            if (!air && pt > 3) {
+                sdPhase = 27;
+                sdT0 = ticks;
+            }
+        } else if (sdPhase == 27 && pt == 5) {
+            check(Math.abs(tilt.posY - (AY + 1)) < 0.05 && tilt.state.hp > (float) sdHp0 - 0.5F && !tilt.planeNow(),
+                    "tilt: landed vertically, no damage (" + Math.round(sdHp0 - tilt.state.hp) + " HP), x+" + Math.round(tilt.posX - sx0));
+            stageDFinish(w);
+        }
+    }
+
+    private void stageDFinish(World w) {
+        sdPhase = SD_DONE;
+        for (EntityVehicleSVA v : new EntityVehicleSVA[] {jet, tilt}) {
+            if (v != null) {
+                v.debugDrive(0);
+                v.setDead();
+            }
+        }
+        jet = tilt = null;
+        if (tiltPilot != null) {
+            tiltPilot.mountEntity(null);
+            tiltPilot.setDead();
+            tiltPilot = null;
+        }
+        if (sz != 0 || sx0 != 0) {
+            sdLane(w, false);
+            ChunkCoordinates sp = w.getSpawnPoint();
+            for (int x = sp.posX - SD_HALF; x <= sp.posX + SD_HALF; x++) {
+                for (int z = sz - 2; z <= sz + 2; z++) {
+                    w.setBlock(x, AY, z, Blocks.air, 0, 2);
+                }
+            }
+        }
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        check(reg.count(OWNER) == 0, "stage D cleanup: no test vehicles left in the registry");
         System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
         System.out.println("[SVA-WORLDTEST] DONE");
     }

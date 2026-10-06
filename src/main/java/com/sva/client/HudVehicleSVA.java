@@ -189,7 +189,9 @@ public class HudVehicleSVA {
 
     /** The aircraft instruments: altimeter tape, status line, flight panel. */
     private void drawFlight(Minecraft mc, FontRenderer fr, int sw, int sh, EntityVehicleSVA v, VehicleType t) {
-        boolean heli = t.movement == Movement.HELI;
+        boolean tilt = t.movement == Movement.TILT;
+        boolean heli = t.movement == Movement.HELI || tilt && !v.planeNow();
+        boolean extraRow = tilt || t.gases.boostGas != null;
         shownVy = shownVy * 0.7 + (v.posY - v.prevPosY) * 0.3;
         long now = mc.theWorld.getTotalWorldTime();
         boolean blink = (now / 8) % 2 == 0;
@@ -239,11 +241,43 @@ public class HudVehicleSVA {
             fr.drawStringWithShadow(status, (sw - fr.getStringWidth(status)) / 2, 30, sc);
         }
         // ---- flight panel (bottom right)
-        int pw = 168, rows = heli ? 3 : 4, ph = rows * 11 + 8;
+        int pw = 168, rows = (heli ? 3 : 4) + (extraRow ? 1 : 0), ph = rows * 11 + 8;
         int px = sw - pw - 4, py = sh - ph - 4;
         Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
         Gui.drawRect(px, py, px + pw, py + ph, BG);
         int ry = py + 5;
+        if (tilt) {
+            // «Режим: самолёт / вертикальный · переход 60%»
+            double pos = v.getTiltPos();
+            boolean toPlane = v.getTiltTarget();
+            String m = Lang.tr(toPlane ? "sva.hud.tilt.plane" : "sva.hud.tilt.vertical");
+            String line = com.sva.vehicle.TiltMath.transition(pos)
+                    ? Lang.tr("sva.hud.tilt.turning", m, Integer.valueOf((int) Math.round((toPlane ? pos : 1 - pos) * 100)))
+                    : Lang.tr("sva.hud.tilt.mode", m);
+            fr.drawStringWithShadow(line, px + 6, ry, com.sva.vehicle.TiltMath.transition(pos) ? AMBER : BLUE);
+            ry += 11;
+        } else if (t.gases.boostGas != null) {
+            // «Форсаж: ВКЛ · H₂ 12:30»
+            Gas g = t.gases.boostGas;
+            int mb = v.getGas(g);
+            double sec = HoverMath.secondsLeft(mb, t.gases.boostGasPerSecond);
+            String left = Double.isInfinite(sec) ? "∞" : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
+            String gas = Lang.tr("sva.gas." + g.key());
+            String line;
+            int col;
+            if (v.isBoosting()) {
+                line = Lang.tr("sva.hud.after.on", gas, left);
+                col = blink ? ORANGE : AMBER;
+            } else if (mb <= 0) {
+                line = Lang.tr("sva.hud.after.empty", gas);
+                col = WARN;
+            } else {
+                line = Lang.tr("sva.hud.after.ready", gas, left);
+                col = DIM;
+            }
+            fr.drawStringWithShadow(line, px + 6, ry, col);
+            ry += 11;
+        }
         float cost = v.getCostNow();
         String eu = fmt(Math.round(cost));
         boolean air = v.airborneAt(v.posX, v.posY, v.posZ);
@@ -276,17 +310,18 @@ public class HudVehicleSVA {
             fr.drawStringWithShadow(mode, px + 6, ry, mc2);
             ry += 11;
         } else {
-            double vmax = t.topSpeed * PlaneMath.MAX_SPEED_MUL;
-            fr.drawString(Lang.tr("sva.hud.stallMin", Integer.valueOf(VehicleMath.kmh(PlaneMath.STALL))), px + 6, ry, DIM);
+            double vmax = PlaneMath.maxSpeed(t, t.gases.boostMul);
+            double stallV = t.plane.stall;
+            fr.drawString(Lang.tr("sva.hud.stallMin", Integer.valueOf(VehicleMath.kmh(stallV))), px + 6, ry, DIM);
             ry += 11;
             int bx = px + 6, bw = pw - 12;
             Gui.drawRect(bx, ry + 1, bx + bw, ry + 7, C_TRACK);
             int fill = (int) Math.round(bw * VehicleMath.clamp(shownSpeed / vmax, 0, 1));
-            boolean stall = air && shownSpeed < PlaneMath.STALL;
+            boolean stall = air && shownSpeed < stallV;
             if (fill > 0) {
                 Gui.drawRect(bx, ry + 1, bx + fill, ry + 7, stall ? 0xFFFF4040 : 0xFF5EC8F0);
             }
-            int sx = bx + (int) Math.round(bw * PlaneMath.STALL / vmax);
+            int sx = bx + (int) Math.round(bw * stallV / vmax);
             Gui.drawRect(sx - 1, ry - 1, sx + 1, ry + 9, 0xFFFF5040);                    // the stall mark
             ry += 11;
             wideBar(fr, px, ry, Lang.tr("sva.hud.throttle"), v.getThrottle(), ORANGE | 0xFF000000, pw);

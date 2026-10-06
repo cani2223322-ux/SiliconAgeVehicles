@@ -16,6 +16,7 @@ import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.PlatformSize;
+import com.sva.vehicle.TiltMath;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleState;
 import com.sva.vehicle.VehicleType;
@@ -89,6 +90,13 @@ public final class SelfTestSVA {
             drillGeometry();
             drillRules();
             stageCContent();
+            jetType();
+            jetFlight();
+            planeUnchanged();
+            tiltType();
+            tiltRules();
+            fastMoves();
+            stageDContent();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -926,6 +934,183 @@ public final class SelfTestSVA {
                 && !com.sva.entity.DrillLogicSVA.isHead(new ItemStack(Items.diamond_pickaxe))
                 && com.sva.entity.DrillLogicSVA.isWidener(ModContentSVA.component.stackOf(ComponentType.DRILL_WIDENER, 1)),
                 "drill: the head slot takes core drill heads, the module slot the widener");
+    }
+
+    // ------------------------------------------------------------------ stage D: jet, tiltrotor
+
+    private static void jetType() {
+        VehicleType j = VehicleType.JET;
+        com.sc.util.ArmorGasSC.Gas H2 = com.sc.util.ArmorGasSC.Gas.HYDROGEN, HE = com.sc.util.ArmorGasSC.Gas.HELIUM;
+        check(j.ordinal() == 6 && j.movement == com.sva.vehicle.Movement.PLANE && j.tier == Tier.QV && j.buffer == 16000000
+                && j.cruiseCost == 90 && j.peakCost == 250 && near(j.topSpeed, 0.28 * 6, 1e-9) && j.seats == 1 && j.cargoSlots == 9
+                && j.platformSize == PlatformSize.P7x7, "jet: meta 6, QV, 16M EU, 90 / 250 EU/t, x6 sprint, 1 seat, 9 cargo, platform 7x7");
+        check(j.gases.capacity(H2) == 4000 && j.gases.capacity(HE) == 2000 && j.gases.boostGas == H2 && near(j.gases.boostGasPerSecond, 4, 1e-9)
+                && near(j.gases.boostMul, 1.5, 1e-9) && j.gases.liftGas == null && j.gases.coolant == HE,
+                "jet: H2 4000 for the afterburner (4 mB/s, x1.5), He 2000 cooling, no lift gas");
+        // a seated player fits the cockpit: cushion top 0.64, canopy 1.036 (model units)
+        double cushion = j.seatY + 0.25;
+        check(near(cushion, 0.64 * j.modelScale, 0.02) && 1.036 * j.modelScale - cushion >= 0.95 && 6.0 * j.modelScale < 16,
+                "jet: model x" + j.modelScale + " - cushion " + cushion + ", canopy " + Math.round((1.036 * j.modelScale - cushion) * 100) / 100.0
+                        + " over it, " + 6.0 * j.modelScale + " blocks long");
+    }
+
+    private static void jetFlight() {
+        VehicleType j = VehicleType.JET, p = VehicleType.PLANE;
+        com.sva.vehicle.PlaneParams jp = j.plane;
+        check(jp.stall > p.plane.stall && jp.liftOff > jp.stall && PlaneMath.climbCapacity(jp, jp.stall) == 0
+                && near(PlaneMath.climbCapacity(jp, jp.stall + jp.climbBand), jp.climb, 1e-9), "jet: stall " + VehicleMath.kmh(jp.stall)
+                + " km/h (plane " + VehicleMath.kmh(p.plane.stall) + "), lift grows over it");
+        double ground = PlaneMath.takeoffDistance(j, false), runway = PlaneMath.takeoffDistance(j, true);
+        check(ground >= 44 && ground <= 56 && runway / ground > 0.4 && runway / ground < 0.6,
+                "jet: take-off run " + Math.round(ground) + " blocks, on a runway " + Math.round(runway));
+        check(near(PlaneMath.cost(j, 1, false, 0, 64, 0, true), 250, 1e-9) && near(PlaneMath.cost(j, 1, true, 0, 80, 0, true), 90, 1e-9)
+                && near(PlaneMath.cost(j, 1, true, 0, 120, 0, true), 72, 1e-9), "jet: take-off run 250 EU/t, cruise 90, at Y >= 100 72");
+        // level flight at full throttle settles at the top speed; the afterburner pushes it to the cap
+        double v = 1.0, va = 1.0;
+        for (int i = 0; i < 3000; i++) {
+            v = Math.min(PlaneMath.maxSpeed(j, 1), v + PlaneMath.airAccel(j, v, 1, 0, false, true, 1));
+            va = Math.min(PlaneMath.maxSpeed(j, 1.5), va + PlaneMath.airAccel(j, va, 1, 0, false, true, 1.5));
+        }
+        check(near(v, j.topSpeed, 0.02) && va > v * 1.4 && va <= com.sva.vehicle.FlightMath.SPEED_CAP + 1e-9,
+                "jet: level top speed " + VehicleMath.kmh(v) + " km/h, afterburner " + VehicleMath.kmh(va) + " km/h (cap "
+                        + VehicleMath.kmh(com.sva.vehicle.FlightMath.SPEED_CAP) + ")");
+        check(near(PlaneMath.maxSpeed(j, 1.5), 2.5, 1e-9) && near(PlaneMath.maxSpeed(p, 1), p.topSpeed * PlaneMath.MAX_SPEED_MUL, 1e-9),
+                "jet: never over 2.5 b/t (the plane's dive limit unchanged)");
+        // full-throttle climb: settles over the stall
+        v = jp.stall;
+        double vy = 0;
+        for (int i = 0; i < 600; i++) {
+            vy = PlaneMath.airVy(jp, v, vy, true, false, true, 120);
+            v += PlaneMath.airAccel(j, v, 1, vy, true, true);
+        }
+        check(v > jp.stall && vy > 0.15, "jet: full-throttle climb at " + VehicleMath.kmh(v) + " km/h, " + Math.round(vy * 200) / 10.0 + " m/s");
+        // the afterburner's hydrogen: 4 mB/s
+        VehicleState st = new VehicleState(j);
+        st.fillAllGases();
+        for (int i = 0; i < 20 * 10; i++) {
+            st.drainGasFraction(j.gases.boostGas, j.gases.boostGasPerSecond / 20.0);
+        }
+        check(st.gas(j.gases.boostGas) == 4000 - 40, "jet: the afterburner burns 4 mB of H2 a second (40 in 10 s)");
+        // heat: climbing on the afterburner overheats without helium, holds with it; cruising on it settles
+        double climbLoad = com.sva.vehicle.FlightMath.load(j, 250) * com.sva.vehicle.VehicleGases.AFTERBURNER_HEAT;
+        double cruiseLoad = com.sva.vehicle.FlightMath.load(j, 90) * com.sva.vehicle.VehicleGases.AFTERBURNER_HEAT;
+        double h1 = 0, h2 = 0, h3 = 0, he = 2000;
+        boolean st1 = false, st2 = false;
+        for (int i = 0; i < 12000; i++) {
+            h1 = VehicleMath.heatStep(h1, climbLoad, 0);
+            st1 |= VehicleMath.heatStopped(st1, h1);
+            double c = VehicleMath.heliumCooling(h2, he);
+            he -= VehicleMath.heliumUse(c);
+            h2 = VehicleMath.heatStep(h2, climbLoad, c);
+            st2 |= VehicleMath.heatStopped(st2, h2);
+            h3 = VehicleMath.heatStep(h3, cruiseLoad, 0);
+        }
+        check(climbLoad > com.sva.vehicle.FlightMath.load(j, 250) && st1 && !st2 && h3 < 100,
+                "jet: afterburner x2 heat - a climb overheats without helium, holds with it (He left " + Math.round(he)
+                        + " of 2000 after 10 min); cruising on it settles at " + Math.round(h3) + "%");
+    }
+
+    private static void planeUnchanged() {
+        VehicleType p = VehicleType.PLANE;
+        com.sva.vehicle.PlaneParams l = p.plane;
+        check(l == com.sva.vehicle.PlaneParams.LIGHT && l.stall == PlaneMath.STALL && l.liftOff == PlaneMath.LIFT_OFF && l.thrust == PlaneMath.THRUST
+                && l.climb == PlaneMath.CLIMB && l.dive == PlaneMath.DIVE && l.glideSpeed == PlaneMath.GLIDE_SPEED && p.gases.boostGas == null
+                && p.gases.boostMul == 1, "plane: unchanged - the light plane's parameters are PlaneMath's constants, no afterburner");
+        check(near(PlaneMath.takeoffDistance(p, false), 30.94, 0.05) && near(PlaneMath.takeoffDistance(p, true), 15.62, 0.05)
+                && near(com.sva.vehicle.FlightMath.maxReach(p), p.topSpeed * com.sva.vehicle.FlightMath.SPEED_MARGIN, 1e-9),
+                "plane: take-off 31 / 16 blocks and the server's reach as in stage B");
+    }
+
+    private static void tiltType() {
+        VehicleType t = VehicleType.TILT;
+        com.sc.util.ArmorGasSC.Gas H2 = com.sc.util.ArmorGasSC.Gas.HYDROGEN, HE = com.sc.util.ArmorGasSC.Gas.HELIUM;
+        check(t.ordinal() == 7 && t.movement == com.sva.vehicle.Movement.TILT && t.movement.flies && t.tier == Tier.XV && t.buffer == 32000000
+                && near(t.topSpeed, 0.28 * 5, 1e-9) && t.cruiseCost == 110 && t.seats == 6 && t.seatOffsets.length == 6 && t.cargoSlots == 27
+                && t.platformSize == PlatformSize.P5x5, "tilt: meta 7, XV, 32M EU, x5 sprint, 110 EU/t, 2 pilots + 4 seats, 27 cargo, platform 5x5");
+        check(t.gases.capacity(H2) == 3000 && t.gases.capacity(HE) == 2000 && t.gases.boostGas == H2 && t.gases.coolant == HE,
+                "tilt: H2 3000 (afterburner in airplane mode) + He 2000");
+        double cushion = t.seatY + 0.25;
+        check(near(cushion, 0.53 * t.modelScale, 0.02) && 1.03 * t.modelScale - cushion >= 1.05
+                && Math.abs(t.seatOffsets[0][1] - t.seatOffsets[1][1]) >= 0.55, "tilt: model x" + t.modelScale + " - cushion " + cushion
+                + ", ceiling " + Math.round((1.03 * t.modelScale - cushion) * 100) / 100.0 + " over it, pilots side by side");
+    }
+
+    private static void tiltRules() {
+        VehicleType t = VehicleType.TILT;
+        double stall = t.plane.stall;
+        check(TiltMath.switchCheck(0, true, false, 0, 0, stall) == TiltMath.ON_GROUND, "tilt: no airplane mode on the ground");
+        check(TiltMath.switchCheck(0, true, true, 0.1, 3, stall) == TiltMath.TOO_SLOW_LOW, "tilt: airplane mode refused low and slow");
+        check(TiltMath.switchCheck(0, true, true, 0.1, 6, stall) == TiltMath.OK && TiltMath.switchCheck(0, true, true, 0.5, 2, stall) == TiltMath.OK,
+                "tilt: airplane mode allowed 6 blocks up or at 32 km/h");
+        check(TiltMath.switchCheck(1, false, true, stall * 1.5, 20, stall) == TiltMath.TOO_FAST
+                && TiltMath.switchCheck(1, false, true, stall * 1.1, 20, stall) == TiltMath.OK
+                && TiltMath.switchCheck(1, false, false, 0, 0, stall) == TiltMath.OK, "tilt: back to vertical only at <= stall x1.2 (also landed)");
+        check(TiltMath.switchCheck(0.5, false, true, 0, 20, stall) == TiltMath.BUSY && TiltMath.switchCheck(1, true, true, 1, 20, stall) == TiltMath.SAME,
+                "tilt: no switching mid-transition");
+        double pos = 0;
+        int n = 0;
+        while (pos < 1 && n < 100) {
+            pos = TiltMath.step(pos, TiltMath.PLANE);
+            n++;
+        }
+        check(n == TiltMath.TRANSITION_TICKS && n == 40 && TiltMath.nacelleAngle(0) == 0 && near(TiltMath.nacelleAngle(1), 90, 1e-4)
+                && near(TiltMath.nacelleAngle(0.5), 45, 1e-4), "tilt: the nacelles turn 0 -> 90 deg in " + n + " ticks (2 s)");
+        // costs per mode
+        double hover = HeliMath.vtolCost(t, true, 0, 0, 0, true), fwd = HeliMath.vtolCost(t, true, t.vtolTop, 0, 0, true);
+        check(near(hover, 150, 1e-9) && near(fwd, 120, 1e-9) && near(HeliMath.vtolCost(t, false, 0, 0, 0, true), 3, 1e-9),
+                "tilt: vertical mode - hovering 150 EU/t, flying 120, on the ground 3");
+        check(near(PlaneMath.cost(t, 1, true, 0, 80, 0, true), 110, 1e-9) && near(PlaneMath.cost(t, 1, true, t.plane.climb, 80, 0, true), 160, 1e-9)
+                && near(com.sva.vehicle.FlightMath.cruiseCost(t, 0, 80, true), 110, 1e-9)
+                && near(com.sva.vehicle.FlightMath.cruiseCost(t, 0, 80, false), 120, 1e-9), "tilt: airplane mode - cruise 110 EU/t, climbing 160");
+        // vertical take-off in vertical mode: a straight climb with no airspeed - heli rules accept it, plane rules don't
+        double vy = 0, y = 64;
+        for (int i = 0; i < 100; i++) {
+            vy = HeliMath.poweredVy(vy, true, false, y);
+            y += vy;
+        }
+        check(y > 64 + 20 && com.sva.vehicle.FlightMath.moveAllowed(t, com.sva.vehicle.Movement.HELI, 0, HeliMath.CLIMB, 1, 70, true, true, true, 0)
+                && !com.sva.vehicle.FlightMath.moveAllowed(t, com.sva.vehicle.Movement.PLANE, 0, HeliMath.CLIMB, 1, 70, true, true, true, 0),
+                "tilt: vertical take-off (+" + Math.round(y - 64) + " blocks in 5 s) - fine in vertical mode, refused under airplane rules");
+        check(t.plane.stall * TiltMath.CONVERT_MUL > t.plane.stall && t.plane.stall * TiltMath.CONVERT_MUL <= TiltMath.CONVERT_ACC * TiltMath.TRANSITION_TICKS,
+                "tilt: the transition reaches the conversion speed (" + VehicleMath.kmh(t.plane.stall * TiltMath.CONVERT_MUL) + " km/h) from a hover");
+        VehicleState st = new VehicleState(t);
+        st.tiltPlane = true;
+        st.tiltStep = 25;
+        NBTTagCompound nbt = new NBTTagCompound();
+        st.writeNBT(nbt);
+        VehicleState back = new VehicleState(t);
+        back.readNBT(nbt);
+        VehicleState jet = new VehicleState(VehicleType.JET);
+        NBTTagCompound noType = (NBTTagCompound) nbt.copy();
+        noType.removeTag(VehicleState.K_TYPE);
+        jet.readNBT(noType);
+        check(back.tiltPlane && back.tiltStep == 25 && near(back.tiltPos(), 0.625, 1e-9) && !jet.tiltPlane && jet.tiltStep == 0,
+                "tilt: NBT keeps the mode and the nacelles (other types ignore them)");
+    }
+
+    private static void fastMoves() {
+        VehicleType j = VehicleType.JET, p = VehicleType.PLANE;
+        check(com.sva.vehicle.FlightMath.moveAllowed(j, 2.4, 0, 1, 120, true, true, true, 2.4)
+                && !com.sva.vehicle.FlightMath.moveAllowed(p, 2.4, 0, 1, 120, true, true, true, 2.4), "jet move: 2.4 b/t accepted (the plane: refused)");
+        check(!com.sva.vehicle.FlightMath.moveAllowed(j, 3.6, 0, 1, 120, true, true, true, 2.5), "jet move: over the 2.5 b/t cap (+30 %) refused");
+        check(com.sva.vehicle.FlightMath.moveAllowed(j, 12, 0, 5, 120, true, true, true, 2.4) && !com.sva.vehicle.FlightMath.moveAllowed(j, 40, 0, 10, 120, true, true, true, 2.4),
+                "jet move: a 5-tick packet of 12 blocks accepted, a 40-block jump refused");
+        check(!com.sva.vehicle.FlightMath.moveAllowed(j, 0.5, 0, 1, 120, true, true, true, 0.5)
+                && !com.sva.vehicle.FlightMath.moveAllowed(j, 1.2, 0.3, 1, 70, true, true, true, 0.6),
+                "jet move: no hanging slowly in the air, no climbing without airspeed");
+    }
+
+    private static void stageDContent() {
+        WorkbenchRecipeSVA j = WorkbenchRecipesSVA.byId("jet"), t = WorkbenchRecipesSVA.byId("tilt");
+        check(j != null && j.eu == 12000000L && j.tier == Tier.QV && j.width == 5 && j.height == 5 && ItemVehicleSVA.typeOf(j.result()) == VehicleType.JET
+                && !WorkbenchMath.canBuild(Tier.QV, WorkbenchMath.inputTier(0, false)) && WorkbenchMath.canBuild(Tier.QV, WorkbenchMath.inputTier(1, false)),
+                "jet: workbench 5x5, 12M EU, QV - one transformer");
+        check(t != null && t.eu == 30000000L && t.tier == Tier.XV && ItemVehicleSVA.typeOf(t.result()) == VehicleType.TILT
+                && !WorkbenchMath.canBuild(Tier.XV, WorkbenchMath.inputTier(1, false)) && WorkbenchMath.canBuild(Tier.XV, WorkbenchMath.inputTier(2, false)),
+                "tilt: workbench 5x5, 30M EU, XV - two transformers");
+        check(EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_FLIGHT_MODE, false, true) && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_FLIGHT_MODE, true, false)
+                && EntityVehicleSVA.IN_AFTER == 128 && (EntityVehicleSVA.IN_MASK & EntityVehicleSVA.IN_AFTER) != 0,
+                "tilt: only the pilot switches the mode; the «Форсаж» input bit fits the Input packet");
     }
 
     // ------------------------------------------------------------------ the charging platform (plan §9)

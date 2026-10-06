@@ -17,6 +17,8 @@ import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.Movement;
 import com.sva.vehicle.PlaneMath;
+import com.sva.vehicle.TiltMath;
+import com.sva.vehicle.VehicleGases;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleRegistrySVA;
 import com.sva.vehicle.VehicleState;
@@ -65,17 +67,27 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             // stage C: packed bits (trailer, drill, auto-delivery - X_*), blocks dug, head life left / max, auto distance, route text
             DW_EXTRA = 31, DW_DUG = 19, DW_HEAD = 18, DW_HEAD_MAX = 17, DW_AUTO_DIST = 16, DW_ROUTE = 15;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
-            X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15;
+            X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15,
+            // stage D: the tiltrotor's wanted mode (airplane) and its nacelle step (0..40, 6 bits)
+            X_TILT_PLANE = 1 << 16, X_TILT_SHIFT = 17;
     /** Vehicle actions (the Action packet: cargo screen buttons, the drill keys). */
-    public static final int A_DRILL_TOGGLE = 0, A_DRILL_MODE = 1, A_AUTO_TOGGLE = 2, A_TRAILER_DETACH = 3, A_ROUTE_CLEAR = 4;
+    public static final int A_DRILL_TOGGLE = 0, A_DRILL_MODE = 1, A_AUTO_TOGGLE = 2, A_TRAILER_DETACH = 3, A_ROUTE_CLEAR = 4,
+            /** Stage D: the tiltrotor's «Режим» key - vertical <-> airplane (its driver). */
+            A_FLIGHT_MODE = 5;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
     /**
      * Input bits. IN_BRAKE = Space (ground: brake; hover: hold higher; heli: collective up; plane: pull up),
-     * IN_BOOST = sprint / «Форсаж» (aircraft: down, like IN_DOWN), IN_DOWN = «Снижение» (heli: collective down; plane: push down).
+     * IN_BOOST = sprint (hover: boost; aircraft: down, like IN_DOWN), IN_DOWN = «Снижение» (heli: collective down; plane: push down),
+     * IN_AFTER = «Форсаж» (stage D: the hoverbike's boost; the jet's / tiltrotor's afterburner - no longer «down»).
      */
-    public static final int IN_FWD = 1, IN_BACK = 2, IN_LEFT = 4, IN_RIGHT = 8, IN_BRAKE = 16, IN_BOOST = 32, IN_DOWN = 64, IN_MASK = 127;
+    public static final int IN_FWD = 1, IN_BACK = 2, IN_LEFT = 4, IN_RIGHT = 8, IN_BRAKE = 16, IN_BOOST = 32, IN_DOWN = 64, IN_AFTER = 128,
+            IN_MASK = 255;
+    /** The afterburner lights only at this throttle or more. */
+    public static final double AFTERBURNER_THROTTLE = 0.9;
+    /** Tiltrotor: the server judges moves by the helicopter's rules for this long after the nacelles reach airplane mode. */
+    private static final int TILT_GRACE = 20;
     private static final int INPUT_TIMEOUT = 40, MOVE_TIMEOUT = 10, KEEPALIVE = 10;
     static final double BRAKE = 0.05, ROLL = 0.006, REVERSE = 0.35, WATER_SPEED = 0.35;
     public static final double RENDER_DIST = 96;
@@ -106,6 +118,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     private String gasSeen;
     private final int[] gasShown = new int[Gas.values().length];
     private EntitySeatSVA[] seats;
+    /** Server, tiltrotor: when the nacelles last reached airplane mode. */
+    private long tiltDoneTick = -1000;
     private Entity lastRider;
     /** World test: run the motor without a rider. */
     public boolean debugDriver;
@@ -320,6 +334,43 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return p == null ? "" : p[0] + " " + p[1] + " " + p[2];
     }
 
+    /** Tiltrotor nacelles 0 (vertical mode) .. 1 (airplane mode) (clients: synced). */
+    public double getTiltPos() {
+        if (worldObj != null && worldObj.isRemote) {
+            return Math.min(TiltMath.TRANSITION_TICKS, (extra() >> X_TILT_SHIFT) & 63) / (double) TiltMath.TRANSITION_TICKS;
+        }
+        return state.tiltPos();
+    }
+
+    /** Tiltrotor: turning to / in airplane mode (clients: synced). */
+    public boolean getTiltTarget() {
+        return worldObj != null && worldObj.isRemote ? (extra() & X_TILT_PLANE) != 0 : state.tiltPlane;
+    }
+
+    /** Flies as an aeroplane now: Movement.PLANE, or a tiltrotor fully in airplane mode. */
+    public boolean planeNow() {
+        VehicleType t = getVehicleType();
+        return t.movement == Movement.PLANE || t.movement == Movement.TILT && TiltMath.planeMode(getTiltPos());
+    }
+
+    /**
+     * The afterburner burns this tick (both sides, from the keys `in`): a type with one, «Форсаж» held, throttle at
+     * AFTERBURNER_THROTTLE or more, powered, its gas left; the tiltrotor only in airplane mode.
+     */
+    public boolean afterburnerOn(int in) {
+        VehicleType t = getVehicleType();
+        Gas g = t.gases.boostGas;
+        if (g == null || (in & IN_AFTER) == 0 || throttle < AFTERBURNER_THROTTLE || !planeNow()) {
+            return false;
+        }
+        return hasLift() && canThrust() && getGas(g) > 0;
+    }
+
+    /** Thrust / top speed factor of the afterburner now (1 = off). */
+    public double afterburnerMul(int in) {
+        return afterburnerOn(in) ? getVehicleType().gases.boostMul : 1;
+    }
+
     /** The argon hull field works (server: this tick; clients: synced). */
     public boolean isFieldOn() {
         return worldObj.isRemote ? (extra() & X_FIELD) != 0 : fieldNow;
@@ -329,7 +380,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return (state.trailer ? X_TRAILER : 0) | (drillOn ? X_DRILL : 0) | ((state.drillMode & 3) << X_MODE_SHIFT)
                 | (DrillLogicSVA.wide(state) ? X_WIDE : 0) | (DrillLogicSVA.isHead(state.drillHead) ? X_HEAD : 0)
                 | ((state.autoState & 7) << X_AUTO_SHIFT) | (state.autoOn ? X_AUTO_ON : 0) | ((autoReason & 7) << X_REASON_SHIFT)
-                | (state.routeA != null ? X_ROUTE_A : 0) | (state.routeB != null ? X_ROUTE_B : 0) | (fieldNow ? X_FIELD : 0);
+                | (state.routeA != null ? X_ROUTE_A : 0) | (state.routeB != null ? X_ROUTE_B : 0) | (fieldNow ? X_FIELD : 0)
+                | (state.tiltPlane ? X_TILT_PLANE : 0) | ((state.tiltStep & 63) << X_TILT_SHIFT);
     }
 
     /** The synced gas string: the type's tank amounts in its order, comma separated. */
@@ -443,7 +495,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_FLAGS, Byte.valueOf((byte) f));
         dataWatcher.updateObject(DW_CARGO, Byte.valueOf((byte) state.cargoUsed()));
         dataWatcher.updateObject(DW_TYPE, Byte.valueOf((byte) t.ordinal()));
-        dataWatcher.updateObject(DW_CRUISE, Float.valueOf((float) (t.movement.flies ? FlightMath.cruiseCost(t, state.cargoFill(), posY) * ConfigSVA.consumption
+        dataWatcher.updateObject(DW_CRUISE, Float.valueOf((float) (t.movement.flies ? FlightMath.cruiseCost(t, state.cargoFill(), posY, planeNow()) * ConfigSVA.consumption
                 : VehicleMath.cost(t, t.topSpeed, state.cargoFill(), true, ConfigSVA.consumption))));
         dataWatcher.updateObject(DW_THR, Float.valueOf((float) throttle));
         dataWatcher.updateObject(DW_COST, Float.valueOf(costNow));
@@ -606,9 +658,20 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (t.hasDrill && drillOn && motorOn && (in & IN_FWD) != 0 && canThrust() && state.energy > 0) {
             DrillLogicSVA.tick(this, moved);
         }
+        // the tiltrotor's nacelles turn a step a tick toward the wanted mode
+        if (t.movement == Movement.TILT) {
+            tiltTick();
+        }
         // lift gas (hover): 2 mB/s held up, 5 on boost - fractions kept like the core armour
         lifting = t.movement.lifts && hasLift() && (!t.movement.flies || canThrust());
-        boosting = lifting && t.movement == Movement.HOVER && (input & IN_BOOST) != 0 && (input & IN_FWD) != 0;
+        if (t.movement == Movement.HOVER) {
+            boosting = lifting && (input & (IN_BOOST | IN_AFTER)) != 0 && (input & IN_FWD) != 0;
+        } else {
+            boosting = lifting && afterburnerOn(motorOn ? in : 0);         // the jet's / tiltrotor's afterburner
+        }
+        if (boosting && t.gases.boostGas != null) {
+            state.drainGasFraction(t.gases.boostGas, t.gases.boostGasPerSecond / 20.0);
+        }
         if (lifting && t.gases.liftGas != null) {
             state.drainGasFraction(t.gases.liftGas, t.gases.liftPerTick(boosting));
             if (riddenByEntity != null && riddenByEntity.isBurning()) {
@@ -623,7 +686,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (t.movement.flies) {
             double base = flightTick(t, clientDriven, v, fill, working);
             cost = base * Math.max(0, ConfigSVA.consumption);
-            load = working ? FlightMath.load(t, base) : 0;
+            load = working ? FlightMath.load(t, base) * (boosting && t.gases.boostGas != null ? VehicleGases.AFTERBURNER_HEAT : 1) : 0;
         } else {
             cost = VehicleMath.cost(t, v, fill, working, ConfigSVA.consumption);
             load = working ? VehicleMath.load(t, v, fill) : 0;
@@ -656,16 +719,19 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     private double flightTick(VehicleType t, boolean clientDriven, double v, double fill, boolean working) {
         double dy = posY - lastY;
         boolean air = airborneAt(posX, posY, posZ);
-        boolean plane = t.movement == Movement.PLANE;
+        boolean plane = planeNow();
+        boolean tilt = t.movement == Movement.TILT;
         if (clientDriven) {
             onGround = !air;                                        // the server's fallback physics starts from the truth
             if (plane) {
                 throttle = PlaneMath.throttleStep(throttle, (input & IN_FWD) != 0, (input & IN_BACK) != 0, lifting);
+            } else if (tilt && TiltMath.transition(state.tiltPos()) && state.tiltPlane && lifting) {
+                throttle = Math.max(throttle, TiltMath.CONVERT_THROTTLE);   // as TiltPhysicsSVA does on the client
             }
         }
         if (wasAirborne && !air && ticksExisted > 5) {
             double impact = Math.max(0, -Math.min(dy, lastDy));
-            double dmg = plane ? PlaneMath.landingDamage(t.maxHp, impact, v, lifting) : HeliMath.landingDamage(t.maxHp, impact, !lifting);
+            double dmg = plane ? PlaneMath.landingDamage(t.plane, t.maxHp, impact, v, lifting) : HeliMath.landingDamage(t.maxHp, impact, !lifting);
             if (dmg > 0) {
                 damageHull((float) dmg);
                 worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 0.6F);
@@ -673,7 +739,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         boolean wasAuto = autoNow;
         autoNow = air && !lifting;
-        stallNow = plane && air && PlaneMath.stalled(v);
+        stallNow = plane && air && PlaneMath.stalled(t.plane, v);
         if (autoNow && !wasAuto && ticksExisted > 5) {
             tellRiders(plane ? "sva.msg.glide" : "sva.msg.autorotation");
         }
@@ -689,7 +755,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             double thr = lifting ? Math.max(throttle, PlaneMath.throttleFloor(t, v)) : 0;
             return PlaneMath.cost(t, thr, air, dy, posY, fill, working);
         }
-        return HeliMath.cost(t, air, v, dy, fill, working);
+        return tilt ? HeliMath.vtolCost(t, air, v, dy, fill, working) : HeliMath.cost(t, air, v, dy, fill, working);
     }
 
     /** Everyone seated: the driver and the passenger seats' riders. */
@@ -765,6 +831,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         if (t.movement == Movement.PLANE) {
             PlanePhysicsSVA.step(this, t, in);
+            return;
+        }
+        if (t.movement == Movement.TILT) {
+            TiltPhysicsSVA.step(this, t, in);
             return;
         }
         boolean fwd = (in & IN_FWD) != 0, back = (in & IN_BACK) != 0, left = (in & IN_LEFT) != 0,
@@ -860,10 +930,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean hover = t.movement.lifts && !flies;
         boolean lift = t.movement.lifts && hasLift() && canThrust();
         double coast = Math.max(speedEma * 1.1, 0.02);
-        double limit = hover ? (lift ? HoverMath.maxSpeed(t, true, (input & IN_BOOST) != 0) : coast)
+        double limit = hover ? (lift ? HoverMath.maxSpeed(t, true, (input & (IN_BOOST | IN_AFTER)) != 0) : coast)
                 : canThrust() ? VehicleMath.maxSpeed(t, state.energy) : coast;      // coasting only
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
-        boolean ok = flies ? FlightMath.moveAllowed(t, h, dy, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
+        boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), h, dy, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
                 : moveAllowed(h, dy, dt, limit, CrawlerMath.climbLimit(t.stepHeight));
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
             AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx, dy, dz).contract(0.05, 0.05, 0.05);
@@ -894,6 +964,62 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             lastCorrectTick = now;
             NetSVA.CHANNEL.sendTo(new NetSVA.Correct(getEntityId(), posX, posY, posZ, rotationYaw), p);
         }
+    }
+
+    /**
+     * The rules a flying move is judged by: the type's own; the tiltrotor - PLANE in airplane mode (from TILT_GRACE
+     * ticks after the nacelles got there: the client may still be finishing the turn), HELI otherwise.
+     */
+    private Movement moveRules(VehicleType t, long now) {
+        if (t.movement != Movement.TILT) {
+            return t.movement;
+        }
+        return TiltMath.planeMode(state.tiltPos()) && now - tiltDoneTick > TILT_GRACE ? Movement.PLANE : Movement.HELI;
+    }
+
+    /** Server, tiltrotor: the nacelles a step toward the wanted mode; the pilot is told when they get there. */
+    private void tiltTick() {
+        int target = state.tiltPlane ? TiltMath.TRANSITION_TICKS : 0;
+        if (state.tiltStep == target) {
+            return;
+        }
+        state.tiltStep += state.tiltStep < target ? 1 : -1;
+        if (state.tiltStep == target) {
+            if (state.tiltPlane) {
+                tiltDoneTick = worldObj.getTotalWorldTime();
+            }
+            tellRiders(state.tiltPlane ? "sva.msg.tilt.plane" : "sva.msg.tilt.vertical");
+        }
+    }
+
+    /** Blocks of air under the collision box (0 on the ground), looked for down to `max`. */
+    public double heightAboveGround(double max) {
+        for (double d = 0; d < max; d += 0.5) {
+            AxisAlignedBB box = boundingBox.getOffsetBoundingBox(0, -d - FlightMath.AIRBORNE, 0).contract(0.05, 0, 0.05);
+            if (!worldObj.getCollidingBoundingBoxes(this, box).isEmpty()) {
+                return d;
+            }
+        }
+        return max;
+    }
+
+    /**
+     * The tiltrotor's «Режим» (server): starts the turn to the other mode if TiltMath.switchCheck allows it (to
+     * airplane mode in the air with speed or height, back only slow). @return TiltMath.OK or why not
+     */
+    public int toggleFlightMode() {
+        VehicleType t = state.type;
+        if (t.movement != Movement.TILT) {
+            return TiltMath.NOT_TILT;
+        }
+        boolean toPlane = !state.tiltPlane;
+        int r = TiltMath.switchCheck(state.tiltPos(), toPlane, airborneAt(posX, posY, posZ), Math.abs(speedEma),
+                heightAboveGround(TiltMath.MIN_HEIGHT + 1), t.plane.stall);
+        if (r == TiltMath.OK) {
+            state.tiltPlane = toPlane;
+            syncWatcher();
+        }
+        return r;
     }
 
     /** Pure move check: horizontal reach, step / fall limits, no teleports. */
@@ -973,9 +1099,16 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         prevRotorAngle = rotorAngle;
         prevRenderPitch = renderPitch;
         prevRenderRoll = renderRoll;
-        boolean heli = t.movement == Movement.HELI;
+        boolean tilt = t.movement == Movement.TILT;
+        boolean heli = t.movement == Movement.HELI || tilt && !planeNow();
         boolean lift = isLifting(), auto = isAutorotating();
         float target = heli ? (lift ? 42F : auto ? 30F : 0F) : (lift ? 18F + 50F * (float) getThrottle() : auto ? 8F : 0F);
+        if (tilt && lift) {
+            target = Math.max(target, 36F);                         // the proprotors spin in both modes
+        }
+        if (isBoosting() && t.gases.boostGas != null && t.movement == Movement.PLANE) {
+            afterburnerFlame(t);
+        }
         rotorRate += MathHelper.clamp_float(target - rotorRate, -0.8F, 1.2F);
         rotorAngle = (rotorAngle + rotorRate) % 360F;
         double dx = posX - prevPosX, dy = posY - prevPosY, dz = posZ - prevPosZ;
@@ -985,7 +1118,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean air = airborneAt(posX, posY, posZ);
         float tp, tr;
         if (heli) {
-            tp = (float) (-fwd / t.topSpeed * 10);
+            tp = (float) (-fwd / (tilt ? t.vtolTop : t.topSpeed) * 10);
             tr = air ? MathHelper.clamp_float(yawRate * 3F, -12F, 12F) : 0F;
         } else {
             tp = air ? (float) Math.toDegrees(Math.atan2(dy, Math.max(0.15, Math.abs(fwd)))) : 0F;
@@ -994,6 +1127,24 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         renderPitch += (tp - renderPitch) * 0.2F;
         renderRoll += (tr - renderRoll) * 0.2F;
+    }
+
+    /** Jet nozzle in model units (jet.obj's thruster disc: x -2.975, y 0.561, radius 0.175). */
+    public static final float NOZZLE_X = -2.975F, NOZZLE_Y = 0.561F, NOZZLE_R = 0.175F;
+
+    /** Client: the afterburner's flame and smoke behind the nozzle (the renderer adds the glowing cone). */
+    private void afterburnerFlame(VehicleType t) {
+        double[] w = toWorld(NOZZLE_X * t.modelScale - 0.3, 0);
+        double r = Math.toRadians(rotationYaw);
+        double bx = Math.sin(r) * 0.25, bz = -Math.cos(r) * 0.25;   // blown backwards
+        double y = posY + NOZZLE_Y * t.modelScale;
+        for (int i = 0; i < 2; i++) {
+            worldObj.spawnParticle("flame", posX + w[0] + (rand.nextDouble() - 0.5) * 0.3, y + (rand.nextDouble() - 0.5) * 0.3,
+                    posZ + w[1] + (rand.nextDouble() - 0.5) * 0.3, bx, 0, bz);
+        }
+        if (ticksExisted % 2 == 0) {
+            worldObj.spawnParticle("smoke", posX + w[0] * 1.15, y, posZ + w[1] * 1.15, bx * 0.5, 0.02, bz * 0.5);
+        }
     }
 
     /** Client: the bore cone's angle at partial tick pt (degrees). */
@@ -1489,6 +1640,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (action == A_DRILL_TOGGLE || action == A_DRILL_MODE) {
             return manage || driver;
         }
+        if (action == A_FLIGHT_MODE) {
+            return driver;                                          // only the pilot turns the nacelles
+        }
         return manage;
     }
 
@@ -1523,6 +1677,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             state.routeNextB = false;
             setAuto(false);
             msg(p, "sva.msg.route.cleared");
+        } else if (a == A_FLIGHT_MODE && t.movement == Movement.TILT) {
+            int r = toggleFlightMode();
+            msg(p, r == TiltMath.OK ? (state.tiltPlane ? "sva.msg.tilt.toPlane" : "sva.msg.tilt.toVertical") : "sva.msg.tilt.no." + r,
+                    Integer.valueOf(VehicleMath.kmh(TiltMath.TO_PLANE_SPEED)), Integer.valueOf((int) TiltMath.MIN_HEIGHT),
+                    Integer.valueOf(VehicleMath.kmh(t.plane.stall * TiltMath.BACK_MUL)));
         } else if (a == A_TRAILER_DETACH && t.trailerSlots > 0) {
             if (CrawlerMath.detachCheck(state.trailer, true) == CrawlerMath.OK) {
                 ItemStack item = detachTrailer();

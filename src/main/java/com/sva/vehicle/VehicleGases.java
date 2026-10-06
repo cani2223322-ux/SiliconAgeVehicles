@@ -22,6 +22,14 @@ public final class VehicleGases {
     public double liftPerSecond, boostPerSecond;
     /** Top speed x this on boost. */
     public double boostMul = 1;
+    /**
+     * Stage D, the afterburner (jet, tiltrotor's airplane mode): this gas burnt at boostGasPerSecond mB/s while the
+     * «Форсаж» key is held at full throttle (top speed and thrust x boostMul, heat x AFTERBURNER_HEAT). Null: none.
+     */
+    public Gas boostGas;
+    public double boostGasPerSecond;
+    /** The afterburner heats the engine this much more (the jet: x2 - helium keeps it under 100 %). */
+    public static final double AFTERBURNER_HEAT = 2.0;
     /** Gas that cools the motor (helium, VehicleMath.heliumCooling), or null. */
     public Gas coolant;
     /** Hull field (plan §4.4 «Поле корпуса», the drill vehicle): this gas at fieldPerSecond mB/s takes fieldReduction off hull damage. */
@@ -57,6 +65,14 @@ public final class VehicleGases {
         fieldGas = g;
         fieldPerSecond = perSecond;
         fieldReduction = reduction;
+        return this;
+    }
+
+    /** An afterburner on `g` at `perSecond` mB/s: top speed and thrust x `mul`. */
+    public VehicleGases afterburner(Gas g, double perSecond, double mul) {
+        boostGas = g;
+        boostGasPerSecond = perSecond;
+        boostMul = mul;
         return this;
     }
 

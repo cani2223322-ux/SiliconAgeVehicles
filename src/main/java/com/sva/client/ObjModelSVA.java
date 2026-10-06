@@ -35,8 +35,14 @@ public final class ObjModelSVA {
      * the translucent motion-blur disc drawn while it spins fast.
      */
     public static final class Part {
-        /** ROTOR: turned by the rotor angle x speed; TRAILER: drawn only while a trailer is hitched; BORE: the drill's cone. */
-        public static final int ROTOR = 0, TRAILER = 1, BORE = 2;
+        /**
+         * ROTOR: turned by the rotor angle x speed; TRAILER: drawn only while a trailer is hitched; BORE: the drill's cone;
+         * NACELLE (stage D, the tiltrotor): first tilted forward about z through `tiltPivot` by the nacelle angle
+         * (0 rotors up .. 90 forward), then spun about its own y axis through `pivot` like a ROTOR.
+         */
+        public static final int ROTOR = 0, TRAILER = 1, BORE = 2, NACELLE = 3;
+        /** NACELLE: the point the rotor swings forward about (model units). */
+        public float[] tiltPivot;
         public final String name;
         final java.util.Set<String> groups = new java.util.HashSet<String>();
         /** No `groups` given: every material but these. */
@@ -96,6 +102,23 @@ public final class ObjModelSVA {
         // through its tip (3.0, 1.031, 0.019)
         part("drill", new Part(Part.BORE, "bore", new String[] {"steel", "chrome", "gold"}, null, new float[] {1.44F, 0F, -1.2F},
                 new float[] {3.2F, 2.2F, 1.2F}, new float[] {2.2F, 1.031F, 0.019F}, 0, 1F, 0F));
+        nacelle(1);
+        nacelle(-1);
+    }
+
+    /**
+     * tilt.obj's proprotors (stage D): per wing tip the mast (steel, x 0.29..0.39, y 1.28..1.59), the hub (chrome, centre
+     * (0.344, 1.64, +-2.25)) and three blades (dark, hazard tips; y 1.62..1.65, r 1.35) - drawn for vertical mode. They
+     * swing forward about z through (0.6, 0.838): at 90 deg the mast foot sits on the nacelle's nose (x 1.04, y 1.09) and
+     * the disc stands at x 1.40, clear of the wing (x <= 0.84) and the fuselage (|z| <= 0.41). The nacelle bodies
+     * (paint2) stay as drawn. The left rotor turns the other way.
+     */
+    private static void nacelle(int side) {
+        Part p = new Part(Part.NACELLE, side > 0 ? "nacelleR" : "nacelleL", new String[] {"steel", "chrome", "dark", "hazard"}, null,
+                new float[] {-1.1F, 1.27F, side > 0 ? 0.85F : -3.7F}, new float[] {1.5F, 1.72F, side > 0 ? 3.7F : -0.85F},
+                new float[] {0.344F, 1.64F, side * 2.25F}, 1, side, 1.35F);
+        p.tiltPivot = new float[] {0.6F, 0.838F, side * 2.25F};
+        part("tilt", p);
     }
 
     private static void part(String model, Part p) {
@@ -338,6 +361,56 @@ public final class ObjModelSVA {
             }
         }
         GL11.glPopMatrix();
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /**
+     * A NACELLE part: swung forward by `tilt` degrees (about z through p.tiltPivot), spun by `spin` about its mast, with
+     * its blur disc (alpha `blur`) in the same frame.
+     */
+    public void renderNacelle(Part p, float tilt, float spin, float shade, float blur) {
+        GL11.glPushMatrix();
+        GL11.glTranslatef(p.tiltPivot[0], p.tiltPivot[1], p.tiltPivot[2]);
+        GL11.glRotatef(-tilt, 0F, 0F, 1F);                            // +y (rotor up) -> +x (forward) at 90
+        GL11.glTranslatef(-p.tiltPivot[0], -p.tiltPivot[1], -p.tiltPivot[2]);
+        renderPart(p, spin, shade);
+        renderDisc(p, blur);
+        GL11.glPopMatrix();
+    }
+
+    /** The jet's afterburner: a glowing cone (additive, full bright) behind the nozzle at (x, y, 0), radius r, `len` long. */
+    public static void renderFlame(float x, float y, float r, float len, float flicker) {
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_LIGHTING_BIT);
+        float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+        GL11.glDepthMask(false);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        for (int layer = 0; layer < 2; layer++) {
+            float rr = layer == 0 ? r * 1.05F : r * 0.6F, l = (layer == 0 ? len : len * 0.6F) * flicker;
+            GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+            if (layer == 0) {
+                GL11.glColor4f(1F, 0.55F, 0.15F, 0.0F);
+            } else {
+                GL11.glColor4f(0.6F, 0.8F, 1F, 0.0F);
+            }
+            GL11.glVertex3f(x - l, y, 0F);
+            for (int k = 0; k <= 16; k++) {
+                double a = k * Math.PI * 2 / 16;
+                if (layer == 0) {
+                    GL11.glColor4f(1F, 0.6F, 0.2F, 0.75F);
+                } else {
+                    GL11.glColor4f(0.75F, 0.85F, 1F, 0.8F);
+                }
+                GL11.glVertex3f(x, y + (float) Math.cos(a) * rr, (float) Math.sin(a) * rr);
+            }
+            GL11.glEnd();
+        }
+        GL11.glDepthMask(true);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
+        GL11.glPopAttrib();
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 

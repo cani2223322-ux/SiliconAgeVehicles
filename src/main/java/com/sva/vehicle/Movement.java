@@ -18,7 +18,13 @@ public enum Movement {
      * Tracks (stage C: cargo crawler, drill vehicle): EntityVehicleSVA's ground physics with turning on the spot,
      * 2-block steps (VehicleType.stepHeight), no wheel slip, and it swims across water at half speed (CrawlerMath).
      */
-    CRAWLER(false, false);
+    CRAWLER(false, false),
+    /**
+     * Tiltrotor (stage D): two flight modes switched in the air - vertical (helicopter physics, HeliMath with the
+     * type's vtol* numbers) and airplane (PlaneMath with VehicleType.plane), a ~2 s transition between them while
+     * the nacelles turn (TiltMath, TiltPhysicsSVA). Needs no runway.
+     */
+    TILT(true, true);
 
     /** Needs lift (power, a lift gas) to stay up; without it it comes down gently. */
     public final boolean lifts;

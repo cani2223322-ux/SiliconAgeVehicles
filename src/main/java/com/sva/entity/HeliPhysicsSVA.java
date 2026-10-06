@@ -16,6 +16,11 @@ public final class HeliPhysicsSVA {
     }
 
     public static void step(EntityVehicleSVA v, VehicleType t, int in) {
+        step(v, t, in, t.topSpeed, t.accel);
+    }
+
+    /** The same with the top speed and acceleration given (the tiltrotor's vertical mode: vtolTop, vtolAccel). */
+    public static void step(EntityVehicleSVA v, VehicleType t, int in, double topSpeed, double accel) {
         boolean fwd = (in & EntityVehicleSVA.IN_FWD) != 0, back = (in & EntityVehicleSVA.IN_BACK) != 0,
                 left = (in & EntityVehicleSVA.IN_LEFT) != 0, right = (in & EntityVehicleSVA.IN_RIGHT) != 0,
                 up = (in & EntityVehicleSVA.IN_BRAKE) != 0, down = (in & (EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BOOST)) != 0;
@@ -25,11 +30,11 @@ public final class HeliPhysicsSVA {
         int steer = (right ? 1 : 0) - (left ? 1 : 0);
         double vy;
         if (lift) {
-            double top = air ? t.topSpeed : HeliMath.TAXI;
+            double top = air ? topSpeed : HeliMath.TAXI;
             if (fwd && !back) {
-                speed += t.accel;
+                speed += accel;
             } else if (back && !fwd) {
-                speed -= t.accel;
+                speed -= accel;
             } else {
                 speed = toward0(speed, HeliMath.DRAG);
             }
@@ -66,7 +71,7 @@ public final class HeliPhysicsSVA {
         v.speed = speed;
     }
 
-    private static double toward0(double v, double step) {
+    static double toward0(double v, double step) {
         return v > 0 ? Math.max(0, v - step) : Math.min(0, v + step);
     }
 }

@@ -6,6 +6,8 @@ package com.sva.vehicle;
  * push down, neither = hold the height. Lift comes from airspeed: below STALL the nose drops (it sinks and gains
  * speed); it can't hover. Take-off run ~30 blocks, on Runway blocks half (the ground acceleration is x GROUND_EFF
  * off a runway). No power in the air = a 1:8 glide at GLIDE_SPEED; an unpowered touch-down is a belly landing.
+ * The constants are the Light Plane's; the jet and the tiltrotor's airplane mode take theirs from VehicleType.plane
+ * (PlaneParams; PlaneParams.LIGHT = these, so the light plane flies exactly as in stage B).
  */
 public final class PlaneMath {
 
@@ -50,8 +52,17 @@ public final class PlaneMath {
 
     /** Thrust minus drag along the heading (b/t²); on the ground x GROUND_EFF off a runway, rolling friction at zero throttle. */
     public static double accel(VehicleType t, double speed, double thr, boolean air, boolean runway) {
-        double r = speed / t.topSpeed;
-        double a = THRUST * (VehicleMath.clamp(thr, 0, 1) - r * r);
+        return accel(t, speed, thr, air, runway, 1);
+    }
+
+    /**
+     * The same with an afterburner factor `mul` (the jet: x1.5 - thrust and top speed alike; 1 = none). The thrust and
+     * the top speed are the type's (VehicleType.plane).
+     */
+    public static double accel(VehicleType t, double speed, double thr, boolean air, boolean runway, double mul) {
+        double top = t.topSpeed * mul;
+        double r = speed / top;
+        double a = t.plane.thrust * mul * (VehicleMath.clamp(thr, 0, 1) - r * r);
         if (!air) {
             a *= runway ? 1 : GROUND_EFF;
             if (thr <= 0 && speed > 0) {
@@ -66,24 +77,38 @@ public final class PlaneMath {
         return runway ? BRAKE_RUNWAY : BRAKE;
     }
 
-    /** How much climb the airspeed allows (0 at the stall speed, the full CLIMB from 0.25 b/t over it). */
+    /** How much climb the airspeed allows (0 at the stall speed, the full CLIMB from 0.25 b/t over it) - the light plane. */
     public static double climbCapacity(double speed) {
-        return CLIMB * VehicleMath.clamp((speed - STALL) / 0.25, 0, 1);
+        return climbCapacity(PlaneParams.LIGHT, speed);
     }
 
-    /** Is it stalling (in the air below the stall speed)? */
+    /** Per type: 0 at its stall speed, its full climb from climbBand over it. */
+    public static double climbCapacity(PlaneParams p, double speed) {
+        return p.climb * VehicleMath.clamp((speed - p.stall) / p.climbBand, 0, 1);
+    }
+
+    /** Is it stalling (in the air below the stall speed)? The light plane. */
     public static boolean stalled(double speed) {
         return speed < STALL;
     }
 
+    public static boolean stalled(PlaneParams p, double speed) {
+        return speed < p.stall;
+    }
+
     /**
-     * Vertical speed in the air this tick. Powered above the stall: Space climbs (by the airspeed, fading under the
-     * ceiling), «down» dives, neither holds the height. Below the stall the nose drops (STALL_SINK). Unpowered: a
-     * 1:GLIDE_RATIO glide (Space flares: half the sink), below the stall it drops too.
+     * Vertical speed in the air this tick (the light plane). Powered above the stall: Space climbs (by the airspeed,
+     * fading under the ceiling), «down» dives, neither holds the height. Below the stall the nose drops (STALL_SINK).
+     * Unpowered: a 1:GLIDE_RATIO glide (Space flares: half the sink), below the stall it drops too.
      */
     public static double airVy(double speed, double vy, boolean up, boolean down, boolean powered, double y) {
-        if (stalled(speed)) {
-            return FlightMath.approach(Math.min(vy, -GLIDE_START), -STALL_SINK, VACC);
+        return airVy(PlaneParams.LIGHT, speed, vy, up, down, powered, y);
+    }
+
+    /** The same with the type's numbers. */
+    public static double airVy(PlaneParams p, double speed, double vy, boolean up, boolean down, boolean powered, double y) {
+        if (stalled(p, speed)) {
+            return FlightMath.approach(Math.min(vy, -GLIDE_START), -p.stallSink, VACC);
         }
         if (!powered) {
             double target = -speed / GLIDE_RATIO;
@@ -94,9 +119,9 @@ public final class PlaneMath {
         }
         double target;
         if (up && !down) {
-            target = y >= FlightMath.CEILING ? -0.05 : climbCapacity(speed) * FlightMath.ceilingFactor(y);
+            target = y >= FlightMath.CEILING ? -0.05 : climbCapacity(p, speed) * FlightMath.ceilingFactor(y);
         } else if (down && !up) {
-            target = -DIVE;
+            target = -p.dive;
         } else {
             target = y > FlightMath.CEILING ? -0.05 : 0;
         }
@@ -105,15 +130,26 @@ public final class PlaneMath {
 
     /** Airspeed change in the air: powered - thrust/drag and the climb's toll; stalled - the dive gains; unpowered - toward the glide speed. */
     public static double airAccel(VehicleType t, double speed, double thr, double vy, boolean up, boolean powered) {
+        return airAccel(t, speed, thr, vy, up, powered, 1);
+    }
+
+    /** The same with the afterburner factor (1 = none). */
+    public static double airAccel(VehicleType t, double speed, double thr, double vy, boolean up, boolean powered, double mul) {
+        PlaneParams p = t.plane;
         if (!powered) {
-            if (stalled(speed)) {
+            if (stalled(p, speed)) {
                 return STALL_GAIN;
             }
-            double a = speed < GLIDE_SPEED ? GLIDE_ACC : -GLIDE_ACC;
+            double a = speed < p.glideSpeed ? GLIDE_ACC : -GLIDE_ACC;
             return up ? a - 0.006 : a;                          // a flare bleeds speed
         }
-        double a = accel(t, speed, thr, true, false) - vy * CLIMB_DRAG;
-        return stalled(speed) ? a + STALL_GAIN : a;
+        double a = accel(t, speed, thr, true, false, mul) - vy * CLIMB_DRAG;
+        return stalled(p, speed) ? a + STALL_GAIN : a;
+    }
+
+    /** Fastest it may go now: top speed (x the afterburner) x MAX_SPEED_MUL (a dive), never over FlightMath.SPEED_CAP. */
+    public static double maxSpeed(VehicleType t, double mul) {
+        return Math.min(t.topSpeed * mul * MAX_SPEED_MUL, FlightMath.SPEED_CAP);
     }
 
     /**
@@ -124,7 +160,7 @@ public final class PlaneMath {
         if (!working) {
             return 0;
         }
-        double mode = airborne ? t.cruiseCost + (t.peakCost - t.cruiseCost) * VehicleMath.clamp(vy / CLIMB, 0, 1) : t.peakCost;
+        double mode = airborne ? t.cruiseCost + (t.peakCost - t.cruiseCost) * VehicleMath.clamp(vy / t.plane.climb, 0, 1) : t.peakCost;
         double c = t.idleCost + (mode - t.idleCost) * VehicleMath.clamp(thr, 0, 1);
         if (airborne && y >= FlightMath.CRUISE_Y) {
             c *= FlightMath.CRUISE_MUL;
@@ -140,21 +176,26 @@ public final class PlaneMath {
 
     /** Hull HP a touch-down takes: hard (over SAFE_LANDING) and belly (unpowered) landings, capped at LANDING_CAP of the hull. */
     public static double landingDamage(float maxHp, double impact, double speed, boolean powered) {
+        return landingDamage(PlaneParams.LIGHT, maxHp, impact, speed, powered);
+    }
+
+    /** The same with the type's glide speed (a belly landing hurts more the faster over it). */
+    public static double landingDamage(PlaneParams p, float maxHp, double impact, double speed, boolean powered) {
         double d = Math.max(0, impact - SAFE_LANDING) * HARD_DAMAGE;
         if (!powered) {
-            d += BELLY_FRAC * maxHp + Math.max(0, speed - GLIDE_SPEED) * BELLY_SPEED;
+            d += BELLY_FRAC * maxHp + Math.max(0, speed - p.glideSpeed) * BELLY_SPEED;
         }
         return Math.min(d, LANDING_CAP * maxHp);
     }
 
-    /** Ground run (blocks) from standstill to LIFT_OFF holding W, as the physics steps it. Infinite if it never gets there. */
+    /** Ground run (blocks) from standstill to the type's lift-off speed holding W, as the physics steps it. Infinite if it never gets there. */
     public static double takeoffDistance(VehicleType t, boolean runway) {
         double v = 0, thr = 0, d = 0;
         for (int i = 0; i < 4000; i++) {
             thr = throttleStep(thr, true, false, true);
             v = Math.max(0, v + accel(t, v, thr, false, runway));
             d += v;
-            if (v >= LIFT_OFF) {
+            if (v >= t.plane.liftOff) {
                 return d;
             }
         }

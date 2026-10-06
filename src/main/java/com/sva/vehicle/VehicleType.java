@@ -58,7 +58,30 @@ public enum VehicleType {
     // 2.0 across; seat at the cushion centre (0.36, -0.31) x 1.1. Collision box 2.4 x 2.7 - it fits the 3x3 tunnel.
     DRILL("drill", "drill", Tier.EV, 8000000, 120, 4, 0.168, 0.008, 2.5, 1, 108, 600, 2.4F, 2.7F,
             new double[][] {{0.40, -0.34}}, 1.1F, 1.64, Movement.CRAWLER,
-            VehicleGases.of(Gas.HELIUM, Integer.valueOf(2000), Gas.ARGON, Integer.valueOf(2000)).field(Gas.ARGON, 1, 0.4));
+            VehicleGases.of(Gas.HELIUM, Integer.valueOf(2000), Gas.ARGON, Integer.valueOf(2000)).field(Gas.ARGON, 1, 0.4)),
+    // Jet (plan §2, QV): 16M EU, 90 EU/t cruising (72 at Y >= 100) / 250 on the take-off run and climbing (peakCost) / 3
+    // idle, x6 sprint (1.68 b/t), the AFTERBURNER on «Форсаж» at full throttle: x1.5 speed and thrust, H2 4 mB/s, x2 heat
+    // (FlightMath.SPEED_CAP 2.5 b/t caps it), 9 cargo, H2 4000 + He 2000 (two gas tanks in the recipe). Stall 0.9 b/t,
+    // take-off run ~50 blocks / ~25 on a runway (PlaneParams.JET). Model scale 2.5: jet.obj's ejection seat (cushion x
+    // 1.02..1.30, top 0.64, z +-0.11) sits under a canopy only 1.04 high - at x2.5 the cushion top is 1.60 and the canopy
+    // 0.99 over it (the light plane's 1.0); the jet is then 14.9 long, 10.8 across the wings, 3.9 to the fin tip.
+    // ONE seat (the plan says 2): behind the pilot the fuselage holds the H2 / He tanks and is lower than the cushion -
+    // a second rider would sit outside on the spine. Seat x = 1.16 x 2.5 + 0.05, seatY = 1.60 - 0.25.
+    JET("jet", "jet", Tier.QV, 16000000, 90, 3, 1.68, PlaneParams.JET.thrust, 2.5, 1, 9, 350, 3.0F, 2.0F,
+            new double[][] {{2.95, 0}}, 2.5F, 1.35, Movement.PLANE,
+            VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(4000), Gas.HELIUM, Integer.valueOf(2000)).afterburner(Gas.HYDROGEN, 4, 1.5)),
+    // Tiltrotor (plan §2, XV): 32M EU, two modes (Movement.TILT, key «Режим» N): VERTICAL - a helicopter (vtolTop 0.6 b/t,
+    // hovering 150 EU/t / 120 forward) and AIRPLANE - x5 sprint (1.4 b/t), 110 EU/t cruising / 160 climbing; a 2 s
+    // transition (TiltMath) with the nacelles turning. «Форсаж» in airplane mode: x1.25 on H2 3 mB/s. 27 cargo, H2 3000 +
+    // He 2000. Model scale 2.2: tilt.obj's cockpit (two pilot cushions x 1.50..1.78, top 0.53, z +-0.03..0.24) under a
+    // cabin ceiling of 1.03 - at x2.2 the cushion top is 1.17 and the ceiling 1.10 over it; 10.0 long, 15.8 across the
+    // rotor tips, 4.3 high. SIX seats (the plan says 4; the model has 2 pilot + 8 fold-down troop seats): the two pilots
+    // (driver right) and the front four troop seats (back to back along the centre line, rows at x 0.41 / -0.03);
+    // the rear four stay decorative. Seats x2.2 (+0.05 forward for the pilots), seatY = 1.17 - 0.25.
+    TILT("tilt", "tilt", Tier.XV, 32000000, 110, 3, 1.4, PlaneParams.TILT.thrust, 2.0, 6, 27, 400, 3.0F, 2.0F,
+            new double[][] {{3.66, 0.30}, {3.66, -0.30}, {0.89, 0.38}, {0.89, -0.38}, {-0.06, 0.38}, {-0.06, -0.38}}, 2.2F, 0.92,
+            Movement.TILT,
+            VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(3000), Gas.HELIUM, Integer.valueOf(2000)).afterburner(Gas.HYDROGEN, 3, 1.25));
 
     public final String key;
     public final String model;
@@ -107,6 +130,10 @@ public enum VehicleType {
      * throttle. 0 for the others. Set in the static block below (append-safe, like platformSize).
      */
     public double peakCost;
+    /** Aeroplane numbers (Movement.PLANE, the tiltrotor's airplane mode): stall, lift-off, thrust, climb... */
+    public PlaneParams plane = PlaneParams.LIGHT;
+    /** Tiltrotor, vertical mode (a helicopter): top speed, acceleration, EU/t at that speed / hovering. */
+    public double vtolTop, vtolAccel, vtolCruise, vtolPeak;
 
     static {
         BUGGY.platformSize = PlatformSize.P3x3;
@@ -125,6 +152,17 @@ public enum VehicleType {
         TRUCK.trailerSlots = 54;
         DRILL.hasDrill = true;
         TRUCK.autoDelivery = true;
+        // stage D
+        JET.platformSize = PlatformSize.P7x7;               // 14.9 blocks long
+        TILT.platformSize = PlatformSize.P5x5;
+        JET.peakCost = 250;
+        TILT.peakCost = 160;
+        JET.plane = PlaneParams.JET;
+        TILT.plane = PlaneParams.TILT;
+        TILT.vtolTop = 0.6;
+        TILT.vtolAccel = 0.02;
+        TILT.vtolCruise = 120;
+        TILT.vtolPeak = 150;
     }
 
     VehicleType(String key, String model, Tier tier, int buffer, double cruiseCost, double idleCost, double topSpeed, double accel,

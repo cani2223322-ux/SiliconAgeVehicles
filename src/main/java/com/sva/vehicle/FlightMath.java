@@ -20,6 +20,13 @@ public final class FlightMath {
     public static final double MUST_SINK = 0.015;
     /** Horizontal reach of a move: the type's top speed x this (a dive is a bit faster than level flight). */
     public static final double SPEED_MARGIN = 1.25;
+    /**
+     * Stage D: no aircraft ever goes faster than this (blocks/tick; 50 blocks/s, 180 km/h on the HUD) - the jet on
+     * its afterburner (1.68 x 1.5 = 2.52) and in a dive is capped here. Why: the server loads (and, in fresh terrain,
+     * generates) the chunks ahead of a player synchronously; at 2.5 b/t a view distance of 10 needs ~66 new chunks a
+     * second to be sent (vanilla sends up to 5 a tick = 100/s) - faster than that the world ahead stays empty.
+     */
+    public static final double SPEED_CAP = 2.5;
 
     private FlightMath() {
     }
@@ -41,20 +48,37 @@ public final class FlightMath {
 
     /** EU/t at cruise (the HUD range and the item tooltip): heli forward at top speed, plane level at full throttle. */
     public static double cruiseCost(VehicleType t, double fill, double y) {
-        double c = t.cruiseCost * cargoMul(fill);
-        return t.movement == Movement.PLANE && y >= CRUISE_Y ? c * CRUISE_MUL : c;
+        return cruiseCost(t, fill, y, t.movement != Movement.HELI);
+    }
+
+    /** The same; the tiltrotor: planeMode = its airplane mode (else its vertical mode's forward-flight cost). */
+    public static double cruiseCost(VehicleType t, double fill, double y, boolean planeMode) {
+        boolean plane = t.movement == Movement.PLANE || t.movement == Movement.TILT && planeMode;
+        double base = t.movement == Movement.TILT && !planeMode ? t.vtolCruise : t.cruiseCost;
+        double c = base * cargoMul(fill);
+        return plane && y >= CRUISE_Y ? c * CRUISE_MUL : c;
+    }
+
+    /** The rules a tiltrotor's move is judged by: its vertical mode and the transition fly like a helicopter. */
+    public static Movement rules(VehicleType t) {
+        return t.movement == Movement.TILT ? Movement.HELI : t.movement;
     }
 
     /** Highest climb rate (blocks/tick) a move may show: no power or (plane) no airspeed - none. */
     public static double maxClimb(VehicleType t, boolean powered, double speed, double y) {
+        return maxClimb(t, rules(t), powered, speed, y);
+    }
+
+    /** The same under `m` (HELI / PLANE rules; the tiltrotor by its mode). */
+    public static double maxClimb(VehicleType t, Movement m, boolean powered, double speed, double y) {
         if (!powered) {
             return 0;
         }
         double c;
-        if (t.movement == Movement.HELI) {
+        if (m == Movement.HELI) {
             c = HeliMath.CLIMB;
-        } else if (t.movement == Movement.PLANE) {
-            c = speed >= PlaneMath.STALL * 0.8 ? Math.max(PlaneMath.CLIMB, PlaneMath.ROTATE_VY) : 0;
+        } else if (m == Movement.PLANE) {
+            c = speed >= t.plane.stall * 0.8 ? Math.max(t.plane.climb, t.plane.rotateVy) : 0;
         } else {
             c = 0;
         }
@@ -63,7 +87,16 @@ public final class FlightMath {
 
     /** In the air it has to be coming down: no power, or a plane far below its stall speed. */
     public static boolean mustDescend(VehicleType t, boolean powered, double speed) {
-        return !powered || t.movement == Movement.PLANE && speed < PlaneMath.STALL * 0.6;
+        return mustDescend(t, rules(t), powered, speed);
+    }
+
+    public static boolean mustDescend(VehicleType t, Movement m, boolean powered, double speed) {
+        return !powered || m == Movement.PLANE && speed < t.plane.stall * 0.6;
+    }
+
+    /** Horizontal reach a tick the server allows: top speed (x the afterburner) x SPEED_MARGIN, at most SPEED_CAP. */
+    public static double maxReach(VehicleType t) {
+        return Math.min(SPEED_CAP, t.topSpeed * t.gases.boostMul * SPEED_MARGIN);
     }
 
     /**
@@ -77,13 +110,20 @@ public final class FlightMath {
      */
     public static boolean moveAllowed(VehicleType t, double horizontal, double dy, long dt, double yNew, boolean powered,
                                       boolean wasAirborne, boolean airborneNew, double speed) {
-        if (Double.isNaN(horizontal) || Double.isNaN(dy) || horizontal >= 10 || horizontal > t.topSpeed * SPEED_MARGIN * 1.3 * dt + 0.2) {
+        return moveAllowed(t, rules(t), horizontal, dy, dt, yNew, powered, wasAirborne, airborneNew, speed);
+    }
+
+    /** The same under `m` (the tiltrotor: PLANE rules in its airplane mode, HELI otherwise). */
+    public static boolean moveAllowed(VehicleType t, Movement m, double horizontal, double dy, long dt, double yNew, boolean powered,
+                                      boolean wasAirborne, boolean airborneNew, double speed) {
+        double reach = maxReach(t) * 1.3 * dt + 0.2;
+        if (Double.isNaN(horizontal) || Double.isNaN(dy) || horizontal >= Math.max(10, reach) || horizontal > reach) {
             return false;
         }
         if (dy < -(1.5 * dt + 1)) {
             return false;
         }
-        double up = maxClimb(t, powered, speed, yNew) * dt + 0.1;
+        double up = maxClimb(t, m, powered, speed, yNew) * dt + 0.1;
         if (!wasAirborne) {
             up = Math.max(up, 1.1 * dt + 0.3);              // a block step from the ground, as on wheels
         }
@@ -93,7 +133,7 @@ public final class FlightMath {
         if (dy > 0.05 && yNew > CEILING + 0.5) {
             return false;
         }
-        return !(airborneNew && mustDescend(t, powered, speed) && dy > -MUST_SINK * dt);
+        return !(airborneNew && mustDescend(t, m, powered, speed) && dy > -MUST_SINK * dt);
     }
 
     /** Moves `v` toward `target` by at most `step`. */

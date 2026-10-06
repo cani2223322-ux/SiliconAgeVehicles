@@ -226,6 +226,25 @@ public final class WorkbenchRecipesSVA {
                 'E', part(ComponentType.ENERGY_BLOCK_EV), 'K', coil, 'X', tiCasing, 'D', drillHead(com.sc.item.ItemDrillHeadSC.Kind.DIAMOND),
                 'R', track, 'I', ti);
 
+        // ---- stage D
+        // Jet (plan §4.2: hull IV, turbo engine x2, QV energy block, flight computer, wing x2, wheel x3, gas tank x2; 12M EU):
+        // the H2 / He tanks either side of the computer on top, the wings outboard of the two turbos round the hull, the QV
+        // energy block between W-Ti plates and copper coils, titanium casings / ingot, three wheels below. QV: 1 transformer.
+        ItemStack hull4 = part(ComponentType.HULL_IV), gasTank = part(ComponentType.GAS_TANK), wing = part(ComponentType.WING);
+        vehicle(VehicleType.JET, 12000000L, 4800,
+                " GFG ", "WTHTW", "KPEPK", " XIX ", "R R R",
+                'G', gasTank, 'F', computer, 'W', wing, 'T', part(ComponentType.TURBO_ENGINE), 'H', hull4, 'K', coil, 'P', wTi,
+                'E', part(ComponentType.ENERGY_BLOCK_QV), 'X', tiCasing, 'I', ti, 'R', part(ComponentType.WHEEL));
+        // Tiltrotor (plan §4.2: hull IV, antigrav engine + main rotor x2, XV energy block, wing x2, gas tank x2; the brief adds
+        // the flight computer and a cabin; 30M EU): a rotor on each wing tip either side of the cabin, the tanks round the
+        // computer between W-Ti plates, the antigrav engine / hull IV / XV energy block between coils, titanium below, skids.
+        // XV: 2 transformers.
+        vehicle(VehicleType.TILT, 30000000L, 7200,
+                "RWCWR", "PGFGP", "KAHEK", " XIX ", " S S ",
+                'R', part(ComponentType.ROTOR), 'W', wing, 'C', cabin, 'P', wTi, 'G', gasTank, 'F', computer, 'K', coil,
+                'A', part(ComponentType.ANTIGRAV_ENGINE), 'H', hull4, 'E', part(ComponentType.ENERGY_BLOCK_XV), 'X', tiCasing,
+                'I', ti, 'S', steel);
+
         // ---- blocks (also on the crafting table)
         block("charger", new ItemStack(ModContentSVA.charger, 1, Tier.MV.ordinal()), Tier.MV, "XXX", "KEK", "STS",
                 'X', casing, 'K', coil, 'E', cellMV, 'S', steel, 'T', ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.TRANSFORMER));

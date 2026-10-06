@@ -35,9 +35,13 @@ public class ClientProxySVA extends CommonProxySVA {
                 new com.sva.client.RenderWorkbenchSVA());
     }
 
-    /** «Форсаж» (hoverbike boost; the sprint key works too). Unbound by default - the core's armour dash has R. */
+    /**
+     * «Форсаж»: the hoverbike's boost (the sprint key works there too) and - stage D - the jet's / tiltrotor's
+     * afterburner (IN_AFTER; in aircraft the sprint key means «down»). Default F (stage D; was unbound): free in vanilla
+     * 1.7.10 and the core (K, R, P, H, J, G) and in this addon (X, B, N); R stays the core armour's dash.
+     */
     public static final net.minecraft.client.settings.KeyBinding KEY_BOOST =
-            new net.minecraft.client.settings.KeyBinding("key.sva.boost", org.lwjgl.input.Keyboard.KEY_NONE, "key.categories.sva");
+            new net.minecraft.client.settings.KeyBinding("key.sva.boost", org.lwjgl.input.Keyboard.KEY_F, "key.categories.sva");
 
     /**
      * «Снижение» (aircraft: helicopter collective down, plane nose down; the sprint key works too). Default X - free in
@@ -50,7 +54,7 @@ public class ClientProxySVA extends CommonProxySVA {
     public static final net.minecraft.client.settings.KeyBinding KEY_DRILL =
             new net.minecraft.client.settings.KeyBinding("key.sva.drill", org.lwjgl.input.Keyboard.KEY_B, "key.categories.sva");
 
-    /** «Бур: режим» - Tunnel / Ore only / Level. Default N. */
+    /** «Режим»: the drill's Tunnel / Ore only / Level; the tiltrotor's vertical <-> airplane mode (stage D). Default N. */
     public static final net.minecraft.client.settings.KeyBinding KEY_DRILL_MODE =
             new net.minecraft.client.settings.KeyBinding("key.sva.drillMode", org.lwjgl.input.Keyboard.KEY_N, "key.categories.sva");
 
@@ -97,8 +101,11 @@ public class ClientProxySVA extends CommonProxySVA {
             f |= EntityVehicleSVA.IN_BRAKE;
         }
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.currentScreen == null && (mc.gameSettings.keyBindSprint.getIsKeyPressed() || KEY_BOOST.getIsKeyPressed())) {
+        if (mc.currentScreen == null && mc.gameSettings.keyBindSprint.getIsKeyPressed()) {
             f |= EntityVehicleSVA.IN_BOOST;
+        }
+        if (mc.currentScreen == null && KEY_BOOST.getIsKeyPressed()) {
+            f |= EntityVehicleSVA.IN_AFTER;
         }
         if (mc.currentScreen == null && KEY_DOWN.getIsKeyPressed()) {
             f |= EntityVehicleSVA.IN_DOWN;
@@ -182,8 +189,14 @@ public class ClientProxySVA extends CommonProxySVA {
             return;
         }
         Entity r = mc.thePlayer.ridingEntity;
-        if (r instanceof EntityVehicleSVA && ((EntityVehicleSVA) r).getVehicleType().hasDrill) {
+        if (!(r instanceof EntityVehicleSVA)) {
+            return;
+        }
+        com.sva.vehicle.VehicleType t = ((EntityVehicleSVA) r).getVehicleType();
+        if (t.hasDrill) {
             NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), toggle ? EntityVehicleSVA.A_DRILL_TOGGLE : EntityVehicleSVA.A_DRILL_MODE));
+        } else if (mode && t.movement == com.sva.vehicle.Movement.TILT) {
+            NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), EntityVehicleSVA.A_FLIGHT_MODE));     // «Режим»
         }
     }
 
