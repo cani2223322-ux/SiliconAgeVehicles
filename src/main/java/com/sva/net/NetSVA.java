@@ -20,6 +20,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * Correct (S->C): the server refused a move - the driver snaps back to the server's position.
  * Workbench (C->S): a workbench screen button (start / lay out a recipe / clear), checked against the open container.
  * PickUp (C->S): the cargo screen's «Убрать в инвентарь» - owner / op, nobody seated, within 8 blocks (tryPickUp).
+ * Station (C->S): a charging station setting toggled - the open screen's station, its owner / an op only.
+ * StationInfo (S->C): the station screen's served vehicle owner name (sent when the vehicle changes).
  */
 public final class NetSVA {
 
@@ -34,6 +36,8 @@ public final class NetSVA {
         CHANNEL.registerMessage(CorrectHandler.class, Correct.class, 2, Side.CLIENT);
         CHANNEL.registerMessage(WorkbenchHandler.class, Workbench.class, 3, Side.SERVER);
         CHANNEL.registerMessage(PickUpHandler.class, PickUp.class, 4, Side.SERVER);
+        CHANNEL.registerMessage(StationHandler.class, Station.class, 5, Side.SERVER);
+        CHANNEL.registerMessage(StationInfoHandler.class, StationInfo.class, 6, Side.CLIENT);
     }
 
     // ---------------------------------------------------------------- input
@@ -281,6 +285,94 @@ public final class NetSVA {
                     }
                 }
             });
+            return null;
+        }
+    }
+
+    // ---------------------------------------------------------------- charging station settings
+
+    public static class Station implements IMessage {
+        public int x, y, z, bit;
+
+        public Station() {
+        }
+
+        public Station(int x, int y, int z, int bit) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.bit = bit;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            x = buf.readInt();
+            y = buf.readInt();
+            z = buf.readInt();
+            bit = buf.readByte();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(x);
+            buf.writeInt(y);
+            buf.writeInt(z);
+            buf.writeByte(bit);
+        }
+    }
+
+    public static class StationHandler implements IMessageHandler<Station, IMessage> {
+        @Override
+        public IMessage onMessage(final Station m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    com.sva.inventory.ContainerChargerSVA c = p.openContainer instanceof com.sva.inventory.ContainerChargerSVA
+                            ? (com.sva.inventory.ContainerChargerSVA) p.openContainer : null;
+                    if (c == null || !c.isAt(m.x, m.y, m.z) || !c.canInteractWith(p)) {
+                        return;
+                    }
+                    if (!c.getTile().mayConfigure(p)) {
+                        p.addChatComponentMessage(new net.minecraft.util.ChatComponentTranslation("sva.station.notOwner", c.getTile().getOwnerName()));
+                        return;
+                    }
+                    c.getTile().toggleSetting(m.bit);
+                    c.detectAndSendChanges();
+                }
+            });
+            return null;
+        }
+    }
+
+    public static class StationInfo implements IMessage {
+        public String owner = "";
+
+        public StationInfo() {
+        }
+
+        public StationInfo(String owner) {
+            this.owner = owner == null ? "" : owner;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            owner = cpw.mods.fml.common.network.ByteBufUtils.readUTF8String(buf);
+            if (owner.length() > 64) {
+                owner = owner.substring(0, 64);
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            cpw.mods.fml.common.network.ByteBufUtils.writeUTF8String(buf, owner);
+        }
+    }
+
+    public static class StationInfoHandler implements IMessageHandler<StationInfo, IMessage> {
+        @Override
+        public IMessage onMessage(StationInfo m, MessageContext ctx) {
+            SVAMod.proxy.stationInfo(m.owner);
             return null;
         }
     }

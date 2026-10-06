@@ -34,6 +34,8 @@ public final class ModContentSVA {
     public static ItemComponentSVA component;
     public static BlockWorkbenchSVA workbench;
     public static com.sva.block.BlockGasColumnSVA gasColumn;
+    public static com.sva.block.BlockChargePlateSVA chargePlate;
+    public static com.sva.item.ItemStationModuleSVA module;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -64,6 +66,12 @@ public final class ModContentSVA {
         gasColumn.setCreativeTab(TAB);
         GameRegistry.registerBlock(gasColumn, com.sva.block.ItemBlockGasColumnSVA.class, "gasColumn");
         GameRegistry.registerTileEntity(com.sva.block.TileEntityGasColumnSVA.class, ReferenceSVA.MODID + ":gasColumn");
+        chargePlate = new com.sva.block.BlockChargePlateSVA();
+        chargePlate.setCreativeTab(TAB);
+        GameRegistry.registerBlock(chargePlate, com.sva.block.ItemBlockChargePlateSVA.class, "chargePlate");
+        module = new com.sva.item.ItemStationModuleSVA();
+        module.setCreativeTab(TAB);
+        GameRegistry.registerItem(module, "stationModule");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);

@@ -51,6 +51,17 @@ public enum VehicleType {
     public final Movement movement;
     /** Gas tanks and their use (VehicleGases.NONE: no tanks). */
     public final VehicleGases gases;
+    /**
+     * Charging platform size class (plan §9): 3x3 hover / buggy, 3x5 truck / drill, 5x5 heli / plane / tilt, 7x7 shuttle /
+     * ship. Not final on purpose: set per type in the static block below (append-safe), and the world test fakes a bigger
+     * class for a moment.
+     */
+    public PlatformSize platformSize = PlatformSize.P3x3;
+
+    static {
+        BUGGY.platformSize = PlatformSize.P3x3;
+        HOVER.platformSize = PlatformSize.P3x3;
+    }
 
     VehicleType(String key, String model, Tier tier, int buffer, double cruiseCost, double idleCost, double topSpeed, double accel,
                 double turnRate, int seats, int cargoSlots, float maxHp, float width, float height, double[][] seatOffsets,

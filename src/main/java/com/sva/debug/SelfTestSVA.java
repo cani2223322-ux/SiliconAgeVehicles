@@ -8,7 +8,9 @@ import com.sva.entity.EntityVehicleSVA;
 import com.sva.init.ModContentSVA;
 import com.sva.item.ComponentType;
 import com.sva.item.ItemVehicleSVA;
+import com.sva.platform.PlatformMath;
 import com.sva.vehicle.HoverMath;
+import com.sva.vehicle.PlatformSize;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleState;
 import com.sva.vehicle.VehicleType;
@@ -69,6 +71,7 @@ public final class SelfTestSVA {
             hover();
             hoverType();
             pickUp();
+            platform();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -530,5 +533,134 @@ public final class SelfTestSVA {
         check(EntityVehicleSVA.pickUpCheck(true, true, 4) == EntityVehicleSVA.PICK_OCCUPIED, "pick-up: someone seated - refused");
         check(EntityVehicleSVA.pickUpCheck(false, false, 4) == EntityVehicleSVA.PICK_NOT_OWNER, "pick-up: not the owner - refused");
         check(EntityVehicleSVA.pickUpCheck(true, false, 100) == EntityVehicleSVA.PICK_FAR, "pick-up: further than 8 blocks - refused");
+    }
+
+    // ------------------------------------------------------------------ the charging platform (plan §9)
+
+    /** A flat field of plates for the flood fill. */
+    private static PlatformMath.Plates field(final java.util.Set<Long> cells) {
+        return new PlatformMath.Plates() {
+            @Override
+            public boolean isPlate(int x, int z) {
+                return cells.contains(Long.valueOf(PlatformMath.key(x, z)));
+            }
+        };
+    }
+
+    private static java.util.Set<Long> rectCells(int x0, int z0, int x1, int z1) {
+        java.util.Set<Long> s = new java.util.HashSet<Long>();
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                s.add(Long.valueOf(PlatformMath.key(x, z)));
+            }
+        }
+        return s;
+    }
+
+    private static void platform() {
+        // flood fill from a station at (0, 0)
+        java.util.Set<Long> sq = rectCells(1, -1, 3, 1);                 // 3x3 east of the station
+        java.util.Set<Long> got = PlatformMath.floodFill(field(sq), 0, 0, 64);
+        int[] b = PlatformMath.bounds(got);
+        check(got.size() == 9 && b[2] - b[0] + 1 == 3 && b[3] - b[1] + 1 == 3, "platform: 3x3 next to the station = 9 plates, 3x3");
+        java.util.Set<Long> withJunk = new java.util.HashSet<Long>(sq);
+        withJunk.add(Long.valueOf(PlatformMath.key(6, 0)));               // a gap away
+        withJunk.add(Long.valueOf(PlatformMath.key(4, 2)));               // only diagonal to (3, 1)
+        withJunk.add(Long.valueOf(PlatformMath.key(-5, -5)));
+        check(PlatformMath.floodFill(field(withJunk), 0, 0, 64).size() == 9, "platform: disconnected and diagonal plates ignored");
+        java.util.Set<Long> l = rectCells(1, 0, 5, 0);
+        l.addAll(rectCells(5, 1, 5, 4));                                   // an L: 5 east, then 4 south
+        got = PlatformMath.floodFill(field(l), 0, 0, 64);
+        b = PlatformMath.bounds(got);
+        check(got.size() == 9 && b[2] - b[0] + 1 == 5 && b[3] - b[1] + 1 == 5, "platform: an L shape - 9 plates, 5x5 bounds");
+        check(!got.contains(Long.valueOf(PlatformMath.key(0, 0))), "platform: the station itself is not a plate");
+        java.util.Set<Long> big = rectCells(-6, -6, 6, 6);
+        big.remove(Long.valueOf(PlatformMath.key(0, 0)));
+        check(PlatformMath.floodFill(field(big), 0, 0, 64).size() == 64, "platform: at most 64 plates (168 laid)");
+        check(PlatformMath.floodFill(field(rectCells(2, 0, 4, 2)), 0, 0, 64).isEmpty() && PlatformMath.bounds(new java.util.HashSet<Long>()) == null,
+                "platform: plates not touching the station - none");
+        check(PlatformMath.keyX(PlatformMath.key(-30000000, 29999999)) == -30000000 && PlatformMath.keyZ(PlatformMath.key(-30000000, 29999999)) == 29999999,
+                "platform: position key round trip at the world border");
+        // fits by size class
+        check(VehicleType.BUGGY.platformSize == PlatformSize.P3x3 && VehicleType.HOVER.platformSize == PlatformSize.P3x3
+                && PlatformSize.P3x5.minPlates() == 15 && PlatformSize.P7x7.minPlates() == 49, "platform: buggy / hoverbike 3x3; 3x5 = 15, 7x7 = 49 plates");
+        check(PlatformMath.fits(PlatformSize.P3x3, 9, 3, 3) && !PlatformMath.fits(PlatformSize.P3x3, 8, 3, 3) && !PlatformMath.fits(PlatformSize.P3x3, 9, 9, 1),
+                "platform: 3x3 fits 9 plates in 3x3, not 8, not a 9x1 line");
+        check(PlatformMath.fits(PlatformSize.P3x5, 15, 3, 5) && PlatformMath.fits(PlatformSize.P3x5, 15, 5, 3) && !PlatformMath.fits(PlatformSize.P3x5, 15, 4, 4),
+                "platform: 3x5 fits either way round, not 4x4");
+        check(!PlatformMath.fits(PlatformSize.P5x5, 27, 3, 9) && PlatformMath.fits(PlatformSize.P7x7, 49, 7, 7) && !PlatformMath.fits(PlatformSize.P7x7, 48, 7, 7),
+                "platform: 5x5 not on 3x9; 7x7 needs all 49");
+        // rate: tier packet x upgrades x plate bonus
+        check(PlatformMath.plateBonus(9, PlatformSize.P3x3) == 0 && near(PlatformMath.plateBonus(12, PlatformSize.P3x3), 0.3, 1e-9)
+                && PlatformMath.plateBonus(64, PlatformSize.P3x3) == 2.0 && PlatformMath.plateBonus(5, PlatformSize.P5x5) == 0,
+                "platform: +10% a plate over the minimum, capped at +200%");
+        check(PlatformMath.rate(Tier.MV, 0, 0, 1) == 128 && PlatformMath.rate(Tier.MV, 0, 0.3, 1) == 166 && PlatformMath.rate(Tier.MV, 0, 0.8, 1) == 230,
+                "platform: MV 128 EU/t, +30% = 166, +80% = 230");
+        check(PlatformMath.rate(Tier.MV, 1, 0, 1) == 205 && PlatformMath.rate(Tier.MV, 2, 2.0, 1) == 983 && PlatformMath.rate(Tier.MV, 0, 5, 1) == 384,
+                "platform: overclocker x1.6 each; bonus never over +200%");
+        check(PlatformMath.inputTier(Tier.MV, 0) == Tier.MV && PlatformMath.inputTier(Tier.MV, 1) == Tier.HV && PlatformMath.rate(PlatformMath.inputTier(Tier.MV, 1), 0, 0, 1) == 512,
+                "platform: a transformer lifts the input to HV (512 EU/t)");
+        check(PlatformMath.buffer(Tier.MV, 0) == 12800 && PlatformMath.buffer(Tier.MV, 2) == 212800, "platform: buffer 12 800 + 100k per energy storage");
+        check(PlatformMath.rate(Tier.MV, 0, Double.NaN, 1) >= 1 && PlatformMath.rate(Tier.MV, 0, 0, 0.1) == 13, "platform: rate NaN-safe, config multiplier applied");
+        // round robin
+        int[] seen = new int[3];
+        int last = -1;
+        for (int t = 0; t < 6; t++) {
+            last = PlatformMath.nextIndex(last, 3);
+            seen[last]++;
+        }
+        check(seen[0] == 2 && seen[1] == 2 && seen[2] == 2 && PlatformMath.nextIndex(5, 0) == -1 && PlatformMath.nextIndex(-1, 4) == 0,
+                "platform: round robin serves 3 vehicles twice each in 6 ticks");
+        // repair: +1% a step, an ingot per 10 steps
+        check(PlatformMath.repairStep(100, 200) == 102 && PlatformMath.repairStep(199.5F, 200) == 200, "platform: repair +1% a step, capped");
+        check(PlatformMath.ingotsFor(0) == 1 && PlatformMath.ingotsFor(3) == 0, "platform: an ingot only when no step is prepaid");
+        check(PlatformMath.ingotsToFull(100, 200) == 5 && PlatformMath.ingotsToFull(199, 200) == 1 && PlatformMath.ingotsToFull(200, 200) == 0,
+                "platform: 50% -> full = 50 steps = 5 ingots (as 5 by hand)");
+        check(PlatformMath.REPAIR_EVERY == 60 && PlatformMath.STEPS_PER_INGOT == 10, "platform: one step every 3 s, 10 steps an ingot");
+        // redstone / comparator / ETA
+        check(PlatformMath.fullSignal(true, true) == 15 && PlatformMath.fullSignal(false, true) == 0 && PlatformMath.fullSignal(true, false) == 0,
+                "platform: redstone 15 only when full and the option is on");
+        check(PlatformMath.comparator(false, 0.5) == 0 && PlatformMath.comparator(true, 0) == 0 && PlatformMath.comparator(true, 0.001) == 1
+                && PlatformMath.comparator(true, 0.5) == 8 && PlatformMath.comparator(true, 0.99) == 14 && PlatformMath.comparator(true, 1) == 15,
+                "platform: comparator 0 empty / none, 1..14 by charge, 15 full");
+        check(near(PlatformMath.etaSeconds(2000, 100), 1, 1e-9) && PlatformMath.etaSeconds(0, 5) == 0
+                && Double.isInfinite(PlatformMath.etaSeconds(100, 0)), "platform: ETA from the measured rate");
+        // content
+        check(WorkbenchRecipesSVA.byId("chargePlate") != null && WorkbenchRecipesSVA.byId("chargePlate").result().stackSize == 8
+                && WorkbenchRecipesSVA.byId("chargePlateH") != null && WorkbenchRecipesSVA.byId("chargePlateEdge") != null,
+                "platform: plate recipes on the workbench (plain x8, H, edge light)");
+        boolean mods = true;
+        for (String id : new String[] {"moduleGas", "moduleRepair", "moduleAccess"}) {
+            WorkbenchRecipeSVA r = WorkbenchRecipesSVA.byId(id);
+            mods &= r != null && r.instant() && r.category == WorkbenchRecipeSVA.Category.MODULES && r.result().getItem() == ModContentSVA.module;
+        }
+        check(mods, "platform: three module recipes (instant, «Модули»)");
+        check(com.sva.block.TileEntityChargerSVA.moduleAccepted(ModContentSVA.module.stackOf(com.sva.item.ItemStationModuleSVA.ACCESS))
+                && !com.sva.block.TileEntityChargerSVA.moduleAccepted(new ItemStack(Items.iron_ingot))
+                && com.sva.block.TileEntityChargerSVA.upgradeAccepted(ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.OVERCLOCKER))
+                && !com.sva.block.TileEntityChargerSVA.upgradeAccepted(ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.EJECTOR)),
+                "platform: station slots take modules / overclocker, transformer, storage only");
+        com.sva.block.TileEntityChargerSVA te = new com.sva.block.TileEntityChargerSVA(Tier.MV);
+        te.setInventorySlotContents(0, ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.TRANSFORMER));
+        te.setInventorySlotContents(4, ModContentSVA.module.stackOf(com.sva.item.ItemStationModuleSVA.GAS));
+        te.setOwner("id", "Me");
+        te.toggleSetting(com.sva.block.TileEntityChargerSVA.SET_SOUND);
+        NBTTagCompound t = new NBTTagCompound();
+        te.writeToNBT(t);
+        com.sva.block.TileEntityChargerSVA back = new com.sva.block.TileEntityChargerSVA(Tier.MV);
+        back.readFromNBT(t);
+        check(back.inputTier() == Tier.HV && back.rate() == 512 && back.hasModule(com.sva.item.ItemStationModuleSVA.GAS)
+                && !back.hasModule(com.sva.item.ItemStationModuleSVA.REPAIR) && "Me".equals(back.getOwnerName())
+                && back.getSettings() == (com.sva.block.TileEntityChargerSVA.SET_DEFAULT & ~com.sva.block.TileEntityChargerSVA.SET_SOUND),
+                "platform: station NBT keeps upgrades, modules, owner, settings");
+        NBTTagCompound old = new NBTTagCompound();
+        new com.sva.block.TileEntityChargerSVA(Tier.MV).writeToNBT(old);
+        for (String k : new String[] {"ChargerItems", "ChargerFacing", "Owner", "OwnerName", "ChargerSettings", "RepairPaid", "ChargerFull"}) {
+            old.removeTag(k);                                               // a station saved before the platform
+        }
+        com.sva.block.TileEntityChargerSVA legacy = new com.sva.block.TileEntityChargerSVA(Tier.MV);
+        legacy.readFromNBT(old);
+        check(legacy.getSettings() == com.sva.block.TileEntityChargerSVA.SET_DEFAULT && legacy.getFacing() == 3 && legacy.rate() == 128
+                && legacy.getMaxEnergyStored() == 12800, "platform: an old station loads as before (MV 128 EU/t, 12 800 EU)");
     }
 }

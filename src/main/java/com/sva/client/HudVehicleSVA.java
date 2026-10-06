@@ -29,6 +29,10 @@ public class HudVehicleSVA {
     private static final int C_EU = 0xFFE05454, C_HEAT = 0xFFFFA040, C_HP = 0xFF3CCB6E, C_TRACK = 0xFF0E1014;
 
     private double shownSpeed;
+    // the «Зарядка» line: EU rate measured from the synced charge over >= 1 s
+    private int rateVehicle = -1, rateEnergy;
+    private long rateTime;
+    private double rateEma;
 
     public static EntityVehicleSVA vehicleOf(Entity e) {
         if (e == null) {
@@ -92,7 +96,20 @@ public class HudVehicleSVA {
             }
         }
         int gasRows = gs.gases().size() + (lift != null ? 1 : 0);
-        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0);
+        boolean charging = v.isCharging();
+        long now = mc.theWorld.getTotalWorldTime();
+        if (v.getEntityId() != rateVehicle || now < rateTime) {
+            rateVehicle = v.getEntityId();
+            rateTime = now;
+            rateEnergy = energy;
+            rateEma = 0;
+        } else if (now - rateTime >= 20) {
+            double r = (energy - rateEnergy) / (double) (now - rateTime);
+            rateEma = rateEma <= 0 || r <= 0 ? r : rateEma * 0.6 + r * 0.4;
+            rateTime = now;
+            rateEnergy = energy;
+        }
+        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0) + (charging ? 1 : 0);
         int h = 24 + (rows - 1) * 10 + 4;
         int x = 4, y = e.resolution.getScaledHeight() - h - 4;
 
@@ -114,6 +131,14 @@ public class HudVehicleSVA {
         String range = cruise > 0 ? fmt((long) (energy / cruise * t.topSpeed)) : "∞";
         fr.drawString(Lang.tr("sva.hud.range", range), x + 6, ry, DIM);
         ry += 10;
+        if (charging) {
+            double sec = com.sva.platform.PlatformMath.etaSeconds(t.buffer - energy, rateEma);
+            String pctS = (int) Math.floor(ePct * 100) + "%";
+            String line = Double.isInfinite(sec) || sec <= 0 ? Lang.tr("sva.hud.charging", pctS)
+                    : Lang.tr("sva.hud.chargingEta", pctS, String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60)));
+            fr.drawString(line, x + 6, ry, 0x5EC8F0);
+            ry += 10;
+        }
         bar(fr, x, ry, Lang.tr("sva.hud.heat"), heat / 100.0, v.isHeatStopped() ? 0xFFFF4040 : C_HEAT, (int) heat + "%");
         ry += 10;
         if (wear) {

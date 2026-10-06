@@ -44,6 +44,7 @@ public class ClientProxySVA extends CommonProxySVA {
         super.init(e);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_BOOST);
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
+        MinecraftForge.EVENT_BUS.register(new WorldUnload());
         FMLCommonHandler.instance().bus().register(this);
     }
 
@@ -79,6 +80,23 @@ public class ClientProxySVA extends CommonProxySVA {
             f |= EntityVehicleSVA.IN_BOOST;
         }
         return f;
+    }
+
+    /** The charging plates' look belongs to the world being left. */
+    public static class WorldUnload {
+        @SubscribeEvent
+        public void onUnload(net.minecraftforge.event.world.WorldEvent.Unload e) {
+            if (e.world.isRemote) {
+                com.sva.block.PlateStatesSVA.clear();
+            }
+        }
+    }
+
+    private volatile String stationOwner;
+
+    @Override
+    public void stationInfo(String owner) {
+        stationOwner = owner;                                       // applied on the client thread
     }
 
     @Override
@@ -136,6 +154,14 @@ public class ClientProxySVA extends CommonProxySVA {
     public void onClientTick(TickEvent.ClientTickEvent e) {
         if (e.phase != TickEvent.Phase.START) {
             return;
+        }
+        String owner = stationOwner;
+        if (owner != null) {
+            stationOwner = null;
+            EntityPlayer pl = Minecraft.getMinecraft().thePlayer;
+            if (pl != null && pl.openContainer instanceof com.sva.inventory.ContainerChargerSVA) {
+                ((com.sva.inventory.ContainerChargerSVA) pl.openContainer).vehicleOwner = owner;
+            }
         }
         NetSVA.Correct m;
         while ((m = corrections.poll()) != null) {

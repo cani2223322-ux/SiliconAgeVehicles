@@ -43,6 +43,10 @@ public class CommonProxySVA {
         return 0;
     }
 
+    /** The station screen's served vehicle owner (client). */
+    public void stationInfo(String owner) {
+    }
+
     /** A server correction for the local driver (applied on the client thread). */
     public void queueCorrection(NetSVA.Correct m) {
     }

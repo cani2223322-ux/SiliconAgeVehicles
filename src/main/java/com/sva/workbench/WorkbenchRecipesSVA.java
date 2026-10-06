@@ -84,6 +84,11 @@ public final class WorkbenchRecipesSVA {
         return add(new WorkbenchRecipeSVA(id, Category.BLOCKS, out, tier, 0, 0, pattern));
     }
 
+    /** A charging station module (instant, category «Модули»). */
+    public static WorkbenchRecipeSVA module(String id, ItemStack out, Tier tier, Object... pattern) {
+        return add(new WorkbenchRecipeSVA(id, Category.MODULES, out, tier, 0, 0, pattern));
+    }
+
     // ------------------------------------------------------------------ the recipes
 
     private static ItemStack c(String core) {
@@ -176,5 +181,21 @@ public final class WorkbenchRecipesSVA {
                 'X', casing, 'K', coil, 'E', cellMV, 'S', steel, 'T', ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.TRANSFORMER));
         block("gasColumn", new ItemStack(ModContentSVA.gasColumn), Tier.HV, "XGX", "RCR", "XBX",
                 'X', casing, 'G', part(ComponentType.GAS_TANK), 'R', rubber, 'C', controller, 'B', Items.bucket);
+
+        // ---- the charging platform (plan §9): plates (instant, workbench only) and the station's modules
+        ItemStack plate = new ItemStack(ModContentSVA.chargePlate, 1, com.sva.block.BlockChargePlateSVA.PLAIN);
+        block("chargePlate", new ItemStack(ModContentSVA.chargePlate, 8, com.sva.block.BlockChargePlateSVA.PLAIN), Tier.MV,
+                "STS", "RKR", "STS", 'S', steel, 'T', Blocks.stone, 'R', Items.redstone, 'K', coil);
+        block("chargePlateH", new ItemStack(ModContentSVA.chargePlate, 8, com.sva.block.BlockChargePlateSVA.AVIA), Tier.MV,
+                "PPP", "PYP", "PPP", 'P', plate, 'Y', new ItemStack(Items.dye, 1, 11));
+        block("chargePlateEdge", new ItemStack(ModContentSVA.chargePlate, 2, com.sva.block.BlockChargePlateSVA.EDGE), Tier.MV,
+                "PGP", 'P', plate, 'G', Items.glowstone_dust);
+        com.sva.item.ItemStationModuleSVA mod = ModContentSVA.module;
+        module("moduleGas", mod.stackOf(com.sva.item.ItemStationModuleSVA.GAS), Tier.HV, "XQX", "RCR", "XBX",
+                'X', casing, 'Q', quartzChamber, 'R', rubber, 'C', controller, 'B', Items.bucket);
+        module("moduleRepair", mod.stackOf(com.sva.item.ItemStationModuleSVA.REPAIR), Tier.MV, "SAS", "ICI", "SXS",
+                'S', steel, 'A', Blocks.anvil, 'I', iron, 'C', controller, 'X', casing);
+        module("moduleAccess", mod.stackOf(com.sva.item.ItemStationModuleSVA.ACCESS), Tier.MV, "PMP", "GCG", "PRP",
+                'P', Items.paper, 'M', memory, 'G', Items.gold_ingot, 'C', controller, 'R', Items.redstone);
     }
 }

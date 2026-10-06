@@ -64,6 +64,9 @@ public class WorldTestSVA {
         if (w == null) {
             return;
         }
+        if (w instanceof net.minecraft.world.WorldServer) {
+            ((net.minecraft.world.WorldServer) w).resetUpdateEntityTick();     // no players: vanilla stops ticking after 60 s
+        }
         try {
             if (ticks == START) {
                 setup(w);
@@ -85,6 +88,8 @@ public class WorldTestSVA {
                 workbenchClean(w);
             } else if (ticks >= HV_START && hvPhase < 6) {
                 hoverTick(w);
+            } else if (pfAt > 0 && ticks >= pfAt && pfPhase < PF_DONE) {
+                platformTick(w);
             }
         } catch (Throwable t) {
             failed++;
@@ -99,8 +104,10 @@ public class WorldTestSVA {
                     finish(w);
                 } catch (Throwable t2) {
                     hvPhase = 6;
-                    System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
+                    pfAt = ticks + 20;
                 }
+            } else if (pfAt > 0 && pfPhase < PF_DONE) {
+                platformFinish(w);
             }
         }
     }
@@ -640,6 +647,253 @@ public class WorldTestSVA {
         VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
         check(reg.count(OWNER) == 0, "hover cleanup: no test vehicles left in the registry");
         hvPhase = 6;
+        pfAt = ticks + 20;                                  // the charging platform next
+    }
+
+    // ------------------------------------------------------------------ the charging platform (phase 4, plan §9)
+
+    private static final String STRANGER = "00000000-5bad-4e57-0000-0000000000ff";
+    private static final int PF_DONE = 99;
+    private int pfAt = -1, pfPhase, pfT0;
+    private int px, pz;
+    private TileEntityChargerSVA station;
+    private net.minecraft.tileentity.TileEntityChest pfChest;
+    private EntityVehicleSVA pfVeh;
+    private int pfH2Col, pfHeCol;
+    private float pfHp;
+
+    private void platformZone(World w, boolean build) {
+        for (int x = px - 3; x <= px + 12; x++) {
+            for (int z = pz - 4; z <= pz + 12; z++) {
+                for (int y = Y - 1; y <= Y + 6; y++) {
+                    if (!w.isAirBlock(x, y, z)) {
+                        w.setBlockToAir(x, y, z);
+                    }
+                }
+            }
+        }
+        if (!build) {
+            return;
+        }
+        for (int x = px - 2; x <= px + 9; x++) {
+            for (int z = pz - 3; z <= pz + 9; z++) {
+                w.setBlock(x, Y - 1, z, Blocks.stone, 0, 2);
+            }
+        }
+    }
+
+    private void plate(World w, int x, int z, int meta) {
+        w.setBlock(x, Y, z, ModContentSVA.chargePlate, meta, 3);
+    }
+
+    private EntityVehicleSVA pfSpawn(World w, VehicleType t, String owner, boolean fullEu) {
+        VehicleState st = new VehicleState(t);
+        st.energy = fullEu ? st.maxEnergy() : 0;
+        ItemStack stack = ItemVehicleSVA.withState(new ItemStack(ModContentSVA.vehicle, 1, t.ordinal()), st);
+        return ItemVehicleSVA.spawn(w, stack, px + 3.5, Y + 1, pz + 0.5, 0F, owner, owner.equals(OWNER) ? "WorldTest" : "Stranger");
+    }
+
+    private int steelInChest() {
+        int n = 0;
+        for (int i = 0; i < pfChest.getSizeInventory(); i++) {
+            ItemStack s = pfChest.getStackInSlot(i);
+            if (ModContentSVA.isSteelIngot(s)) {
+                n += s.stackSize;
+            }
+        }
+        return n;
+    }
+
+    private void platformTick(World w) {
+        int t = ticks - pfAt;
+        if (station != null && pfPhase < 9) {
+            station.fillForTest(station.getMaxEnergyStored());          // stands in for a cable feed
+        }
+        if (t == 0) {
+            platformSetup(w);
+        } else if (station == null) {
+            platformFinish(w);
+        } else if (t == 60) {
+            pfCharge();
+        } else if (t == 90) {
+            pfFull();
+        } else if (t == 220) {
+            pfRepair(w);
+        } else if (t == 260) {
+            pfAccess();
+        } else if (t == 300) {
+            pfAccessOff(w);
+        } else if (t == 340) {
+            pfGasOff();
+        } else if (t == 400) {
+            pfGas(w);
+        } else if (t == 440) {
+            pfNoFit();
+        } else if (t == 450) {
+            platformFinish(w);
+        }
+    }
+
+    private void platformSetup(World w) {
+        ChunkCoordinates sp = w.getSpawnPoint();
+        px = sp.posX + 6;
+        pz = sp.posZ + 4 + 50;
+        platformZone(w, true);
+        w.setBlock(px, Y, pz, ModContentSVA.charger, com.sc.energy.Tier.MV.ordinal(), 3);
+        TileEntity te = w.getTileEntity(px, Y, pz);
+        station = te instanceof TileEntityChargerSVA ? (TileEntityChargerSVA) te : null;
+        check(station != null, "platform: station placed with its tile");
+        if (station == null) {
+            return;
+        }
+        station.setOwner(OWNER, "WorldTest");
+        // 4 x 3 plates east of the station + a 5-plate strip running south from its corner = 17; an edge light, an H plate
+        for (int x = px + 1; x <= px + 4; x++) {
+            for (int z = pz - 1; z <= pz + 1; z++) {
+                plate(w, x, z, x == px + 4 && z == pz - 1 ? com.sva.block.BlockChargePlateSVA.EDGE
+                        : x == px + 2 && z == pz ? com.sva.block.BlockChargePlateSVA.AVIA : 0);
+            }
+        }
+        for (int z = pz + 2; z <= pz + 6; z++) {
+            plate(w, px + 1, z, 0);
+        }
+        plate(w, px + 7, pz, 0);                                    // two blocks away - not part of it
+        plate(w, px + 5, pz + 2, 0);                                // only diagonal to a plate - not part of it
+        w.setBlock(px + 1, Y, pz + 7, ModContentSVA.gasColumn, 2, 3);   // against the strip's end, 7 blocks from the vehicle
+        TileEntity ct = w.getTileEntity(px + 1, Y, pz + 7);
+        column = ct instanceof TileEntityGasColumnSVA ? (TileEntityGasColumnSVA) ct : null;
+        w.setBlock(px - 1, Y, pz, Blocks.chest, 0, 3);              // against the station
+        pfChest = (net.minecraft.tileentity.TileEntityChest) w.getTileEntity(px - 1, Y, pz);
+        pfChest.setInventorySlotContents(0, com.sc.init.ModItems.ingot.stackOf(com.sc.util.Material.STEEL).copy());
+        pfChest.getStackInSlot(0).stackSize = 5;
+        station.fillForTest(station.getMaxEnergyStored());
+        station.rescanForTest();
+        int[] span = station.span();
+        check(station.plateCount() == 17 && span[0] == 4 && span[1] == 8,
+                "platform: flood fill found 17 plates, 4x8 (disconnected / diagonal ignored): " + station.plateCount() + ", " + span[0] + "x" + span[1]);
+        check(station.getEdgePlates() == 1 && station.getAviaPlates() == 1 && station.column() == column && station.chestCount() == 1,
+                "platform: 1 edge light, 1 H plate, the gas column and the chest connected");
+        check(ModContentSVA.chargePlate.getLightValue(w, px + 4, Y, pz - 1) == 7 && ModContentSVA.chargePlate.getLightValue(w, px + 1, Y, pz) == 0,
+                "platform: the edge plate gives light 7, a plain one none");
+        pfVeh = pfSpawn(w, VehicleType.BUGGY, OWNER, false);
+        check(pfVeh != null && !pfVeh.boundingBox.intersectsWith(station.topZone()) && station.onPlatform(pfVeh),
+                "platform: an empty buggy parked on the plates (not touching the station)");
+        pfPhase = 1;
+    }
+
+    private void pfCharge() {
+        if (pfVeh == null) {
+            return;
+        }
+        int eu = (int) pfVeh.state.energy;
+        int rate = station.rateFor(station.bonusFor(pfVeh));
+        check(rate == 230, "platform: rate 128 x (1 + 8 plates over 9 x 10%) = 230 EU/t (" + rate + ")");
+        check(eu >= rate * 35 && eu <= rate * 61, "platform: the buggy on a plate charged " + eu + " EU in 60 ticks");
+        check(station.isActive() && station.getCurrent() == pfVeh && (station.getStatus() & TileEntityChargerSVA.S_CHARGING) != 0 && pfVeh.isCharging(),
+                "platform: station active, serving the buggy, the HUD flag on");
+        int cmp = station.comparatorLevel();
+        check(cmp == com.sva.platform.PlatformMath.comparator(true, pfVeh.state.energy / pfVeh.state.maxEnergy()) && cmp >= 1,
+                "platform: comparator follows the buggy's charge (" + cmp + ")");
+        check(station.redstonePower() == 0, "platform: no redstone while charging");
+        pfVeh.state.energy = pfVeh.state.maxEnergy() - 2000;
+        pfPhase = 2;
+    }
+
+    private void pfFull() {
+        World w = station.getWorldObj();
+        check(pfVeh.energyRoom() < 1 && station.isFull() && (station.getStatus() & TileEntityChargerSVA.S_FULL) != 0, "platform: the buggy filled up");
+        check(station.redstonePower() == 15 && station.comparatorLevel() == 15 && w.isBlockIndirectlyGettingPowered(px, Y + 1, pz),
+                "platform: full - strong redstone 15, comparator 15");
+        station.toggleSetting(TileEntityChargerSVA.SET_REDSTONE);
+        // the repair module + 5 steel ingots in the chest, the hull at 50%
+        station.setInventorySlotContents(TileEntityChargerSVA.FIRST_MODULE, ModContentSVA.module.stackOf(com.sva.item.ItemStationModuleSVA.REPAIR));
+        pfVeh.state.hp = VehicleType.BUGGY.maxHp * 0.5F;
+        pfHp = pfVeh.state.hp;
+        pfPhase = 3;
+    }
+
+    private void pfRepair(World w) {
+        check(station.redstonePower() == 0 && !w.isBlockIndirectlyGettingPowered(px, Y + 1, pz), "platform: «сигнал при полном» off - no redstone");
+        if (ConfigSVA.wear) {
+            int steel = steelInChest();
+            check(pfVeh.state.hp >= pfHp + 2 * VehicleType.BUGGY.maxHp * 0.01F - 0.01F && pfVeh.state.hp < VehicleType.BUGGY.maxHp,
+                    "platform: repair module mended the hull " + pfHp + " -> " + pfVeh.state.hp + " HP in 130 ticks (+1%/60 t)");
+            check(steel == 4 && station.getRepairPaid() == 10 - Math.round((pfVeh.state.hp - pfHp) / (VehicleType.BUGGY.maxHp * 0.01F)),
+                    "platform: one steel ingot taken from the chest (" + steel + " left), " + station.getRepairPaid() + " steps prepaid");
+        }
+        station.setInventorySlotContents(TileEntityChargerSVA.FIRST_MODULE, null);
+        // the access module + a stranger's buggy
+        station.setInventorySlotContents(TileEntityChargerSVA.FIRST_MODULE + 1, ModContentSVA.module.stackOf(com.sva.item.ItemStationModuleSVA.ACCESS));
+        pfVeh.setDead();
+        pfVeh = pfSpawn(w, VehicleType.BUGGY, STRANGER, false);
+        pfPhase = 4;
+    }
+
+    private void pfAccess() {
+        check(pfVeh != null && pfVeh.state.energy == 0 && (station.getStatus() & TileEntityChargerSVA.S_NO_ACCESS) != 0 && station.getServed().isEmpty(),
+                "platform: access module - a stranger's buggy is not served (" + (pfVeh == null ? -1 : (int) pfVeh.state.energy) + " EU)");
+        station.setInventorySlotContents(TileEntityChargerSVA.FIRST_MODULE + 1, null);
+        pfPhase = 5;
+    }
+
+    private void pfAccessOff(World w) {
+        check(pfVeh.state.energy > 0, "platform: without the module it charges everyone's (" + (int) pfVeh.state.energy + " EU)");
+        pfVeh.setDead();
+        // the hoverbike with empty tanks, the column full, no gas module yet
+        column.setOwner(OWNER, "WorldTest");
+        column.fill(net.minecraftforge.common.util.ForgeDirection.UP, new net.minecraftforge.fluids.FluidStack(H2.fluidOf(), 8000), true);
+        column.fill(net.minecraftforge.common.util.ForgeDirection.UP, new net.minecraftforge.fluids.FluidStack(HE.fluidOf(), 1000), true);
+        pfVeh = pfSpawn(w, VehicleType.HOVER, OWNER, true);
+        pfPhase = 6;
+    }
+
+    private void pfGasOff() {
+        check(pfVeh != null && pfVeh.state.gas(H2) == 0 && pfVeh.state.gas(HE) == 0 && column.amount(H2) == 8000,
+                "platform: no gas module - the column 7 blocks away doesn't reach the bike (H2 " + (pfVeh == null ? -1 : pfVeh.state.gas(H2)) + ")");
+        station.setInventorySlotContents(TileEntityChargerSVA.FIRST_MODULE + 2, ModContentSVA.module.stackOf(com.sva.item.ItemStationModuleSVA.GAS));
+        pfH2Col = column.amount(H2);
+        pfHeCol = column.amount(HE);
+        pfPhase = 7;
+    }
+
+    private void pfGas(World w) {
+        int h2 = pfVeh.state.gas(H2), he = pfVeh.state.gas(HE);
+        check(h2 >= 25 * 30 && he >= 25 * 30 && pfH2Col - column.amount(H2) == h2 && pfHeCol - column.amount(HE) == he,
+                "platform: gas module refuelled the bike from the column through the plates (H2 " + h2 + ", He " + he + " mB in 60 ticks)");
+        pfVeh.setDead();
+        // a vehicle bigger than the platform: the buggy faked as 7x7
+        VehicleType.BUGGY.platformSize = com.sva.vehicle.PlatformSize.P7x7;
+        pfVeh = pfSpawn(w, VehicleType.BUGGY, OWNER, false);
+        pfPhase = 8;
+    }
+
+    private void pfNoFit() {
+        check(pfVeh != null && pfVeh.state.energy == 0 && (station.getStatus() & TileEntityChargerSVA.S_NO_FIT) != 0 && station.getServed().isEmpty(),
+                "platform: a 7x7 vehicle on a 17-plate 4x8 platform - «не помещается», not charged");
+        VehicleType.BUGGY.platformSize = com.sva.vehicle.PlatformSize.P3x3;
+        pfPhase = 9;
+    }
+
+    private void platformFinish(World w) {
+        VehicleType.BUGGY.platformSize = com.sva.vehicle.PlatformSize.P3x3;
+        if (pfVeh != null) {
+            pfVeh.setDead();
+            pfVeh = null;
+        }
+        if (station != null) {
+            for (int i = 0; i < station.getSizeInventory(); i++) {
+                station.setInventorySlotContents(i, null);              // no drops
+            }
+        }
+        if (pfChest != null) {
+            for (int i = 0; i < pfChest.getSizeInventory(); i++) {
+                pfChest.setInventorySlotContents(i, null);
+            }
+        }
+        platformZone(w, false);
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        check(reg.count(OWNER) == 0 && reg.count(STRANGER) == 0, "platform cleanup: no test vehicles left in the registry");
+        pfPhase = PF_DONE;
         System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
         System.out.println("[SVA-WORLDTEST] DONE");
     }

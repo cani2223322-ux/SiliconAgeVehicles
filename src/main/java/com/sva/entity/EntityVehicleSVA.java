@@ -56,7 +56,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     // data watcher ids (append-only)
     private static final int DW_ENERGY = 20, DW_HP = 21, DW_HEAT = 22, DW_FLAGS = 23, DW_CARGO = 24, DW_TYPE = 25,
             DW_CRUISE = 26, DW_YAW = 27, DW_GAS = 28;
-    private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16;
+    private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32;
     /** Input bits. IN_BRAKE = Space (ground: brake; hover: hold higher), IN_BOOST = sprint / «Форсаж». */
     public static final int IN_FWD = 1, IN_BACK = 2, IN_LEFT = 4, IN_RIGHT = 8, IN_BRAKE = 16, IN_BOOST = 32, IN_MASK = 63;
     private static final int INPUT_TIMEOUT = 40, MOVE_TIMEOUT = 10, KEEPALIVE = 10;
@@ -83,6 +83,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     private Entity lastRider;
     /** World test: run the motor without a rider. */
     public boolean debugDriver;
+    /** Server: ticks left of the «charging» flag (stations refresh it). */
+    private int chargeTicks;
+    private static final int CHARGE_HOLD = 30;
     // client
     private VehicleType sizedFor;
     private double lx, ly, lz;
@@ -209,6 +212,29 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return worldObj.isRemote ? flag(F_LIFT) : lifting;
     }
 
+    /** A charging station / platform served it in the last CHARGE_HOLD ticks (server; clients: synced). */
+    public boolean isCharging() {
+        return worldObj.isRemote ? flag(F_CHARGING) : chargeTicks > 0;
+    }
+
+    /** Server: a station just charged it (the HUD's «Зарядка» line). */
+    public void markCharging() {
+        boolean was = chargeTicks > 0;
+        chargeTicks = CHARGE_HOLD;
+        if (!was) {
+            syncWatcher();
+        }
+    }
+
+    /** Server: the hull mended by `amount` HP (the station's repair module), capped at the maximum. */
+    public void repairHull(float amount) {
+        if (!(amount > 0)) {
+            return;
+        }
+        state.hp = Math.min(state.type.maxHp, state.hp + amount);
+        syncWatcher();
+    }
+
     public boolean isBoosting() {
         return worldObj.isRemote ? flag(F_BOOST) : boosting;
     }
@@ -237,7 +263,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_HP, Float.valueOf(state.hp));
         dataWatcher.updateObject(DW_HEAT, Float.valueOf((float) Math.floor(state.heat * 10) / 10F));
         int f = (VehicleMath.wrecked(state.hp) && ConfigSVA.wear ? F_WRECKED : 0) | (state.heatStop ? F_HEAT_STOP : 0) | (ConfigSVA.wear ? F_WEAR : 0)
-                | (lifting ? F_LIFT : 0) | (boosting ? F_BOOST : 0);
+                | (lifting ? F_LIFT : 0) | (boosting ? F_BOOST : 0) | (chargeTicks > 0 ? F_CHARGING : 0);
         dataWatcher.updateObject(DW_FLAGS, Byte.valueOf((byte) f));
         dataWatcher.updateObject(DW_CARGO, Byte.valueOf((byte) state.cargoUsed()));
         dataWatcher.updateObject(DW_TYPE, Byte.valueOf((byte) t.ordinal()));
@@ -335,6 +361,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             registered = true;
         }
         maintainSeats(t);
+        if (chargeTicks > 0) {
+            chargeTicks--;
+        }
         boolean motorOn = riddenByEntity != null || debugDriver;
         if (!debugDriver && now - lastInputTick > INPUT_TIMEOUT) {
             input = 0;                                              // keys went stale: let go
