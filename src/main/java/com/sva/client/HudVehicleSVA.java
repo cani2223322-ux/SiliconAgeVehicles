@@ -182,7 +182,124 @@ public class HudVehicleSVA {
         if (t.hasDrill) {
             drawDrill(fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v);
         }
+        if (t.bridgeDock) {
+            drawSpace(mc, fr, e.resolution.getScaledWidth(), v, t);
+        }
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /**
+     * Stage E, the space panel (top right) of the shuttle and the ship: the cabin's oxygen (time for the riders aboard),
+     * «Дальний режим» (working / waiting for height and speed / off), «Стыковка с мостом» near an open vortex; the
+     * ship adds its jump target, distance and cost, the jump's state (ready / cooldown / why not / the portal opening),
+     * the gravity anchor and invisibility.
+     */
+    private void drawSpace(Minecraft mc, FontRenderer fr, int sw, EntityVehicleSVA v, VehicleType t) {
+        String[] info = v.getSpaceInfo().split(";", -1);
+        int riders = num(info, 0);
+        boolean ship = t.singular;
+        boolean dock = v.isDockNear();
+        int rows = 2 + (dock ? 1 : 0) + (ship ? 5 : 0);
+        int pw = 200, ph = rows * 11 + 8, px = sw - pw - 4, py = 4;
+        long now = mc.theWorld.getTotalWorldTime();
+        boolean blink = (now / 8) % 2 == 0;
+        Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
+        Gui.drawRect(px, py, px + pw, py + ph, BG);
+        int ry = py + 5;
+        // oxygen
+        int o2 = v.getGas(Gas.OXYGEN);
+        if (o2 <= 0) {
+            fr.drawString(Lang.tr("sva.hud.o2.empty"), px + 6, ry, WARN);
+        } else {
+            double sec = com.sva.vehicle.SpaceMath.o2Seconds(o2, Math.max(1, riders));
+            fr.drawString(Lang.tr("sva.hud.o2", time(sec), Integer.valueOf(Math.max(1, riders))), px + 6, ry, o2 < 200 ? AMBER : BLUE);
+        }
+        ry += 11;
+        // long-range mode
+        String lr;
+        int lc;
+        if (v.isLongRangeActive()) {
+            lr = Lang.tr("sva.hud.long.active", fmt((long) com.sva.vehicle.SpaceMath.LONG_D_PER_SECOND));
+            lc = GREEN;
+        } else if (!v.isLongRangeOn()) {
+            lr = Lang.tr("sva.hud.long.off");
+            lc = DIM;
+        } else if (v.getGas(Gas.DEUTERIUM) <= 0) {
+            lr = Lang.tr("sva.hud.long.noD");
+            lc = WARN;
+        } else {
+            lr = Lang.tr("sva.hud.long.wait", Integer.valueOf((int) com.sva.vehicle.SpaceMath.LONG_Y),
+                    Integer.valueOf(VehicleMath.kmh(t.topSpeed * com.sva.vehicle.SpaceMath.LONG_SPEED)));
+            lc = AMBER;
+        }
+        fr.drawString(lr, px + 6, ry, lc);
+        ry += 11;
+        if (dock) {
+            fr.drawStringWithShadow(Lang.tr("sva.hud.dock"), px + 6, ry, blink ? BLUE : 0x3A7CA0);
+            ry += 11;
+        }
+        if (!ship) {
+            return;
+        }
+        int code = num(info, 1);
+        long dist = num(info, 2), eu = num(info, 3), sm = num(info, 4);
+        int cd = num(info, 5), dim = num(info, 6);
+        boolean home = num(info, 7) == 1;
+        String name = info.length > 8 ? info[8] : "";
+        boolean other = dim != v.worldObj.provider.dimensionId;
+        String tgt;
+        if (code == com.sva.vehicle.SpaceMath.NO_TARGET) {
+            tgt = Lang.tr("sva.hud.jump.noTarget");
+        } else if (home) {
+            tgt = Lang.tr("sva.hud.jump.home", other ? Lang.tr("sva.hud.jump.otherDim", Integer.valueOf(dim)) : fmt(dist));
+        } else {
+            tgt = Lang.tr("sva.hud.jump.coord", name.length() == 0 ? "—" : name,
+                    other ? Lang.tr("sva.hud.jump.otherDim", Integer.valueOf(dim)) : fmt(dist));
+        }
+        fr.drawString(tgt, px + 6, ry, code == com.sva.vehicle.SpaceMath.NO_TARGET ? DIM : TEXT);
+        ry += 11;
+        fr.drawString(code == com.sva.vehicle.SpaceMath.NO_TARGET ? "" : Lang.tr("sva.hud.jump.cost", fmt(eu), fmt(sm)), px + 6, ry, DIM);
+        ry += 11;
+        String st;
+        int sc;
+        if (v.isPortalOpening()) {
+            st = Lang.tr("sva.hud.jump.portal");
+            sc = blink ? 0xC85AFF : 0x8040B0;
+        } else if (code == com.sva.vehicle.SpaceMath.OK) {
+            st = Lang.tr("sva.hud.jump.ready");
+            sc = GREEN;
+        } else if (code == com.sva.vehicle.SpaceMath.COOLDOWN) {
+            st = Lang.tr("sva.hud.jump.cooldown", Integer.valueOf(cd));
+            sc = AMBER;
+        } else {
+            st = Lang.tr("sva.hud.jump.why." + code, Integer.valueOf(com.sva.vehicle.SpaceMath.MIN_JUMP));
+            sc = code == com.sva.vehicle.SpaceMath.NO_TARGET ? DIM : WARN;
+        }
+        fr.drawStringWithShadow(st, px + 6, ry, sc);
+        ry += 11;
+        boolean anchor = v.isAnchored(), cloak = v.isInvisible();
+        fr.drawString(Lang.tr(anchor ? "sva.hud.anchor.on" : "sva.hud.anchor.off"), px + 6, ry, anchor ? BLUE : DIM);
+        ry += 11;
+        fr.drawString(Lang.tr(cloak ? "sva.hud.invis.on" : "sva.hud.invis.off"), px + 6, ry, cloak ? 0xC85AFF : DIM);
+    }
+
+    private static int num(String[] p, int i) {
+        if (i >= p.length) {
+            return 0;
+        }
+        try {
+            return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, Long.parseLong(p[i].trim())));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static String time(double sec) {
+        if (Double.isInfinite(sec)) {
+            return "∞";
+        }
+        return sec >= 3600 ? String.format("%d:%02d:%02d", Long.valueOf((long) sec / 3600), Long.valueOf((long) sec / 60 % 60),
+                Long.valueOf((long) sec % 60)) : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
     }
 
     private static final int GREEN = 0x5EE07A, ORANGE = 0xFF9A3C, BLUE = 0x5EC8F0;

@@ -104,6 +104,7 @@ public class WorldTestSVA {
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-WORLDTEST] FAIL exception " + t);
+
             t.printStackTrace(System.out);
             if (ticks < CLEAN) {
                 ticks = CLEAN - 1;
@@ -124,6 +125,23 @@ public class WorldTestSVA {
                 stageCFinish(w);
             } else if (sdAt > 0 && sdPhase < SD_DONE) {
                 stageDFinish(w);
+            }
+        }
+        // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
+        if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
+            try {
+                stageETick(w);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL stage E exception " + t);
+                t.printStackTrace(System.out);
+                try {
+                    stageEFinish(w);
+                } catch (Throwable t2) {
+                    sePhase = SE_DONE;
+                    eDone = true;
+                    maybeSummary();
+                }
             }
         }
     }
@@ -1878,8 +1896,648 @@ public class WorldTestSVA {
         }
         VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
         check(reg.count(OWNER) == 0, "stage D cleanup: no test vehicles left in the registry");
-        System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
-        System.out.println("[SVA-WORLDTEST] DONE");
+        dDone = true;
+        maybeSummary();
     }
 
+    // ------------------------------------------------------------------ stage E: shuttle, Singular ship, bridge docking
+
+    /*
+     * Runs alongside the other phases from tick SE_START (its own area and its own test owner, so the other phases'
+     * registry counts never see its vehicles): the shuttle climbs, flies, spends deuterium instead of EU in long-range
+     * mode, lands and keeps its pilot breathing under water; the Singular Ship jumps 200 blocks to a Coordinator point
+     * with a villager and a pig aboard and its cargo, refuses a jump on cooldown / too near / into rock, holds still at
+     * anchor for 100 ticks and hides its crew from a zombie; then a real core Ground Bridge is built and opened and the
+     * shuttle flies into its vortex - out at the far end with its riders and cargo - and goes to the Nether and back
+     * by the same transfer routine.
+     */
+    private static final String OWNER_E = "00000000-5bad-4e57-0000-00000000e5e5";
+    private static final int SE_DONE = 99, SE_START = 100, EY = 180;
+    private int seAt = SE_START, sePhase, seT0;
+    private boolean dDone, eDone;
+    private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
+    private EntityVehicleSVA shuttle, ship;
+    private String seId;
+    private net.minecraft.entity.passive.EntityVillager sePilot;
+    private net.minecraft.entity.passive.EntityPig sePig;
+    private net.minecraft.entity.monster.EntityZombie seZombie;
+    private int seInput, seGas0;
+    private double seEu0, seX0, seY0, seZ0;
+    private com.sc.tileentity.TileEntityBridgeControllerSC seBridge;
+    private static final com.sc.util.ArmorGasSC.Gas D2 = com.sc.util.ArmorGasSC.Gas.DEUTERIUM, O2 = com.sc.util.ArmorGasSC.Gas.OXYGEN,
+            SM = com.sc.util.ArmorGasSC.Gas.SINGULAR_MATTER;
+
+    /** Prints the SUMMARY once stage D and stage E are both done. */
+    private void maybeSummary() {
+        if (dDone && eDone) {
+            System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
+            System.out.println("[SVA-WORLDTEST] DONE");
+        }
+    }
+
+    /** Sets every block of the box to `b` (air: clears), only where it differs. */
+    private static void seFill(World w, int x0, int y0, int z0, int x1, int y1, int z1, net.minecraft.block.Block b) {
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                for (int y = y0; y <= y1; y++) {
+                    if (w.getBlock(x, y, z) != b) {
+                        w.setBlock(x, y, z, b, 0, 2);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void keepLoadedAt(World w, double px, double pz) {
+        if (!(w instanceof net.minecraft.world.WorldServer)) {
+            return;
+        }
+        int cx = MathHelper.floor_double(px) >> 4, cz = MathHelper.floor_double(pz) >> 4;
+        net.minecraft.world.gen.ChunkProviderServer cp = ((net.minecraft.world.WorldServer) w).theChunkProviderServer;
+        for (int x = cx - 3; x <= cx + 3; x++) {
+            for (int z = cz - 3; z <= cz + 3; z++) {
+                cp.loadChunk(x, z);
+            }
+        }
+    }
+
+    private EntityVehicleSVA seSpawn(World w, VehicleType t, double x, double y, double z, float yaw) {
+        VehicleState st = new VehicleState(t);
+        st.energy = st.maxEnergy();
+        st.fillAllGases();
+        return ItemVehicleSVA.spawn(w, ItemVehicleSVA.withState(new ItemStack(ModContentSVA.vehicle, 1, t.ordinal()), st), x, y, z, yaw,
+                OWNER_E, "WorldTestE");
+    }
+
+    /** A villager at the controls (the motor runs; the keys come from the test). */
+    private net.minecraft.entity.passive.EntityVillager seCrew(World w, EntityVehicleSVA v) {
+        net.minecraft.entity.passive.EntityVillager p = new net.minecraft.entity.passive.EntityVillager(w);
+        p.setPosition(v.posX, v.posY, v.posZ);
+        w.spawnEntityInWorld(p);
+        p.mountEntity(v);
+        return p;
+    }
+
+    private net.minecraft.entity.passive.EntityPig sePassenger(World w, EntityVehicleSVA v) {
+        net.minecraft.entity.passive.EntityPig p = new net.minecraft.entity.passive.EntityPig(w);
+        p.setPosition(v.posX, v.posY, v.posZ);
+        w.spawnEntityInWorld(p);
+        EntitySeatSVA s = v.freeSeat();
+        if (s != null) {
+            p.mountEntity(s);
+        }
+        return p;
+    }
+
+    private void seKeys(EntityVehicleSVA v, int in) {
+        seInput = in;
+        if (v != null) {
+            v.serverInput(in);
+        }
+    }
+
+    /** The live vehicle with this id in w (a transfer makes a new entity), or null. */
+    private static EntityVehicleSVA seFind(World w, String id) {
+        if (w == null || id == null) {
+            return null;
+        }
+        for (Object o : w.loadedEntityList) {
+            if (o instanceof EntityVehicleSVA && !((EntityVehicleSVA) o).isDead && id.equals(((EntityVehicleSVA) o).state.vehId)) {
+                return (EntityVehicleSVA) o;
+            }
+        }
+        return null;
+    }
+
+    /** Seated: the driver is a `driver`-class entity and some passenger seat holds a `seated`-class one. */
+    private static boolean crewAboard(EntityVehicleSVA v, Class<?> driver, Class<?> seated) {
+        if (v == null || !driver.isInstance(v.riddenByEntity)) {
+            return false;
+        }
+        for (net.minecraft.entity.Entity e : v.riders()) {
+            if (seated.isInstance(e) && e.ridingEntity instanceof EntitySeatSVA && ((EntitySeatSVA) e.ridingEntity).getParent() == v) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int countOf(EntityVehicleSVA v, net.minecraft.item.Item item) {
+        int n = 0;
+        for (ItemStack s : v.state.cargo) {
+            if (s != null && s.getItem() == item) {
+                n += s.stackSize;
+            }
+        }
+        return n;
+    }
+
+    private void stageETick(World w) {
+        int pt = ticks - seT0;
+        if (sePhase == 0) {
+            stageESetup(w);
+            return;
+        }
+        if (sePhase < 10) {
+            shuttleTick(w, pt);
+        } else if (sePhase < 20) {
+            shipTick(w, pt);
+        } else if (sePhase < 30) {
+            dockTick(w, pt);
+        } else {
+            stageEFinish(w);
+        }
+    }
+
+    private void stageESetup(World w) {
+        ChunkCoordinates sp = w.getSpawnPoint();
+        ex0 = sp.posX - 60;
+        ez = sp.posZ + 140;
+        shipX = ex0 + 170;
+        destX = shipX + 200;
+        // leftovers of an interrupted run
+        int n = 0;
+        for (Object o : new java.util.ArrayList<Object>(w.loadedEntityList)) {
+            if (o instanceof EntityVehicleSVA && OWNER_E.equals(((EntityVehicleSVA) o).state.ownerId) && !((EntityVehicleSVA) o).isDead) {
+                ((EntityVehicleSVA) o).dismountAll();
+                ((EntityVehicleSVA) o).setDead();
+                n++;
+            }
+        }
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        n += reg == null ? 0 : reg.removeOwner(OWNER_E);
+        if (n > 0) {
+            System.out.println("[SVA-WORLDTEST] note: removed " + n + " leftover stage E vehicle(s)");
+        }
+        keepLoadedAt(w, ex0 + 60, ez);
+        keepLoadedAt(w, ex0 + 160, ez);
+        seFill(w, ex0 - 8, EY + 1, ez - 6, shipX + 8, EY + 26, ez + 6, Blocks.air);
+        seFill(w, ex0 - 8, EY, ez - 6, shipX + 8, EY, ez + 6, Blocks.stone);
+        shuttle = seSpawn(w, VehicleType.SHUTTLE, ex0 + 0.5, EY + 1, ez + 0.5, -90F);
+        check(shuttle != null && shuttle.state.gas(D2) == 4000 && shuttle.state.gas(O2) == 2000 && shuttle.state.energy == 32000000,
+                "shuttle: placed full (32M EU, H2 / He 3000, O2 2000, D 4000)");
+        if (shuttle == null) {
+            sePhase = 10;
+            seT0 = ticks;
+            return;
+        }
+        sePilot = seCrew(w, shuttle);
+        seKeys(shuttle, EntityVehicleSVA.IN_BRAKE);                // Space: up
+        seY0 = shuttle.posY;
+        seX0 = shuttle.posX;
+        sePhase = 1;
+        seT0 = ticks;
+    }
+
+    // ---- the shuttle: climb, flight, long-range mode, landing, cabin oxygen under water
+
+    private void shuttleTick(World w, int pt) {
+        if (shuttle == null || shuttle.isDead || pt > 400) {
+            check(false, "shuttle: lost / out of time in phase " + sePhase);
+            shuttleDone(w);
+            return;
+        }
+        keepLoaded(w, shuttle);
+        seKeys(shuttle, seInput);
+        double h = shuttle.posY - (EY + 1);
+        boolean air = shuttle.airborneAt(shuttle.posX, shuttle.posY, shuttle.posZ);
+        if (sePhase == 1) {
+            if (h >= 10) {
+                check(pt <= 50 && shuttle.isLifting() && Math.abs(shuttle.posX - seX0) < 1, "shuttle: straight up 10 blocks in " + pt
+                        + " ticks (climb 0.35 b/t)");
+                seKeys(shuttle, EntityVehicleSVA.IN_FWD);
+                sePhase = 2;
+                seT0 = ticks;
+            }
+        } else if (sePhase == 2) {
+            if (pt == 30) {
+                seEu0 = shuttle.state.energy;
+            }
+            if (pt == 50) {
+                double perTick = (seEu0 - shuttle.state.energy) / 20.0;
+                check(shuttle.posX - seX0 > 25 && air && Math.abs(shuttle.speed - VehicleType.SHUTTLE.topSpeed) < 0.05,
+                        "shuttle: flew forward " + Math.round(shuttle.posX - seX0) + " blocks in 2.5 s at " + VehicleMath.kmh(shuttle.speed) + " km/h");
+                check(perTick > 185 && perTick < 215 && !shuttle.isLongRangeActive(), "shuttle: " + Math.round(perTick) + " EU/t in flight (200)");
+                check(shuttle.toggleLongRange(), "shuttle: long-range mode switched on (Y " + Math.round(shuttle.posY) + ")");
+                seGas0 = shuttle.state.gas(D2);
+                sePhase = 3;
+                seT0 = ticks;
+            }
+        } else if (sePhase == 3) {
+            if (pt == 5) {
+                seEu0 = shuttle.state.energy;
+            }
+            if (pt == 45) {
+                int d = seGas0 - shuttle.state.gas(D2);
+                check(shuttle.isLongRangeActive() && shuttle.state.energy == seEu0 && d >= 1 && d <= 3, "shuttle: long-range mode spends "
+                        + d + " mB D in 2.25 s and 0 EU (" + Math.round(seEu0 - shuttle.state.energy) + ")");
+                check(!shuttle.toggleLongRange(), "shuttle: long-range mode off");
+                seKeys(shuttle, EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BACK);  // brake and come down
+                sePhase = 4;
+                seT0 = ticks;
+            }
+        } else if (sePhase == 4) {
+            if ((seInput & EntityVehicleSVA.IN_BACK) != 0 && shuttle.speed <= 0.05) {
+                seKeys(shuttle, EntityVehicleSVA.IN_DOWN);
+            }
+            if (pt == 1) {
+                seEu0 = shuttle.state.hp;
+            }
+            if (!air && pt > 3) {
+                seKeys(shuttle, 0);
+                sePhase = 5;
+                seT0 = ticks;
+            }
+        } else if (sePhase == 5 && pt == 5) {
+            check(shuttle.state.hp >= (float) seEu0 - 0.01F && Math.abs(shuttle.posY - (EY + 1)) < 0.05, "shuttle: landed at full descent rate, "
+                    + "no damage (" + Math.round(seEu0 - shuttle.state.hp) + " HP), x+" + Math.round(shuttle.posX - ex0));
+            // water over the pilot's head: the sealed cabin's O2 keeps him breathing
+            int ix = MathHelper.floor_double(sePilot.posX), iy = MathHelper.floor_double(sePilot.posY + sePilot.getEyeHeight()),
+                    iz = MathHelper.floor_double(sePilot.posZ);
+            w.setBlock(ix, iy, iz, Blocks.water, 0, 3);
+            sePilot.setAir(300);
+            seGas0 = shuttle.state.gas(O2);
+            sePhase = 6;
+            seT0 = ticks;
+        } else if (sePhase == 6 && pt == 45) {
+            int used = seGas0 - shuttle.state.gas(O2);
+            check(sePilot.isInsideOfMaterial(net.minecraft.block.material.Material.water) && sePilot.getAir() >= 298 && used >= 1 && used <= 3
+                    && sePilot.ridingEntity == shuttle, "shuttle: the pilot under water keeps full air on the cabin's O2 (" + used
+                    + " mB in 2.25 s, air " + sePilot.getAir() + ")");
+            shuttleDone(w);
+        }
+    }
+
+    private void seDrain(World w, int x0, int z0, int x1, int z1) {
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                for (int y = EY + 1; y <= EY + 8; y++) {
+                    if (w.getBlock(x, y, z).getMaterial() == net.minecraft.block.material.Material.water) {
+                        w.setBlock(x, y, z, Blocks.air, 0, 2);
+                    }
+                }
+            }
+        }
+    }
+
+    private void shuttleDone(World w) {
+        if (shuttle != null) {
+            shuttle.dismountAll();
+            seDrain(w, MathHelper.floor_double(shuttle.posX) - 12, ez - 6, MathHelper.floor_double(shuttle.posX) + 12, ez + 6);
+            shuttle.setDead();
+            shuttle = null;
+        }
+        if (sePilot != null) {
+            sePilot.setDead();
+            sePilot = null;
+        }
+        sePhase = 10;
+        seT0 = ticks;
+    }
+
+    // ---- the Singular ship: a 200-block jump with its crew and cargo, refusals, the anchor, invisibility
+
+    private void shipTick(World w, int pt) {
+        if (sePhase == 10) {
+            keepLoadedAt(w, destX, ez);
+            seFill(w, destX - 8, EY, ez - 8, destX + 8, EY + 14, ez + 8, Blocks.air);
+            ship = seSpawn(w, VehicleType.SHIP, shipX + 0.5, EY + 1, ez + 0.5, -90F);
+            check(ship != null && ship.state.gas(SM) == 4000 && ship.state.energy == 256000000, "ship: placed full (256M EU, SM 4000)");
+            if (ship == null) {
+                sePhase = 20;
+                seT0 = ticks;
+                return;
+            }
+            ItemStack coord = new ItemStack(com.sc.init.ModItems.coordinator);
+            com.sc.bridge.BridgeItemDataSC.setPoint(coord, destX, EY + 5, ez, 0, true);
+            com.sc.bridge.BridgeItemDataSC.setPointName(coord, "Тест");
+            ship.setInventorySlotContents(0, coord);
+            ship.setInventorySlotContents(5, new ItemStack(Blocks.cobblestone, 37));
+            sePilot = seCrew(w, ship);
+            seKeys(ship, 0);
+            sePhase = 11;
+            seT0 = ticks;
+            return;
+        }
+        if (ship == null || ship.isDead && sePhase != 12 || pt > 400) {
+            check(false, "ship: lost / out of time in phase " + sePhase);
+            shipDone(w);
+            return;
+        }
+        keepLoaded(w, ship);
+        keepLoadedAt(w, destX, ez);
+        if (!ship.isDead) {
+            seKeys(ship, seInput);
+        }
+        if (sePhase == 11) {
+            if (pt == 3) {
+                sePig = sePassenger(w, ship);
+                check(crewAboard(ship, net.minecraft.entity.passive.EntityVillager.class, net.minecraft.entity.passive.EntityPig.class),
+                        "ship: a villager at the controls, a pig on a passenger seat");
+            }
+            if (pt == 6) {
+                seId = ship.state.vehId;
+                seEu0 = ship.state.energy;
+                seGas0 = ship.state.gas(SM);
+                int r = ship.startJump();
+                check(r == com.sva.vehicle.SpaceMath.OK && ship.portalTicks() == com.sva.vehicle.SpaceMath.PORTAL_TICKS && ship.isHeld(),
+                        "ship: Jump to the Coordinator 200 blocks ahead - the portal opens, the ship held (result " + r + ")");
+                seX0 = ship.posX;
+                sePhase = 12;
+                seT0 = ticks;
+            }
+        } else if (sePhase == 12) {
+            if (!ship.isDead) {
+                if (pt == 15 && Math.abs(ship.posX - seX0) > 1e-6) {
+                    check(false, "ship: moved while the portal opened");
+                }
+                return;
+            }
+            EntityVehicleSVA n = seFind(w, seId);
+            long jumpEu = com.sva.vehicle.SpaceMath.jumpEu(200, false);
+            double spent = n == null ? -1 : seEu0 - n.state.energy;
+            check(n != null && Math.abs(n.posX - (destX + 0.5)) < 0.1 && Math.abs(n.posY - (EY + 5)) < 0.1 && Math.abs(n.posZ - (ez + 0.5)) < 0.1,
+                    "ship: jumped after " + pt + " ticks of portal to " + (n == null ? "nowhere" : Math.round(n.posX - shipX) + " blocks ahead, Y "
+                            + Math.round(n.posY)));
+            check(n != null && spent >= jumpEu && spent <= jumpEu + 2000 && seGas0 - n.state.gas(SM) == 12 && n.state.jumpCooldown > 590,
+                    "ship: the jump took " + Math.round(spent) + " EU (20 400 000) and " + (n == null ? -1 : seGas0 - n.state.gas(SM))
+                            + " mB SM (12), cooldown 30 s");
+            ship = n;
+            sePhase = 13;
+            seT0 = ticks;
+        } else if (sePhase == 13 && pt == 15) {
+            check(crewAboard(ship, net.minecraft.entity.passive.EntityVillager.class, net.minecraft.entity.passive.EntityPig.class)
+                    && ship.riddenByEntity == sePilot && sePig.ridingEntity instanceof EntitySeatSVA, "ship: arrived with the villager still at the "
+                    + "controls and the pig on its seat");
+            check(countOf(ship, net.minecraft.item.Item.getItemFromBlock(Blocks.cobblestone)) == 37 && com.sc.item.ItemCoordinatorSC.isCoordinator(ship.getStackInSlot(0)),
+                    "ship: the cargo came along (37 cobblestone, the Coordinator)");
+            check(ship.isLifting() && !ship.isHeld(), "ship: flying under its pilot again at the destination");
+            // refusals: the cooldown, too near, into rock
+            double x = ship.posX, eu = ship.state.energy;
+            ItemStack coord = ship.getStackInSlot(0);
+            com.sc.bridge.BridgeItemDataSC.setPoint(coord, destX - 100, EY + 5, ez, 0, true);
+            int r1 = ship.startJump();
+            ship.state.jumpCooldown = 0;
+            com.sc.bridge.BridgeItemDataSC.setPoint(coord, destX + 5, EY + 5, ez, 0, true);
+            int r2 = ship.startJump();
+            seFill(w, destX - 61, EY + 4, ez - 1, destX - 59, EY + 6, ez + 1, Blocks.stone);
+            com.sc.bridge.BridgeItemDataSC.setPoint(coord, destX - 60, EY + 5, ez, 0, true);
+            int r3 = ship.startJump();
+            check(r1 == com.sva.vehicle.SpaceMath.COOLDOWN && r2 == com.sva.vehicle.SpaceMath.TOO_NEAR && r3 == com.sva.vehicle.SpaceMath.BLOCKED
+                    && ship.portalTicks() == 0 && ship.posX == x && ship.state.energy >= eu - 1000,
+                    "ship: jumps refused on cooldown (" + r1 + "), 5 blocks away (" + r2 + "), into a block of stone (" + r3 + ") - it stays, nothing paid");
+            // the anchor: forward + down held, a knock - it doesn't move
+            seKeys(ship, EntityVehicleSVA.IN_FWD | EntityVehicleSVA.IN_DOWN);
+            int a = ship.toggleAnchor();
+            ship.addVelocity(2, 2, 2);
+            seX0 = ship.posX;
+            seY0 = ship.posY;
+            seZ0 = ship.posZ;
+            seEu0 = ship.state.energy;
+            check(a == 1 && ship.isAnchored() && ship.isHeld(), "ship: gravity anchor on");
+            sePhase = 14;
+            seT0 = ticks;
+        } else if (sePhase == 14 && pt == 100) {
+            double drift = Math.abs(ship.posX - seX0) + Math.abs(ship.posY - seY0) + Math.abs(ship.posZ - seZ0);
+            double perTick = (seEu0 - ship.state.energy) / 100.0;
+            check(drift < 1e-6, "ship: the anchor held it for 100 ticks with W + down held and a knock (drift " + drift + ")");
+            check(perTick > 38 && perTick < 42, "ship: the anchor costs " + Math.round(perTick * 10) / 10.0 + " EU/t (40)");
+            check(ship.toggleAnchor() == 0 && !ship.isHeld(), "ship: anchor off");
+            seKeys(ship, 0);
+            // invisibility: a zombie that picks the pilot drops him
+            check(ship.toggleInvisible() == 1, "ship: invisibility on");
+            seGas0 = ship.state.gas(SM);
+            seZombie = new net.minecraft.entity.monster.EntityZombie(w);
+            seZombie.setPosition(ship.posX + 3, ship.posY, ship.posZ);
+            w.spawnEntityInWorld(seZombie);
+            seZombie.setAttackTarget(sePilot);
+            check(seZombie.getAttackTarget() == null, "ship: invisible - a zombie can't target the pilot");
+            sePhase = 15;
+            seT0 = ticks;
+        } else if (sePhase == 15 && pt == 40) {
+            int used = seGas0 - ship.state.gas(SM);
+            check(used >= 1 && used <= 3 && seZombie.getAttackTarget() == null, "ship: invisibility spends " + used + " mB SM in 2 s (1 mB/s)");
+            check(ship.toggleInvisible() == 0, "ship: invisibility off");
+            seZombie.setAttackTarget(sePilot);
+            check(seZombie.getAttackTarget() == sePilot, "ship: visible again - the zombie targets the pilot");
+            shipDone(w);
+        }
+    }
+
+    private void shipDone(World w) {
+        if (seZombie != null) {
+            seZombie.setDead();
+            seZombie = null;
+        }
+        EntityVehicleSVA s = ship != null && ship.isDead ? seFind(w, seId) : ship;
+        for (EntityVehicleSVA v : new EntityVehicleSVA[] {ship, s}) {
+            if (v != null) {
+                for (net.minecraft.entity.Entity e : v.riders()) {
+                    e.mountEntity(null);
+                    e.setDead();
+                }
+                v.setDead();
+            }
+        }
+        ship = null;
+        for (net.minecraft.entity.Entity e : new net.minecraft.entity.Entity[] {sePilot, sePig}) {
+            if (e != null) {
+                e.setDead();
+            }
+        }
+        sePilot = null;
+        sePig = null;
+        if (destX != 0) {
+            seFill(w, destX - 61, EY + 4, ez - 1, destX - 59, EY + 6, ez + 1, Blocks.air);
+        }
+        sePhase = 20;
+        seT0 = ticks;
+    }
+
+    // ---- docking: a real core Ground Bridge opened 200 blocks; the shuttle flies into the ring; then the Nether and back
+
+    private void buildBridge(World w) {
+        for (int u = -2; u <= 2; u++) {
+            for (int v = 1; v <= 5; v++) {
+                if (com.sc.bridge.BridgeStructureSC.isRing(5, u, v)) {
+                    w.setBlock(bX + u, bY + v, bZ, com.sc.init.ModBlocks.gravityCoil);
+                }
+            }
+        }
+        w.setBlock(bX, bY, bZ, com.sc.init.ModBlocks.bridge, com.sc.block.BlockBridgeSC.CONTROLLER, 3);
+        w.setBlock(bX - 1, bY, bZ, com.sc.init.ModBlocks.bridge, com.sc.block.BlockBridgeSC.CAPACITOR, 3);
+        w.setBlock(bX - 2, bY, bZ, com.sc.init.ModBlocks.bridge, com.sc.block.BlockBridgeSC.CAPACITOR, 3);
+        w.setBlock(bX + 1, bY, bZ, com.sc.init.ModBlocks.bridge, com.sc.block.BlockBridgeSC.ENERGY_PORT, 3);
+        w.setBlock(bX + 2, bY, bZ, com.sc.init.ModBlocks.bridge, com.sc.block.BlockBridgeSC.GAS_PORT, 3);
+        w.setBlock(bX, bY - 1, bZ, com.sc.init.ModBlocks.bridge, com.sc.block.BlockBridgeSC.MASS, 3);
+        TileEntity te = w.getTileEntity(bX, bY, bZ);
+        seBridge = te instanceof com.sc.tileentity.TileEntityBridgeControllerSC ? (com.sc.tileentity.TileEntityBridgeControllerSC) te : null;
+        if (seBridge == null) {
+            return;
+        }
+        seBridge.setPowerOn(true);
+        int[] fill = {20000, 10000, 4000, 8000, 8000, 8000};
+        for (int i = 0; i < fill.length; i++) {
+            seBridge.putTankForTest(i, fill[i]);
+        }
+        for (int x = bX - 2; x <= bX - 1; x++) {
+            TileEntity c = w.getTileEntity(x, bY, bZ);
+            if (c instanceof com.sc.tileentity.TileEntityBridgeCapacitorSC) {
+                ((com.sc.tileentity.TileEntityBridgeCapacitorSC) c).setEnergy(com.sc.bridge.BridgeMathSC.CAPACITOR_EU);
+            }
+        }
+    }
+
+    private void dockTick(World w, int pt) {
+        if (sePhase == 20) {
+            bX = ex0 + 20;
+            bY = EY + 2;
+            bZ = ez + 40;
+            tX = bX + 200;
+            tY = bY + 1;
+            tZ = bZ;
+            keepLoadedAt(w, bX, bZ);
+            keepLoadedAt(w, tX, tZ);
+            seFill(w, bX - 4, bY - 2, bZ - 10, bX + 4, bY + 8, bZ + 3, Blocks.air);
+            seFill(w, tX - 4, tY - 1, tZ - 3, tX + 4, tY + 6, tZ + 12, Blocks.air);
+            seFill(w, tX - 2, tY - 1, tZ - 2, tX + 2, tY - 1, tZ + 8, Blocks.stone);
+            buildBridge(w);
+            com.sc.bridge.BridgeStructureSC.Scan s = seBridge == null ? null : seBridge.rescan();
+            if (seBridge != null) {
+                seBridge.setTarget(tX, tY, tZ, 0);
+                seBridge.calibrate(null);
+                seBridge.setTarget(tX, tY, tZ, 0);
+            }
+            com.sc.bridge.BridgeMsgSC m = seBridge == null ? null : seBridge.tryOpen(null);
+            check(s != null && s.valid && seBridge.isOpen() && m == null && w.getBlock(bX, bY + 3, bZ) == com.sc.init.ModBlocks.bridgeVortex,
+                    "dock: a core Ground Bridge built, calibrated and opened 200 blocks away" + (m == null ? "" : " - refused: " + m.key));
+            shuttle = seSpawn(w, VehicleType.SHUTTLE, bX + 0.5, bY + 2, bZ - 4.5, 0F);
+            check(shuttle != null, "dock: shuttle hovering 4.5 blocks before the ring, facing it");
+            if (shuttle == null || seBridge == null || !seBridge.isOpen()) {
+                stageEFinish(w);
+                return;
+            }
+            sePilot = seCrew(w, shuttle);
+            shuttle.setInventorySlotContents(3, new ItemStack(Blocks.glass, 11));
+            seKeys(shuttle, 0);
+            sePhase = 21;
+            seT0 = ticks;
+            return;
+        }
+        if (sePhase == 21) {
+            if (shuttle == null || pt > 120) {
+                check(false, "dock: the shuttle never came through the vortex (z " + (shuttle == null ? "-" : Math.round((shuttle.posZ - bZ) * 10) / 10.0) + ")");
+                stageEFinish(w);
+                return;
+            }
+            if (pt == 3) {
+                sePig = sePassenger(w, shuttle);
+                seId = shuttle.state.vehId;
+                seEu0 = shuttle.state.energy;
+                seKeys(shuttle, EntityVehicleSVA.IN_FWD);
+            }
+            if (!shuttle.isDead) {
+                keepLoaded(w, shuttle);
+                seKeys(shuttle, seInput);
+                return;
+            }
+            EntityVehicleSVA n = seFind(w, seId);
+            double toll = com.sc.bridge.BridgeMathSC.massEu(com.sva.vehicle.SpaceMath.dockMass(new int[] {20, 20}), true);
+            double spent = n == null ? -1 : seEu0 - n.state.energy;
+            check(n != null && Math.abs(n.posX - (tX + 0.5)) < 0.2 && Math.abs(n.posY - tY) < 0.2 && Math.abs(n.posZ - (tZ + 4.5)) < 0.2
+                    && n.rotationYaw == 0F, "dock: flew into the ring after " + pt + " ticks - out at the far end "
+                    + (n == null ? "-" : Math.round(n.posX - bX) + " / " + Math.round((n.posZ - tZ) * 10) / 10.0 + " blocks out"));
+            check(n != null && spent >= toll && spent <= toll + 20000, "dock: the shuttle paid the mass toll " + Math.round(spent) + " EU (4M: hull + 2 mobs, "
+                    + "halved by the Mass Compensator)");
+            shuttle = n;
+            sePhase = 22;
+            seT0 = ticks;
+            return;
+        }
+        if (shuttle == null || shuttle.isDead || pt > 200) {
+            check(false, "dock: lost the shuttle in phase " + sePhase);
+            stageEFinish(w);
+            return;
+        }
+        keepLoaded(shuttle.worldObj, shuttle);
+        if (shuttle.worldObj instanceof net.minecraft.world.WorldServer) {
+            ((net.minecraft.world.WorldServer) shuttle.worldObj).resetUpdateEntityTick();
+        }
+        seKeys(shuttle, 0);
+        if (sePhase == 22 && pt == 15) {
+            check(crewAboard(shuttle, net.minecraft.entity.passive.EntityVillager.class, net.minecraft.entity.passive.EntityPig.class)
+                    && shuttle.riddenByEntity == sePilot && countOf(shuttle, net.minecraft.item.Item.getItemFromBlock(Blocks.glass)) == 11,
+                    "dock: through the bridge with the villager at the controls, the pig on its seat and the cargo (11 glass)");
+            net.minecraft.server.MinecraftServer srv = net.minecraft.server.MinecraftServer.getServer();
+            World nether = srv == null ? null : srv.worldServerForDimension(-1);
+            EntityVehicleSVA n = nether == null ? null : com.sva.entity.VehicleTransferSVA.transfer(shuttle, -1, (tX >> 3) + 0.5, 140, (tZ >> 3) + 0.5, 0F);
+            check(n != null && n.worldObj.provider.dimensionId == -1, "transfer: the shuttle with its crew to the Nether (Y 140)");
+            if (n == null) {
+                stageEFinish(w);
+                return;
+            }
+            shuttle = n;
+            sePhase = 23;
+            seT0 = ticks;
+        } else if (sePhase == 23 && pt == 15) {
+            check(crewAboard(shuttle, net.minecraft.entity.passive.EntityVillager.class, net.minecraft.entity.passive.EntityPig.class)
+                    && countOf(shuttle, net.minecraft.item.Item.getItemFromBlock(Blocks.glass)) == 11 && shuttle.pendingCount() == 0,
+                    "transfer: in the Nether with a villager at the controls, a pig seated (copies across the dimension), cargo intact");
+            EntityVehicleSVA n = com.sva.entity.VehicleTransferSVA.transfer(shuttle, 0, tX + 0.5, tY + 3, tZ + 6.5, 180F);
+            check(n != null && n.worldObj == w && seFind(DimensionManager.getWorld(-1), seId) == null, "transfer: back to the overworld");
+            if (n == null) {
+                stageEFinish(w);
+                return;
+            }
+            shuttle = n;
+            sePhase = 24;
+            seT0 = ticks;
+        } else if (sePhase == 24 && pt == 15) {
+            check(crewAboard(shuttle, net.minecraft.entity.passive.EntityVillager.class, net.minecraft.entity.passive.EntityPig.class)
+                    && countOf(shuttle, net.minecraft.item.Item.getItemFromBlock(Blocks.glass)) == 11 && shuttle.rotationYaw == 180F,
+                    "transfer: home again - crew seated, cargo intact");
+            stageEFinish(w);
+        }
+    }
+
+    private void stageEFinish(World w) {
+        sePhase = SE_DONE;
+        if (seZombie != null) {
+            seZombie.setDead();
+        }
+        for (World ww : new World[] {w, DimensionManager.getWorld(-1)}) {
+            EntityVehicleSVA v = seFind(ww, seId);
+            for (EntityVehicleSVA x : new EntityVehicleSVA[] {v, shuttle, ship}) {
+                if (x != null) {
+                    for (net.minecraft.entity.Entity e : x.riders()) {
+                        e.mountEntity(null);
+                        e.setDead();
+                    }
+                    x.setDead();
+                }
+            }
+        }
+        shuttle = ship = null;
+        for (net.minecraft.entity.Entity e : new net.minecraft.entity.Entity[] {sePilot, sePig}) {
+            if (e != null) {
+                e.setDead();
+            }
+        }
+        if (seBridge != null) {
+            if (seBridge.isOpen()) {
+                seBridge.closePortal("sc.bridge.journal.timeout");
+            }
+            seFill(w, bX - 4, bY - 2, bZ - 10, bX + 4, bY + 8, bZ + 3, Blocks.air);
+            seFill(w, tX - 4, tY - 1, tZ - 3, tX + 4, tY + 6, tZ + 12, Blocks.air);
+            seBridge = null;
+        }
+        if (ex0 != 0 || ez != 0) {
+            seFill(w, ex0 - 8, EY, ez - 6, shipX + 8, EY + 26, ez + 6, Blocks.air);
+            seFill(w, destX - 61, EY + 4, ez - 1, destX - 59, EY + 6, ez + 1, Blocks.air);
+        }
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        check(reg.count(OWNER_E) == 0, "stage E cleanup: no test vehicles left in the registry");
+        eDone = true;
+        maybeSummary();
+    }
 }

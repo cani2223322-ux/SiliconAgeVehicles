@@ -16,7 +16,8 @@ public final class HeliPhysicsSVA {
     }
 
     public static void step(EntityVehicleSVA v, VehicleType t, int in) {
-        step(v, t, in, t.topSpeed, t.accel);
+        double top = t.topSpeed * v.afterburnerMul(in);              // stage E: the shuttle's / ship's «Форсаж»
+        step(v, t, in, top, t.accel * (top > t.topSpeed ? 1.5 : 1));
     }
 
     /** The same with the top speed and acceleration given (the tiltrotor's vertical mode: vtolTop, vtolAccel). */
@@ -45,8 +46,8 @@ public final class HeliPhysicsSVA {
                 speed = Math.min(-top * HeliMath.REVERSE, speed + EntityVehicleSVA.BRAKE);
             }
             v.rotationYaw += steer * t.turnRate;
-            double target = HeliMath.targetVy(up, down, v.posY);
-            vy = air || target > 0 ? HeliMath.poweredVy(v.motionY, up, down, v.posY) : -0.08;   // grounded: stay down
+            double target = HeliMath.targetVy(t, up, down, v.posY);
+            vy = air || target > 0 ? HeliMath.poweredVy(t, v.motionY, up, down, v.posY) : -0.08;   // grounded: stay down
         } else if (air) {
             // autorotation: settle to a slow forward drift and spiral down
             speed = FlightMath.approach(speed, HeliMath.AUTO_FWD, 0.01);

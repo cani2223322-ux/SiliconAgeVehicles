@@ -245,6 +245,25 @@ public final class WorkbenchRecipesSVA {
                 'A', part(ComponentType.ANTIGRAV_ENGINE), 'H', hull4, 'E', part(ComponentType.ENERGY_BLOCK_XV), 'X', tiCasing,
                 'I', ti, 'S', steel);
 
+        // ---- stage E
+        // Transport Shuttle (plan §4.2: hull IV, antigrav engine x2, XV energy block, cabin IV, the core's fusion reactor
+        // core, gas tank x3; the brief adds the flight computer; 60M EU): the cabin between two gas tanks on top, the
+        // antigrav engines either side of the computer between W-Ti plates, hull IV / fusion core / third tank between
+        // copper coils, the XV energy block in titanium casings, steel skids. XV: 2 transformers.
+        vehicle(VehicleType.SHUTTLE, 60000000L, 12000,
+                " GCG ", "PAFAP", "KHRGK", " XEX ", " S S ",
+                'G', gasTank, 'C', cabin, 'P', wTi, 'A', part(ComponentType.ANTIGRAV_ENGINE), 'F', computer, 'K', coil,
+                'H', hull4, 'R', c("fusionCore"), 'X', tiCasing, 'E', part(ComponentType.ENERGY_BLOCK_XV), 'S', steel);
+        // Singular Ship (plan §4.2: hull V, singular engine, SV energy block, cabin V, the core's bridge link module, gas
+        // tank x4; the brief adds the flight computer and singular clots; 500M EU): clots at the corners, the cabin between
+        // tanks, the computer between two more, the singular engine / hull V / bridge link module between gravity coils,
+        // the SV energy block in Nb3Sn plates. SV: 3 transformers.
+        vehicle(VehicleType.SHIP, 500000000L, 24000,
+                "QGCGQ", "PGFGP", "KSHBK", " PEP ", " Q Q ",
+                'Q', clot, 'G', gasTank, 'C', cabin, 'P', nbPlate, 'F', computer, 'K', gravCoil,
+                'S', part(ComponentType.SINGULAR_ENGINE), 'H', part(ComponentType.HULL_V), 'B', new ItemStack(ModItems.bridgeLinkModule),
+                'E', part(ComponentType.ENERGY_BLOCK_SV));
+
         // ---- blocks (also on the crafting table)
         block("charger", new ItemStack(ModContentSVA.charger, 1, Tier.MV.ordinal()), Tier.MV, "XXX", "KEK", "STS",
                 'X', casing, 'K', coil, 'E', cellMV, 'S', steel, 'T', ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.TRANSFORMER));

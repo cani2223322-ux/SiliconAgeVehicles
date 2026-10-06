@@ -58,6 +58,20 @@ public class ClientProxySVA extends CommonProxySVA {
     public static final net.minecraft.client.settings.KeyBinding KEY_DRILL_MODE =
             new net.minecraft.client.settings.KeyBinding("key.sva.drillMode", org.lwjgl.input.Keyboard.KEY_N, "key.categories.sva");
 
+    /**
+     * Stage E, the Singular Ship (its pilot): «Прыжок» V, «Цель прыжка» Y (Coordinator / home), «Гравитационный якорь» Z,
+     * «Невидимость» C. All free in vanilla 1.7.10, the core (K, R, P, H, J, G) and this addon (F, X, B, N).
+     * The shuttle's / ship's «Дальний режим» is the «Режим» key (N).
+     */
+    public static final net.minecraft.client.settings.KeyBinding KEY_JUMP =
+            new net.minecraft.client.settings.KeyBinding("key.sva.jump", org.lwjgl.input.Keyboard.KEY_V, "key.categories.sva");
+    public static final net.minecraft.client.settings.KeyBinding KEY_TARGET =
+            new net.minecraft.client.settings.KeyBinding("key.sva.jumpTarget", org.lwjgl.input.Keyboard.KEY_Y, "key.categories.sva");
+    public static final net.minecraft.client.settings.KeyBinding KEY_ANCHOR =
+            new net.minecraft.client.settings.KeyBinding("key.sva.anchor", org.lwjgl.input.Keyboard.KEY_Z, "key.categories.sva");
+    public static final net.minecraft.client.settings.KeyBinding KEY_CLOAK =
+            new net.minecraft.client.settings.KeyBinding("key.sva.cloak", org.lwjgl.input.Keyboard.KEY_C, "key.categories.sva");
+
     @Override
     public void init(FMLInitializationEvent e) {
         super.init(e);
@@ -65,6 +79,10 @@ public class ClientProxySVA extends CommonProxySVA {
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DOWN);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DRILL);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DRILL_MODE);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_JUMP);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_TARGET);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_ANCHOR);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CLOAK);
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
         FMLCommonHandler.instance().bus().register(this);
@@ -185,7 +203,8 @@ public class ClientProxySVA extends CommonProxySVA {
     private static void drillKeys() {
         Minecraft mc = Minecraft.getMinecraft();
         boolean toggle = KEY_DRILL.isPressed(), mode = KEY_DRILL_MODE.isPressed();
-        if (mc.thePlayer == null || mc.currentScreen != null || !(toggle || mode)) {
+        boolean jump = KEY_JUMP.isPressed(), target = KEY_TARGET.isPressed(), anchor = KEY_ANCHOR.isPressed(), cloak = KEY_CLOAK.isPressed();
+        if (mc.thePlayer == null || mc.currentScreen != null || !(toggle || mode || jump || target || anchor || cloak)) {
             return;
         }
         Entity r = mc.thePlayer.ridingEntity;
@@ -197,6 +216,15 @@ public class ClientProxySVA extends CommonProxySVA {
             NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), toggle ? EntityVehicleSVA.A_DRILL_TOGGLE : EntityVehicleSVA.A_DRILL_MODE));
         } else if (mode && t.movement == com.sva.vehicle.Movement.TILT) {
             NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), EntityVehicleSVA.A_FLIGHT_MODE));     // «Режим»
+        } else if (mode && t.longRange) {
+            NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), EntityVehicleSVA.A_LONG_RANGE));      // «Дальний режим»
+        }
+        if (t.singular) {
+            int a = jump ? EntityVehicleSVA.A_JUMP : target ? EntityVehicleSVA.A_JUMP_TARGET : anchor ? EntityVehicleSVA.A_ANCHOR
+                    : cloak ? EntityVehicleSVA.A_INVIS : -1;
+            if (a >= 0) {
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), a));
+            }
         }
     }
 

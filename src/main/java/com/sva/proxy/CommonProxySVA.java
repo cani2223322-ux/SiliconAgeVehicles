@@ -28,6 +28,7 @@ public class CommonProxySVA {
         ModContentSVA.recipes();
         NetworkRegistry.INSTANCE.registerGuiHandler(SVAMod.instance, new GuiHandlerSVA());
         FMLCommonHandler.instance().bus().register(ServerQueueSVA.INSTANCE);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new com.sva.entity.EventsSVA());     // stage E: invisibility
     }
 
     public void postInit(FMLPostInitializationEvent e) {

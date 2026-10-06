@@ -40,7 +40,9 @@ public final class ObjModelSVA {
          * NACELLE (stage D, the tiltrotor): first tilted forward about z through `tiltPivot` by the nacelle angle
          * (0 rotors up .. 90 forward), then spun about its own y axis through `pivot` like a ROTOR.
          */
-        public static final int ROTOR = 0, TRAILER = 1, BORE = 2, NACELLE = 3;
+        public static final int ROTOR = 0, TRAILER = 1, BORE = 2, NACELLE = 3,
+                /** Stage E, the Singular Ship: the singularity's black sphere (pulses) and its gold rings + disk (spin). */
+                CORE = 4, RINGS = 5;
         /** NACELLE: the point the rotor swings forward about (model units). */
         public float[] tiltPivot;
         public final String name;
@@ -104,6 +106,14 @@ public final class ObjModelSVA {
                 new float[] {3.2F, 2.2F, 1.2F}, new float[] {2.2F, 1.031F, 0.019F}, 0, 1F, 0F));
         nacelle(1);
         nacelle(-1);
+        // ship.obj (stage E): the singularity over the hull - the black sphere ("core", x -0.89..-0.20, y 1.72..2.41, centre
+        // (-0.545, 2.065, 0); the holo-table's mini singularity at x 1.0..1.15 stays) pulses; its gold rings (x -1.52..0.42,
+        // y 1.00..3.12) and the tilted accretion disk (x -1.36..0.26, y 1.81..2.31) spin about the vertical through it.
+        // The y floor 1.15 keeps the gold trims along the hull (y 1.07..1.11) and the core's channel below in place.
+        part("ship", new Part(Part.CORE, "sing", new String[] {"core"}, null, new float[] {-1.0F, 1.6F, -0.5F},
+                new float[] {0.0F, 2.5F, 0.5F}, new float[] {-0.545F, 2.065F, 0F}, 1, 1F, 0F));
+        part("ship", new Part(Part.RINGS, "rings", new String[] {"gold", "disk"}, null, new float[] {-1.6F, 1.15F, -0.9F},
+                new float[] {0.5F, 3.2F, 0.9F}, new float[] {-0.545F, 2.065F, 0F}, 1, 1F, 0F));
     }
 
     /**
@@ -362,6 +372,16 @@ public final class ObjModelSVA {
         }
         GL11.glPopMatrix();
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /** A CORE part scaled by `scale` about its pivot (the singularity's pulse). */
+    public void renderPulse(Part p, float scale, float shade) {
+        GL11.glPushMatrix();
+        GL11.glTranslatef(p.pivot[0], p.pivot[1], p.pivot[2]);
+        GL11.glScalef(scale, scale, scale);
+        GL11.glTranslatef(-p.pivot[0], -p.pivot[1], -p.pivot[2]);
+        renderPart(p, 0F, shade);
+        GL11.glPopMatrix();
     }
 
     /**

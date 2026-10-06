@@ -40,6 +40,22 @@ public final class HeliMath {
         return FlightMath.approach(vy, targetVy(up, down, y), VACC);
     }
 
+    /** Stage E: the same with the type's own climb / descent rates (the shuttle and the ship climb faster). */
+    public static double targetVy(VehicleType t, boolean up, boolean down, double y) {
+        if (up && !down) {
+            return y >= FlightMath.CEILING ? -0.05 : t.climb * FlightMath.ceilingFactor(y);
+        }
+        if (down && !up) {
+            return -t.descend;
+        }
+        return y > FlightMath.CEILING ? -0.05 : 0;
+    }
+
+    /** Powered vertical speed with the type's rates; the vertical acceleration grows with the climb rate. */
+    public static double poweredVy(VehicleType t, double vy, boolean up, boolean down, double y) {
+        return FlightMath.approach(vy, targetVy(t, up, down, y), VACC * Math.max(1, t.climb / CLIMB));
+    }
+
     /** Autorotation vertical speed this tick: at once AUTO_START down, then AUTO_ACC more a tick, AUTO_SINK at most. */
     public static double autoVy(double vy) {
         double v = Math.min(vy, -AUTO_START) - AUTO_ACC;
@@ -77,6 +93,17 @@ public final class HeliMath {
             c *= 1 - DESCENT_SAVING * VehicleMath.clamp(-vy / DESCEND, 0, 1);
         }
         return c * FlightMath.cargoMul(fill);
+    }
+
+    /**
+     * Stage E: the same for a type - powered touch-downs are free up to its own full descent rate (the shuttle / ship
+     * come down at 0.4 / 0.5 b/t, over the helicopter's SAFE_LANDING).
+     */
+    public static double landingDamage(VehicleType t, double impact, boolean autorotation) {
+        if (!autorotation && t.descend + 0.05 > SAFE_LANDING) {
+            return Math.max(0, impact - (t.descend + 0.05)) * HARD_DAMAGE;
+        }
+        return landingDamage(t.maxHp, impact, autorotation);
     }
 
     /** Hull HP a touch-down at `impact` (b/t down) takes; autorotation: AUTO_LAND_FRAC of the hull, capped at AUTO_LAND_CAP. */

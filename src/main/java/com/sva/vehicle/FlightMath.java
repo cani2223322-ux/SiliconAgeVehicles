@@ -76,7 +76,7 @@ public final class FlightMath {
         }
         double c;
         if (m == Movement.HELI) {
-            c = HeliMath.CLIMB;
+            c = t.movement == Movement.HELI ? t.climb : HeliMath.CLIMB;     // the tiltrotor's vertical mode: the heli's
         } else if (m == Movement.PLANE) {
             c = speed >= t.plane.stall * 0.8 ? Math.max(t.plane.climb, t.plane.rotateVy) : 0;
         } else {

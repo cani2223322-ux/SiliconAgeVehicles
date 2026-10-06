@@ -57,7 +57,7 @@ public enum VehicleType {
     // lower than his head - he looks out over it like out of a hatch. Body 6.4 x 2.6 x 2.85 blocks, the bore cone
     // 2.0 across; seat at the cushion centre (0.36, -0.31) x 1.1. Collision box 2.4 x 2.7 - it fits the 3x3 tunnel.
     DRILL("drill", "drill", Tier.EV, 8000000, 120, 4, 0.168, 0.008, 2.5, 1, 108, 600, 2.4F, 2.7F,
-            new double[][] {{0.40, -0.34}}, 1.1F, 1.64, Movement.CRAWLER,
+            new double[][] {{0.40, -0.34}}, 1.1F, 0.90, Movement.CRAWLER,
             VehicleGases.of(Gas.HELIUM, Integer.valueOf(2000), Gas.ARGON, Integer.valueOf(2000)).field(Gas.ARGON, 1, 0.4)),
     // Jet (plan §2, QV): 16M EU, 90 EU/t cruising (72 at Y >= 100) / 250 on the take-off run and climbing (peakCost) / 3
     // idle, x6 sprint (1.68 b/t), the AFTERBURNER on «Форсаж» at full throttle: x1.5 speed and thrust, H2 4 mB/s, x2 heat
@@ -81,7 +81,34 @@ public enum VehicleType {
     TILT("tilt", "tilt", Tier.XV, 32000000, 110, 3, 1.4, PlaneParams.TILT.thrust, 2.0, 6, 27, 400, 3.0F, 2.0F,
             new double[][] {{3.66, 0.30}, {3.66, -0.30}, {0.89, 0.38}, {0.89, -0.38}, {-0.06, 0.38}, {-0.06, -0.38}}, 2.2F, 0.92,
             Movement.TILT,
-            VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(3000), Gas.HELIUM, Integer.valueOf(2000)).afterburner(Gas.HYDROGEN, 3, 1.25));
+            VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(3000), Gas.HELIUM, Integer.valueOf(2000)).afterburner(Gas.HYDROGEN, 3, 1.25)),
+    // Transport Shuttle (plan §2, XV): 32M EU, 200 EU/t in the air (hovering and flying alike - antigravity) / 8 idle, x4
+    // sprint (1.12 b/t), free 3D flight like a heavy VTOL (Movement.HELI with its own climb 0.35 / descent 0.4 b/t), the
+    // «Форсаж» on H2 3 mB/s x1.5 (1.68 b/t). Sealed cabin: O2 for the riders (SpaceMath.O2_PER_SECOND each when they need
+    // air), flies under water; «Дальний режим» on deuterium (SpaceMath); docks with the core's bridge vortices. 27 cargo,
+    // H2 3000 + He 3000 + O2 2000 + D 4000 (three gas tanks in the recipe). Model scale 1.4: shuttle.obj's seat cushions
+    // (top 0.85, floor 0.71) under the cabin ceiling (its light strip at 1.71) - at x1.4 the cushion top is 1.19 and the
+    // ceiling 1.20 over it; the body is 8.2 long, 5.9 across the solar wings, 2.9 high. EIGHT seats (the plan says 4; the
+    // model has 2 pilot + 6 passenger seats - a transport for a group): the pilots (cushion centre x 1.88, z +-0.22; driver
+    // right) and three rows of two (x 0.26 / -0.30 / -0.86, z +-0.31), all x1.4 (+0.05 forward for the pilots), seatY 0.94.
+    SHUTTLE("shuttle", "shuttle", Tier.XV, 32000000, 200, 8, 1.12, 0.03, 3.0, 8, 27, 500, 3.0F, 2.0F,
+            new double[][] {{2.68, 0.31}, {2.68, -0.31}, {0.36, 0.43}, {0.36, -0.43}, {-0.42, 0.43}, {-0.42, -0.43}, {-1.20, 0.43},
+                    {-1.20, -0.43}}, 1.4F, 0.94, Movement.HELI,
+            VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(3000), Gas.HELIUM, Integer.valueOf(3000), Gas.OXYGEN, Integer.valueOf(2000),
+                    Gas.DEUTERIUM, Integer.valueOf(4000)).afterburner(Gas.HYDROGEN, 3, 1.5)),
+    // Singular Ship (plan §2, SV): 256M EU, 400 EU/t in the air / 20 idle, x6 sprint (1.68 b/t; «Форсаж» H2 4 mB/s x1.4 =
+    // 2.35 b/t, under FlightMath.SPEED_CAP), climb 0.45 / descent 0.5 b/t, 6 seats, 54 cargo; the shuttle's cabin, long-range
+    // mode and docking plus its own portal «Прыжок» (SpaceMath), the gravity anchor and invisibility for mobs (SM). Tanks:
+    // H2 4000, He 4000, O2 4000, Ar 2000 (hull field 1 mB/s, -40 % hull damage, as the drill vehicle), D 4000, singular
+    // matter 4000 - every gas it spends (krypton / heavy water have no use on it). Model scale 2.0: ship.obj's bridge is
+    // low - cushions top 0.57 (floor 0.43) under a ceiling of 1.10; at x2 the cushion top is 1.14 and the ceiling 1.06 over
+    // it; the ship is 14.5 long, 14.1 across its rings, 6.2 high (the jet-sized P7x7 platform class). Seats: the two pilots (cushion centre x 2.33, z +-0.22)
+    // and the four of the two rows behind (x 1.49 / 1.05, z +-0.40), x2 (+0.05 forward for the pilots), seatY 0.89.
+    SHIP("ship", "ship", Tier.SV, 256000000, 400, 20, 1.68, 0.04, 2.5, 6, 54, 800, 3.0F, 2.0F,
+            new double[][] {{4.71, 0.44}, {4.71, -0.44}, {2.98, 0.81}, {2.98, -0.81}, {2.10, 0.81}, {2.10, -0.81}}, 2.0F, 0.89, Movement.HELI,
+            VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(4000), Gas.HELIUM, Integer.valueOf(4000), Gas.OXYGEN, Integer.valueOf(4000),
+                    Gas.ARGON, Integer.valueOf(2000), Gas.DEUTERIUM, Integer.valueOf(4000), Gas.SINGULAR_MATTER, Integer.valueOf(4000))
+                    .afterburner(Gas.HYDROGEN, 4, 1.4).field(Gas.ARGON, 1, 0.4));
 
     public final String key;
     public final String model;
@@ -134,6 +161,16 @@ public enum VehicleType {
     public PlaneParams plane = PlaneParams.LIGHT;
     /** Tiltrotor, vertical mode (a helicopter): top speed, acceleration, EU/t at that speed / hovering. */
     public double vtolTop, vtolAccel, vtolCruise, vtolPeak;
+    /** Movement.HELI: collective climb / descent rates (blocks/tick) - the helicopters' HeliMath ones unless set. */
+    public double climb = HeliMath.CLIMB, descend = HeliMath.DESCEND;
+    /** Stage E: a sealed cabin - O2 for the riders, the engine works under water. */
+    public boolean sealed;
+    /** Stage E: «Дальний режим» on deuterium instead of EU (SpaceMath). */
+    public boolean longRange;
+    /** Stage E: docks with an open bridge vortex - carried through with its riders and cargo. */
+    public boolean bridgeDock;
+    /** Stage E: the Singular Ship's own portal «Прыжок», the gravity anchor and invisibility for mobs. */
+    public boolean singular;
 
     static {
         BUGGY.platformSize = PlatformSize.P3x3;
@@ -163,6 +200,21 @@ public enum VehicleType {
         TILT.vtolAccel = 0.02;
         TILT.vtolCruise = 120;
         TILT.vtolPeak = 150;
+        // stage E
+        SHUTTLE.platformSize = PlatformSize.P7x7;
+        SHIP.platformSize = PlatformSize.P7x7;
+        SHUTTLE.peakCost = 200;                             // antigravity: hovering costs what flying does
+        SHIP.peakCost = 400;
+        SHUTTLE.climb = 0.35;
+        SHUTTLE.descend = 0.4;
+        SHIP.climb = 0.45;
+        SHIP.descend = 0.5;
+        SHUTTLE.halfLength = 4.1;                           // x -2.92..2.92 x 1.4
+        SHIP.halfLength = 7.3;                              // x -3.63..3.63 x 2.0
+        SHUTTLE.sealed = SHIP.sealed = true;
+        SHUTTLE.longRange = SHIP.longRange = true;
+        SHUTTLE.bridgeDock = SHIP.bridgeDock = true;
+        SHIP.singular = true;
     }
 
     VehicleType(String key, String model, Tier tier, int buffer, double cruiseCost, double idleCost, double topSpeed, double accel,

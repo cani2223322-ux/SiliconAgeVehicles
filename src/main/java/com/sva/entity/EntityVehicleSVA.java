@@ -17,6 +17,7 @@ import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.Movement;
 import com.sva.vehicle.PlaneMath;
+import com.sva.vehicle.SpaceMath;
 import com.sva.vehicle.TiltMath;
 import com.sva.vehicle.VehicleGases;
 import com.sva.vehicle.VehicleMath;
@@ -65,15 +66,23 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     private static final int DW_ENERGY = 20, DW_HP = 21, DW_HEAT = 22, DW_FLAGS = 23, DW_CARGO = 24, DW_TYPE = 25,
             DW_CRUISE = 26, DW_YAW = 27, DW_GAS = 28, DW_THR = 29, DW_COST = 30,
             // stage C: packed bits (trailer, drill, auto-delivery - X_*), blocks dug, head life left / max, auto distance, route text
-            DW_EXTRA = 31, DW_DUG = 19, DW_HEAD = 18, DW_HEAD_MAX = 17, DW_AUTO_DIST = 16, DW_ROUTE = 15;
+            DW_EXTRA = 31, DW_DUG = 19, DW_HEAD = 18, DW_HEAD_MAX = 17, DW_AUTO_DIST = 16, DW_ROUTE = 15,
+            // stage E: the space panel's line (SpaceLogicSVA.hudString)
+            DW_SPACE = 14;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
             X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15,
             // stage D: the tiltrotor's wanted mode (airplane) and its nacelle step (0..40, 6 bits)
-            X_TILT_PLANE = 1 << 16, X_TILT_SHIFT = 17;
+            X_TILT_PLANE = 1 << 16, X_TILT_SHIFT = 17,
+            // stage E: long-range mode on / working, an open vortex near, held still (anchor / portal / riders boarding),
+            // the anchor, invisibility, the jump portal opening
+            X_LONG_ON = 1 << 23, X_LONG_ACTIVE = 1 << 24, X_DOCK_NEAR = 1 << 25, X_HELD = 1 << 26, X_ANCHOR = 1 << 27,
+            X_INVIS = 1 << 28, X_PORTAL = 1 << 29;
     /** Vehicle actions (the Action packet: cargo screen buttons, the drill keys). */
     public static final int A_DRILL_TOGGLE = 0, A_DRILL_MODE = 1, A_AUTO_TOGGLE = 2, A_TRAILER_DETACH = 3, A_ROUTE_CLEAR = 4,
             /** Stage D: the tiltrotor's «Режим» key - vertical <-> airplane (its driver). */
-            A_FLIGHT_MODE = 5;
+            A_FLIGHT_MODE = 5,
+            /** Stage E (the pilot): «Режим» on the shuttle / ship - long-range mode; «Прыжок»; the jump target; anchor; invisibility. */
+            A_LONG_RANGE = 6, A_JUMP = 7, A_JUMP_TARGET = 8, A_ANCHOR = 9, A_INVIS = 10;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -143,6 +152,17 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     // client: the bore's spin
     public float drillAngle, prevDrillAngle;
     private float drillRate;
+    // stage E, server: docking wait, the jump portal (ticks left, where to), an open vortex near, riders breathing the
+    // cabin's O2, long-range mode working this tick; riders carried over by a transfer waiting for their seats
+    int dockCooldown, portalTicks, breathing, pendingAge;
+    SpaceLogicSVA.Target portalTarget;
+    boolean dockNear, longNow;
+    List<Object[]> pendingRiders;
+    final List<Object[]> attachResend = new ArrayList<Object[]>();
+    net.minecraft.util.IChatComponent pendingMsg;
+    // client: the jump portal's swirl; the ship's singularity rings (deg, deg/tick)
+    private int portalFx;
+    private float coreAngle, prevCoreAngle, coreRate;
     /** Client: seat entities that found this body (positioned here each tick). */
     final List<EntitySeatSVA> clientSeats = new ArrayList<EntitySeatSVA>();
 
@@ -188,6 +208,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.addObject(DW_HEAD_MAX, Integer.valueOf(0));
         dataWatcher.addObject(DW_AUTO_DIST, Integer.valueOf(0));
         dataWatcher.addObject(DW_ROUTE, "");
+        dataWatcher.addObject(DW_SPACE, "");
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -360,8 +381,15 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public boolean afterburnerOn(int in) {
         VehicleType t = getVehicleType();
         Gas g = t.gases.boostGas;
-        if (g == null || (in & IN_AFTER) == 0 || throttle < AFTERBURNER_THROTTLE || !planeNow()) {
+        if (g == null || (in & IN_AFTER) == 0) {
             return false;
+        }
+        if (planeNow()) {
+            if (throttle < AFTERBURNER_THROTTLE) {
+                return false;
+            }
+        } else if (t.movement != Movement.HELI || (in & IN_FWD) == 0) {
+            return false;                                           // stage E: the shuttle's / ship's «Форсаж» flying forward
         }
         return hasLift() && canThrust() && getGas(g) > 0;
     }
@@ -376,12 +404,54 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return worldObj.isRemote ? (extra() & X_FIELD) != 0 : fieldNow;
     }
 
+    // ---- stage E views (clients: synced)
+
+    /** Held perfectly still: the gravity anchor, the jump portal opening, riders boarding after a transfer. */
+    public boolean isHeld() {
+        if (worldObj != null && worldObj.isRemote) {
+            return (extra() & X_HELD) != 0;
+        }
+        return state.anchor || portalTicks > 0 || pendingRiders != null;
+    }
+
+    public boolean isLongRangeOn() {
+        return worldObj.isRemote ? (extra() & X_LONG_ON) != 0 : state.longRange;
+    }
+
+    /** Long-range mode is working (deuterium instead of EU) this tick. */
+    public boolean isLongRangeActive() {
+        return worldObj.isRemote ? (extra() & X_LONG_ACTIVE) != 0 : longNow;
+    }
+
+    public boolean isDockNear() {
+        return worldObj.isRemote ? (extra() & X_DOCK_NEAR) != 0 : dockNear;
+    }
+
+    public boolean isAnchored() {
+        return worldObj.isRemote ? (extra() & X_ANCHOR) != 0 : state.anchor;
+    }
+
+    public boolean isInvisible() {
+        return worldObj.isRemote ? (extra() & X_INVIS) != 0 : state.invisible;
+    }
+
+    public boolean isPortalOpening() {
+        return worldObj.isRemote ? (extra() & X_PORTAL) != 0 : portalTicks > 0;
+    }
+
+    /** The space panel's line: "riders;code;dist;eu;sm;cooldown s;dim;home;name" (SpaceLogicSVA.hudString). */
+    public String getSpaceInfo() {
+        return dataWatcher.getWatchableObjectString(DW_SPACE);
+    }
+
     private int extraBits() {
         return (state.trailer ? X_TRAILER : 0) | (drillOn ? X_DRILL : 0) | ((state.drillMode & 3) << X_MODE_SHIFT)
                 | (DrillLogicSVA.wide(state) ? X_WIDE : 0) | (DrillLogicSVA.isHead(state.drillHead) ? X_HEAD : 0)
                 | ((state.autoState & 7) << X_AUTO_SHIFT) | (state.autoOn ? X_AUTO_ON : 0) | ((autoReason & 7) << X_REASON_SHIFT)
                 | (state.routeA != null ? X_ROUTE_A : 0) | (state.routeB != null ? X_ROUTE_B : 0) | (fieldNow ? X_FIELD : 0)
-                | (state.tiltPlane ? X_TILT_PLANE : 0) | ((state.tiltStep & 63) << X_TILT_SHIFT);
+                | (state.tiltPlane ? X_TILT_PLANE : 0) | ((state.tiltStep & 63) << X_TILT_SHIFT)
+                | (state.longRange ? X_LONG_ON : 0) | (longNow ? X_LONG_ACTIVE : 0) | (dockNear ? X_DOCK_NEAR : 0) | (isHeld() ? X_HELD : 0)
+                | (state.anchor ? X_ANCHOR : 0) | (state.invisible ? X_INVIS : 0) | (portalTicks > 0 ? X_PORTAL : 0);
     }
 
     /** The synced gas string: the type's tank amounts in its order, comma separated. */
@@ -507,6 +577,19 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_HEAD_MAX, Integer.valueOf(state.drillHead == null ? 0 : state.drillHead.getMaxDamage()));
         dataWatcher.updateObject(DW_AUTO_DIST, Integer.valueOf(autoDist));
         dataWatcher.updateObject(DW_ROUTE, routeText());
+        if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
+            spaceDirty = false;
+            dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
+        }
+    }
+
+    /** Stage E: the space panel's line is rebuilt on the next sync (a key pressed). */
+    private boolean spaceDirty = true;
+
+    /** Everything synced at once (a vehicle just made by a transfer). */
+    void syncAll() {
+        spaceDirty = true;
+        syncWatcher();
     }
 
     // ------------------------------------------------------------------ geometry
@@ -565,7 +648,14 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     @Override
     public void travelToDimension(int dim) {
-        // vehicles never go through portals
+        // vehicles never go through portals (stage E moves them with VehicleTransferSVA)
+    }
+
+    @Override
+    public void addVelocity(double x, double y, double z) {
+        if (!isHeld()) {
+            super.addVelocity(x, y, z);                             // the gravity anchor: immune to knockback
+        }
     }
 
     @Override
@@ -600,6 +690,17 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         maintainSeats(t);
         if (chargeTicks > 0) {
             chargeTicks--;
+        }
+        // stage E: riders carried over by a docking / jump board again; the cabin, the anchor, docking, the jump portal
+        if (pendingRiders != null || !attachResend.isEmpty()) {
+            VehicleTransferSVA.tickPending(this);
+        }
+        if (pendingRiders == null && pendingMsg != null) {
+            tellAll(pendingMsg);
+            pendingMsg = null;
+        }
+        if (t.bridgeDock && SpaceLogicSVA.tick(this, t)) {
+            return;                                                 // moved away: this entity is gone
         }
         // auto-delivery (the crawler): nobody at the wheel - the server drives through the same physics as the keys
         boolean autoDrive = state.autoOn && riddenByEntity == null && !debugDriver && AutoDelivery.target(state.autoState) >= 0;
@@ -691,6 +792,17 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             cost = VehicleMath.cost(t, v, fill, working, ConfigSVA.consumption);
             load = working ? VehicleMath.load(t, v, fill) : 0;
         }
+        // stage E: long-range mode - deuterium instead of EU high and fast; the gravity anchor's small upkeep
+        longNow = t.longRange && working && lifting && SpaceMath.longRangeActive(state.longRange, posY, speedEma, t.topSpeed,
+                state.gas(Gas.DEUTERIUM));
+        if (longNow) {
+            cost = 0;
+            state.drainGasFraction(Gas.DEUTERIUM, SpaceMath.LONG_D_PER_SECOND / 20.0);
+        }
+        if (t.singular && state.anchor && state.energy > 0) {
+            cost = SpaceMath.ANCHOR_EU * Math.max(0, ConfigSVA.consumption);
+            load = 0;
+        }
         costNow = (float) cost;
         state.energy = Math.max(0, state.energy - cost);
         boolean wasStopped = state.heatStop;
@@ -731,14 +843,14 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         if (wasAirborne && !air && ticksExisted > 5) {
             double impact = Math.max(0, -Math.min(dy, lastDy));
-            double dmg = plane ? PlaneMath.landingDamage(t.plane, t.maxHp, impact, v, lifting) : HeliMath.landingDamage(t.maxHp, impact, !lifting);
+            double dmg = plane ? PlaneMath.landingDamage(t.plane, t.maxHp, impact, v, lifting) : HeliMath.landingDamage(t, impact, !lifting);
             if (dmg > 0) {
                 damageHull((float) dmg);
                 worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 0.6F);
             }
         }
         boolean wasAuto = autoNow;
-        autoNow = air && !lifting;
+        autoNow = air && !lifting && !isHeld();
         stallNow = plane && air && PlaneMath.stalled(t.plane, v);
         if (autoNow && !wasAuto && ticksExisted > 5) {
             tellRiders(plane ? "sva.msg.glide" : "sva.msg.autorotation");
@@ -799,8 +911,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** Engine may push: not wrecked, not overheated, not in deep water (a crawler swims: lava only stops it). */
     public boolean canThrust() {
-        Movement m = getVehicleType().movement;
-        return !isWrecked() && !isHeatStopped() && (m == Movement.HOVER || !inDeepWater() || m == Movement.CRAWLER && !inLava());
+        VehicleType t = getVehicleType();
+        Movement m = t.movement;
+        return !isWrecked() && !isHeatStopped() && (m == Movement.HOVER || t.sealed && !inLava() || !inDeepWater() || m == Movement.CRAWLER && !inLava());
     }
 
     private boolean inLava() {
@@ -821,6 +934,13 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** One tick of ground physics from the input bits (driver client, or the server's fallback). */
     public void physicsStep(VehicleType t, int in) {
+        if (isHeld()) {
+            // stage E: the gravity anchor / the portal opening / riders boarding - perfectly still, no drift, no gravity
+            speed = 0;
+            motionX = motionY = motionZ = 0;
+            fallDistance = 0;
+            return;
+        }
         if (t.movement == Movement.HOVER) {
             HoverPhysicsSVA.step(this, t, in);
             return;
@@ -926,6 +1046,13 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         VehicleType t = state.type;
         double dx = x - posX, dy = y - posY, dz = z - posZ;
         double h = Math.sqrt(dx * dx + dz * dz);
+        if (isHeld() && (h > 0.01 || Math.abs(dy) > 0.01)) {
+            if (now - lastCorrectTick >= 5 && p.playerNetServerHandler != null) {
+                lastCorrectTick = now;
+                NetSVA.CHANNEL.sendTo(new NetSVA.Correct(getEntityId(), posX, posY, posZ, rotationYaw), p);
+            }
+            return;                                                 // held: it doesn't move (the yaw neither)
+        }
         boolean flies = t.movement.flies;
         boolean hover = t.movement.lifts && !flies;
         boolean lift = t.movement.lifts && hasLift() && canThrust();
@@ -1076,6 +1203,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (t.movement.flies) {
             animateFlight(t);
         }
+        if (t.singular && isPortalOpening()) {
+            portalSwirl(t);
+        } else {
+            portalFx = 0;
+        }
         if (t.hasDrill) {
             prevDrillAngle = drillAngle;
             float target = isDrillOn() && riddenByEntity != null ? 32F : 0F;
@@ -1108,6 +1240,13 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         if (isBoosting() && t.gases.boostGas != null && t.movement == Movement.PLANE) {
             afterburnerFlame(t);
+        }
+        if (t.singular) {
+            // the singularity's rings: slowly when parked, faster with the drive powered, fast while the portal opens
+            prevCoreAngle = coreAngle;
+            float ct = isPortalOpening() ? 18F : lift ? 6F : 1.5F;
+            coreRate += MathHelper.clamp_float(ct - coreRate, -0.25F, 0.25F);
+            coreAngle = (coreAngle + coreRate) % 360F;
         }
         rotorRate += MathHelper.clamp_float(target - rotorRate, -0.8F, 1.2F);
         rotorAngle = (rotorAngle + rotorRate) % 360F;
@@ -1147,9 +1286,29 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
     }
 
+    /** Client: the jump portal opening ahead of the ship - a growing ring of portal particles across its path. */
+    private void portalSwirl(VehicleType t) {
+        portalFx++;
+        double grow = Math.min(1.0, portalFx / (double) SpaceMath.PORTAL_TICKS);
+        double r = 1.0 + 4.0 * grow;
+        double[] c = toWorld(t.halfLength + 3.0, 0);
+        double[] side = toWorld(0, 1);
+        double cy = posY + 3.0;
+        for (int i = 0; i < 12; i++) {
+            double a = rand.nextDouble() * Math.PI * 2;
+            double ox = side[0] * Math.cos(a) * r, oz = side[1] * Math.cos(a) * r, oy = Math.sin(a) * r;
+            worldObj.spawnParticle("portal", posX + c[0] + ox, cy + oy, posZ + c[1] + oz, -ox * 0.3, -oy * 0.3, -oz * 0.3);
+        }
+    }
+
     /** Client: the bore cone's angle at partial tick pt (degrees). */
     public float drillAngle(float pt) {
         return prevDrillAngle + MathHelper.wrapAngleTo180_float(drillAngle - prevDrillAngle) * pt;
+    }
+
+    /** Client: the Singular Ship's rings at partial tick pt (degrees). */
+    public float coreAngle(float pt) {
+        return prevCoreAngle + MathHelper.wrapAngleTo180_float(coreAngle - prevCoreAngle) * pt;
     }
 
     /** Client: the rotor / propeller angle at partial tick pt (degrees). */
@@ -1627,11 +1786,26 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     }
 
     /** A warning to the driver at most every 5 s. */
-    void warnDriver(String key) {
+    void warnDriver(String key, Object... args) {
         long now = worldObj.getTotalWorldTime();
         if (now - warnTick >= 100) {
             warnTick = now;
-            tellRiders(key);
+            if (riddenByEntity instanceof EntityPlayer) {
+                msg((EntityPlayer) riddenByEntity, key, args);
+            }
+        }
+    }
+
+    /** A chat line to every player aboard. */
+    void tellAll(String key, Object... args) {
+        tellAll(new ChatComponentTranslation(key, args));
+    }
+
+    void tellAll(net.minecraft.util.IChatComponent c) {
+        for (Entity e : riders()) {
+            if (e instanceof EntityPlayer) {
+                ((EntityPlayer) e).addChatComponentMessage(c);
+            }
         }
     }
 
@@ -1640,8 +1814,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (action == A_DRILL_TOGGLE || action == A_DRILL_MODE) {
             return manage || driver;
         }
-        if (action == A_FLIGHT_MODE) {
-            return driver;                                          // only the pilot turns the nacelles
+        if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS) {
+            return driver;                                          // only the pilot turns the nacelles / works the ship
         }
         return manage;
     }
@@ -1682,6 +1856,20 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             msg(p, r == TiltMath.OK ? (state.tiltPlane ? "sva.msg.tilt.toPlane" : "sva.msg.tilt.toVertical") : "sva.msg.tilt.no." + r,
                     Integer.valueOf(VehicleMath.kmh(TiltMath.TO_PLANE_SPEED)), Integer.valueOf((int) TiltMath.MIN_HEIGHT),
                     Integer.valueOf(VehicleMath.kmh(t.plane.stall * TiltMath.BACK_MUL)));
+        } else if (a == A_LONG_RANGE && t.longRange) {
+            msg(p, toggleLongRange() ? "sva.msg.long.on" : "sva.msg.long.off", Integer.valueOf((int) SpaceMath.LONG_Y),
+                    Integer.valueOf(VehicleMath.kmh(t.topSpeed * SpaceMath.LONG_SPEED)));
+        } else if (a == A_JUMP && t.singular) {
+            SpaceLogicSVA.startJump(this);
+        } else if (a == A_JUMP_TARGET && t.singular) {
+            state.jumpHome = !state.jumpHome;
+            msg(p, state.jumpHome ? "sva.msg.jump.target.home" : "sva.msg.jump.target.coord");
+        } else if (a == A_ANCHOR && t.singular) {
+            int r = toggleAnchor();
+            msg(p, r == 1 ? "sva.msg.anchor.on" : r == 0 ? "sva.msg.anchor.off" : "sva.msg.anchor.empty");
+        } else if (a == A_INVIS && t.singular) {
+            int r = toggleInvisible();
+            msg(p, r == 1 ? "sva.msg.invis.on" : r == 0 ? "sva.msg.invis.off" : "sva.msg.invis.empty");
         } else if (a == A_TRAILER_DETACH && t.trailerSlots > 0) {
             if (CrawlerMath.detachCheck(state.trailer, true) == CrawlerMath.OK) {
                 ItemStack item = detachTrailer();
@@ -1693,7 +1881,96 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                 msg(p, "sva.msg.trailer.detached");
             }
         }
+        spaceDirty = true;
         syncWatcher();
+    }
+
+    // ------------------------------------------------------------------ stage E: shuttle / ship keys and helpers
+
+    /** «Дальний режим» on / off (server). @return on now */
+    public boolean toggleLongRange() {
+        state.longRange = state.type.longRange && !state.longRange;
+        syncWatcher();
+        return state.longRange;
+    }
+
+    /** The gravity anchor on / off (server). @return 1 on, 0 off, -1 no EU */
+    public int toggleAnchor() {
+        if (!state.type.singular) {
+            return -1;
+        }
+        if (!state.anchor && state.energy <= 0) {
+            return -1;
+        }
+        state.anchor = !state.anchor;
+        speed = 0;
+        motionX = motionY = motionZ = 0;
+        syncWatcher();
+        return state.anchor ? 1 : 0;
+    }
+
+    /** Invisibility for mobs on / off (server). @return 1 on, 0 off, -1 no singular matter */
+    public int toggleInvisible() {
+        if (!state.type.singular || !state.invisible && state.gas(Gas.SINGULAR_MATTER) <= 0) {
+            return -1;
+        }
+        state.invisible = !state.invisible;
+        if (state.invisible) {
+            SpaceLogicSVA.clearTargets(this);
+        }
+        syncWatcher();
+        return state.invisible ? 1 : 0;
+    }
+
+    /** The jump (server; the «Прыжок» key, the world test). @return SpaceMath.OK or why not */
+    public int startJump() {
+        int r = SpaceLogicSVA.startJump(this);
+        syncWatcher();
+        return r;
+    }
+
+    /** Ticks left of the jump portal's opening (server). */
+    public int portalTicks() {
+        return portalTicks;
+    }
+
+    /** Riders by seat: [0] the driver, [i] passenger seat i (server). */
+    Entity[] ridersBySeat() {
+        Entity[] out = new Entity[Math.max(1, state.type.seats)];
+        out[0] = riddenByEntity;
+        if (seats != null) {
+            for (EntitySeatSVA s : seats) {
+                if (s != null && !s.isDead && s.riddenByEntity != null && s.getIndex() < out.length) {
+                    out[s.getIndex()] = s.riddenByEntity;
+                }
+            }
+        }
+        return out;
+    }
+
+    /** The entity a rider of seat i mounts: this (0) or passenger seat i; null while the seats are not there yet. */
+    Entity seatEntity(int i) {
+        if (i <= 0) {
+            return this;
+        }
+        if (seats == null || i - 1 >= seats.length || seats[i - 1] == null || seats[i - 1].isDead) {
+            return null;
+        }
+        return seats[i - 1];
+    }
+
+    /** A rider carried over to this (new) vehicle, to be seated on seat i (VehicleTransferSVA). */
+    void addPending(Entity e, int seat) {
+        if (pendingRiders == null) {
+            pendingRiders = new ArrayList<Object[]>();
+            pendingAge = 0;
+        }
+        pendingRiders.add(new Object[] {e, Integer.valueOf(seat)});
+    }
+
+    /** Riders waiting for their seats after a transfer (server; the world test). */
+    public int pendingCount() {
+        return pendingRiders == null ? 0 : pendingRiders.size();
     }
 
     // ------------------------------------------------------------------ cargo helpers (drill drops, auto-delivery)

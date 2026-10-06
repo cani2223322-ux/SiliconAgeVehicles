@@ -22,7 +22,9 @@ public class VehicleState {
             K_TRAILER = "Trailer", K_HEAD = "DrillHead", K_MODULE = "DrillModule", K_DRILL_MODE = "DrillMode", K_DUG = "Dug",
             K_ROUTE_A = "RouteA", K_ROUTE_B = "RouteB", K_ROUTE_NEXT = "RouteNextB", K_AUTO_ON = "AutoOn", K_AUTO_STATE = "AutoState",
             // stage D: the tiltrotor's wanted mode (airplane) and its nacelles (0 vertical .. TiltMath.TRANSITION_TICKS airplane)
-            K_TILT_PLANE = "TiltPlane", K_TILT_STEP = "TiltStep";
+            K_TILT_PLANE = "TiltPlane", K_TILT_STEP = "TiltStep",
+            // stage E: long-range mode switched on; the ship's jump target «дом», its cooldown (ticks), anchor, invisibility
+            K_LONG_RANGE = "LongRange", K_JUMP_HOME = "JumpHome", K_JUMP_CD = "JumpCooldown", K_ANCHOR = "Anchor", K_INVIS = "Invisible";
 
     public VehicleType type;
     public double energy;
@@ -50,6 +52,11 @@ public class VehicleState {
     /** Tiltrotor: the mode it is turning to / in (true: airplane) and the nacelles, 0 (vertical) .. TRANSITION_TICKS (airplane). */
     public boolean tiltPlane;
     public int tiltStep;
+    /** Stage E: «Дальний режим» switched on (it works only high and fast - SpaceMath.longRangeActive). */
+    public boolean longRange;
+    /** Singular Ship: jump «домой» (else to the Coordinator in the cargo), the jump's cooldown (ticks), anchor, invisibility. */
+    public boolean jumpHome, anchor, invisible;
+    public int jumpCooldown;
 
     public VehicleState(VehicleType type) {
         this.type = type;
@@ -220,6 +227,11 @@ public class VehicleState {
         t.setInteger(K_AUTO_STATE, autoState);
         t.setBoolean(K_TILT_PLANE, tiltPlane);
         t.setInteger(K_TILT_STEP, tiltStep);
+        t.setBoolean(K_LONG_RANGE, longRange);
+        t.setBoolean(K_JUMP_HOME, jumpHome);
+        t.setInteger(K_JUMP_CD, jumpCooldown);
+        t.setBoolean(K_ANCHOR, anchor);
+        t.setBoolean(K_INVIS, invisible);
     }
 
     /** Tiltrotor nacelles 0 (vertical) .. 1 (airplane). */
@@ -274,6 +286,11 @@ public class VehicleState {
         boolean tilt = type.movement == Movement.TILT;
         tiltPlane = tilt && t.getBoolean(K_TILT_PLANE);
         tiltStep = tilt ? Math.max(0, Math.min(TiltMath.TRANSITION_TICKS, t.getInteger(K_TILT_STEP))) : 0;
+        longRange = type.longRange && t.getBoolean(K_LONG_RANGE);
+        jumpHome = type.singular && t.getBoolean(K_JUMP_HOME);
+        jumpCooldown = type.singular ? Math.max(0, Math.min(SpaceMath.JUMP_COOLDOWN, t.getInteger(K_JUMP_CD))) : 0;
+        anchor = type.singular && t.getBoolean(K_ANCHOR);
+        invisible = type.singular && t.getBoolean(K_INVIS);
     }
 
     private static int[] point(int[] a) {

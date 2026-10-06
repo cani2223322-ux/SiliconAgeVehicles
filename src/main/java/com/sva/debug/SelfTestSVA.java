@@ -97,6 +97,11 @@ public final class SelfTestSVA {
             tiltRules();
             fastMoves();
             stageDContent();
+            spaceTypes();
+            spaceRules();
+            jumpMath();
+            spaceState();
+            stageEContent();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -1111,6 +1116,166 @@ public final class SelfTestSVA {
         check(EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_FLIGHT_MODE, false, true) && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_FLIGHT_MODE, true, false)
                 && EntityVehicleSVA.IN_AFTER == 128 && (EntityVehicleSVA.IN_MASK & EntityVehicleSVA.IN_AFTER) != 0,
                 "tilt: only the pilot switches the mode; the «Форсаж» input bit fits the Input packet");
+    }
+
+    // ------------------------------------------------------------------ stage E: transport shuttle, Singular ship
+
+    private static void spaceTypes() {
+        com.sc.util.ArmorGasSC.Gas H2 = com.sc.util.ArmorGasSC.Gas.HYDROGEN, HE = com.sc.util.ArmorGasSC.Gas.HELIUM,
+                O2 = com.sc.util.ArmorGasSC.Gas.OXYGEN, D = com.sc.util.ArmorGasSC.Gas.DEUTERIUM, AR = com.sc.util.ArmorGasSC.Gas.ARGON,
+                SM = com.sc.util.ArmorGasSC.Gas.SINGULAR_MATTER;
+        VehicleType s = VehicleType.SHUTTLE, sh = VehicleType.SHIP;
+        check(s.ordinal() == 8 && s.movement == com.sva.vehicle.Movement.HELI && s.tier == Tier.XV && s.buffer == 32000000
+                && near(s.topSpeed, 0.28 * 4, 1e-9) && s.cruiseCost == 200 && s.peakCost == 200 && s.idleCost == 8 && s.seats == 8
+                && s.seatOffsets.length == 8 && s.cargoSlots == 27 && s.platformSize == PlatformSize.P7x7 && s.sealed && s.longRange
+                && s.bridgeDock && !s.singular, "shuttle: meta 8, XV, 32M EU, x4 sprint, 200 / 8 EU/t, 2 pilots + 6 seats, 27 cargo, 7x7, sealed, docks");
+        check(s.gases.capacity(H2) == 3000 && s.gases.capacity(HE) == 3000 && s.gases.capacity(O2) == 2000 && s.gases.capacity(D) == 4000
+                && s.gases.boostGas == H2 && s.gases.coolant == HE && s.gases.liftGas == null, "shuttle: H2 3000 (boost) + He 3000 + O2 2000 + D 4000");
+        check(sh.ordinal() == 9 && sh.movement == com.sva.vehicle.Movement.HELI && sh.tier == Tier.SV && sh.buffer == 256000000
+                && near(sh.topSpeed, 0.28 * 6, 1e-9) && sh.cruiseCost == 400 && sh.idleCost == 20 && sh.seats == 6 && sh.seatOffsets.length == 6
+                && sh.cargoSlots == 54 && sh.platformSize == PlatformSize.P7x7 && sh.singular && sh.sealed && sh.bridgeDock,
+                "ship: meta 9, SV, 256M EU, x6 sprint, 400 / 20 EU/t, 6 seats, 54 cargo, 7x7, jump / anchor / invisibility");
+        check(sh.gases.capacity(SM) == 4000 && sh.gases.capacity(H2) == 4000 && sh.gases.capacity(HE) == 4000 && sh.gases.capacity(O2) == 4000
+                && sh.gases.capacity(AR) == 2000 && sh.gases.capacity(D) == 4000 && sh.gases.fieldGas == AR,
+                "ship: SM 4000 + H2 / He / O2 / D 4000 + Ar 2000 (hull field)");
+        check(sh.topSpeed * sh.gases.boostMul <= com.sva.vehicle.FlightMath.SPEED_CAP && sh.topSpeed * sh.gases.boostMul > 2.2
+                && com.sva.vehicle.FlightMath.maxReach(sh) <= com.sva.vehicle.FlightMath.SPEED_CAP,
+                "ship: x6 sprint and the boost (" + VehicleMath.kmh(sh.topSpeed * sh.gases.boostMul) + " km/h) under the 180 km/h cap");
+        // a seated player fits: shuttle cushion top 0.85 under the cabin ceiling 1.71; ship cushion 0.57 under 1.10 (model units)
+        double cs = s.seatY + 0.25, cp = sh.seatY + 0.25;
+        check(near(cs, 0.85 * s.modelScale, 0.02) && 1.71 * s.modelScale - cs >= 1.05 && Math.abs(s.seatOffsets[0][1] - s.seatOffsets[1][1]) >= 0.6
+                && Math.abs(s.seatOffsets[2][0] - s.seatOffsets[4][0]) >= 0.75 && Math.abs(s.seatOffsets[2][1] - s.seatOffsets[3][1]) >= 0.75,
+                "shuttle: model x" + s.modelScale + " - cushion " + cs + ", ceiling " + Math.round((1.71 * s.modelScale - cs) * 100) / 100.0
+                        + " over it, rows 0.78 apart, seats shoulder-wide");
+        check(near(cp, 0.57 * sh.modelScale, 0.02) && 1.10 * sh.modelScale - cp >= 1.0 && Math.abs(sh.seatOffsets[0][1] - sh.seatOffsets[1][1]) >= 0.75
+                && Math.abs(sh.seatOffsets[2][0] - sh.seatOffsets[4][0]) >= 0.75, "ship: model x" + sh.modelScale + " - cushion " + cp
+                + ", ceiling " + Math.round((1.10 * sh.modelScale - cp) * 100) / 100.0 + " over it, " + Math.round(7.26 * sh.modelScale * 10) / 10.0 + " blocks long");
+        // heavy VTOL: its own climb rate - accepted for the ship, refused for the light helicopter
+        check(com.sva.vehicle.FlightMath.moveAllowed(sh, 0.5, 0.44, 1, 120, true, true, true, 0.5)
+                && !com.sva.vehicle.FlightMath.moveAllowed(VehicleType.HELI, 0.5, 0.44, 1, 120, true, true, true, 0.5)
+                && near(HeliMath.targetVy(sh, true, false, 100), 0.45, 1e-9) && near(HeliMath.targetVy(s, false, true, 100), -0.4, 1e-9)
+                && near(HeliMath.targetVy(VehicleType.HELI, true, false, 100), HeliMath.CLIMB, 1e-9),
+                "shuttle / ship climb 0.35 / 0.45 b/t (the helicopter keeps 0.25)");
+        check(near(HeliMath.cost(s, true, 0, 0, 0, true), 200, 1e-9) && near(HeliMath.cost(s, true, s.topSpeed, 0, 0, true), 200, 1e-9)
+                && near(HeliMath.cost(s, false, 0, 0, 0, true), 8, 1e-9) && near(HeliMath.cost(sh, true, 1, 0, 0, true), 400, 1e-9),
+                "shuttle 200 EU/t hovering or flying, 8 on the ground; ship 400");
+    }
+
+    private static void spaceRules() {
+        double top = VehicleType.SHUTTLE.topSpeed;
+        check(com.sva.vehicle.SpaceMath.longRangeActive(true, 130, top * 0.6, top, 100)
+                && !com.sva.vehicle.SpaceMath.longRangeActive(false, 130, top, top, 100)
+                && !com.sva.vehicle.SpaceMath.longRangeActive(true, 119.9, top, top, 100)
+                && !com.sva.vehicle.SpaceMath.longRangeActive(true, 130, top * 0.4, top, 100)
+                && !com.sva.vehicle.SpaceMath.longRangeActive(true, 130, top, top, 0),
+                "long-range mode: on + Y >= 120 + >= half the top speed + deuterium (each missing - off)");
+        check(near(com.sva.vehicle.SpaceMath.o2Seconds(2000, 2), 1000, 1e-9) && Double.isInfinite(com.sva.vehicle.SpaceMath.o2Seconds(2000, 0))
+                && com.sva.vehicle.SpaceMath.o2Seconds(0, 3) == 0 && near(com.sva.vehicle.SpaceMath.O2_PER_SECOND, 1, 1e-9),
+                "cabin O2: 1 mB/s a breathing rider - 2000 mB last two riders 1000 s");
+        check(com.sva.vehicle.SpaceMath.ANCHOR_EU < VehicleType.SHIP.peakCost / 5 && com.sva.vehicle.SpaceMath.ANCHOR_EU > 0,
+                "anchor: " + (int) com.sva.vehicle.SpaceMath.ANCHOR_EU + " EU/t (hovering: 400)");
+        check(com.sva.vehicle.SpaceMath.dockMass(new int[] {10, 20}) == 70 && com.sc.bridge.BridgeMathSC.massEu(70, false) == 7000000L
+                && com.sc.bridge.BridgeMathSC.massEu(70, true) == 3500000L, "docking: hull 4 + player 1 + mob 2 units = 7M EU (3.5M with the Mass Compensator)");
+        check(com.sva.vehicle.SpaceMath.ringExitSide(0, 2) == -1 && com.sva.vehicle.SpaceMath.ringExitSide(0, 3) == 1
+                && com.sva.vehicle.SpaceMath.ringExitSide(1, 4) == -1 && com.sva.vehicle.SpaceMath.ringExitSide(1, 5) == 1
+                && com.sva.vehicle.SpaceMath.exitYaw(0, 1) == 0F && com.sva.vehicle.SpaceMath.exitYaw(0, -1) == 180F
+                && com.sva.vehicle.SpaceMath.exitYaw(1, 1) == -90F && com.sva.vehicle.SpaceMath.exitYaw(1, -1) == 90F,
+                "docking: the ring's exit side (as the core) and the yaw facing out of the vortex");
+        check(EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_JUMP, false, true) && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_JUMP, true, false)
+                && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_ANCHOR, true, false) && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_INVIS, false, true)
+                && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_LONG_RANGE, false, true) && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_JUMP_TARGET, true, false),
+                "ship keys: only the pilot jumps, anchors, cloaks, switches long-range mode / the target");
+    }
+
+    private static void jumpMath() {
+        long d = com.sva.vehicle.SpaceMath.distance(0, 0, 200, 0);
+        check(d == 200 && com.sva.vehicle.SpaceMath.distance(0, 0, 3, 4) == 5 && com.sva.vehicle.SpaceMath.jumpEu(200, false) == 20400000L
+                && com.sva.vehicle.SpaceMath.jumpSm(200, false) == 12 && com.sva.vehicle.SpaceMath.jumpEu(10000, false) == 40000000L
+                && com.sva.vehicle.SpaceMath.jumpSm(10000, false) == 110 && com.sva.vehicle.SpaceMath.jumpEu(5, true) == 100000000L
+                && com.sva.vehicle.SpaceMath.jumpSm(5, true) == 100, "jump cost: 200 blocks 20.4M EU + 12 mB SM, 10 000 blocks 40M + 110, another dimension 100M + 100");
+        check(com.sva.vehicle.SpaceMath.jumpEu(200, false) < com.sc.bridge.BridgeMathSC.GROUND_BURST / 5
+                && com.sva.vehicle.SpaceMath.jumpEu(0, true) < com.sc.bridge.BridgeMathSC.SPACE_BURST / 10,
+                "jump cost: well under the core bridges' (Ground 200M+, Space 2G)");
+        long eu = 256000000L;
+        check(com.sva.vehicle.SpaceMath.jumpCheck(false, true, false, 200, 0, eu, 4000) == com.sva.vehicle.SpaceMath.NO_TARGET
+                && com.sva.vehicle.SpaceMath.jumpCheck(true, false, true, 0, 0, eu, 4000) == com.sva.vehicle.SpaceMath.NO_DIM
+                && com.sva.vehicle.SpaceMath.jumpCheck(true, true, false, 15, 0, eu, 4000) == com.sva.vehicle.SpaceMath.TOO_NEAR
+                && com.sva.vehicle.SpaceMath.jumpCheck(true, true, true, 0, 0, eu, 4000) == com.sva.vehicle.SpaceMath.OK
+                && com.sva.vehicle.SpaceMath.jumpCheck(true, true, false, 200, 1, eu, 4000) == com.sva.vehicle.SpaceMath.COOLDOWN
+                && com.sva.vehicle.SpaceMath.jumpCheck(true, true, false, 200, 0, 20399999, 4000) == com.sva.vehicle.SpaceMath.NO_EU
+                && com.sva.vehicle.SpaceMath.jumpCheck(true, true, false, 200, 0, 20400000, 11) == com.sva.vehicle.SpaceMath.NO_SM
+                && com.sva.vehicle.SpaceMath.jumpCheck(true, true, false, 200, 0, 20400000, 12) == com.sva.vehicle.SpaceMath.OK,
+                "jump check: no target / no dimension / < 16 blocks / cooldown / EU / SM refused, exact amounts accepted");
+        int cd = com.sva.vehicle.SpaceMath.JUMP_COOLDOWN, n = 0;
+        while (cd > 0 && n < 10000) {
+            cd = com.sva.vehicle.SpaceMath.cooldownStep(cd);
+            n++;
+        }
+        check(n == 600 && com.sva.vehicle.SpaceMath.cooldownStep(0) == 0 && com.sva.vehicle.SpaceMath.PORTAL_TICKS == 30,
+                "jump cooldown 30 s (" + n + " ticks), the portal opens in 1.5 s");
+        final java.util.Set<Long> solid = new java.util.HashSet<Long>();
+        com.sva.vehicle.SpaceMath.Solid q = new com.sva.vehicle.SpaceMath.Solid() {
+            @Override
+            public boolean blocked(int x, int y, int z) {
+                return solid.contains(Long.valueOf(((long) x * 1000 + y) * 1000 + z));
+            }
+        };
+        boolean empty = com.sva.vehicle.SpaceMath.freeSpace(q, 100, 70, 100);
+        solid.add(Long.valueOf(((long) 105 * 1000 + 75) * 1000 + 95));            // the far top corner of the box
+        boolean corner = com.sva.vehicle.SpaceMath.freeSpace(q, 100, 70, 100);
+        solid.clear();
+        solid.add(Long.valueOf(((long) 106 * 1000 + 70) * 1000 + 100));           // just outside x + 5
+        solid.add(Long.valueOf(((long) 100 * 1000 + 69) * 1000 + 100));           // the ground under it
+        solid.add(Long.valueOf(((long) 100 * 1000 + 76) * 1000 + 100));           // just over the top
+        boolean outside = com.sva.vehicle.SpaceMath.freeSpace(q, 100, 70, 100);
+        check(empty && !corner && outside, "free-space check: an 11 x 6 x 11 box - a block in its corner refuses, ground / blocks just outside don't");
+    }
+
+    private static void spaceState() {
+        VehicleState st = new VehicleState(VehicleType.SHIP);
+        st.longRange = true;
+        st.jumpHome = true;
+        st.jumpCooldown = 123;
+        st.anchor = true;
+        st.invisible = true;
+        NBTTagCompound nbt = new NBTTagCompound();
+        st.writeNBT(nbt);
+        VehicleState back = new VehicleState(VehicleType.SHIP);
+        back.readNBT(nbt);
+        NBTTagCompound noType = (NBTTagCompound) nbt.copy();
+        noType.removeTag(VehicleState.K_TYPE);
+        VehicleState heli = new VehicleState(VehicleType.HELI);
+        heli.readNBT(noType);
+        VehicleState shuttle = new VehicleState(VehicleType.SHUTTLE);
+        shuttle.readNBT(noType);
+        check(back.longRange && back.jumpHome && back.jumpCooldown == 123 && back.anchor && back.invisible && !heli.longRange && !heli.anchor
+                && shuttle.longRange && !shuttle.anchor && !shuttle.invisible && !shuttle.jumpHome,
+                "NBT keeps long-range mode, the jump target / cooldown, anchor, invisibility (other types ignore what they lack)");
+    }
+
+    private static void stageEContent() {
+        WorkbenchRecipeSVA s = WorkbenchRecipesSVA.byId("shuttle"), sh = WorkbenchRecipesSVA.byId("ship");
+        check(s != null && s.eu == 60000000L && s.tier == Tier.XV && s.width == 5 && s.height == 5 && ItemVehicleSVA.typeOf(s.result()) == VehicleType.SHUTTLE
+                && !WorkbenchMath.canBuild(Tier.XV, WorkbenchMath.inputTier(1, false)) && WorkbenchMath.canBuild(Tier.XV, WorkbenchMath.inputTier(2, false)),
+                "shuttle: workbench 5x5, 60M EU, XV - two transformers");
+        check(sh != null && sh.eu == 500000000L && sh.tier == Tier.SV && ItemVehicleSVA.typeOf(sh.result()) == VehicleType.SHIP
+                && !WorkbenchMath.canBuild(Tier.SV, WorkbenchMath.inputTier(2, false)) && WorkbenchMath.canBuild(Tier.SV, WorkbenchMath.inputTier(3, false)),
+                "ship: workbench 5x5, 500M EU, SV - three transformers");
+        boolean fusion = false, link = false, clots = false;
+        if (s != null && sh != null) {
+            for (Object o : s.layout()) {
+                ItemStack in = o == null ? null : WorkbenchRecipeSVA.displayOf(o);
+                fusion |= in != null && in.getItem() == ModItems.component("fusionCore");
+            }
+            int n = 0;
+            for (Object o : sh.layout()) {
+                ItemStack in = o == null ? null : WorkbenchRecipeSVA.displayOf(o);
+                link |= in != null && in.getItem() == ModItems.bridgeLinkModule;
+                n += in != null && in.getItem() == ModItems.singularClot ? 1 : 0;
+            }
+            clots = n == 4;
+        }
+        check(fusion && link && clots, "shuttle takes the core's fusion reactor core; the ship the bridge link module and 4 singular clots");
     }
 
     // ------------------------------------------------------------------ the charging platform (plan §9)

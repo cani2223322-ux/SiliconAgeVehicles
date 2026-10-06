@@ -67,6 +67,13 @@ public class RenderVehicleSVA extends Render {
                     }
                 } else if (p.kind == ObjModelSVA.Part.BORE) {
                     m.renderPart(p, v.drillAngle(pt) * p.speed, shade);
+                } else if (p.kind == ObjModelSVA.Part.CORE) {
+                    // the singularity pulses (harder while the jump portal opens)
+                    float t = v.ticksExisted + pt;
+                    float amp = v.isPortalOpening() ? 0.22F : 0.07F;
+                    m.renderPulse(p, 1F + amp * (float) Math.sin(t * (v.isPortalOpening() ? 0.9F : 0.22F)), shade);
+                } else if (p.kind == ObjModelSVA.Part.RINGS) {
+                    m.renderPart(p, v.coreAngle(pt), shade);
                 } else if (p.kind == ObjModelSVA.Part.NACELLE) {
                     m.renderNacelle(p, com.sva.vehicle.TiltMath.nacelleAngle(v.getTiltPos()), a * p.speed, shade, blur);
                 } else {
