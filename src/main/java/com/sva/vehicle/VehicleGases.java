@@ -24,6 +24,9 @@ public final class VehicleGases {
     public double boostMul = 1;
     /** Gas that cools the motor (helium, VehicleMath.heliumCooling), or null. */
     public Gas coolant;
+    /** Hull field (plan §4.4 «Поле корпуса», the drill vehicle): this gas at fieldPerSecond mB/s takes fieldReduction off hull damage. */
+    public Gas fieldGas;
+    public double fieldPerSecond, fieldReduction;
 
     private VehicleGases() {
     }
@@ -46,6 +49,14 @@ public final class VehicleGases {
         liftGas = g;
         liftPerSecond = perSecond;
         this.boostPerSecond = boostPerSecond;
+        return this;
+    }
+
+    /** A hull field: `g` spent at `perSecond` mB/s while the motor runs, hull damage x (1 - reduction). */
+    public VehicleGases field(Gas g, double perSecond, double reduction) {
+        fieldGas = g;
+        fieldPerSecond = perSecond;
+        fieldReduction = reduction;
         return this;
     }
 

@@ -22,6 +22,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * PickUp (C->S): the cargo screen's «Убрать в инвентарь» - owner / op, nobody seated, within 8 blocks (tryPickUp).
  * Station (C->S): a charging station setting toggled - the open screen's station, its owner / an op only.
  * StationInfo (S->C): the station screen's served vehicle owner name (sent when the vehicle changes).
+ * Action (C->S): a vehicle action - the drill keys (its driver) or a cargo screen button (owner / op): the sender must
+ * sit in it or stand within 8 blocks; the vehicle throttles repeats (EntityVehicleSVA.serverAction).
  */
 public final class NetSVA {
 
@@ -38,6 +40,7 @@ public final class NetSVA {
         CHANNEL.registerMessage(PickUpHandler.class, PickUp.class, 4, Side.SERVER);
         CHANNEL.registerMessage(StationHandler.class, Station.class, 5, Side.SERVER);
         CHANNEL.registerMessage(StationInfoHandler.class, StationInfo.class, 6, Side.CLIENT);
+        CHANNEL.registerMessage(ActionHandler.class, Action.class, 7, Side.SERVER);
     }
 
     // ---------------------------------------------------------------- input
@@ -373,6 +376,56 @@ public final class NetSVA {
         @Override
         public IMessage onMessage(StationInfo m, MessageContext ctx) {
             SVAMod.proxy.stationInfo(m.owner);
+            return null;
+        }
+    }
+
+    // ---------------------------------------------------------------- vehicle actions (drill keys, cargo screen buttons)
+
+    public static class Action implements IMessage {
+        public int entity, action;
+
+        public Action() {
+        }
+
+        public Action(int entity, int action) {
+            this.entity = entity;
+            this.action = action;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+            action = buf.readByte();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+            buf.writeByte(action);
+        }
+    }
+
+    public static class ActionHandler implements IMessageHandler<Action, IMessage> {
+        @Override
+        public IMessage onMessage(final Action m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    if (p.worldObj == null) {
+                        return;
+                    }
+                    Entity e = p.worldObj.getEntityByID(m.entity);
+                    if (!(e instanceof EntityVehicleSVA) || e.isDead) {
+                        return;
+                    }
+                    EntityVehicleSVA v = (EntityVehicleSVA) e;
+                    if (v.carries(p) || p.getDistanceSqToEntity(v) < 64) {
+                        v.serverAction(p, m.action);
+                    }
+                }
+            });
             return null;
         }
     }

@@ -95,6 +95,8 @@ public class WorldTestSVA {
                 platformTick(w);
             } else if (afAt > 0 && ticks >= afAt && afPhase < AF_DONE) {
                 aircraftTick(w);
+            } else if (cvAt > 0 && ticks >= cvAt && cvPhase < CV_DONE) {
+                stageCTick(w);
             }
         } catch (Throwable t) {
             failed++;
@@ -115,6 +117,8 @@ public class WorldTestSVA {
                 platformFinish(w);
             } else if (afAt > 0 && afPhase < AF_DONE) {
                 aircraftFinish(w);
+            } else if (cvAt > 0 && cvPhase < CV_DONE) {
+                stageCFinish(w);
             }
         }
     }
@@ -426,7 +430,8 @@ public class WorldTestSVA {
     private TileEntityGasColumnSVA column;
     private int columnH2Before, bikeH2Before, columnAt;
 
-    private static final com.sc.util.ArmorGasSC.Gas H2 = com.sc.util.ArmorGasSC.Gas.HYDROGEN, HE = com.sc.util.ArmorGasSC.Gas.HELIUM;
+    private static final com.sc.util.ArmorGasSC.Gas H2 = com.sc.util.ArmorGasSC.Gas.HYDROGEN, HE = com.sc.util.ArmorGasSC.Gas.HELIUM,
+            AR = com.sc.util.ArmorGasSC.Gas.ARGON;
 
     private void hoverZone(World w, boolean build) {
         int z0 = bz + HV_Z - 3, z1 = bz + HV_Z + 3;
@@ -1216,6 +1221,291 @@ public class WorldTestSVA {
         VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
         check(reg.count(OWNER) == 0, "aircraft cleanup: no test vehicles left in the registry");
         afPhase = AF_DONE;
+        cvAt = ticks + 20;                                      // stage C next
+    }
+
+    // ------------------------------------------------------------------ stage C: cargo crawler + trailer, drill vehicle
+
+    private static final int CV_DONE = 99, CY = 120, CV_CHECK_AUTO = 320, CV_CHECK_DRILL = 640;
+    private int cvAt = -1, cvPhase;
+    private int cx0, cz0;
+    private EntityVehicleSVA truck, drill, oreDrill;
+    private net.minecraft.tileentity.TileEntityChest chestA, chestB;
+    private double drillEu0;
+
+    /** Clears (and with floor lays stone at CY) a box of the stage C area, CY .. CY + 8. */
+    private void cvBox(World w, int x0, int z0, int x1, int z1, boolean floor) {
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                for (int y = CY; y <= CY + 8; y++) {
+                    if (w.getTileEntity(x, y, z) instanceof net.minecraft.inventory.IInventory) {
+                        net.minecraft.inventory.IInventory inv = (net.minecraft.inventory.IInventory) w.getTileEntity(x, y, z);
+                        for (int i = 0; i < inv.getSizeInventory(); i++) {
+                            inv.setInventorySlotContents(i, null);       // no chest contents spilled
+                        }
+                    }
+                    if (!w.isAirBlock(x, y, z)) {
+                        w.setBlock(x, y, z, Blocks.air, 0, 2);
+                    }
+                }
+                if (floor) {
+                    w.setBlock(x, CY, z, Blocks.stone, 0, 2);
+                }
+            }
+        }
+    }
+
+    private EntityVehicleSVA cvSpawn(World w, VehicleType t, double x, double z) {
+        VehicleState st = new VehicleState(t);
+        st.energy = st.maxEnergy();
+        st.fillAllGases();
+        return ItemVehicleSVA.spawn(w, ItemVehicleSVA.withState(new ItemStack(ModContentSVA.vehicle, 1, t.ordinal()), st),
+                x, CY + 1, z, -90F, OWNER, "WorldTest");                 // facing +x
+    }
+
+    private void stageCTick(World w) {
+        int t = ticks - cvAt;
+        if (t == 0) {
+            stageCSetup(w);
+        } else if (t == CV_CHECK_AUTO) {
+            autoCheck();
+        } else if (t == CV_CHECK_DRILL) {
+            drillCheck(w);
+            stageCFinish(w);
+        }
+    }
+
+    private void stageCSetup(World w) {
+        ChunkCoordinates sp = w.getSpawnPoint();
+        cx0 = sp.posX - 70;
+        cz0 = sp.posZ + 40;
+        cvPhase = 1;
+        // ---- auto-delivery: chest A at x0, chest B 22 blocks east, the route on the ground beside them
+        cvBox(w, cx0 - 6, cz0 - 5, cx0 + 30, cz0 + 6, true);
+        w.setBlock(cx0, CY + 1, cz0 + 3, Blocks.chest, 0, 3);
+        w.setBlock(cx0 + 22, CY + 1, cz0 + 3, Blocks.chest, 0, 3);
+        chestA = (net.minecraft.tileentity.TileEntityChest) w.getTileEntity(cx0, CY + 1, cz0 + 3);
+        chestB = (net.minecraft.tileentity.TileEntityChest) w.getTileEntity(cx0 + 22, CY + 1, cz0 + 3);
+        chestA.setInventorySlotContents(0, new ItemStack(Items.iron_ingot, 64));
+        chestA.setInventorySlotContents(5, new ItemStack(Blocks.cobblestone, 32));
+        truck = cvSpawn(w, VehicleType.TRUCK, cx0 + 0.5, cz0 + 0.5);
+        check(truck != null && truck.getSizeInventory() == 54 && truck.state.gas(HE) == 2000, "crawler: placed (54 cargo, He 2000)");
+        if (truck != null) {
+            boolean b1 = truck.setRoutePoint(new int[] {cx0, CY + 1, cz0, 0});
+            boolean b2 = truck.setRoutePoint(new int[] {cx0 + 22, CY + 1, cz0, 0});
+            check(!b1 && b2 && truck.state.routeA[0] == cx0 && truck.state.routeB[0] == cx0 + 22, "auto: coordinator points set A, then B");
+            check(truck.setAuto(true) && truck.state.autoState == com.sva.vehicle.AutoDelivery.TO_A, "auto: switched on - heading for A");
+        }
+        // ---- trailer: hitch, cargo round trip through the pick-up, unhitch
+        trailerRoundTrip(w);
+        // ---- drill: a 13 x 7 x 5 stone hill with ores, a lava pocket, bedrock + a chest at depth 11
+        int dx0 = cx0, dz0 = cz0 + 18;
+        cvBox(w, dx0 - 6, dz0 - 5, dx0 + 22, dz0 + 5, true);
+        for (int x = dx0 + 3; x <= dx0 + 15; x++) {
+            for (int z = dz0 - 3; z <= dz0 + 3; z++) {
+                for (int y = CY + 1; y <= CY + 5; y++) {
+                    w.setBlock(x, y, z, Blocks.stone, 0, 2);
+                }
+            }
+        }
+        w.setBlock(dx0 + 5, CY + 1, dz0, Blocks.iron_ore, 0, 2);
+        w.setBlock(dx0 + 8, CY + 2, dz0 + 1, Blocks.coal_ore, 0, 2);
+        w.setBlock(dx0 + 10, CY + 2, dz0 - 1, Blocks.lava, 0, 2);
+        w.setBlock(dx0 + 13, CY + 2, dz0, Blocks.bedrock, 0, 2);
+        w.setBlock(dx0 + 13, CY + 3, dz0 - 1, Blocks.chest, 0, 3);
+        drill = cvSpawn(w, VehicleType.DRILL, dx0 + 0.5, dz0 + 0.5);
+        check(drill != null && drill.getSizeInventory() == 110 && drill.state.gas(AR) == 2000, "drill: placed (108 cargo + head + module, Ar 2000)");
+        if (drill != null) {
+            ItemStack head = new ItemStack(com.sc.init.ModItems.DRILL_HEADS.get(0));       // steel: 1 b/s, 2000 blocks
+            check(drill.isItemValidForSlot(drill.headSlot(), head) && !drill.isItemValidForSlot(drill.headSlot(), new ItemStack(Items.diamond)),
+                    "drill: the head slot takes a core drill head only");
+            drill.setInventorySlotContents(drill.headSlot(), head);
+            drill.storeCargo(new ItemStack(Blocks.torch, 4));
+            drill.drillOn = true;
+            drillEu0 = drill.state.energy;
+            drill.debugDrive(EntityVehicleSVA.IN_FWD);
+        }
+        // ---- ore only: a stone wall with a coal ore in the face
+        int ox0 = cx0, oz0 = cz0 - 14;
+        cvBox(w, ox0 - 6, oz0 - 4, ox0 + 10, oz0 + 4, true);
+        for (int x = ox0 + 3; x <= ox0 + 5; x++) {
+            for (int z = oz0 - 2; z <= oz0 + 2; z++) {
+                for (int y = CY + 1; y <= CY + 4; y++) {
+                    w.setBlock(x, y, z, Blocks.stone, 0, 2);
+                }
+            }
+        }
+        w.setBlock(ox0 + 3, CY + 2, oz0, Blocks.coal_ore, 0, 2);
+        oreDrill = cvSpawn(w, VehicleType.DRILL, ox0 + 0.5, oz0 + 0.5);
+        if (oreDrill != null) {
+            oreDrill.setInventorySlotContents(oreDrill.headSlot(), new ItemStack(com.sc.init.ModItems.DRILL_HEADS.get(0)));
+            oreDrill.state.drillMode = com.sva.vehicle.DrillMath.MODE_ORE;
+            oreDrill.drillOn = true;
+            oreDrill.debugDrive(EntityVehicleSVA.IN_FWD);
+        }
+    }
+
+    private void trailerRoundTrip(World w) {
+        net.minecraftforge.common.util.FakePlayer owner = net.minecraftforge.common.util.FakePlayerFactory.get((net.minecraft.world.WorldServer) w,
+                new com.mojang.authlib.GameProfile(java.util.UUID.fromString(OWNER), "WorldTest"));
+        net.minecraftforge.common.util.FakePlayer other = net.minecraftforge.common.util.FakePlayerFactory.get((net.minecraft.world.WorldServer) w,
+                new com.mojang.authlib.GameProfile(java.util.UUID.fromString("00000000-5bad-4e57-0000-0000000000ff"), "Stranger"));
+        EntityVehicleSVA c = cvSpawn(w, VehicleType.TRUCK, cx0 + 12.5, cz0 - 3.0);
+        if (c == null) {
+            check(false, "trailer: a crawler placed");
+            return;
+        }
+        ItemStack[] tc = new ItemStack[54];
+        tc[0] = new ItemStack(Items.diamond, 5);
+        tc[40] = new ItemStack(Items.gold_ingot, 17);
+        ItemStack trailer = com.sva.item.ItemTrailerSVA.withCargo(new ItemStack(ModContentSVA.trailer), tc);
+        check(c.attachTrailer(other, trailer) == com.sva.vehicle.CrawlerMath.NOT_OWNER && !c.hasTrailer(), "trailer: a stranger can't hitch it");
+        check(c.attachTrailer(owner, trailer) == com.sva.vehicle.CrawlerMath.OK && c.hasTrailer() && c.getSizeInventory() == 108
+                && c.getStackInSlot(54) != null && c.getStackInSlot(54).stackSize == 5 && c.getStackInSlot(94).stackSize == 17,
+                "trailer: hitched - 108 slots, its cargo in slots 54..107");
+        check(c.attachTrailer(owner, trailer) == com.sva.vehicle.CrawlerMath.ALREADY, "trailer: a second one refused");
+        c.setInventorySlotContents(2, new ItemStack(Items.coal, 9));
+        ItemStack item = c.toItemStack();
+        c.setDead();
+        VehicleState st = ItemVehicleSVA.stateOf(item);
+        check(st.trailer && st.cargo.length == 108 && st.cargo[54].stackSize == 5 && st.cargo[2].stackSize == 9,
+                "trailer: picked up - the item keeps the trailer and all 108 slots");
+        EntityVehicleSVA again = ItemVehicleSVA.spawn(w, item, cx0 + 12.5, CY + 1, cz0 - 3.0, -90F, OWNER, "WorldTest");
+        check(again != null && again.hasTrailer() && again.getStackInSlot(94) != null && again.getStackInSlot(94).stackSize == 17,
+                "trailer: placed again with the trailer and its cargo");
+        if (again != null) {
+            ItemStack back = again.detachTrailer();
+            ItemStack[] bc = com.sva.item.ItemTrailerSVA.cargoOf(back);
+            check(!again.hasTrailer() && again.getSizeInventory() == 54 && again.getStackInSlot(2) != null && bc[0].stackSize == 5 && bc[40].stackSize == 17,
+                    "trailer: unhitched - 54 slots, the trailer item holds its cargo");
+            again.setDead();
+        }
+    }
+
+    private void autoCheck() {
+        if (truck == null) {
+            return;
+        }
+        int iron = 0, cobble = 0;
+        for (int i = 0; i < chestB.getSizeInventory(); i++) {
+            ItemStack s = chestB.getStackInSlot(i);
+            if (s != null && s.getItem() == Items.iron_ingot) {
+                iron += s.stackSize;
+            } else if (s != null && s.getItem() == net.minecraft.item.Item.getItemFromBlock(Blocks.cobblestone)) {
+                cobble += s.stackSize;
+            }
+        }
+        boolean aEmpty = true;
+        for (int i = 0; i < chestA.getSizeInventory(); i++) {
+            aEmpty &= chestA.getStackInSlot(i) == null;
+        }
+        check(iron == 64 && cobble == 32 && aEmpty, "auto: delivered chest A -> chest B 22 blocks away (iron " + iron + ", cobble " + cobble + ")");
+        int s = truck.state.autoState;
+        check(truck.cargoEmpty() && (s == com.sva.vehicle.AutoDelivery.TO_A || s == com.sva.vehicle.AutoDelivery.LOADING),
+                "auto: empty, back to A (state " + s + ", x+" + Math.round((truck.posX - cx0) * 10) / 10.0 + ")");
+        check(truck.state.energy < truck.state.maxEnergy() && Math.abs(truck.posZ - (cz0 + 0.5)) < 1.5, "auto: drove on its own EU, kept to the line");
+        truck.setAuto(false);
+        check(truck.state.autoState == com.sva.vehicle.AutoDelivery.OFF, "auto: switched off");
+    }
+
+    private void drillCheck(World w) {
+        int dx0 = cx0, dz0 = cz0 + 18;
+        if (drill != null) {
+            boolean tunnel = true;
+            for (int x = dx0 + 3; x <= dx0 + 12; x++) {
+                for (int z = dz0 - 1; z <= dz0 + 1; z++) {
+                    for (int y = CY + 1; y <= CY + 3; y++) {
+                        tunnel &= w.isAirBlock(x, y, z) || w.getBlock(x, y, z) == Blocks.torch;
+                    }
+                }
+            }
+            check(tunnel, "drill: a 3x3 tunnel 10 blocks into the stone (front at x+" + Math.round((drill.posX - dx0) * 10) / 10.0 + ", dug "
+                    + drill.state.dug + ")");
+            check(w.getBlock(dx0 + 8, CY + 2, dz0 + 2) == Blocks.stone && w.getBlock(dx0 + 8, CY + 4, dz0) == Blocks.stone
+                    && w.getBlock(dx0 + 8, CY, dz0) == Blocks.stone, "drill: walls, ceiling and floor stay - 3 wide, 3 high");
+            check(w.getBlock(dx0 + 13, CY + 2, dz0) == Blocks.bedrock && w.getBlock(dx0 + 13, CY + 3, dz0 - 1) == Blocks.chest,
+                    "drill: bedrock and the chest (tile entity) in the way are not broken");
+            check(w.getBlock(dx0 + 10, CY + 2, dz0 - 1).getMaterial() != net.minecraft.block.material.Material.lava
+                    && countLiquid(w, dx0 + 2, dz0 - 3, dx0 + 15, dz0 + 3) == 0, "drill: the lava pocket was walled up with cobble and dug - no liquid left");
+            int cobble = countCargo(drill, net.minecraft.item.Item.getItemFromBlock(Blocks.cobblestone));
+            int ironOre = countCargo(drill, net.minecraft.item.Item.getItemFromBlock(Blocks.iron_ore));
+            int coal = countCargo(drill, Items.coal);
+            check(cobble >= 60 && ironOre >= 1 && coal >= 1, "drill: cargo got cobblestone " + cobble + ", iron ore " + ironOre + ", coal " + coal);
+            ItemStack head = drill.state.drillHead;
+            check(head != null && head.getItemDamage() == drill.state.dug && drill.state.dug >= 90, "drill: the steel head wore " + (head == null ? -1 : head.getItemDamage())
+                    + " for " + drill.state.dug + " blocks");
+            double spent = drillEu0 - drill.state.energy;
+            check(spent >= drill.state.dug * 53, "drill: spent " + Math.round(spent) + " EU (>= 53 a block of stone)");
+            check(drill.posX < dx0 + 13 - 1.0 && drill.posX > dx0 + 9, "drill: stopped at the bedrock (x+" + Math.round((drill.posX - dx0) * 10) / 10.0 + ")");
+            check(drill.isFieldOn() && drill.state.gas(AR) <= 2000 - 25, "drill: the argon field runs (Ar " + drill.state.gas(AR) + " mB)");
+            if (ConfigSVA.wear) {
+                float hp = drill.state.hp;
+                drill.damageHull(100F);
+                check(Math.abs((hp - drill.state.hp) - 60F) < 0.01F, "drill: a 100-point hit takes 60 through the argon field");
+            }
+            drill.debugDrive(0);
+        }
+        if (oreDrill != null) {
+            int ox0 = cx0, oz0 = cz0 - 14;
+            check(w.isAirBlock(ox0 + 3, CY + 2, oz0) && w.getBlock(ox0 + 3, CY + 1, oz0) == Blocks.stone && w.getBlock(ox0 + 3, CY + 3, oz0) == Blocks.stone
+                    && countCargo(oreDrill, Items.coal) >= 1 && oreDrill.posX < ox0 + 3 - 1.0,
+                    "drill: ore only - took the coal ore, the stone stays, the vehicle can't pass");
+            oreDrill.debugDrive(0);
+        }
+    }
+
+    private static int countCargo(EntityVehicleSVA v, net.minecraft.item.Item item) {
+        int n = 0;
+        for (ItemStack s : v.state.cargo) {
+            if (s != null && s.getItem() == item) {
+                n += s.stackSize;
+            }
+        }
+        return n;
+    }
+
+    private static int countLiquid(World w, int x0, int z0, int x1, int z1) {
+        int n = 0;
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                for (int y = CY + 1; y <= CY + 5; y++) {
+                    if (w.getBlock(x, y, z).getMaterial().isLiquid()) {
+                        n++;
+                    }
+                }
+            }
+        }
+        return n;
+    }
+
+    private void stageCFinish(World w) {
+        cvPhase = CV_DONE;
+        for (EntityVehicleSVA v : new EntityVehicleSVA[] {truck, drill, oreDrill}) {
+            if (v != null) {
+                v.debugDrive(0);
+                v.setDead();
+            }
+        }
+        truck = drill = oreDrill = null;
+        if (cx0 != 0 || cz0 != 0) {
+            cvBox(w, cx0 - 6, cz0 - 5, cx0 + 30, cz0 + 6, false);
+            cvBox(w, cx0 - 6, cz0 + 13, cx0 + 22, cz0 + 23, false);
+            cvBox(w, cx0 - 6, cz0 - 18, cx0 + 10, cz0 - 10, false);
+            for (int x = cx0 - 6; x <= cx0 + 30; x++) {
+                for (int z = cz0 - 18; z <= cz0 + 23; z++) {
+                    if (w.getBlock(x, CY, z) == Blocks.stone) {
+                        w.setBlock(x, CY, z, Blocks.air, 0, 2);
+                    }
+                }
+            }
+        }
+        java.util.List<?> items = w.getEntitiesWithinAABB(net.minecraft.entity.item.EntityItem.class,
+                net.minecraft.util.AxisAlignedBB.getBoundingBox(cx0 - 10, CY - 2, cz0 - 22, cx0 + 34, CY + 12, cz0 + 27));
+        for (Object o : items) {
+            ((net.minecraft.entity.Entity) o).setDead();
+        }
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        check(reg.count(OWNER) == 0, "stage C cleanup: no test vehicles left in the registry");
         System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
         System.out.println("[SVA-WORLDTEST] DONE");
     }

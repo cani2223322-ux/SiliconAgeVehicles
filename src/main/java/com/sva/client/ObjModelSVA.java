@@ -35,16 +35,31 @@ public final class ObjModelSVA {
      * the translucent motion-blur disc drawn while it spins fast.
      */
     public static final class Part {
+        /** ROTOR: turned by the rotor angle x speed; TRAILER: drawn only while a trailer is hitched; BORE: the drill's cone. */
+        public static final int ROTOR = 0, TRAILER = 1, BORE = 2;
         public final String name;
         final java.util.Set<String> groups = new java.util.HashSet<String>();
+        /** No `groups` given: every material but these. */
+        final java.util.Set<String> exclude = new java.util.HashSet<String>();
         final float[] min, max;
         public final float[] pivot;
         public final int axis;
         public final float speed, disc;
+        public final int kind;
 
         Part(String name, String[] groups, float[] min, float[] max, float[] pivot, int axis, float speed, float disc) {
+            this(ROTOR, name, groups, null, min, max, pivot, axis, speed, disc);
+        }
+
+        Part(int kind, String name, String[] groups, String[] exclude, float[] min, float[] max, float[] pivot, int axis, float speed, float disc) {
+            this.kind = kind;
             this.name = name;
-            java.util.Collections.addAll(this.groups, groups);
+            if (groups != null) {
+                java.util.Collections.addAll(this.groups, groups);
+            }
+            if (exclude != null) {
+                java.util.Collections.addAll(this.exclude, exclude);
+            }
             this.min = min;
             this.max = max;
             this.pivot = pivot;
@@ -54,7 +69,8 @@ public final class ObjModelSVA {
         }
 
         boolean holds(String group, float x, float y, float z) {
-            return groups.contains(group) && x >= min[0] && x <= max[0] && y >= min[1] && y <= max[1] && z >= min[2] && z <= max[2];
+            boolean g = groups.isEmpty() ? !exclude.contains(group) : groups.contains(group);
+            return g && x >= min[0] && x <= max[0] && y >= min[1] && y <= max[1] && z >= min[2] && z <= max[2];
         }
     }
 
@@ -72,6 +88,14 @@ public final class ObjModelSVA {
         // plane.obj: the 3-blade propeller (dark, hazard tips) at x 2.27..2.30, about x through the spinner (2.284, 0.631, 0.019)
         part("plane", new Part("prop", new String[] {"dark", "hazard"}, new float[] {2.25F, 0F, -0.9F},
                 new float[] {2.4F, 1.4F, 0.9F}, new float[] {2.284F, 0.631F, 0.019F}, 0, 1F, 0.72F));
+        // truck.obj: the trailer - everything behind the hitch (triangle centres x < -1.25; the crawler's tracks reach
+        // -1.2 and stay), drawn only while one is hitched
+        part("truck", new Part(Part.TRAILER, "trailer", null, new String[] {"tread"}, new float[] {-9F, -1F, -3F},
+                new float[] {-1.25F, 4F, 3F}, new float[] {0F, 0F, 0F}, 1, 0F, 0F));
+        // drill.obj: the bore cone (steel, chrome, gold teeth; x >= 1.44 - the collar ring at 1.38..1.44 stays) about x
+        // through its tip (3.0, 1.031, 0.019)
+        part("drill", new Part(Part.BORE, "bore", new String[] {"steel", "chrome", "gold"}, null, new float[] {1.44F, 0F, -1.2F},
+                new float[] {3.2F, 2.2F, 1.2F}, new float[] {2.2F, 1.031F, 0.019F}, 0, 1F, 0F));
     }
 
     private static void part(String model, Part p) {

@@ -13,7 +13,12 @@ public enum Movement {
     /** Helicopter: vertical take-off, hover, ceiling Y 200; no power - autorotation (HeliPhysicsSVA, HeliMath). */
     HELI(true, true),
     /** Aeroplane: lift from speed, stall, take-off run (halved on runways); no power - a 1:8 glide (PlanePhysicsSVA, PlaneMath). */
-    PLANE(true, true);
+    PLANE(true, true),
+    /**
+     * Tracks (stage C: cargo crawler, drill vehicle): EntityVehicleSVA's ground physics with turning on the spot,
+     * 2-block steps (VehicleType.stepHeight), no wheel slip, and it swims across water at half speed (CrawlerMath).
+     */
+    CRAWLER(false, false);
 
     /** Needs lift (power, a lift gas) to stay up; without it it comes down gently. */
     public final boolean lifts;

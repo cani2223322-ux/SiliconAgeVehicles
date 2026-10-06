@@ -46,11 +46,21 @@ public class ClientProxySVA extends CommonProxySVA {
     public static final net.minecraft.client.settings.KeyBinding KEY_DOWN =
             new net.minecraft.client.settings.KeyBinding("key.sva.down", org.lwjgl.input.Keyboard.KEY_X, "key.categories.sva");
 
+    /** «Бур: вкл/выкл» (the drill vehicle; its driver). Default B - free in vanilla 1.7.10 and the core. */
+    public static final net.minecraft.client.settings.KeyBinding KEY_DRILL =
+            new net.minecraft.client.settings.KeyBinding("key.sva.drill", org.lwjgl.input.Keyboard.KEY_B, "key.categories.sva");
+
+    /** «Бур: режим» - Tunnel / Ore only / Level. Default N. */
+    public static final net.minecraft.client.settings.KeyBinding KEY_DRILL_MODE =
+            new net.minecraft.client.settings.KeyBinding("key.sva.drillMode", org.lwjgl.input.Keyboard.KEY_N, "key.categories.sva");
+
     @Override
     public void init(FMLInitializationEvent e) {
         super.init(e);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_BOOST);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DOWN);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DRILL);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DRILL_MODE);
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
         FMLCommonHandler.instance().bus().register(this);
@@ -164,6 +174,19 @@ public class ClientProxySVA extends CommonProxySVA {
         }
     }
 
+    /** The drill keys while driving the drill vehicle: one Action packet a press. */
+    private static void drillKeys() {
+        Minecraft mc = Minecraft.getMinecraft();
+        boolean toggle = KEY_DRILL.isPressed(), mode = KEY_DRILL_MODE.isPressed();
+        if (mc.thePlayer == null || mc.currentScreen != null || !(toggle || mode)) {
+            return;
+        }
+        Entity r = mc.thePlayer.ridingEntity;
+        if (r instanceof EntityVehicleSVA && ((EntityVehicleSVA) r).getVehicleType().hasDrill) {
+            NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), toggle ? EntityVehicleSVA.A_DRILL_TOGGLE : EntityVehicleSVA.A_DRILL_MODE));
+        }
+    }
+
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent e) {
         if (e.phase != TickEvent.Phase.START) {
@@ -177,6 +200,7 @@ public class ClientProxySVA extends CommonProxySVA {
                 ((com.sva.inventory.ContainerChargerSVA) pl.openContainer).vehicleOwner = owner;
             }
         }
+        drillKeys();
         NetSVA.Correct m;
         while ((m = corrections.poll()) != null) {
             Minecraft mc = Minecraft.getMinecraft();

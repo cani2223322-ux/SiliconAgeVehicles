@@ -9,6 +9,9 @@ import com.sva.init.ModContentSVA;
 import com.sva.inventory.GuiHandlerSVA;
 import com.sva.net.NetSVA;
 import com.sc.util.ArmorGasSC.Gas;
+import com.sva.vehicle.AutoDelivery;
+import com.sva.vehicle.CrawlerMath;
+import com.sva.vehicle.DrillMath;
 import com.sva.vehicle.FlightMath;
 import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
@@ -58,7 +61,13 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public static final String NBT_ROOT = "SVAVehicle";
     // data watcher ids (append-only)
     private static final int DW_ENERGY = 20, DW_HP = 21, DW_HEAT = 22, DW_FLAGS = 23, DW_CARGO = 24, DW_TYPE = 25,
-            DW_CRUISE = 26, DW_YAW = 27, DW_GAS = 28, DW_THR = 29, DW_COST = 30;
+            DW_CRUISE = 26, DW_YAW = 27, DW_GAS = 28, DW_THR = 29, DW_COST = 30,
+            // stage C: packed bits (trailer, drill, auto-delivery - X_*), blocks dug, head life left / max, auto distance, route text
+            DW_EXTRA = 31, DW_DUG = 19, DW_HEAD = 18, DW_HEAD_MAX = 17, DW_AUTO_DIST = 16, DW_ROUTE = 15;
+    private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
+            X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15;
+    /** Vehicle actions (the Action packet: cargo screen buttons, the drill keys). */
+    public static final int A_DRILL_TOGGLE = 0, A_DRILL_MODE = 1, A_AUTO_TOGGLE = 2, A_TRAILER_DETACH = 3, A_ROUTE_CLEAR = 4;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -110,6 +119,16 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     private int lastSentInput = -1, inputTimer, moveTimer;
     private double sentX, sentY, sentZ;
     private float sentYaw;
+    // stage C, server: the drill (on, dig budget, blocks driven since the last torch), auto-delivery (stuck ticks,
+    // transfer timer, why it stopped, distance to the point), throttles for actions and warnings
+    public boolean drillOn;
+    double digBudget, torchDist;
+    int autoBlocked, autoTimer, autoReason, autoDist;
+    private long lastActionTick = -100, warnTick = -1000;
+    private boolean fieldNow;
+    // client: the bore's spin
+    public float drillAngle, prevDrillAngle;
+    private float drillRate;
     /** Client: seat entities that found this body (positioned here each tick). */
     final List<EntitySeatSVA> clientSeats = new ArrayList<EntitySeatSVA>();
 
@@ -149,6 +168,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.addObject(DW_GAS, "");
         dataWatcher.addObject(DW_THR, Float.valueOf(0));
         dataWatcher.addObject(DW_COST, Float.valueOf(0));
+        dataWatcher.addObject(DW_EXTRA, Integer.valueOf(0));
+        dataWatcher.addObject(DW_DUG, Integer.valueOf(0));
+        dataWatcher.addObject(DW_HEAD, Integer.valueOf(0));
+        dataWatcher.addObject(DW_HEAD_MAX, Integer.valueOf(0));
+        dataWatcher.addObject(DW_AUTO_DIST, Integer.valueOf(0));
+        dataWatcher.addObject(DW_ROUTE, "");
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -212,6 +237,99 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             }
         }
         return gasShown[g.ordinal()];
+    }
+
+    // ---- stage C views (clients: synced)
+
+    private int extra() {
+        return dataWatcher.getWatchableObjectInt(DW_EXTRA);
+    }
+
+    /** A trailer is hitched. */
+    public boolean hasTrailer() {
+        return worldObj != null && worldObj.isRemote ? (extra() & X_TRAILER) != 0 : state.trailer;
+    }
+
+    /** Cargo slots now (a hitched trailer adds 54). */
+    public int cargoCapacity() {
+        return getVehicleType().cargoSlots(hasTrailer());
+    }
+
+    public boolean isDrillOn() {
+        return worldObj.isRemote ? (extra() & X_DRILL) != 0 : drillOn;
+    }
+
+    public int getDrillMode() {
+        return worldObj.isRemote ? (extra() >> X_MODE_SHIFT) & 3 : state.drillMode;
+    }
+
+    public boolean hasWidener() {
+        return worldObj.isRemote ? (extra() & X_WIDE) != 0 : DrillLogicSVA.wide(state);
+    }
+
+    public boolean hasHead() {
+        return worldObj.isRemote ? (extra() & X_HEAD) != 0 : DrillLogicSVA.isHead(state.drillHead);
+    }
+
+    /** Blocks the head still lasts (-1: for ever) and its whole life (0: Exo). */
+    public int getHeadLeft() {
+        return worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_HEAD) : headLeft();
+    }
+
+    public int getHeadMax() {
+        return worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_HEAD_MAX) : state.drillHead == null ? 0 : state.drillHead.getMaxDamage();
+    }
+
+    private int headLeft() {
+        ItemStack h = state.drillHead;
+        return h == null ? 0 : DrillMath.lifeLeft(h.getItemDamage(), h.getMaxDamage());
+    }
+
+    public int getDug() {
+        return worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_DUG) : (int) Math.min(Integer.MAX_VALUE, state.dug);
+    }
+
+    public boolean isAutoOn() {
+        return worldObj.isRemote ? (extra() & X_AUTO_ON) != 0 : state.autoOn;
+    }
+
+    public int getAutoState() {
+        return worldObj.isRemote ? (extra() >> X_AUTO_SHIFT) & 7 : state.autoState;
+    }
+
+    public int getAutoReason() {
+        return worldObj.isRemote ? (extra() >> X_REASON_SHIFT) & 7 : autoReason;
+    }
+
+    public int getAutoDist() {
+        return worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_AUTO_DIST) : autoDist;
+    }
+
+    /** "x y z" of A and B ("" when unset), for the cargo screen. */
+    public String[] getRoute() {
+        String r = worldObj.isRemote ? dataWatcher.getWatchableObjectString(DW_ROUTE) : routeText();
+        String[] p = r.split(";", -1);
+        return new String[] {p.length > 0 ? p[0] : "", p.length > 1 ? p[1] : ""};
+    }
+
+    private String routeText() {
+        return pointText(state.routeA) + ";" + pointText(state.routeB);
+    }
+
+    private static String pointText(int[] p) {
+        return p == null ? "" : p[0] + " " + p[1] + " " + p[2];
+    }
+
+    /** The argon hull field works (server: this tick; clients: synced). */
+    public boolean isFieldOn() {
+        return worldObj.isRemote ? (extra() & X_FIELD) != 0 : fieldNow;
+    }
+
+    private int extraBits() {
+        return (state.trailer ? X_TRAILER : 0) | (drillOn ? X_DRILL : 0) | ((state.drillMode & 3) << X_MODE_SHIFT)
+                | (DrillLogicSVA.wide(state) ? X_WIDE : 0) | (DrillLogicSVA.isHead(state.drillHead) ? X_HEAD : 0)
+                | ((state.autoState & 7) << X_AUTO_SHIFT) | (state.autoOn ? X_AUTO_ON : 0) | ((autoReason & 7) << X_REASON_SHIFT)
+                | (state.routeA != null ? X_ROUTE_A : 0) | (state.routeB != null ? X_ROUTE_B : 0) | (fieldNow ? X_FIELD : 0);
     }
 
     /** The synced gas string: the type's tank amounts in its order, comma separated. */
@@ -331,6 +449,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_COST, Float.valueOf(costNow));
         dataWatcher.updateObject(DW_YAW, Float.valueOf(rotationYaw));
         dataWatcher.updateObject(DW_GAS, gasString(state));
+        dataWatcher.updateObject(DW_EXTRA, Integer.valueOf(extraBits()));
+        dataWatcher.updateObject(DW_DUG, Integer.valueOf((int) Math.min(Integer.MAX_VALUE, state.dug)));
+        dataWatcher.updateObject(DW_HEAD, Integer.valueOf(headLeft()));
+        dataWatcher.updateObject(DW_HEAD_MAX, Integer.valueOf(state.drillHead == null ? 0 : state.drillHead.getMaxDamage()));
+        dataWatcher.updateObject(DW_AUTO_DIST, Integer.valueOf(autoDist));
+        dataWatcher.updateObject(DW_ROUTE, routeText());
     }
 
     // ------------------------------------------------------------------ geometry
@@ -425,14 +549,19 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (chargeTicks > 0) {
             chargeTicks--;
         }
-        boolean motorOn = riddenByEntity != null || debugDriver;
+        // auto-delivery (the crawler): nobody at the wheel - the server drives through the same physics as the keys
+        boolean autoDrive = state.autoOn && riddenByEntity == null && !debugDriver && AutoDelivery.target(state.autoState) >= 0;
+        int autoIn = autoDrive ? AutoPilotSVA.tick(this, prevMoved) : 0;
+        autoDrive = autoDrive && AutoDelivery.target(state.autoState) >= 0;
+        boolean motorOn = riddenByEntity != null || debugDriver || autoDrive;
         if (!debugDriver && now - lastInputTick > INPUT_TIMEOUT) {
             input = 0;                                              // keys went stale: let go
         }
+        int in = autoDrive ? autoIn : input;
         boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
         // aircraft: also while the last tick ended in the air (a driver who got out mid-air - onGround is stale then)
         if (!clientDriven && (motorOn || Math.abs(speed) > 0.0005 || !onGround || ticksExisted < 3 || t.movement.flies && wasAirborne)) {
-            physicsStep(t, motorOn ? input : 0);
+            physicsStep(t, motorOn ? in : 0);
         }
         // measured displacement - the base for EU, heat and wall hits on both control paths
         if (!hasLast) {
@@ -467,6 +596,16 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             lastDz = dz;
         }
         prevMoved = moved;
+        // the argon hull field (drill vehicle): 1 mB/s while the motor runs, hull damage -40 % (damageHull)
+        Gas fg = t.gases.fieldGas;
+        fieldNow = fg != null && motorOn && !isWrecked() && state.gas(fg) > 0;
+        if (fieldNow) {
+            state.drainGasFraction(fg, t.gases.fieldPerSecond / 20.0);
+        }
+        // the bore: on, driven forward, the motor able to push
+        if (t.hasDrill && drillOn && motorOn && (in & IN_FWD) != 0 && canThrust() && state.energy > 0) {
+            DrillLogicSVA.tick(this, moved);
+        }
         // lift gas (hover): 2 mB/s held up, 5 on boost - fractions kept like the core armour
         lifting = t.movement.lifts && hasLift() && (!t.movement.flies || canThrust());
         boosting = lifting && t.movement == Movement.HOVER && (input & IN_BOOST) != 0 && (input & IN_FWD) != 0;
@@ -592,9 +731,21 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return !worldObj.getCollidingBoundingBoxes(this, box).isEmpty();
     }
 
-    /** Engine may push: not wrecked, not overheated, not in deep water. */
+    /** Engine may push: not wrecked, not overheated, not in deep water (a crawler swims: lava only stops it). */
     public boolean canThrust() {
-        return !isWrecked() && !isHeatStopped() && (getVehicleType().movement == Movement.HOVER || !inDeepWater());
+        Movement m = getVehicleType().movement;
+        return !isWrecked() && !isHeatStopped() && (m == Movement.HOVER || !inDeepWater() || m == Movement.CRAWLER && !inLava());
+    }
+
+    private boolean inLava() {
+        int x = MathHelper.floor_double(posX), y = MathHelper.floor_double(posY + 1.0), z = MathHelper.floor_double(posZ);
+        return worldObj.getBlock(x, y, z).getMaterial() == net.minecraft.block.material.Material.lava;
+    }
+
+    /** Crawler: water deeper than its draft under the hull's middle (it rises). */
+    boolean submerged() {
+        int x = MathHelper.floor_double(posX), y = MathHelper.floor_double(posY + CrawlerMath.DRAFT), z = MathHelper.floor_double(posZ);
+        return worldObj.getBlock(x, y, z).getMaterial() == net.minecraft.block.material.Material.water;
     }
 
     public boolean inDeepWater() {
@@ -621,8 +772,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean thrust = canThrust();
         double top = VehicleMath.maxSpeed(t, getEnergy());
         boolean water = isInWater();
+        boolean crawler = t.movement == Movement.CRAWLER;
         if (water) {
-            top *= WATER_SPEED;
+            top *= crawler ? CrawlerMath.WATER_SPEED : WATER_SPEED;
         }
         if (thrust && fwd && !back) {
             speed += speed < 0 ? BRAKE : t.accel;
@@ -641,15 +793,22 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             speed = Math.min(-top * REVERSE, speed + BRAKE);
         }
         int steer = (right ? 1 : 0) - (left ? 1 : 0);
-        if (steer != 0 && speed != 0) {
+        if (crawler) {
+            rotationYaw += CrawlerMath.turn(t.turnRate, steer, speed, thrust, getEnergy() > 0);   // tracks: on the spot too
+        } else if (steer != 0 && speed != 0) {
             rotationYaw += steer * t.turnRate * Math.min(1, Math.abs(speed) / 0.12) * Math.signum(speed);
         }
         double r = Math.toRadians(rotationYaw);
         double fx = -Math.sin(r), fz = Math.cos(r);
         motionX = fx * speed;
         motionZ = fz * speed;
-        motionY -= 0.08;
-        motionY *= water ? 0.6 : 0.98;
+        if (crawler && water) {
+            motionY = CrawlerMath.floatVy(motionY, submerged());      // floats and swims across
+            fallDistance = 0;
+        } else {
+            motionY -= 0.08;
+            motionY *= water ? 0.6 : 0.98;
+        }
         double px = posX, pz = posZ;
         moveEntity(motionX, motionY, motionZ);
         if (isCollidedVertically && motionY < 0) {
@@ -705,7 +864,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                 : canThrust() ? VehicleMath.maxSpeed(t, state.energy) : coast;      // coasting only
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
         boolean ok = flies ? FlightMath.moveAllowed(t, h, dy, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
-                : moveAllowed(h, dy, dt, limit);
+                : moveAllowed(h, dy, dt, limit, CrawlerMath.climbLimit(t.stepHeight));
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
             AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx, dy, dz).contract(0.05, 0.05, 0.05);
             if (!worldObj.getCollidingBoundingBoxes(this, box).isEmpty()) {
@@ -721,8 +880,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                 } else if (HoverMath.mustDescend(lift, hNew) && dy > -0.03 * dt) {
                     ok = false;
                 }
-            } else if (dy > 0.05 && worldObj.getCollidingBoundingBoxes(this, box.getOffsetBoundingBox(0, -0.6, 0)).isEmpty()) {
-                ok = false;                                         // climbing with nothing under it
+            } else if (dy > 0.05 && worldObj.getCollidingBoundingBoxes(this, box.getOffsetBoundingBox(0, -0.6, 0)).isEmpty()
+                    && !(t.movement == Movement.CRAWLER && dy <= CrawlerMath.MAX_RISE * dt + 0.05
+                    && worldObj.isMaterialInBB(box.expand(0, 0.6, 0), net.minecraft.block.material.Material.water))) {
+                ok = false;                                         // climbing with nothing under it (a crawler may float up)
             }
         }
         if (ok) {
@@ -737,7 +898,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** Pure move check: horizontal reach, step / fall limits, no teleports. */
     public static boolean moveAllowed(double horizontal, double dy, long dt, double speedLimit) {
-        return horizontal < 10 && horizontal <= speedLimit * 1.3 * dt + 0.2 && dy <= 1.1 * dt + 0.3 && dy >= -(4.0 * dt + 1);
+        return moveAllowed(horizontal, dy, dt, speedLimit, 1.1);
+    }
+
+    /** The same with a climb limit a tick (CrawlerMath.climbLimit: tracks step 2 blocks). */
+    public static boolean moveAllowed(double horizontal, double dy, long dt, double speedLimit, double climb) {
+        return horizontal < 10 && horizontal <= speedLimit * 1.3 * dt + 0.2 && dy <= climb * dt + 0.3 && dy >= -(4.0 * dt + 1);
     }
 
     private static boolean finite(double d) {
@@ -784,6 +950,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (t.movement.flies) {
             animateFlight(t);
         }
+        if (t.hasDrill) {
+            prevDrillAngle = drillAngle;
+            float target = isDrillOn() && riddenByEntity != null ? 32F : 0F;
+            drillRate += MathHelper.clamp_float(target - drillRate, -1.5F, 2F);
+            drillAngle = (drillAngle + drillRate) % 360F;
+        }
         if (isWrecked() && ticksExisted % 4 == 0) {
             worldObj.spawnParticle("largesmoke", posX + (rand.nextDouble() - 0.5), posY + 1.0, posZ + (rand.nextDouble() - 0.5), 0, 0.05, 0);
         } else if (isHeatStopped() && ticksExisted % 6 == 0) {
@@ -822,6 +994,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         renderPitch += (tp - renderPitch) * 0.2F;
         renderRoll += (tr - renderRoll) * 0.2F;
+    }
+
+    /** Client: the bore cone's angle at partial tick pt (degrees). */
+    public float drillAngle(float pt) {
+        return prevDrillAngle + MathHelper.wrapAngleTo180_float(drillAngle - prevDrillAngle) * pt;
     }
 
     /** Client: the rotor / propeller angle at partial tick pt (degrees). */
@@ -1012,6 +1189,20 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             syncWatcher();
             return true;
         }
+        if (held != null && held.getItem() instanceof com.sva.item.ItemTrailerSVA && state.type.trailerSlots > 0) {
+            if (attachTrailer(p, held) == CrawlerMath.OK) {
+                p.inventory.setInventorySlotContents(p.inventory.currentItem, null);      // its cargo is in the crawler now
+            }
+            return true;
+        }
+        if (held != null && com.sc.item.ItemCoordinatorSC.isCoordinator(held) && state.type.autoDelivery) {
+            if (canManage(p)) {
+                routeFromCoordinator(p, held);
+            } else {
+                msg(p, "sva.msg.notOwner");
+            }
+            return true;
+        }
         if (p.isSneaking()) {
             if (canManage(p)) {
                 p.openGui(SVAMod.instance, GuiHandlerSVA.CARGO, worldObj, getEntityId(), 0, 0);
@@ -1172,6 +1363,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (!ConfigSVA.wear) {
             return;
         }
+        amount = DrillMath.fieldDamage(amount, fieldNow, state.type.gases.fieldReduction);   // the argon field
         boolean was = VehicleMath.wrecked(state.hp);
         state.hp = VehicleMath.damage(state.hp, amount);
         if (!was && VehicleMath.wrecked(state.hp)) {
@@ -1189,6 +1381,229 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     private static void msg(EntityPlayer p, String key, Object... args) {
         p.addChatComponentMessage(new ChatComponentTranslation(key, args));
+    }
+
+    // ------------------------------------------------------------------ stage C: trailer, route, drill, actions
+
+    /** Hitches a trailer item (its cargo goes into the slots after the body's). @return CrawlerMath.OK / why not */
+    public int attachTrailer(EntityPlayer p, ItemStack item) {
+        int r = CrawlerMath.attachCheck(state.type.trailerSlots, state.trailer, canManage(p));
+        if (r != CrawlerMath.OK) {
+            msg(p, r == CrawlerMath.NOT_OWNER ? "sva.msg.notOwner" : "sva.msg.trailer.already");
+            return r;
+        }
+        ItemStack[] c = com.sva.item.ItemTrailerSVA.cargoOf(item);
+        int base = state.type.cargoSlots;
+        state.setTrailer(true);
+        for (int i = 0; i < c.length && base + i < state.cargo.length; i++) {
+            state.cargo[base + i] = c[i];
+        }
+        worldObj.playSoundAtEntity(this, "random.anvil_land", 0.4F, 1.6F);
+        msg(p, "sva.msg.trailer.attached", Integer.valueOf(state.cargoSize()));
+        syncWatcher();
+        return r;
+    }
+
+    /** Unhitches the trailer (no checks): @return the trailer item holding its cargo. */
+    public ItemStack detachTrailer() {
+        int base = state.type.cargoSlots;
+        ItemStack[] c = new ItemStack[state.type.trailerSlots];
+        for (int i = 0; i < c.length && base + i < state.cargo.length; i++) {
+            c[i] = state.cargo[base + i];
+        }
+        state.setTrailer(false);
+        syncWatcher();
+        return com.sva.item.ItemTrailerSVA.withCargo(new ItemStack(ModContentSVA.trailer), c);
+    }
+
+    /** A Coordinator's point becomes route point A, the next one B, then A again (same dimension only). */
+    public void routeFromCoordinator(EntityPlayer p, ItemStack coord) {
+        int[] pt = com.sc.bridge.BridgeItemDataSC.point(coord);
+        if (pt == null || pt.length < 4) {
+            msg(p, "sva.msg.route.empty");
+            return;
+        }
+        if (pt[3] != worldObj.provider.dimensionId) {
+            msg(p, "sva.msg.route.otherDim");
+            return;
+        }
+        boolean b = setRoutePoint(pt);
+        msg(p, b ? "sva.msg.route.b" : "sva.msg.route.a", Integer.valueOf(pt[0]), Integer.valueOf(pt[1]), Integer.valueOf(pt[2]));
+    }
+
+    /** Sets A, then B, then A... (a new point stops the auto-delivery). @return true if it set B */
+    public boolean setRoutePoint(int[] pt) {
+        int[] copy = {pt[0], pt[1], pt[2], pt[3]};
+        boolean b = state.routeNextB && state.routeA != null;
+        if (b) {
+            state.routeB = copy;
+        } else {
+            state.routeA = copy;
+        }
+        state.routeNextB = !b;
+        if (state.autoOn) {
+            setAuto(false);
+        }
+        syncWatcher();
+        return b;
+    }
+
+    /** Auto-delivery on (needs both points here) / off. @return on now */
+    public boolean setAuto(boolean on) {
+        autoBlocked = 0;
+        autoTimer = 0;
+        if (on) {
+            int dim = worldObj.provider.dimensionId;
+            autoReason = AutoDelivery.startReason(state.routeA, state.routeB, dim);
+            state.autoOn = autoReason == AutoDelivery.R_NONE;
+            state.autoState = state.autoOn ? AutoDelivery.start(state.routeA, state.routeB, dim) : AutoDelivery.OFF;
+        } else {
+            state.autoOn = false;
+            state.autoState = AutoDelivery.OFF;
+            autoReason = AutoDelivery.R_NONE;
+        }
+        syncWatcher();
+        return state.autoOn;
+    }
+
+    /** The bore stops (no head / cargo full / head worn out) and the driver is told. */
+    void drillStop(String key) {
+        if (drillOn) {
+            drillOn = false;
+            tellRiders(key);
+            syncWatcher();
+        }
+    }
+
+    /** A warning to the driver at most every 5 s. */
+    void warnDriver(String key) {
+        long now = worldObj.getTotalWorldTime();
+        if (now - warnTick >= 100) {
+            warnTick = now;
+            tellRiders(key);
+        }
+    }
+
+    /** Pure: may player act on this vehicle (owner / op, or its driver for the drill keys)? */
+    public static boolean actionAllowed(int action, boolean manage, boolean driver) {
+        if (action == A_DRILL_TOGGLE || action == A_DRILL_MODE) {
+            return manage || driver;
+        }
+        return manage;
+    }
+
+    /** The Action packet (server thread; the sender is near or seated): a cargo screen button or a drill key. */
+    public void serverAction(EntityPlayerMP p, int a) {
+        long now = worldObj.getTotalWorldTime();
+        if (now - lastActionTick < 4) {
+            return;                                                 // one press, not a flood
+        }
+        lastActionTick = now;
+        if (!actionAllowed(a, canManage(p), riddenByEntity == p)) {
+            msg(p, "sva.msg.notOwner");
+            return;
+        }
+        VehicleType t = state.type;
+        if (a == A_DRILL_TOGGLE && t.hasDrill) {
+            if (!drillOn && !DrillLogicSVA.isHead(state.drillHead)) {
+                msg(p, "sva.msg.drill.noHead");
+            } else {
+                drillOn = !drillOn;
+                msg(p, drillOn ? "sva.msg.drill.on" : "sva.msg.drill.off");
+            }
+        } else if (a == A_DRILL_MODE && t.hasDrill) {
+            state.drillMode = DrillMath.nextMode(state.drillMode);
+            p.addChatComponentMessage(new ChatComponentTranslation("sva.msg.drill.mode", new ChatComponentTranslation("sva.drill.mode." + state.drillMode)));
+        } else if (a == A_AUTO_TOGGLE && t.autoDelivery) {
+            boolean on = setAuto(!state.autoOn);
+            msg(p, on ? "sva.msg.auto.on" : state.routeA == null || state.routeB == null ? "sva.msg.auto.noRoute" : "sva.msg.auto.off");
+        } else if (a == A_ROUTE_CLEAR && t.autoDelivery) {
+            state.routeA = null;
+            state.routeB = null;
+            state.routeNextB = false;
+            setAuto(false);
+            msg(p, "sva.msg.route.cleared");
+        } else if (a == A_TRAILER_DETACH && t.trailerSlots > 0) {
+            if (CrawlerMath.detachCheck(state.trailer, true) == CrawlerMath.OK) {
+                ItemStack item = detachTrailer();
+                p.closeScreen();
+                if (!p.inventory.addItemStackToInventory(item)) {
+                    p.dropPlayerItemWithRandomChoice(item, false);
+                }
+                p.inventoryContainer.detectAndSendChanges();
+                msg(p, "sva.msg.trailer.detached");
+            }
+        }
+        syncWatcher();
+    }
+
+    // ------------------------------------------------------------------ cargo helpers (drill drops, auto-delivery)
+
+    /** Puts `s` into the cargo, merging first; `s.stackSize` is left with what did not fit. @return that */
+    public int storeCargo(ItemStack s) {
+        ItemStack[] c = state.cargo;
+        int limit = Math.min(getInventoryStackLimit(), s.getMaxStackSize());
+        for (int pass = 0; pass < 2 && s.stackSize > 0; pass++) {
+            for (int i = 0; i < c.length && s.stackSize > 0; i++) {
+                if (pass == 0 && c[i] != null && c[i].isItemEqual(s) && ItemStack.areItemStackTagsEqual(c[i], s) && c[i].stackSize < limit) {
+                    int put = Math.min(s.stackSize, limit - c[i].stackSize);
+                    c[i].stackSize += put;
+                    s.stackSize -= put;
+                } else if (pass == 1 && c[i] == null) {
+                    ItemStack put = s.copy();
+                    put.stackSize = Math.min(s.stackSize, limit);
+                    c[i] = put;
+                    s.stackSize -= put.stackSize;
+                }
+            }
+        }
+        markDirty();
+        return s.stackSize;
+    }
+
+    /** Takes `n` of `item` (any damage) out of the cargo: all or nothing. */
+    public boolean takeCargo(net.minecraft.item.Item item, int n) {
+        ItemStack[] c = state.cargo;
+        int have = 0;
+        for (ItemStack s : c) {
+            if (s != null && s.getItem() == item) {
+                have += s.stackSize;
+            }
+        }
+        if (have < n) {
+            return false;
+        }
+        for (int i = c.length - 1; i >= 0 && n > 0; i--) {
+            if (c[i] != null && c[i].getItem() == item) {
+                int take = Math.min(n, c[i].stackSize);
+                c[i].stackSize -= take;
+                n -= take;
+                if (c[i].stackSize <= 0) {
+                    c[i] = null;
+                }
+            }
+        }
+        markDirty();
+        return true;
+    }
+
+    /** An empty cargo slot left. */
+    public boolean cargoHasRoom() {
+        for (ItemStack s : state.cargo) {
+            if (s == null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean cargoEmpty() {
+        for (ItemStack s : state.cargo) {
+            if (s != null) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // ------------------------------------------------------------------ gases (refuelling)
@@ -1304,14 +1719,50 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     // ------------------------------------------------------------------ IInventory (cargo)
 
+    /** The drill vehicle's head and module slots come after the cargo. */
+    private int extraSlots() {
+        return getVehicleType().hasDrill ? 2 : 0;
+    }
+
+    /** Index of the drill head slot (the module slot is the next one). */
+    public int headSlot() {
+        clientState();
+        return state.cargo.length;
+    }
+
+    /** Client: the local state follows the synced type and trailer (the cargo screen's slots). */
+    private void clientState() {
+        if (worldObj != null && worldObj.isRemote) {
+            VehicleType t = getVehicleType();
+            boolean tr = hasTrailer();
+            if (state.type != t || state.trailer != tr) {
+                VehicleState n = new VehicleState(t);
+                n.setTrailer(tr);
+                state = n;
+            }
+        }
+    }
+
     @Override
     public int getSizeInventory() {
-        return state.cargo.length;
+        clientState();
+        return state.cargo.length + extraSlots();
     }
 
     @Override
     public ItemStack getStackInSlot(int i) {
-        return i >= 0 && i < state.cargo.length ? state.cargo[i] : null;
+        clientState();
+        int n = state.cargo.length;
+        if (i >= 0 && i < n) {
+            return state.cargo[i];
+        }
+        if (extraSlots() > 0 && i == n) {
+            return state.drillHead;
+        }
+        if (extraSlots() > 0 && i == n + 1) {
+            return state.drillModule;
+        }
+        return null;
     }
 
     @Override
@@ -1321,8 +1772,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return null;
         }
         if (s.stackSize <= n) {
-            state.cargo[i] = null;
-            markDirty();
+            setInventorySlotContents(i, null);
             return s;
         }
         ItemStack part = s.splitStack(n);
@@ -1337,13 +1787,24 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     @Override
     public void setInventorySlotContents(int i, ItemStack s) {
-        if (i >= 0 && i < state.cargo.length) {
-            state.cargo[i] = s;
-            if (s != null && s.stackSize > getInventoryStackLimit()) {
-                s.stackSize = getInventoryStackLimit();
-            }
-            markDirty();
+        clientState();
+        int n = state.cargo.length;
+        if (s != null && s.stackSize > getInventoryStackLimit()) {
+            s.stackSize = getInventoryStackLimit();
         }
+        if (i >= 0 && i < n) {
+            state.cargo[i] = s;
+        } else if (extraSlots() > 0 && i == n) {
+            state.drillHead = s;
+            if (s == null && worldObj != null && !worldObj.isRemote) {
+                drillStop("sva.msg.drill.noHead");
+            }
+        } else if (extraSlots() > 0 && i == n + 1) {
+            state.drillModule = s;
+        } else {
+            return;
+        }
+        markDirty();
     }
 
     @Override
@@ -1365,6 +1826,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public void markDirty() {
         if (worldObj != null && !worldObj.isRemote) {
             dataWatcher.updateObject(DW_CARGO, Byte.valueOf((byte) state.cargoUsed()));
+            dataWatcher.updateObject(DW_EXTRA, Integer.valueOf(extraBits()));
+            dataWatcher.updateObject(DW_HEAD, Integer.valueOf(headLeft()));
+            dataWatcher.updateObject(DW_HEAD_MAX, Integer.valueOf(state.drillHead == null ? 0 : state.drillHead.getMaxDamage()));
         }
     }
 
@@ -1383,6 +1847,13 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     @Override
     public boolean isItemValidForSlot(int i, ItemStack s) {
+        int n = state.cargo.length;
+        if (extraSlots() > 0 && i == n) {
+            return s == null || DrillLogicSVA.isHead(s);
+        }
+        if (extraSlots() > 0 && i == n + 1) {
+            return s == null || DrillLogicSVA.isWidener(s);
+        }
         return s == null || !(s.getItem() instanceof com.sva.item.ItemVehicleSVA);      // no vehicles inside vehicles
     }
 }

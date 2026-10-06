@@ -116,7 +116,8 @@ public class HudVehicleSVA {
             rateTime = now;
             rateEnergy = energy;
         }
-        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0) + (charging ? 1 : 0);
+        boolean autoLine = t.autoDelivery && (v.isAutoOn() || v.getAutoState() == com.sva.vehicle.AutoDelivery.STOPPED);
+        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0) + (charging ? 1 : 0) + (autoLine ? 1 : 0);
         int h = 24 + (rows - 1) * 10 + 4;
         int x = 4, y = e.resolution.getScaledHeight() - h - 4;
 
@@ -164,14 +165,22 @@ public class HudVehicleSVA {
             fr.drawString(Lang.tr("sva.hud.gasLeft", Lang.tr("sva.gas." + lift.key()), left), x + 6, ry, v.isBoosting() ? AMBER : DIM);
             ry += 10;
         }
-        fr.drawString(Lang.tr("sva.hud.cargo", Integer.valueOf(v.getCargoUsed()), Integer.valueOf(t.cargoSlots)), x + 6, ry, TEXT);
+        fr.drawString(Lang.tr("sva.hud.cargo", Integer.valueOf(v.getCargoUsed()), Integer.valueOf(v.cargoCapacity())), x + 6, ry, TEXT);
         ry += 10;
+        if (autoLine) {
+            boolean stop = v.getAutoState() == com.sva.vehicle.AutoDelivery.STOPPED;
+            fr.drawString(GuiCargoSVA.autoStatus(v), x + 6, ry, stop ? WARN : BLUE);
+            ry += 10;
+        }
         if (warn != null) {
             boolean blink = (mc.theWorld.getTotalWorldTime() / 10) % 2 == 0 || warnColor == AMBER;
             fr.drawStringWithShadow(warn, x + 6, ry, blink ? warnColor : 0x803030);
         }
         if (t.movement.flies) {
             drawFlight(mc, fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v, t);
+        }
+        if (t.hasDrill) {
+            drawDrill(fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v);
         }
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
@@ -306,6 +315,35 @@ public class HudVehicleSVA {
         String left = Double.isInfinite(sec) ? "∞" : sec >= 3600 ? String.format("%d:%02d:%02d", Long.valueOf((long) sec / 3600),
                 Long.valueOf((long) sec / 60 % 60), Long.valueOf((long) sec % 60)) : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
         fr.drawString(Lang.tr("sva.hud.flightTime", Integer.valueOf((int) Math.floor(energy * 100.0 / t.buffer)), left), px + 6, ry, TEXT);
+    }
+
+    /**
+     * The drill panel (bottom right): «БУР: ВКЛ · Туннель 3×3», the head's wear bar and blocks left («вечная» for
+     * Exo), blocks dug, the argon field.
+     */
+    private void drawDrill(FontRenderer fr, int sw, int sh, EntityVehicleSVA v) {
+        int pw = 168, ph = 4 * 11 + 8;
+        int px = sw - pw - 4, py = sh - ph - 4;
+        Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
+        Gui.drawRect(px, py, px + pw, py + ph, BG);
+        int ry = py + 5;
+        boolean on = v.isDrillOn();
+        String mode = Lang.tr("sva.drill.mode." + v.getDrillMode()) + " " + (v.hasWidener() ? "5×5" : "3×3");
+        fr.drawStringWithShadow(Lang.tr(on ? "sva.hud.drill.on" : "sva.hud.drill.off", mode), px + 6, ry, on ? GREEN : DIM);
+        ry += 11;
+        int left = v.getHeadLeft(), max = v.getHeadMax();
+        if (!v.hasHead()) {
+            fr.drawString(Lang.tr("sva.hud.drill.noHead"), px + 6, ry, WARN);
+        } else if (left < 0 || max <= 0) {
+            fr.drawString(Lang.tr("sva.hud.drill.headForever"), px + 6, ry, GREEN);
+        } else {
+            double frac = left / (double) max;
+            wideBar(fr, px, ry, Lang.tr("sva.hud.drill.headShort"), frac, frac < 0.15 ? 0xFF4040 : 0xC0C4CC, pw);
+        }
+        ry += 11;
+        fr.drawString(Lang.tr("sva.hud.drill.dug", fmt(v.getDug())), px + 6, ry, TEXT);
+        ry += 11;
+        fr.drawString(Lang.tr(v.isFieldOn() ? "sva.hud.field.on" : "sva.hud.field.off"), px + 6, ry, v.isFieldOn() ? 0xB27CFF : DIM);
     }
 
     /** A label + a bar across the flight panel + a percentage. */

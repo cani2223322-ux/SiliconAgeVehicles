@@ -17,7 +17,10 @@ public class VehicleState {
     public static final String K_TYPE = "Type", K_ENERGY = "Energy", K_HP = "Hp", K_HEAT = "Heat", K_HEAT_STOP = "HeatStop",
             K_CARGO = "Cargo", K_OWNER = "OwnerUUID", K_OWNER_NAME = "OwnerName", K_ID = "VehId",
             /** Gas tanks: a compound of gas key -> mB and "frac_" + key -> the spent part below one mB. */
-            K_GASES = "Gases";
+            K_GASES = "Gases",
+            // stage C: the hitched trailer, the drill's head / module / mode / count, the auto-delivery route and its state
+            K_TRAILER = "Trailer", K_HEAD = "DrillHead", K_MODULE = "DrillModule", K_DRILL_MODE = "DrillMode", K_DUG = "Dug",
+            K_ROUTE_A = "RouteA", K_ROUTE_B = "RouteB", K_ROUTE_NEXT = "RouteNextB", K_AUTO_ON = "AutoOn", K_AUTO_STATE = "AutoState";
 
     public VehicleType type;
     public double energy;
@@ -31,12 +34,39 @@ public class VehicleState {
     /** mB of each gas (by Gas ordinal) and the part below a whole mB already spent (like the core's GasFrac_). */
     public final int[] gas = new int[Gas.values().length];
     public final float[] gasFrac = new float[Gas.values().length];
+    /** A trailer is hitched (types with trailerSlots): the cargo is cargoSlots + trailerSlots long, the trailer's part last. */
+    public boolean trailer;
+    /** Drill vehicle: the core quarry drill head (ItemDrillHeadSC, wears) and the bore module («Расширитель бура»), or null. */
+    public ItemStack drillHead, drillModule;
+    /** Drill vehicle: DrillMath.MODE_*; blocks dug so far. */
+    public int drillMode;
+    public long dug;
+    /** Auto-delivery (the crawler): points A / B as {x, y, z, dim} or null; the next coordinator click sets B; on / state. */
+    public int[] routeA, routeB;
+    public boolean routeNextB, autoOn;
+    public int autoState;
 
     public VehicleState(VehicleType type) {
         this.type = type;
         this.hp = type.maxHp;
         this.cargo = new ItemStack[type.cargoSlots];
         this.vehId = UUID.randomUUID().toString();
+    }
+
+    /** Cargo slots now (a hitched trailer adds its own). */
+    public int cargoSize() {
+        return type.cargoSlots(trailer);
+    }
+
+    /**
+     * Hitches / unhitches the trailer: the cargo array grows by the trailer's slots (empty) or shrinks to the body's -
+     * the caller takes the trailer's items out first (they are dropped from the array here).
+     */
+    public void setTrailer(boolean on) {
+        trailer = on && type.trailerSlots > 0;
+        ItemStack[] n = new ItemStack[cargoSize()];
+        System.arraycopy(cargo, 0, n, 0, Math.min(cargo.length, n.length));
+        cargo = n;
     }
 
     public double maxEnergy() {
@@ -165,6 +195,24 @@ public class VehicleState {
             }
         }
         t.setTag(K_GASES, gt);
+        t.setBoolean(K_TRAILER, trailer);
+        if (drillHead != null) {
+            t.setTag(K_HEAD, drillHead.writeToNBT(new NBTTagCompound()));
+        }
+        if (drillModule != null) {
+            t.setTag(K_MODULE, drillModule.writeToNBT(new NBTTagCompound()));
+        }
+        t.setInteger(K_DRILL_MODE, drillMode);
+        t.setLong(K_DUG, dug);
+        if (routeA != null) {
+            t.setIntArray(K_ROUTE_A, routeA);
+        }
+        if (routeB != null) {
+            t.setIntArray(K_ROUTE_B, routeB);
+        }
+        t.setBoolean(K_ROUTE_NEXT, routeNextB);
+        t.setBoolean(K_AUTO_ON, autoOn);
+        t.setInteger(K_AUTO_STATE, autoState);
     }
 
     /** Reads into this state; a missing key keeps the current value (a fresh item: full hull, empty). */
@@ -176,7 +224,8 @@ public class VehicleState {
         hp = (float) clampNum(t.hasKey(K_HP) ? t.getFloat(K_HP) : hp, 0, type.maxHp);
         heat = clampNum(t.hasKey(K_HEAT) ? t.getDouble(K_HEAT) : heat, 0, VehicleMath.HEAT_STOP);
         heatStop = t.getBoolean(K_HEAT_STOP);
-        cargo = new ItemStack[type.cargoSlots];
+        trailer = t.getBoolean(K_TRAILER) && type.trailerSlots > 0;
+        cargo = new ItemStack[cargoSize()];
         NBTTagList list = t.getTagList(K_CARGO, 10);
         for (int i = 0; i < list.tagCount(); i++) {
             NBTTagCompound s = list.getCompoundTagAt(i);
@@ -201,6 +250,19 @@ public class VehicleState {
                 gasFrac[i] = gas[i] > 0 && f > 0 && f < 1 ? f : 0F;
             }
         }
+        drillHead = t.hasKey(K_HEAD) ? ItemStack.loadItemStackFromNBT(t.getCompoundTag(K_HEAD)) : null;
+        drillModule = t.hasKey(K_MODULE) ? ItemStack.loadItemStackFromNBT(t.getCompoundTag(K_MODULE)) : null;
+        drillMode = Math.max(0, Math.min(DrillMath.MODES - 1, t.getInteger(K_DRILL_MODE)));
+        dug = Math.max(0, t.getLong(K_DUG));
+        routeA = point(t.getIntArray(K_ROUTE_A));
+        routeB = point(t.getIntArray(K_ROUTE_B));
+        routeNextB = t.getBoolean(K_ROUTE_NEXT);
+        autoOn = t.getBoolean(K_AUTO_ON) && routeA != null && routeB != null;
+        autoState = autoOn ? Math.max(0, Math.min(AutoDelivery.STATES - 1, t.getInteger(K_AUTO_STATE))) : AutoDelivery.OFF;
+    }
+
+    private static int[] point(int[] a) {
+        return a != null && a.length == 4 ? a : null;
     }
 
     private static double clampNum(double v, double lo, double hi) {

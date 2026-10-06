@@ -37,6 +37,7 @@ public final class ModContentSVA {
     public static com.sva.block.BlockChargePlateSVA chargePlate;
     public static com.sva.item.ItemStationModuleSVA module;
     public static com.sva.block.BlockRunwaySVA runway;
+    public static com.sva.item.ItemTrailerSVA trailer;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -76,6 +77,9 @@ public final class ModContentSVA {
         runway = new com.sva.block.BlockRunwaySVA();
         runway.setCreativeTab(TAB);
         GameRegistry.registerBlock(runway, com.sva.block.ItemBlockRunwaySVA.class, "runway");
+        trailer = new com.sva.item.ItemTrailerSVA();
+        trailer.setCreativeTab(TAB);
+        GameRegistry.registerItem(trailer, "trailer");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);

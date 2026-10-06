@@ -112,6 +112,16 @@ public final class WorkbenchRecipesSVA {
         return new ItemStack(ModItems.battery, 1, idx);
     }
 
+    /** The core quarry's drill head of a kind. */
+    private static ItemStack drillHead(com.sc.item.ItemDrillHeadSC.Kind k) {
+        for (com.sc.item.ItemDrillHeadSC h : ModItems.DRILL_HEADS) {
+            if (h.kind == k) {
+                return new ItemStack(h);
+            }
+        }
+        throw new IllegalStateException("Silicon Age drill head missing: " + k);
+    }
+
     private static ItemStack part(ComponentType t) {
         return ModContentSVA.component.stackOf(t, 1);
     }
@@ -160,6 +170,10 @@ public final class WorkbenchRecipesSVA {
                 'E', part(ComponentType.ENERGY_BLOCK_QV));
         component(ComponentType.ENERGY_BLOCK_SV, 1, "PGP", "BEB", "PGP", 'P', nbPlate, 'G', gravCoil, 'B', battery(6),
                 'E', part(ComponentType.ENERGY_BLOCK_XV));
+        // stage C: «Расширитель бура» (the drill vehicle's 5x5 bore): two of the core's tungsten drill heads either side
+        // of a controller, copper coils, titanium frames and a titanium casing
+        component(ComponentType.DRILL_WIDENER, 1, "HCH", "KXK", "FFF", 'H', drillHead(com.sc.item.ItemDrillHeadSC.Kind.TUNGSTEN),
+                'C', controller, 'K', coil, 'X', tiCasing, 'F', tiFrame);
 
         // ---- vehicles (5x5, EU + time). One line each.
         vehicle(VehicleType.BUGGY, 200000L, 600,
@@ -191,6 +205,26 @@ public final class WorkbenchRecipesSVA {
                 " ACA ", "WIFIW", "KMHEK", " AIA ", "T T T",
                 'A', alFrame, 'C', cabin, 'W', part(ComponentType.WING), 'I', al, 'F', computer, 'K', coil, 'M', motor2,
                 'H', hull2, 'E', ebHV, 'T', part(ComponentType.WHEEL));
+
+        // Cargo Crawler (plan §4.2: hull II, electric motor II, HV energy block, track x2, chest x3, gas tank; 1M EU):
+        // the chests on top (its bed), aluminium frames round the hull / motor / energy block row, the gas tank between
+        // aluminium and copper coils, a track each side over steel. HV - any workbench builds it.
+        ItemStack chest = new ItemStack(Blocks.chest), track = part(ComponentType.TRACK);
+        vehicle(VehicleType.TRUCK, 1000000L, 1200,
+                " CCC ", "AHMEA", "KIGIK", "T S T", " SSS ",
+                'C', chest, 'A', alFrame, 'H', hull2, 'M', motor2, 'E', ebHV, 'K', coil, 'I', al, 'G', part(ComponentType.GAS_TANK),
+                'T', track, 'S', steel);
+        // Trailer (plan §4.2: hull II, wheel x4, chest x3) - an item, hitched by a right-click on the crawler
+        add(new WorkbenchRecipeSVA("trailer", Category.VEHICLES, new ItemStack(ModContentSVA.trailer), Tier.HV, 100000L, 300,
+                new Object[] {"CCC", "AHA", "WSW", "W W", 'C', chest, 'A', alFrame, 'H', hull2, 'W', part(ComponentType.WHEEL), 'S', steel}));
+        // Drill Vehicle (plan §4.2: hull III, turbo engine, EV energy block, track x2, the core's diamond drill head, gas
+        // tank x2; 4M EU): tanks on top, titanium plates round hull / turbo / energy block, the diamond head in front
+        // between titanium casings and coils, tracks over titanium. EV: the bare MV workbench builds it (WorkbenchMath).
+        vehicle(VehicleType.DRILL, 4000000L, 2400,
+                " G G ", "PHTEP", "KXDXK", "R I R", " III ",
+                'G', part(ComponentType.GAS_TANK), 'P', tiPlate, 'H', part(ComponentType.HULL_III), 'T', part(ComponentType.TURBO_ENGINE),
+                'E', part(ComponentType.ENERGY_BLOCK_EV), 'K', coil, 'X', tiCasing, 'D', drillHead(com.sc.item.ItemDrillHeadSC.Kind.DIAMOND),
+                'R', track, 'I', ti);
 
         // ---- blocks (also on the crafting table)
         block("charger", new ItemStack(ModContentSVA.charger, 1, Tier.MV.ordinal()), Tier.MV, "XXX", "KEK", "STS",

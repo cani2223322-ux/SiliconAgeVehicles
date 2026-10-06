@@ -9,6 +9,9 @@ import com.sva.init.ModContentSVA;
 import com.sva.item.ComponentType;
 import com.sva.item.ItemVehicleSVA;
 import com.sva.platform.PlatformMath;
+import com.sva.vehicle.AutoDelivery;
+import com.sva.vehicle.CrawlerMath;
+import com.sva.vehicle.DrillMath;
 import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.PlaneMath;
@@ -79,6 +82,13 @@ public final class SelfTestSVA {
             plane();
             flightMoves();
             aircraftContent();
+            crawlerTypes();
+            crawlerMoves();
+            cargoTrailer();
+            autoDelivery();
+            drillGeometry();
+            drillRules();
+            stageCContent();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -704,6 +714,218 @@ public final class SelfTestSVA {
         VehicleState back = new VehicleState(VehicleType.PLANE);
         back.readNBT(t);
         check(back.type == VehicleType.PLANE && back.gas(com.sc.util.ArmorGasSC.Gas.HELIUM) == 1000, "plane: NBT keeps the type and helium");
+    }
+
+    // ------------------------------------------------------------------ stage C: cargo crawler + trailer, drill vehicle
+
+    private static void crawlerTypes() {
+        VehicleType c = VehicleType.TRUCK, d = VehicleType.DRILL;
+        com.sc.util.ArmorGasSC.Gas HE = com.sc.util.ArmorGasSC.Gas.HELIUM, AR = com.sc.util.ArmorGasSC.Gas.ARGON;
+        check(c.ordinal() == 4 && d.ordinal() == 5 && c.movement == com.sva.vehicle.Movement.CRAWLER && d.movement == com.sva.vehicle.Movement.CRAWLER,
+                "crawler: truck / drill appended (4, 5), tracked movement");
+        check(c.tier == Tier.HV && c.buffer == 2000000 && c.cruiseCost == 60 && c.idleCost == 2 && near(c.topSpeed, 0.28 * 1.4, 1e-9)
+                && c.seats == 2 && c.cargoSlots == 54 && c.trailerSlots == 54 && c.platformSize == PlatformSize.P3x5,
+                "crawler: HV, 2M EU, 60 / 2 EU/t, x1.4 sprint, 2 seats, 54 + trailer 54, platform 3x5 (plan §2)");
+        check(d.tier == Tier.EV && d.buffer == 8000000 && d.cruiseCost == 120 && near(d.topSpeed, 0.28 * 0.6, 1e-9) && d.seats == 1
+                && d.cargoSlots == 108 && d.trailerSlots == 0 && d.hasDrill && d.platformSize == PlatformSize.P3x5,
+                "drill: EV, 8M EU, 120 EU/t, x0.6 sprint, 1 seat, 108 cargo, platform 3x5 (plan §2)");
+        check(c.gases.capacity(HE) == 2000 && !c.gases.any() == false && d.gases.capacity(HE) == 2000 && d.gases.capacity(AR) == 2000
+                && d.gases.fieldGas == AR && near(d.gases.fieldPerSecond, 1, 1e-9) && near(d.gases.fieldReduction, 0.4, 1e-9) && c.gases.fieldGas == null,
+                "crawler: He 2000; drill: He 2000 + Ar 2000, argon field 1 mB/s, -40 %");
+        check(c.stepHeight == 2.0F && d.stepHeight == 2.0F && VehicleType.BUGGY.stepHeight == 1.0F, "crawler: steps 2 blocks (the buggy 1)");
+        // a seated player fits: the crawler's eyes under its cab roof; the drill operator's eyes under a 3x3 tunnel's ceiling
+        double eyes = d.seatY + 1.12;
+        check(eyes + 0.1 < 3.0 && d.height < 3.0 && d.width < 3.0, "drill: operator's eyes " + Math.round(eyes * 100) / 100.0
+                + " < 3 (no suffocation in its own bore), hull box fits a 3x3 tunnel");
+        check(near(c.seatY + 0.25, 0.84 * c.modelScale, 0.01) && Math.abs(c.seatOffsets[0][1] - c.seatOffsets[1][1]) >= 0.75
+                && 1.70 * c.modelScale - (c.seatY + 0.25) >= 1.05, "crawler: cushion 1.05 up, seats shoulder-wide, 1.07 to the headliner");
+    }
+
+    private static void crawlerMoves() {
+        double rate = VehicleType.TRUCK.turnRate;
+        check(CrawlerMath.turn(rate, 1, 0, true, true) == rate && CrawlerMath.turn(rate, -1, 0, true, true) == -rate,
+                "tracks: turn on the spot (no speed needed)");
+        check(CrawlerMath.turn(rate, 1, -0.2, true, true) == -rate, "tracks: reversing turns the other way, like wheels");
+        check(CrawlerMath.turn(rate, 1, 0.3, false, true) == 0 && near(CrawlerMath.turn(rate, 1, 0, true, false), rate * 0.3, 1e-9),
+                "tracks: no turn wrecked / overheated, x0.3 without EU");
+        check(CrawlerMath.turn(rate, 0, 0.3, true, true) == 0, "tracks: no steer - no turn");
+        check(EntityVehicleSVA.moveAllowed(0.3, 2.0, 1, 0.4, CrawlerMath.climbLimit(2F)) && !EntityVehicleSVA.moveAllowed(0.3, 2.0, 1, 0.4)
+                && !EntityVehicleSVA.moveAllowed(0.3, 2.6, 1, 0.4, CrawlerMath.climbLimit(2F)),
+                "tracks: the server accepts a 2-block step (wheels: 1), not 2.6");
+        check(CrawlerMath.floatVy(0, true) > 0 && CrawlerMath.floatVy(1, true) <= CrawlerMath.MAX_RISE && CrawlerMath.floatVy(0, false) < 0,
+                "tracks: floats up in water (capped), falls out of it");
+        check(near(CrawlerMath.WATER_SPEED, 0.5, 1e-9), "tracks: swims at half speed");
+    }
+
+    private static void cargoTrailer() {
+        VehicleState s = new VehicleState(VehicleType.TRUCK);
+        check(s.cargoSize() == 54 && s.cargo.length == 54, "cargo: crawler 54 slots");
+        s.cargo[3] = new ItemStack(Items.diamond, 5);
+        s.setTrailer(true);
+        check(s.cargoSize() == 108 && s.cargo.length == 108 && s.cargo[3] != null && s.cargo[3].stackSize == 5,
+                "cargo: hitched 108 slots, the body's cargo kept");
+        s.cargo[60] = new ItemStack(Items.iron_ingot, 9);
+        NBTTagCompound t = new NBTTagCompound();
+        s.writeNBT(t);
+        VehicleState back = new VehicleState(VehicleType.TRUCK);
+        back.readNBT(t);
+        check(back.trailer && back.cargo.length == 108 && back.cargo[60] != null && back.cargo[60].stackSize == 9,
+                "cargo: NBT keeps the trailer and its slots (item <-> entity)");
+        s.setTrailer(false);
+        check(s.cargo.length == 54 && s.cargo[3] != null, "cargo: unhitched back to 54");
+        VehicleState b = new VehicleState(VehicleType.BUGGY);
+        b.setTrailer(true);
+        check(!b.trailer && b.cargo.length == 9, "cargo: no hitch on the buggy");
+        check(CrawlerMath.pages(54) == 1 && CrawlerMath.pages(108) == 2 && CrawlerMath.pages(9) == 1 && CrawlerMath.slotsOn(108, 1) == 54
+                && CrawlerMath.slotsOn(60, 1) == 6 && CrawlerMath.slotsOn(54, 1) == 0, "cargo: 54-slot pages (1 / 2), a short last page");
+        check(new VehicleState(VehicleType.DRILL).cargoSize() == 108, "cargo: drill 108");
+        // trailer rules
+        check(CrawlerMath.attachCheck(54, false, true) == CrawlerMath.OK && CrawlerMath.attachCheck(54, true, true) == CrawlerMath.ALREADY
+                && CrawlerMath.attachCheck(54, false, false) == CrawlerMath.NOT_OWNER && CrawlerMath.attachCheck(0, false, true) == CrawlerMath.NO_HITCH,
+                "trailer: hitch only to the owner's crawler without one");
+        check(CrawlerMath.detachCheck(true, true) == CrawlerMath.OK && CrawlerMath.detachCheck(false, true) == CrawlerMath.NONE
+                && CrawlerMath.detachCheck(true, false) == CrawlerMath.NOT_OWNER, "trailer: unhitch by the owner only");
+        ItemStack tr = new ItemStack(ModContentSVA.trailer);
+        ItemStack[] c = new ItemStack[54];
+        c[0] = new ItemStack(Items.coal, 12);
+        c[53] = new ItemStack(Items.redstone, 3);
+        com.sva.item.ItemTrailerSVA.withCargo(tr, c);
+        ItemStack[] r = com.sva.item.ItemTrailerSVA.cargoOf(tr);
+        check(r.length == 54 && r[0].stackSize == 12 && r[53].getItem() == Items.redstone && com.sva.item.ItemTrailerSVA.used(tr) == 2,
+                "trailer: the item keeps its cargo (NBT)");
+        check(!com.sva.item.ItemTrailerSVA.withCargo(new ItemStack(ModContentSVA.trailer), new ItemStack[54]).hasTagCompound(),
+                "trailer: an empty trailer is a plain item");
+    }
+
+    private static void autoDelivery() {
+        int[] a = {0, 64, 0, 0}, b = {20, 64, 0, 0};
+        check(AutoDelivery.start(a, b, 0) == AutoDelivery.TO_A && AutoDelivery.start(null, b, 0) == AutoDelivery.STOPPED
+                && AutoDelivery.startReason(a, null, 0) == AutoDelivery.R_ROUTE && AutoDelivery.startReason(a, b, -1) == AutoDelivery.R_DIMENSION,
+                "auto: starts to A with both points here; no route / another dimension - stopped");
+        check(AutoDelivery.onArrive(AutoDelivery.TO_A) == AutoDelivery.LOADING && AutoDelivery.onArrive(AutoDelivery.TO_B) == AutoDelivery.UNLOADING,
+                "auto: arrive - load at A, unload at B");
+        check(AutoDelivery.afterTransfer(AutoDelivery.LOADING, true, false, false) == AutoDelivery.LOADING
+                && AutoDelivery.afterTransfer(AutoDelivery.LOADING, true, false, true) == AutoDelivery.TO_B
+                && AutoDelivery.afterTransfer(AutoDelivery.LOADING, false, false, false) == AutoDelivery.TO_B
+                && AutoDelivery.afterTransfer(AutoDelivery.LOADING, false, true, false) == AutoDelivery.LOADING,
+                "auto: loading - full or the chest empty: off to B; nothing at all: waits at A");
+        check(AutoDelivery.afterTransfer(AutoDelivery.UNLOADING, true, true, false) == AutoDelivery.TO_A
+                && AutoDelivery.afterTransfer(AutoDelivery.UNLOADING, true, false, false) == AutoDelivery.UNLOADING
+                && AutoDelivery.afterTransfer(AutoDelivery.UNLOADING, false, false, false) == AutoDelivery.TO_A,
+                "auto: unloading - empty or the chest full: back to A");
+        check(AutoDelivery.target(AutoDelivery.TO_A) == 0 && AutoDelivery.target(AutoDelivery.UNLOADING) == 1
+                && AutoDelivery.target(AutoDelivery.STOPPED) == -1 && AutoDelivery.target(AutoDelivery.OFF) == -1, "auto: targets");
+        int bt = 0;
+        for (int i = 0; i < AutoDelivery.BLOCKED_TICKS; i++) {
+            bt = AutoDelivery.blockedTicks(bt, true, 0.001);
+        }
+        check(AutoDelivery.stuck(bt) && AutoDelivery.BLOCKED_TICKS == 200 && AutoDelivery.blockedTicks(150, true, 0.2) == 0
+                && AutoDelivery.blockedTicks(150, false, 0) == 0, "auto: stuck after 10 s of no progress; moving / turning resets it");
+        // steering (yaw 0 = +z, 90 = -x; right = yaw up)
+        check(AutoDelivery.steer(0, 0, 0, 0, 20) == EntityVehicleSVA.IN_FWD, "auto: straight ahead - forward");
+        check(AutoDelivery.steer(0, 0, 0, -20, 0) == EntityVehicleSVA.IN_RIGHT, "auto: target 90 deg right - turns on the spot");
+        check(AutoDelivery.steer(0, 0, 0, 3, 20) == (EntityVehicleSVA.IN_FWD | EntityVehicleSVA.IN_LEFT), "auto: a bit left - forward + left");
+        check(AutoDelivery.steer(0, 0, 0, 1, 1) == EntityVehicleSVA.IN_BRAKE, "auto: arrived - brake");
+        check(near(AutoDelivery.bearing(0, 0, 10, 0), -90, 1e-9) && near(AutoDelivery.wrap(350), -10, 1e-9)
+                && AutoDelivery.distance(0, 0, 3, 4) == 5, "auto: bearing / wrap / distance");
+    }
+
+    private static boolean has(java.util.List<int[]> l, int x, int y, int z) {
+        for (int[] b : l) {
+            if (b[0] == x && b[1] == y && b[2] == z) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void drillGeometry() {
+        // a drill on the grid at (0.5, 64, 0.5) facing +x (yaw -90)
+        java.util.List<int[]> f = DrillMath.zone(0.5, 64, 0.5, -90, DrillMath.MODE_TUNNEL, false);
+        boolean slice3 = true;
+        for (int x = 1; x <= 3; x++) {
+            for (int z = -1; z <= 1; z++) {
+                for (int y = 64; y <= 66; y++) {
+                    slice3 &= has(f, x, y, z);
+                }
+            }
+        }
+        check(f.size() == 27 && slice3 && !has(f, 1, 67, 0) && !has(f, 1, 64, 2) && !has(f, 0, 64, 0) && !has(f, 4, 64, 0),
+                "drill: 3x3 face, 3 slices ahead to the cone's tip (27 blocks), nothing behind / outside");
+        check(f.get(0)[0] == 1 && f.get(0)[1] == 66, "drill: nearest slice first, from the top");
+        java.util.List<int[]> w = DrillMath.zone(0.5, 64, 0.5, -90, DrillMath.MODE_TUNNEL, true);
+        check(w.size() == 75 && has(w, 1, 68, 2) && has(w, 1, 64, -2) && !has(w, 1, 69, 0), "drill: 5x5 with the widener (75)");
+        java.util.List<int[]> lv = DrillMath.zone(0.5, 64, 0.5, -90, DrillMath.MODE_LEVEL, false);
+        check(lv.size() == 3 * 3 * DrillMath.LEVEL_ROWS && has(lv, 2, 71, 0) && !has(lv, 2, 63, 0) && !has(lv, 2, 72, 0),
+                "drill: level mode cuts 8 rows above the floor, never below");
+        java.util.List<int[]> ore = DrillMath.zone(0.5, 64, 0.5, -90, DrillMath.MODE_ORE, false);
+        check(has(ore, 2, 63, 2) && has(ore, 2, 67, -2) && !has(ore, 2, 68, 0), "drill: ore mode looks one block round the bore");
+        java.util.List<int[]> n = DrillMath.zone(0.5, 64, 0.5, 180, DrillMath.MODE_TUNNEL, false);
+        check(has(n, 0, 65, -1) && has(n, -1, 65, -3) && !has(n, 0, 65, 1), "drill: facing -z (yaw 180) digs north");
+        java.util.List<int[]> off = DrillMath.zone(0.9, 64, 0.5, -90, DrillMath.MODE_TUNNEL, false);
+        check(!off.isEmpty() && has(off, 4, 64, 0), "drill: off the grid the window still covers the hull's front");
+        java.util.List<int[]> ring = DrillMath.ring(0.5, 64, 0.5, -90, false);
+        check(has(ring, 4, 64, 0) && has(ring, 2, 63, 2) && has(ring, 2, 67, 0), "drill: the liquid ring - deeper, wider, floor and ceiling");
+    }
+
+    private static void drillRules() {
+        int T = DrillMath.MODE_TUNNEL, O = DrillMath.MODE_ORE;
+        check(DrillMath.judge(false, false, 1.5F, 30F, false, true, T, false) == DrillMath.DIG, "drill: stone is dug");
+        check(DrillMath.judge(false, false, -1F, 100F, false, true, T, false) == DrillMath.SKIP_HARD, "drill: bedrock / unbreakable never");
+        check(DrillMath.judge(false, false, 50F, 30F, false, true, T, false) == DrillMath.SKIP_HARD
+                && DrillMath.judge(false, false, 50F, 100F, false, true, T, false) == DrillMath.DIG, "drill: obsidian needs a tungsten+ head");
+        check(DrillMath.judge(false, false, 2.5F, 100F, true, true, T, false) == DrillMath.SKIP_TILE, "drill: tile entities (chests) never");
+        check(DrillMath.judge(false, false, 1.5F, 30F, false, false, T, false) == DrillMath.SKIP_CLAIM, "drill: a claim / private field - skipped");
+        check(DrillMath.judge(false, false, 1.5F, 30F, false, true, O, false) == DrillMath.SKIP_FILTER
+                && DrillMath.judge(false, false, 3F, 30F, false, true, O, true) == DrillMath.DIG, "drill: ore mode - rock stays, ore goes");
+        check(DrillMath.judge(true, false, 0, 30F, false, true, T, false) == DrillMath.SKIP_AIR
+                && DrillMath.judge(false, true, 0, 30F, false, true, T, false) == DrillMath.LIQUID, "drill: air skipped, liquids walled up");
+        check(DrillMath.allowed(true, false, false, false) && !DrillMath.allowed(false, false, false, false) && !DrillMath.allowed(true, true, false, false)
+                && !DrillMath.allowed(true, false, true, false) && !DrillMath.allowed(true, false, false, true),
+                "drill: allowed only loaded, no private field, BreakEvent not cancelled, no spawn protection");
+        check(com.sc.tileentity.TileEntityQuarrySC.isOre(Blocks.iron_ore, 0) && com.sc.tileentity.TileEntityQuarrySC.isOre(Blocks.coal_ore, 0)
+                && !com.sc.tileentity.TileEntityQuarrySC.isOre(Blocks.stone, 0) && !com.sc.tileentity.TileEntityQuarrySC.isOre(Blocks.cobblestone, 0),
+                "drill: ore filter = ore dictionary 'ore*' (iron / coal ore yes, stone no)");
+        check(DrillMath.euPerBlock(1.5F, false, 1) == 53 && DrillMath.euPerBlock(1.5F, true, 1) == 79 && DrillMath.euPerBlock(3F, false, 2) == 150
+                && DrillMath.euPerBlock(-1F, false, 1) == 30, "drill: EU a block = quarry's 30 + 15 x hardness (stone 53, Exo x1.5, config x)");
+        check(DrillMath.wear(10, 2000) == 11 && DrillMath.wear(10, 0) == 10 && DrillMath.wornOut(2000, 2000) && !DrillMath.wornOut(5, 0)
+                && DrillMath.lifeLeft(150, 2000) == 1850 && DrillMath.lifeLeft(0, 0) == -1, "drill: head wears 1 a block, Exo never");
+        check(near(DrillMath.perTick(1), 0.4, 1e-9) && near(DrillMath.perTick(8), 3.2, 1e-9), "drill: speed = head blocks/s x 8 (steel 0.4 b/t, Exo 3.2)");
+        check(near(DrillMath.fieldDamage(100F, true, 0.4), 60, 1e-4) && DrillMath.fieldDamage(100F, false, 0.4) == 100F,
+                "drill: argon field takes 40 % off hull damage");
+        check(DrillMath.torchDue(8, 3) && !DrillMath.torchDue(8, 12) && !DrillMath.torchDue(5, 0), "drill: a torch every 8 blocks in the dark");
+        check(DrillMath.nextMode(0) == 1 && DrillMath.nextMode(2) == 0, "drill: modes cycle Tunnel / Ore / Level");
+        check(EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_DRILL_TOGGLE, false, true) && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_AUTO_TOGGLE, false, true)
+                && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_TRAILER_DETACH, false, false) && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_ROUTE_CLEAR, true, false),
+                "actions: the driver may run the drill; auto-delivery / trailer / route - owner only");
+        VehicleState s = new VehicleState(VehicleType.DRILL);
+        s.drillHead = new ItemStack(com.sc.init.ModItems.DRILL_HEADS.get(0));
+        s.drillHead.setItemDamage(37);
+        s.drillModule = ModContentSVA.component.stackOf(ComponentType.DRILL_WIDENER, 1);
+        s.drillMode = DrillMath.MODE_LEVEL;
+        s.dug = 1234;
+        s.routeA = new int[] {1, 2, 3, 0};
+        NBTTagCompound t = new NBTTagCompound();
+        s.writeNBT(t);
+        VehicleState b = new VehicleState(VehicleType.DRILL);
+        b.readNBT(t);
+        check(b.drillHead != null && b.drillHead.getItemDamage() == 37 && b.drillModule != null && b.drillMode == DrillMath.MODE_LEVEL && b.dug == 1234
+                && b.routeA != null && b.routeA[2] == 3 && b.routeB == null && !b.autoOn, "drill: NBT keeps head (wear), module, mode, count; route kept");
+    }
+
+    private static void stageCContent() {
+        WorkbenchRecipeSVA c = WorkbenchRecipesSVA.byId("truck"), d = WorkbenchRecipesSVA.byId("drill"), tr = WorkbenchRecipesSVA.byId("trailer");
+        check(c != null && c.eu == 1000000L && c.tier == Tier.HV && ItemVehicleSVA.typeOf(c.result()) == VehicleType.TRUCK,
+                "crawler: workbench recipe, 1M EU, HV");
+        check(d != null && d.eu == 4000000L && d.tier == Tier.EV && ItemVehicleSVA.typeOf(d.result()) == VehicleType.DRILL
+                && WorkbenchMath.canBuild(Tier.EV, WorkbenchMath.inputTier(0, false)), "drill: workbench recipe, 4M EU, EV (the bare MV workbench)");
+        check(tr != null && tr.result().getItem() == ModContentSVA.trailer && tr.category == WorkbenchRecipeSVA.Category.VEHICLES,
+                "trailer: workbench recipe («Машины»)");
+        check(WorkbenchRecipesSVA.byId("drillWidener") != null && ComponentType.DRILL_WIDENER.meta() == 23, "widener: component 23, a recipe");
+        check(com.sva.entity.DrillLogicSVA.isHead(new ItemStack(com.sc.init.ModItems.DRILL_HEADS.get(0)))
+                && !com.sva.entity.DrillLogicSVA.isHead(new ItemStack(Items.diamond_pickaxe))
+                && com.sva.entity.DrillLogicSVA.isWidener(ModContentSVA.component.stackOf(ComponentType.DRILL_WIDENER, 1)),
+                "drill: the head slot takes core drill heads, the module slot the widener");
     }
 
     // ------------------------------------------------------------------ the charging platform (plan §9)

@@ -30,7 +30,9 @@ public enum ComponentType {
     ENERGY_BLOCK_EV("energyBlockEV", Tier.EV),
     ENERGY_BLOCK_QV("energyBlockQV", Tier.QV),
     ENERGY_BLOCK_XV("energyBlockXV", Tier.XV),
-    ENERGY_BLOCK_SV("energyBlockSV", Tier.SV);
+    ENERGY_BLOCK_SV("energyBlockSV", Tier.SV),
+    /** Stage C: the drill vehicle's «Расширитель бура» - a 5x5 bore instead of 3x3 (its module slot). */
+    DRILL_WIDENER("drillWidener", Tier.EV);
 
     public final String key;
     /** Shown in the workbench list and the tooltip. */

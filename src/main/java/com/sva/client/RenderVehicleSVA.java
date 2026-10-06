@@ -34,6 +34,7 @@ public class RenderVehicleSVA extends Render {
         GL11.glRotatef(-ry - 90F, 0F, 1F, 0F);         // model +x -> the entity's facing
         float s = v.getVehicleType().modelScale;
         GL11.glScalef(s, s, s);
+        GL11.glTranslatef(-v.getVehicleType().modelOffsetX, 0F, 0F);   // the crawler sits forward of its trailer in truck.obj
         GL11.glEnable(GL11.GL_NORMALIZE);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glDisable(GL11.GL_CULL_FACE);
@@ -60,8 +61,16 @@ public class RenderVehicleSVA extends Render {
             float a = v.rotorAngle(pt), rate = Math.abs(v.rotorRate());
             float blur = rate > 20F ? 0.05F + 0.07F * Math.min(1F, (rate - 20F) / 20F) : 0F;
             for (ObjModelSVA.Part p : parts) {
-                m.renderPart(p, a * p.speed, shade);
-                ObjModelSVA.renderDisc(p, blur);
+                if (p.kind == ObjModelSVA.Part.TRAILER) {
+                    if (v.hasTrailer()) {
+                        m.renderPart(p, 0F, shade);
+                    }
+                } else if (p.kind == ObjModelSVA.Part.BORE) {
+                    m.renderPart(p, v.drillAngle(pt) * p.speed, shade);
+                } else {
+                    m.renderPart(p, a * p.speed, shade);
+                    ObjModelSVA.renderDisc(p, blur);
+                }
             }
         }
         GL11.glPopAttrib();
