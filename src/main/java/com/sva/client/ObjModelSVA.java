@@ -173,4 +173,16 @@ public final class ObjModelSVA {
         }
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
+
+    /** Draws every group in one colour (the workbench hologram); the caller sets blending / lighting. */
+    public void renderTinted(float r, float g, float b, float a) {
+        if (lists < 0) {
+            compile();
+        }
+        GL11.glColor4f(r, g, b, a);
+        for (int i = 0; i < groups.size(); i++) {
+            GL11.glCallList(lists + i);
+        }
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
 }

@@ -1,12 +1,20 @@
 package com.sva.debug;
 
+import com.sc.energy.Tier;
+import com.sc.init.ModItems;
+import com.sc.util.Material;
 import com.sva.ConfigSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.init.ModContentSVA;
+import com.sva.item.ComponentType;
 import com.sva.item.ItemVehicleSVA;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleState;
 import com.sva.vehicle.VehicleType;
+import com.sva.workbench.FillPlannerSVA;
+import com.sva.workbench.WorkbenchMath;
+import com.sva.workbench.WorkbenchRecipeSVA;
+import com.sva.workbench.WorkbenchRecipesSVA;
 
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
@@ -50,6 +58,11 @@ public final class SelfTestSVA {
             config();
             moves();
             recipes();
+            workbenchMatching();
+            workbenchRecipes();
+            workbenchUpgrades();
+            workbenchPlanner();
+            components();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -195,7 +208,7 @@ public final class SelfTestSVA {
     }
 
     private static void recipes() {
-        boolean charger = false, buggy = false;
+        boolean charger = false, buggy = false, workbench = false, component = false;
         for (Object o : CraftingManager.getInstance().getRecipeList()) {
             ItemStack out = ((IRecipe) o).getRecipeOutput();
             if (out == null) {
@@ -204,11 +217,180 @@ public final class SelfTestSVA {
             if (out.getItem() == net.minecraft.item.Item.getItemFromBlock(ModContentSVA.charger)) {
                 charger = true;
             }
+            if (out.getItem() == net.minecraft.item.Item.getItemFromBlock(ModContentSVA.workbench)) {
+                workbench = true;
+            }
             if (out.getItem() == ModContentSVA.vehicle) {
                 buggy = true;
             }
+            if (out.getItem() == ModContentSVA.component) {
+                component = true;
+            }
         }
         check(charger, "recipe: charging station registered");
-        check(buggy, "recipe: buggy (temporary) registered");
+        check(workbench, "recipe: engineering workbench on the crafting table");
+        check(!buggy, "recipe: the temporary crafting-table buggy is gone");
+        check(!component, "recipe: no component on the crafting table");
     }
+
+    // ------------------------------------------------------------------ the workbench
+
+    private static ItemStack[] emptyGrid() {
+        return new ItemStack[WorkbenchRecipeSVA.CELLS];
+    }
+
+    /** Lays a recipe's ingredients (display stacks) at offset (ox, oy), mirrored or not. */
+    public static ItemStack[] laid(WorkbenchRecipeSVA r, int ox, int oy, boolean mirror) {
+        ItemStack[] g = emptyGrid();
+        for (int y = 0; y < r.height; y++) {
+            for (int x = 0; x < r.width; x++) {
+                Object c = r.cell(mirror ? r.width - 1 - x : x, y);
+                if (c != null) {
+                    g[(oy + y) * 5 + ox + x] = WorkbenchRecipeSVA.displayOf(c);
+                }
+            }
+        }
+        return g;
+    }
+
+    private static void workbenchMatching() {
+        WorkbenchRecipeSVA t = new WorkbenchRecipeSVA("test", WorkbenchRecipeSVA.Category.COMPONENTS, new ItemStack(Items.stick), Tier.MV, 0, 0,
+                "AB", "C ", 'A', Blocks.dirt, 'B', Blocks.stone, 'C', Blocks.cobblestone);
+        check(t.width == 2 && t.height == 2, "match: pattern trimmed to 2x2");
+        boolean all = true;
+        for (int oy = 0; oy <= 3; oy++) {
+            for (int ox = 0; ox <= 3; ox++) {
+                int[] m = t.match(laid(t, ox, oy, false));
+                all &= m != null && m[0] == ox && m[1] == oy && m[2] == 0;
+            }
+        }
+        check(all, "match: a small pattern matches anywhere in the 5x5 grid (16 places)");
+        int[] mm = t.match(laid(t, 2, 1, true));
+        check(mm != null && mm[2] == 1, "match: mirrored layout matches (flag set)");
+        ItemStack[] g = laid(t, 1, 1, false);
+        g[24] = new ItemStack(Blocks.dirt);
+        check(t.match(g) == null, "match: an extra item elsewhere fails");
+        g = laid(t, 1, 1, false);
+        g[6] = new ItemStack(Blocks.gravel);
+        check(t.match(g) == null, "match: a wrong item fails");
+        check(t.match(emptyGrid()) == null, "match: empty grid fails");
+        WorkbenchRecipeSVA wheel = WorkbenchRecipesSVA.byId("wheel");
+        check(wheel != null && wheel.match(laid(wheel, 1, 1, false)) != null && wheel.match(laid(wheel, 0, 2, false)) != null,
+                "match: wheel 3x3 in the centre and in a corner");
+        ItemStack[] wg = laid(wheel, 1, 1, false);
+        check(wheel.usedSlots(wheel.match(wg)).length == 9, "match: wheel uses 9 cells");
+        // ore dictionary: the centre steel ingot is "ingotSteel"; the core's steel fits, iron there does not
+        wg[12] = ModItems.ingot.stackOf(Material.STEEL);
+        check(wheel.match(wg) != null, "match: the core steel ingot fits the ore-dict cell");
+        wg[12] = new ItemStack(Items.iron_ingot);
+        check(wheel.match(wg) == null, "match: iron in the steel cell fails");
+        WorkbenchRecipeSVA buggy = WorkbenchRecipesSVA.byId("buggy");
+        ItemStack[] bg = laid(buggy, 0, 0, false);
+        check(buggy.width == 5 && buggy.height == 5 && buggy.match(bg) != null, "match: buggy 5x5 in place");
+        check(WorkbenchRecipesSVA.find(bg) == buggy, "match: find() picks the buggy");
+        bg[5] = new ItemStack(Blocks.dirt);
+        check(buggy.match(bg) == null, "match: buggy with a wrong item fails");
+        bg = laid(buggy, 0, 0, false);
+        bg[0] = null;
+        check(buggy.match(bg) == null, "match: buggy with a missing item fails");
+        bg = laid(buggy, 0, 0, false);
+        bg[20] = new ItemStack(Blocks.dirt);
+        check(buggy.match(bg) == null, "match: buggy with an item in an empty corner fails");
+    }
+
+    private static void workbenchRecipes() {
+        WorkbenchRecipeSVA b = WorkbenchRecipesSVA.byId("buggy");
+        check(b != null && b.eu == 200000L && b.ticks == 600 && !b.instant() && b.category == WorkbenchRecipeSVA.Category.VEHICLES
+                && b.tier == Tier.MV, "buggy: 200 000 EU, 600 ticks, MV vehicle");
+        ItemStack out = b.result();
+        VehicleState st = ItemVehicleSVA.stateOf(out);
+        check(out.getItem() == ModContentSVA.vehicle && out.getItemDamage() == VehicleType.BUGGY.ordinal()
+                && out.hasTagCompound() && out.getTagCompound().hasKey(EntityVehicleSVA.NBT_ROOT)
+                && st.energy == 0 && st.hp == VehicleType.BUGGY.maxHp && st.cargoUsed() == 0, "buggy: product carries the default state NBT");
+        check(!ItemVehicleSVA.stateOf(b.result()).vehId.equals(st.vehId), "buggy: each product gets its own id");
+        WorkbenchRecipeSVA w = WorkbenchRecipesSVA.byId("wheel");
+        check(w.instant() && w.result().stackSize == 4 && w.result().getItem() == ModContentSVA.component, "wheel: instant, x4");
+        java.util.Set<String> ids = new java.util.HashSet<String>();
+        boolean unique = true;
+        for (WorkbenchRecipeSVA r : WorkbenchRecipesSVA.all()) {
+            unique &= ids.add(r.id);
+        }
+        check(unique, "recipes: ids unique (" + ids.size() + " recipes)");
+        boolean distinct = true;
+        String bad = "";
+        for (WorkbenchRecipeSVA r : WorkbenchRecipesSVA.all()) {
+            boolean own = WorkbenchRecipesSVA.find(laid(r, (5 - r.width) / 2, (5 - r.height) / 2, false)) == r;
+            distinct &= own;
+            if (!own) {
+                bad += " " + r.id;
+            }
+        }
+        check(distinct, "recipes: every layout finds its own recipe" + bad);
+    }
+
+    private static void workbenchUpgrades() {
+        check(WorkbenchMath.ticks(600, 0) == 600 && WorkbenchMath.ticks(600, 1) == 420 && WorkbenchMath.ticks(600, 2) == 294,
+                "upgrades: overclocker time x0.7 each");
+        check(WorkbenchMath.ticks(600, 100) == WorkbenchMath.ticks(600, 16) && WorkbenchMath.ticks(1, 16) == 1, "upgrades: capped at 16, at least 1 tick");
+        check(WorkbenchMath.eu(200000, 0, 0) == 200000 && WorkbenchMath.eu(200000, 1, 0) == 224000, "upgrades: overclocker EU x1.12");
+        check(WorkbenchMath.eu(200000, 0, 1) == 160000 && WorkbenchMath.eu(200000, 0, 10) == WorkbenchMath.eu(200000, 0, 4),
+                "upgrades: economizer x0.8, at most 4");
+        check(WorkbenchMath.eu(0, 3, 3) == 0 && WorkbenchMath.ticks(0, 3) == 0, "upgrades: instant recipes stay free");
+        check(WorkbenchMath.buffer(0) == 2000000 && WorkbenchMath.buffer(2) == 4000000 && WorkbenchMath.buffer(99) == 18000000,
+                "upgrades: buffer 2M + 1M per storage (16 max)");
+        check(WorkbenchMath.inputTier(0, false) == Tier.MV && WorkbenchMath.inputTier(1, false) == Tier.HV
+                && WorkbenchMath.inputTier(3, false) == Tier.IV && WorkbenchMath.inputTier(0, true) == Tier.max(),
+                "upgrades: transformer +1 input tier, universal = any");
+        check(WorkbenchMath.requiredInput(Tier.MV) == Tier.MV && WorkbenchMath.requiredInput(Tier.EV) == Tier.MV
+                && WorkbenchMath.requiredInput(Tier.QV) == Tier.HV && WorkbenchMath.requiredInput(Tier.XV) == Tier.EV
+                && WorkbenchMath.requiredInput(Tier.SV) == Tier.IV, "tier: QV/XV/SV vehicles need HV/EV/IV input");
+        check(!WorkbenchMath.canBuild(Tier.QV, WorkbenchMath.inputTier(0, false)) && WorkbenchMath.canBuild(Tier.QV, WorkbenchMath.inputTier(1, false))
+                && WorkbenchMath.canBuild(Tier.SV, WorkbenchMath.inputTier(3, false)), "tier: transformers unlock QV-SV");
+        long paid = 0;
+        for (int p = 0; p < 600; p++) {
+            paid += WorkbenchMath.share(200000, paid, 600, p);
+        }
+        check(paid == 200000, "assembly: shares add up to exactly the cost (" + paid + ")");
+        check(WorkbenchMath.comparator(0, 600) == 0 && WorkbenchMath.comparator(1, 600) == 1 && WorkbenchMath.comparator(300, 600) == 7
+                && WorkbenchMath.comparator(600, 600) == 15, "comparator: 0..15 by progress");
+    }
+
+    private static void workbenchPlanner() {
+        WorkbenchRecipeSVA wheel = WorkbenchRecipesSVA.byId("wheel");
+        Object[] cells = wheel.layout();
+        ItemStack steel = ModItems.ingot.stackOf(Material.STEEL);
+        ItemStack[] inv = {new ItemStack(Items.iron_ingot, 10), null, new ItemStack(ModItems.rubber, 4), steel.copy()};
+        int[] plan = FillPlannerSVA.plan(cells, inv);
+        check(FillPlannerSVA.complete(plan) && plan[0] == FillPlannerSVA.EMPTY && plan[6] == 0 && plan[7] == 2 && plan[12] == 3,
+                "planner: wheel laid out from iron x10, rubber x4, steel");
+        check(inv[0].stackSize == 10 && inv[2].stackSize == 4, "planner: pure (the inventory is untouched)");
+        java.util.List<FillPlannerSVA.Need> needs = FillPlannerSVA.needs(cells, plan);
+        check(needs.size() == 3 && needs.get(0).need == 4 && needs.get(1).need == 4 && needs.get(2).need == 1 && FillPlannerSVA.missing(needs).isEmpty(),
+                "planner: needs iron 4, rubber 4, steel 1");
+        ItemStack[] poor = {new ItemStack(Items.iron_ingot, 4), new ItemStack(ModItems.rubber, 1), new ItemStack(ModItems.rubber, 1)};
+        int[] p2 = FillPlannerSVA.plan(cells, poor);
+        java.util.List<FillPlannerSVA.Need> miss = FillPlannerSVA.missing(FillPlannerSVA.needs(cells, p2));
+        check(!FillPlannerSVA.complete(p2) && miss.size() == 2 && miss.get(0).need - miss.get(0).have == 2 && miss.get(1).need - miss.get(1).have == 1,
+                "planner: short of rubber x2 and steel x1");
+        int[] p3 = FillPlannerSVA.plan(WorkbenchRecipesSVA.byId("buggy").layout(), new ItemStack[0]);
+        int missing = 0;
+        for (int v : p3) {
+            missing += v == FillPlannerSVA.MISSING ? 1 : 0;
+        }
+        check(missing == 23, "planner: empty inventory - all 23 buggy cells missing (" + missing + ")");
+    }
+
+    private static void components() {
+        java.util.Set<String> keys = new java.util.HashSet<String>();
+        boolean ok = true;
+        for (ComponentType t : ComponentType.values()) {
+            ok &= keys.add(t.key) && t.tier != null && ComponentType.byMeta(t.meta()) == t;
+            ok &= WorkbenchRecipesSVA.byId(t.key) != null;
+        }
+        check(ok, "components: " + ComponentType.values().length + " metas / keys unique, tiers set, each has a workbench recipe");
+        check(ComponentType.WHEEL.meta() == 0 && ComponentType.ENERGY_BLOCK_SV.meta() == 22, "components: metas fixed (append-only)");
+        ItemStack s = ModContentSVA.component.stackOf(ComponentType.HULL_III, 1);
+        check(s.getUnlocalizedName().endsWith(".component.hull3"), "components: unlocalized name per key");
+    }
+
 }

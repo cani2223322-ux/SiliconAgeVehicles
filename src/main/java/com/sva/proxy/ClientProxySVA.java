@@ -31,6 +31,8 @@ public class ClientProxySVA extends CommonProxySVA {
         super.preInit(e);
         RenderingRegistry.registerEntityRenderingHandler(EntityVehicleSVA.class, new RenderVehicleSVA());
         RenderingRegistry.registerEntityRenderingHandler(EntitySeatSVA.class, new RenderSeatSVA());
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityWorkbenchSVA.class,
+                new com.sva.client.RenderWorkbenchSVA());
     }
 
     @Override

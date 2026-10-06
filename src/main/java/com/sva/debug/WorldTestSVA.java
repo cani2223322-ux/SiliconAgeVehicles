@@ -2,6 +2,7 @@ package com.sva.debug;
 
 import com.sva.ConfigSVA;
 import com.sva.block.TileEntityChargerSVA;
+import com.sva.block.TileEntityWorkbenchSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.init.ModContentSVA;
 import com.sva.item.ItemVehicleSVA;
@@ -9,6 +10,8 @@ import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleRegistrySVA;
 import com.sva.vehicle.VehicleState;
 import com.sva.vehicle.VehicleType;
+import com.sva.workbench.WorkbenchRecipeSVA;
+import com.sva.workbench.WorkbenchRecipesSVA;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -23,7 +26,8 @@ import net.minecraftforge.common.DimensionManager;
 
 /**
  * -Dsva.worldtest=true (dedicated test server): a charger + a buggy on it, a buggy driven through the server
- * input path, an item round trip, wear and the per-player count - in the running world, near spawn at Y 230.
+ * input path, an item round trip, wear and the per-player count; then the Engineering Workbench (a buggy assembled,
+ * a wheel crafted, an assembly cancelled) - in the running world, near spawn at Y 230.
  * Everything is removed afterwards. Prints [SVA-WORLDTEST] lines.
  */
 public class WorldTestSVA {
@@ -65,6 +69,18 @@ public class WorldTestSVA {
                 verify(w);
             } else if (ticks == CLEAN) {
                 cleanup(w);
+            } else if (ticks == WB_START) {
+                workbenchSetup(w);
+            } else if (ticks == WB_CANCEL) {
+                workbenchCancel();
+            } else if (ticks == WB_MID) {
+                workbenchMid();
+            } else if (ticks == WB_CHECK) {
+                workbenchCheck();
+            } else if (ticks == WB_CLEAN) {
+                workbenchClean(w);
+                System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
+                System.out.println("[SVA-WORLDTEST] DONE");
             }
         } catch (Throwable t) {
             failed++;
@@ -72,6 +88,8 @@ public class WorldTestSVA {
             t.printStackTrace(System.out);
             if (ticks < CLEAN) {
                 ticks = CLEAN - 1;
+            } else if (ticks > WB_START && ticks < WB_CLEAN) {
+                ticks = WB_CLEAN - 1;
             }
         }
     }
@@ -216,8 +234,6 @@ public class WorldTestSVA {
         clearArea(w);
         VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
         check(reg.count(OWNER) == 0, "cleanup: no test vehicles left in the registry");
-        System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
-        System.out.println("[SVA-WORLDTEST] DONE");
     }
 
     private void clearArea(World w) {
@@ -231,4 +247,147 @@ public class WorldTestSVA {
             }
         }
     }
+    // ------------------------------------------------------------------ the workbench (phase 2)
+
+    private static final int WB_START = 200, WB_MID = WB_START + 300, WB_CANCEL = WB_START + 40, WB_CHECK = WB_START + 640,
+            WB_CLEAN = WB_CHECK + 10;
+    private TileEntityWorkbenchSVA wbBuggy, wbWheel, wbCancel;
+    private int euBefore;
+    private ItemStack removed;
+
+    private TileEntityWorkbenchSVA placeWorkbench(World w, int x, int z) {
+        w.setBlock(x, Y, z, ModContentSVA.workbench, 0, 3);
+        TileEntity te = w.getTileEntity(x, Y, z);
+        return te instanceof TileEntityWorkbenchSVA ? (TileEntityWorkbenchSVA) te : null;
+    }
+
+    /** The recipe's layout into a workbench grid, `n` of each item per cell. */
+    private static void lay(TileEntityWorkbenchSVA wb, WorkbenchRecipeSVA r, int n) {
+        ItemStack[] g = SelfTestSVA.laid(r, (5 - r.width) / 2, (5 - r.height) / 2, false);
+        for (int i = 0; i < g.length; i++) {
+            if (g[i] != null) {
+                g[i].stackSize = n;
+            }
+            wb.setInventorySlotContents(i, g[i]);
+        }
+    }
+
+    private static int gridItems(TileEntityWorkbenchSVA wb) {
+        int n = 0;
+        for (int i = 0; i < TileEntityWorkbenchSVA.GRID_SLOTS; i++) {
+            ItemStack s = wb.getStackInSlot(i);
+            n += s == null ? 0 : s.stackSize;
+        }
+        return n;
+    }
+
+    private void workbenchSetup(World w) {
+        ChunkCoordinates sp = w.getSpawnPoint();
+        bx = sp.posX + 4;
+        bz = sp.posZ + 4;
+        clearArea(w);
+        WorkbenchRecipeSVA buggy = WorkbenchRecipesSVA.byId("buggy");
+        wbBuggy = placeWorkbench(w, bx, bz);
+        wbWheel = placeWorkbench(w, bx + 2, bz);
+        wbCancel = placeWorkbench(w, bx + 4, bz);
+        check(wbBuggy != null && wbWheel != null && wbCancel != null, "workbench: three placed with their tiles");
+        if (wbBuggy == null || wbWheel == null || wbCancel == null) {
+            return;
+        }
+        check(wbBuggy.getMaxEnergyStored() == 2000000 && wbBuggy.inputTier() == com.sc.energy.Tier.MV, "workbench: MV input, 2M buffer");
+        // the buggy: two of everything per cell, so a single consumption leaves exactly one
+        wbBuggy.fillForTest(wbBuggy.getMaxEnergyStored());
+        lay(wbBuggy, buggy, 2);
+        euBefore = wbBuggy.getEnergyStored();
+        check(wbBuggy.instantPreview() == null, "workbench: a vehicle shows no instant product");
+        int r = wbBuggy.start();
+        check(r == TileEntityWorkbenchSVA.OK && wbBuggy.isAssembling() && wbBuggy.getTotalTicks() == 600,
+                "workbench: buggy assembly started (" + r + ", " + wbBuggy.getTotalTicks() + " ticks)");
+        check(wbBuggy.start() == TileEntityWorkbenchSVA.BUSY, "workbench: a second start is refused");
+        check(gridItems(wbBuggy) == 46, "workbench: grid untouched at the start (" + gridItems(wbBuggy) + ")");
+        // the wheel: a component taken at once, the 3x3 in the top-left corner
+        WorkbenchRecipeSVA wheel = WorkbenchRecipesSVA.byId("wheel");
+        ItemStack[] g = SelfTestSVA.laid(wheel, 0, 0, false);
+        for (int i = 0; i < g.length; i++) {
+            wbWheel.setInventorySlotContents(i, g[i]);
+        }
+        ItemStack prev = wbWheel.instantPreview();
+        check(prev != null && prev.getItem() == ModContentSVA.component && prev.stackSize == 4, "workbench: wheel x4 shown in the output");
+        check(wbWheel.start() == TileEntityWorkbenchSVA.INSTANT, "workbench: Assemble refuses a component (instant)");
+        ItemStack made = wbWheel.craftInstant(null);
+        check(made != null && made.stackSize == 4 && com.sva.item.ItemComponentSVA.typeOf(made) == com.sva.item.ComponentType.WHEEL,
+                "workbench: wheel crafted x4");
+        check(gridItems(wbWheel) == 0 && wbWheel.instantPreview() == null, "workbench: the wheel's 9 inputs consumed");
+        check(wbWheel.getEnergyStored() == 0, "workbench: the component took no EU");
+        // the one to cancel
+        wbCancel.fillForTest(wbCancel.getMaxEnergyStored());
+        lay(wbCancel, buggy, 1);
+        check(wbCancel.start() == TileEntityWorkbenchSVA.OK, "workbench: second buggy started (to be cancelled)");
+    }
+
+    private void workbenchCancel() {
+        if (wbCancel == null) {
+            return;
+        }
+        int before = gridItems(wbCancel);
+        check(wbCancel.getProgress() > 0, "workbench: progress after 40 ticks (" + wbCancel.getProgress() + ")");
+        removed = wbCancel.decrStackSize(12, 1);             // the player takes the computer out
+        wbCancel.updateEntity();
+        check(!wbCancel.isAssembling() && wbCancel.getStackInSlot(TileEntityWorkbenchSVA.OUTPUT) == null,
+                "workbench: a changed grid cancels the assembly, no product");
+        check(removed != null && gridItems(wbCancel) == before - 1, "workbench: nothing else lost (" + gridItems(wbCancel) + " of " + (before - 1) + ")");
+    }
+
+    private void workbenchMid() {
+        if (wbBuggy == null) {
+            return;
+        }
+        int sig = wbBuggy.comparatorSignal();
+        check(wbBuggy.isAssembling() && sig > 0 && sig < 15, "workbench: halfway, comparator " + sig);
+        check(gridItems(wbBuggy) == 46, "workbench: grid still untouched halfway");
+    }
+
+    private void workbenchCheck() {
+        if (wbBuggy == null) {
+            return;
+        }
+        ItemStack out = wbBuggy.getStackInSlot(TileEntityWorkbenchSVA.OUTPUT);
+        check(!wbBuggy.isAssembling() && out != null && out.getItem() == ModContentSVA.vehicle && out.getItemDamage() == VehicleType.BUGGY.ordinal(),
+                "workbench: a buggy in the output");
+        if (out != null) {
+            VehicleState st = ItemVehicleSVA.stateOf(out);
+            check(out.hasTagCompound() && out.getTagCompound().hasKey(EntityVehicleSVA.NBT_ROOT) && st.energy == 0
+                    && st.hp == VehicleType.BUGGY.maxHp && st.cargoUsed() == 0 && st.vehId != null && st.vehId.length() > 0,
+                    "workbench: the buggy carries full default NBT");
+        }
+        boolean once = true;
+        for (int i = 0; i < TileEntityWorkbenchSVA.GRID_SLOTS; i++) {
+            ItemStack s = wbBuggy.getStackInSlot(i);
+            Object want = WorkbenchRecipesSVA.byId("buggy").layout()[i];
+            once &= want == null ? s == null : s != null && s.stackSize == 1;
+        }
+        check(once && gridItems(wbBuggy) == 23, "workbench: the grid paid exactly once (" + gridItems(wbBuggy) + " left of 46)");
+        int spent = euBefore - wbBuggy.getEnergyStored();
+        check(spent == 200000, "workbench: spent " + spent + " EU (200 000)");
+        check(wbBuggy.comparatorSignal() == 0, "workbench: comparator back to 0");
+        check(wbBuggy.start() == TileEntityWorkbenchSVA.OUTPUT_FULL, "workbench: a full output refuses the next start");
+        // save / load keeps the grid and the output
+        net.minecraft.nbt.NBTTagCompound t = new net.minecraft.nbt.NBTTagCompound();
+        wbBuggy.writeToNBT(t);
+        TileEntityWorkbenchSVA copy = new TileEntityWorkbenchSVA();
+        copy.readFromNBT(t);
+        check(gridItems(copy) == 23 && copy.getStackInSlot(TileEntityWorkbenchSVA.OUTPUT) != null, "workbench: NBT round trip keeps grid and output");
+    }
+
+    private void workbenchClean(World w) {
+        for (TileEntityWorkbenchSVA wb : new TileEntityWorkbenchSVA[] {wbBuggy, wbWheel, wbCancel}) {
+            if (wb != null) {
+                for (int i = 0; i < wb.getSizeInventory(); i++) {
+                    wb.setInventorySlotContents(i, null);       // no drops
+                }
+            }
+        }
+        clearArea(w);
+    }
+
 }
