@@ -1,0 +1,17 @@
+[
+{
+    "modid": "SiliconAgeVehicles",
+    "name": "Silicon Age: Vehicles",
+    "description": "Vehicles for Silicon Age: buggies, hoverbikes, helicopters, planes and more - powered by EU and the mod's gases.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "",
+    "updateUrl": "",
+    "authorList": ["Aleksandr"],
+    "credits": "Designed with Claude",
+    "logoFile": "",
+    "screenshots": [],
+    "requiredMods": ["SiliconAge"],
+    "dependencies": ["SiliconAge"]
+}
+]

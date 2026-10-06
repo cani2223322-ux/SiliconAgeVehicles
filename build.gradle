@@ -1,0 +1,63 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven { name = "forge"; url = "https://maven.minecraftforge.net" }
+        maven { name = "sonatype"; url = "https://oss.sonatype.org/content/repositories/snapshots/" }
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:1.2-SNAPSHOT'
+    }
+}
+
+apply plugin: 'forge'
+
+version = "0.1.0"
+group = "com.sva"
+archivesBaseName = "SiliconAgeVehicles"
+
+sourceCompatibility = 1.6
+targetCompatibility = 1.6
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+minecraft {
+    version = "1.7.10-10.13.4.1614-1.7.10"
+    runDir = "run"
+}
+
+// Same as the core project: ForgeGradle 1.2's download tasks hit a dead Mojang endpoint and can truncate the
+// shared cache - the jars are already in GRADLE_USER_HOME.
+gradle.projectsEvaluated {
+    tasks.findByName('downloadClient')?.enabled = false
+    tasks.findByName('downloadServer')?.enabled = false
+}
+
+repositories {
+    mavenCentral()
+}
+
+// Compile only (never packed into our jar): the Silicon Age core (its deobfuscated classes from the sibling
+// project's build) and IC2 (the core's classes reference its API). At runtime both come from the mods folder.
+def coreDir = file('../SiliconAge/build/classes/main')
+configurations {
+    compileOnlySVA
+}
+sourceSets.main.compileClasspath += configurations.compileOnlySVA
+
+dependencies {
+    compileOnlySVA files(coreDir, 'libs/industrialcraft-2-2.2.828-experimental.jar')
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mcversion", project.minecraft.version
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version, 'mcversion': project.minecraft.version
+    }
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+    }
+}

@@ -1,0 +1,45 @@
+itemGroup.siliconagevehicles=Silicon Age: Vehicles
+
+item.siliconagevehicles.vehicle.buggy.name=Electric Buggy
+tile.siliconagevehicles.charger.name=Vehicle Charging Station
+entity.SiliconAgeVehicles.vehicle.name=Vehicle
+entity.SiliconAgeVehicles.seat.name=Seat
+container.siliconagevehicles.cargo=Cargo
+
+sva.tooltip.charge=§7Charge: §f%s / %s EU §7(%s%%)
+sva.tooltip.hp=§7Hull: §f%s%%
+sva.tooltip.wrecked=§cWrecked - needs a repair
+sva.tooltip.cargo=§7Cargo: §f%s / %s
+sva.tooltip.owner=§7Owner: §f%s
+sva.tooltip.details.buggy=A light ground vehicle for early trips and scouting.
+sva.tooltip.vehicle.stats=Tier %s. Up to %s km/h, seats: %s, cargo: %s slots. Climbs one-block steps.
+sva.tooltip.vehicle.energy=Uses %s EU/t at full speed (more with cargo), %s EU/t idling. A full charge lasts ~%s blocks.
+sva.tooltip.vehicle.limits=Empty battery: limp mode (10%% speed). At 100%% heat the motor stalls until it cools to 50%%. Deep water can't be crossed.
+sva.tooltip.howto.vehicle1=Right-click a block top: place. Right-click the vehicle: get in (only the owner drives, others ride as passengers). Shift: get out.
+sva.tooltip.howto.vehicle2=W/S throttle and reverse, A/D steer, Space brake. Shift + right-click: cargo. Shift + right-click with a Silicon Age wrench: pick the vehicle up (charge and cargo are kept).
+sva.tooltip.howto.vehicle3=Charges on a "Vehicle Charging Station". Repair for now: right-click with a steel ingot (+10%%), later in the Garage.
+sva.tooltip.charger.summary=§7Input: §f%s§7, charges a vehicle at up to §f%s EU/t
+sva.tooltip.charger.details=A vehicle standing on the station charges from its buffer. Joins the Silicon Age or IC2 grid and takes up to %s (%s EU/t) - anything higher blows it up.
+sva.tooltip.howto.charger=Run a cable to it and drive on so the vehicle touches its top. It glows while charging. Right-click: the station's charge in the chat.
+
+sva.hud.kmh=km/h
+sva.hud.eu=EU
+sva.hud.range=Range: ~%s bl.
+sva.hud.heat=Heat
+sva.hud.hull=Hull
+sva.hud.cargo=Cargo %s / %s
+sva.hud.warn.lowEnergy=Low charge
+sva.hud.warn.empty=No charge - limp mode
+sva.hud.warn.overheat=Overheated - motor stalled
+sva.hud.warn.hot=Motor running hot
+sva.hud.warn.wrecked=Vehicle wrecked
+
+sva.msg.limit=§cVehicle limit reached: %s
+sva.msg.notOwner=§cThis is not your vehicle
+sva.msg.wrecked=§cThe vehicle is wrecked - it needs a repair
+sva.msg.noSeat=§eNo free seats
+sva.msg.noSpace=§cNot enough room for the vehicle here
+sva.msg.passengerOnly=§7Only the owner can drive - you got in as a passenger
+sva.msg.repaired=§aHull repaired: %s%%
+sva.msg.overheat=§6The motor overheated and stalled - wait until it cools to 50%%
+sva.charger.status=§7Charging station %s: §f%s / %s EU§7, up to %s EU/t per vehicle

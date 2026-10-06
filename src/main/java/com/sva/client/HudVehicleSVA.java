@@ -1,0 +1,126 @@
+package com.sva.client;
+
+import org.lwjgl.opengl.GL11;
+
+import com.sc.manual.Lang;
+import com.sva.entity.EntitySeatSVA;
+import com.sva.entity.EntityVehicleSVA;
+import com.sva.vehicle.VehicleMath;
+import com.sva.vehicle.VehicleType;
+
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.gui.Gui;
+import net.minecraft.entity.Entity;
+import net.minecraftforge.client.event.RenderGameOverlayEvent;
+
+/** The vehicle panel (bottom left, mock-up veh_3_hud.png) while riding: speed, EU + range, heat, hull, cargo, warnings. */
+public class HudVehicleSVA {
+
+    private static final int W = 128;
+    private static final int BG = 0xD0161A22, EDGE = 0xFF3A4150, TEXT = 0xE0E0E0, DIM = 0x9A9AA6, WARN = 0xFF5A4A, AMBER = 0xFFD24D;
+    private static final int C_EU = 0xFFE05454, C_HEAT = 0xFFFFA040, C_HP = 0xFF3CCB6E, C_TRACK = 0xFF0E1014;
+
+    private double shownSpeed;
+
+    public static EntityVehicleSVA vehicleOf(Entity e) {
+        if (e == null) {
+            return null;
+        }
+        if (e.ridingEntity instanceof EntityVehicleSVA) {
+            return (EntityVehicleSVA) e.ridingEntity;
+        }
+        if (e.ridingEntity instanceof EntitySeatSVA) {
+            return ((EntitySeatSVA) e.ridingEntity).getParent();
+        }
+        return null;
+    }
+
+    @SubscribeEvent
+    public void onOverlay(RenderGameOverlayEvent.Post e) {
+        if (e.type != RenderGameOverlayEvent.ElementType.ALL) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        EntityVehicleSVA v = vehicleOf(mc.thePlayer);
+        if (v == null || mc.gameSettings.hideGUI) {
+            return;
+        }
+        VehicleType t = v.getVehicleType();
+        FontRenderer fr = mc.fontRenderer;
+        double dx = v.posX - v.prevPosX, dz = v.posZ - v.prevPosZ;
+        shownSpeed = shownSpeed * 0.7 + Math.sqrt(dx * dx + dz * dz) * 0.3;
+
+        boolean wear = v.wearOn();
+        int energy = v.getEnergy();
+        double ePct = energy / (double) t.buffer;
+        double heat = v.getHeat();
+        double hpPct = v.getHp() / t.maxHp;
+        String warn = null;
+        int warnColor = WARN;
+        if (v.isWrecked()) {
+            warn = Lang.tr("sva.hud.warn.wrecked");
+        } else if (v.isHeatStopped()) {
+            warn = Lang.tr("sva.hud.warn.overheat");
+        } else if (energy <= 0) {
+            warn = Lang.tr("sva.hud.warn.empty");
+        } else if (ePct < 0.1) {
+            warn = Lang.tr("sva.hud.warn.lowEnergy");
+            warnColor = AMBER;
+        } else if (heat > 80) {
+            warn = Lang.tr("sva.hud.warn.hot");
+            warnColor = AMBER;
+        }
+        int rows = 5 + (wear ? 1 : 0) + (warn != null ? 1 : 0);
+        int h = 24 + (rows - 1) * 10 + 4;
+        int x = 4, y = e.resolution.getScaledHeight() - h - 4;
+
+        Gui.drawRect(x - 1, y - 1, x + W + 1, y + h + 1, EDGE);
+        Gui.drawRect(x, y, x + W, y + h, BG);
+        // speed
+        String sp = String.valueOf(VehicleMath.kmh(shownSpeed));
+        GL11.glPushMatrix();
+        GL11.glTranslatef(x + 6, y + 5, 0);
+        GL11.glScalef(2F, 2F, 1F);
+        fr.drawStringWithShadow(sp, 0, 0, 0xFFFFFF);
+        GL11.glPopMatrix();
+        fr.drawString(Lang.tr("sva.hud.kmh"), x + 10 + fr.getStringWidth(sp) * 2, y + 11, DIM);
+        int ry = y + 24;
+        // EU
+        bar(fr, x, ry, Lang.tr("sva.hud.eu"), ePct, C_EU, (int) Math.floor(ePct * 100) + "%");
+        ry += 10;
+        float cruise = v.getCruiseCost();
+        String range = cruise > 0 ? fmt((long) (energy / cruise * t.topSpeed)) : "∞";
+        fr.drawString(Lang.tr("sva.hud.range", range), x + 6, ry, DIM);
+        ry += 10;
+        bar(fr, x, ry, Lang.tr("sva.hud.heat"), heat / 100.0, v.isHeatStopped() ? 0xFFFF4040 : C_HEAT, (int) heat + "%");
+        ry += 10;
+        if (wear) {
+            bar(fr, x, ry, Lang.tr("sva.hud.hull"), hpPct, hpPct < 0.25 ? 0xFFFF4040 : C_HP, (int) Math.round(hpPct * 100) + "%");
+            ry += 10;
+        }
+        fr.drawString(Lang.tr("sva.hud.cargo", Integer.valueOf(v.getCargoUsed()), Integer.valueOf(t.cargoSlots)), x + 6, ry, TEXT);
+        ry += 10;
+        if (warn != null) {
+            boolean blink = (mc.theWorld.getTotalWorldTime() / 10) % 2 == 0 || warnColor == AMBER;
+            fr.drawStringWithShadow(warn, x + 6, ry, blink ? warnColor : 0x803030);
+        }
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    private static void bar(FontRenderer fr, int x, int y, String label, double frac, int color, String value) {
+        fr.drawString(label, x + 6, y, DIM);
+        int bx = x + 44, bw = 50;
+        Gui.drawRect(bx, y + 1, bx + bw, y + 7, C_TRACK);
+        int fill = (int) Math.round(bw * VehicleMath.clamp(frac, 0, 1));
+        if (fill > 0) {
+            Gui.drawRect(bx, y + 1, bx + fill, y + 7, color);
+        }
+        fr.drawString(value, bx + bw + 4, y, TEXT);
+    }
+
+    private static String fmt(long n) {
+        return String.format("%,d", Long.valueOf(n)).replace(',', ' ');
+    }
+}

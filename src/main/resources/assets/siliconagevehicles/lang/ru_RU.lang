@@ -1,0 +1,45 @@
+itemGroup.siliconagevehicles=Кремниевый век: Техника
+
+item.siliconagevehicles.vehicle.buggy.name=Электробагги
+tile.siliconagevehicles.charger.name=Зарядная станция техники
+entity.SiliconAgeVehicles.vehicle.name=Техника
+entity.SiliconAgeVehicles.seat.name=Сиденье
+container.siliconagevehicles.cargo=Багажник
+
+sva.tooltip.charge=§7Заряд: §f%s / %s EU §7(%s%%)
+sva.tooltip.hp=§7Корпус: §f%s%%
+sva.tooltip.wrecked=§cМашина разбита — нужен ремонт
+sva.tooltip.cargo=§7Багажник: §f%s / %s
+sva.tooltip.owner=§7Владелец: §f%s
+sva.tooltip.details.buggy=Лёгкая наземная машина для ранних поездок и разведки.
+sva.tooltip.vehicle.stats=Уровень %s. Скорость до %s км/ч, мест: %s, багажник: %s ячеек. Шагает на блок вверх.
+sva.tooltip.vehicle.energy=Расход: %s EU/т на полном ходу (с грузом больше), %s EU/т на холостом. Полного заряда хватает на ~%s блоков.
+sva.tooltip.vehicle.limits=Без заряда — аварийный ход (10%% скорости). Нагрев 100%% — двигатель глохнет до остывания до 50%%. Глубокая вода — не проехать.
+sva.tooltip.howto.vehicle1=ПКМ по верху блока — поставить. ПКМ по машине — сесть (водит только владелец, остальные — пассажиры). Shift — выйти.
+sva.tooltip.howto.vehicle2=W/S — газ и задний ход, A/D — руль, пробел — тормоз. Shift+ПКМ — багажник. Shift+ПКМ гаечным ключом Silicon Age — забрать машину (заряд и груз сохраняются).
+sva.tooltip.howto.vehicle3=Заряжается на «Зарядной станции техники». Ремонт пока — ПКМ стальным слитком (+10%%), позже — в Гараже.
+sva.tooltip.charger.summary=§7Вход: §f%s§7, заряд машины до §f%s EU/т
+sva.tooltip.charger.details=Машина, стоящая на станции, заряжается из её буфера. Станция подключается к сети Silicon Age или IC2 и принимает напряжение до %s (%s EU/т) — более высокое её взрывает.
+sva.tooltip.howto.charger=Подведите кабель и заедьте на станцию так, чтобы машина касалась её верха. При зарядке станция светится. ПКМ — заряд станции в чате.
+
+sva.hud.kmh=км/ч
+sva.hud.eu=EU
+sva.hud.range=Запас: ~%s бл.
+sva.hud.heat=Нагрев
+sva.hud.hull=Корпус
+sva.hud.cargo=Груз %s / %s
+sva.hud.warn.lowEnergy=Мало заряда
+sva.hud.warn.empty=Нет заряда — аварийный ход
+sva.hud.warn.overheat=Перегрев — двигатель заглох
+sva.hud.warn.hot=Двигатель греется
+sva.hud.warn.wrecked=Машина разбита
+
+sva.msg.limit=§cДостигнут лимит машин: %s
+sva.msg.notOwner=§cЭто не ваша машина
+sva.msg.wrecked=§cМашина разбита — нужен ремонт
+sva.msg.noSeat=§eСвободных мест нет
+sva.msg.noSpace=§cЗдесь не хватает места для машины
+sva.msg.passengerOnly=§7Водить может только владелец — вы сели пассажиром
+sva.msg.repaired=§aКорпус отремонтирован: %s%%
+sva.msg.overheat=§6Двигатель перегрелся и заглох — ждите остывания до 50%%
+sva.charger.status=§7Зарядная станция %s: §f%s / %s EU§7, до %s EU/т на машину

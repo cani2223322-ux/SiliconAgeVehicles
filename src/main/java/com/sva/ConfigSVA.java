@@ -1,0 +1,53 @@
+package com.sva;
+
+import java.io.File;
+
+import net.minecraftforge.common.config.Configuration;
+
+/** config/SiliconAgeVehicles.cfg. Every number is NaN / infinity safe (Forge's clamp lets NaN through). */
+public final class ConfigSVA {
+
+    /** Hull wear: attacks and wall hits damage vehicles; at 0 HP a vehicle is wrecked. */
+    public static boolean wear = true;
+    /** Vehicles one player may have placed at once; 0 = unlimited. */
+    public static int maxPerPlayer = 0;
+    /** Charging station rate = input voltage x this. */
+    public static float chargerRate = 1F;
+    /** Vehicles' EU use x this. */
+    public static float consumption = 1F;
+
+    private ConfigSVA() {
+    }
+
+    public static void load(File file) {
+        Configuration c = new Configuration(file);
+        try {
+            c.load();
+            String v = "vehicles";
+            wear = c.getBoolean("wear", v, true,
+                    "Hull wear: attacks and wall hits damage vehicles, at 0 HP a vehicle is wrecked / Износ корпуса: удары и столкновения повреждают технику");
+            maxPerPlayer = Math.max(0, c.getInt("maxPerPlayer", v, 0, 0, 10000,
+                    "Vehicles one player may have placed at once (0 = unlimited) / Лимит машин на игрока (0 - без ограничений)"));
+            chargerRate = num(c, "chargerRate", v, 1F, 0.1F, 100F,
+                    "Charging station speed: input voltage x this / Скорость зарядной станции: напряжение входа x это");
+            consumption = num(c, "consumption", v, 1F, 0F, 100F,
+                    "Vehicles' EU use x this / Расход EU техникой x это");
+        } finally {
+            if (c.hasChanged()) {
+                c.save();
+            }
+        }
+    }
+
+    /** NaN / infinity -> default, else clamped into [min, max] (pure; the self-test checks it). */
+    public static float sanitize(float value, float def, float min, float max) {
+        if (Float.isNaN(value) || Float.isInfinite(value)) {
+            return def;
+        }
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static float num(Configuration c, String name, String cat, float def, float min, float max, String comment) {
+        return sanitize(c.getFloat(name, cat, def, min, max, comment), def, min, max);
+    }
+}
