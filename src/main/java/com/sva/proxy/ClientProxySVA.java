@@ -79,6 +79,50 @@ public class ClientProxySVA extends CommonProxySVA {
         }
     }
 
+    private EntityVehicleSVA viewVehicle;
+    private float viewYaw;
+
+    /** The vehicle the local player sits in (driver or a seat), or null. */
+    private static EntityVehicleSVA ridden(EntityPlayer p) {
+        Entity r = p.ridingEntity;
+        if (r instanceof EntityVehicleSVA) {
+            return (EntityVehicleSVA) r;
+        }
+        if (r instanceof EntitySeatSVA) {
+            return ((EntitySeatSVA) r).getParent();
+        }
+        return null;
+    }
+
+    /**
+     * Turns the rider's view with the vehicle once a frame by the vehicle's interpolated yaw (both rotationYaw and
+     * prevRotationYaw, so the vanilla camera interpolation stays continuous) - smooth turning, no per-tick jumps.
+     */
+    @SubscribeEvent
+    public void onRenderTick(TickEvent.RenderTickEvent e) {
+        if (e.phase != TickEvent.Phase.START) {
+            return;
+        }
+        EntityPlayer p = Minecraft.getMinecraft().thePlayer;
+        EntityVehicleSVA v = p == null ? null : ridden(p);
+        if (v == null || v.isDead) {
+            viewVehicle = null;
+            return;
+        }
+        float yaw = v.prevRotationYaw + net.minecraft.util.MathHelper.wrapAngleTo180_float(v.rotationYaw - v.prevRotationYaw) * e.renderTickTime;
+        if (viewVehicle != v) {
+            viewVehicle = v;
+            viewYaw = yaw;
+            return;
+        }
+        float d = net.minecraft.util.MathHelper.wrapAngleTo180_float(yaw - viewYaw);
+        viewYaw = yaw;
+        if (Math.abs(d) < 45F) {                                    // a correction snap is not followed by the view
+            p.rotationYaw += d;
+            p.prevRotationYaw += d;
+        }
+    }
+
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent e) {
         if (e.phase != TickEvent.Phase.START) {

@@ -30,6 +30,9 @@ public class RenderVehicleSVA extends Render {
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_CURRENT_BIT | GL11.GL_LIGHTING_BIT);
         GL11.glTranslated(x, y, z);
         GL11.glRotatef(-ry - 90F, 0F, 1F, 0F);         // model +x -> the entity's facing
+        float s = v.getVehicleType().modelScale;
+        GL11.glScalef(s, s, s);
+        GL11.glEnable(GL11.GL_NORMALIZE);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glEnable(GL11.GL_LIGHTING);

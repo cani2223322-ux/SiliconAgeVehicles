@@ -465,7 +465,6 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             applySize(t);
         }
         EntityPlayer local = SVAMod.proxy.localPlayer();
-        float yawBefore = rotationYaw;
         if (local != null && riddenByEntity == local) {
             int in = SVAMod.proxy.driverInput();
             physicsStep(t, in);
@@ -494,11 +493,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             float d = MathHelper.wrapAngleTo180_float(target - rotationYaw);
             rotationYaw += Math.abs(d) > 90 ? d : d * 0.5F;
         }
-        // the local rider's view turns with the vehicle
-        if (local != null && (local.ridingEntity == this || local.ridingEntity instanceof EntitySeatSVA
-                && ((EntitySeatSVA) local.ridingEntity).getParent() == this)) {
-            local.rotationYaw += rotationYaw - yawBefore;
-        }
+        // the local rider's view turns with the vehicle every frame (ClientProxySVA.onRenderTick), not here once
+        // a tick - a 20 Hz jump of the camera is what shook the screen in turns
         if (isWrecked() && ticksExisted % 4 == 0) {
             worldObj.spawnParticle("largesmoke", posX + (rand.nextDouble() - 0.5), posY + 1.0, posZ + (rand.nextDouble() - 0.5), 0, 0.05, 0);
         } else if (isHeatStopped() && ticksExisted % 6 == 0) {
@@ -611,7 +607,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     void placeBeside(Entity e, int side) {
         VehicleType t = getVehicleType();
         double sx = t.seatOffsets[0][0];
-        double[][] spots = {{sx, side * (t.width * 0.5 + 0.6)}, {sx, -side * (t.width * 0.5 + 0.6)}, {-2.4, 0}, {2.4, 0}};
+        double[][] spots = {{sx, side * (t.width * 0.5 + 0.6)}, {sx, -side * (t.width * 0.5 + 0.6)}, {-t.halfLength - 0.7, 0}, {t.halfLength + 0.7, 0}};
         for (double[] o : spots) {
             double[] w = toWorld(o[0], o[1]);
             for (int up = 0; up <= 1; up++) {
