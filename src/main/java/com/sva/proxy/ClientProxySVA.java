@@ -35,9 +35,14 @@ public class ClientProxySVA extends CommonProxySVA {
                 new com.sva.client.RenderWorkbenchSVA());
     }
 
+    /** «Форсаж» (hoverbike boost; the sprint key works too). Unbound by default - the core's armour dash has R. */
+    public static final net.minecraft.client.settings.KeyBinding KEY_BOOST =
+            new net.minecraft.client.settings.KeyBinding("key.sva.boost", org.lwjgl.input.Keyboard.KEY_NONE, "key.categories.sva");
+
     @Override
     public void init(FMLInitializationEvent e) {
         super.init(e);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_BOOST);
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         FMLCommonHandler.instance().bus().register(this);
     }
@@ -47,7 +52,7 @@ public class ClientProxySVA extends CommonProxySVA {
         return Minecraft.getMinecraft().thePlayer;
     }
 
-    /** W/S throttle / reverse, A/D steer, Space brake (Shift stays vanilla: get out). */
+    /** W/S throttle / reverse, A/D steer, Space brake (hover: higher), sprint / «Форсаж» boost (Shift stays vanilla: get out). */
     @Override
     public int driverInput() {
         EntityPlayer p = Minecraft.getMinecraft().thePlayer;
@@ -68,6 +73,10 @@ public class ClientProxySVA extends CommonProxySVA {
         }
         if (in.jump) {
             f |= EntityVehicleSVA.IN_BRAKE;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.currentScreen == null && (mc.gameSettings.keyBindSprint.getIsKeyPressed() || KEY_BOOST.getIsKeyPressed())) {
+            f |= EntityVehicleSVA.IN_BOOST;
         }
         return f;
     }

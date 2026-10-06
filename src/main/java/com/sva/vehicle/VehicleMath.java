@@ -51,6 +51,25 @@ public final class VehicleMath {
         return clamp(h, 0, HEAT_STOP);
     }
 
+    /**
+     * Helium cooling (the core suit's loop, scaled to the vehicle's 0-100 % heat): above HE_START the pump adds up to
+     * HE_PUMP %/tick of cooling (full at HE_START + 2.5 %), each mB of helium takes HE_HEAT_PER_MB %-points away.
+     */
+    public static final double HE_START = 40, HE_PUMP = 0.05, HE_GAIN = 0.02, HE_HEAT_PER_MB = 2.0;
+
+    /** Extra cooling %/tick from helium (0 below HE_START or with an empty tank; never more than the tank holds). */
+    public static double heliumCooling(double heat, double heliumMb) {
+        if (heliumMb <= 0 || heat <= HE_START) {
+            return 0;
+        }
+        return Math.min(Math.min(HE_PUMP, (heat - HE_START) * HE_GAIN), heliumMb * HE_HEAT_PER_MB);
+    }
+
+    /** Helium (mB) that cooling takes. */
+    public static double heliumUse(double cooling) {
+        return Math.max(0, cooling) / HE_HEAT_PER_MB;
+    }
+
     /** Overheat latch: stops at 100 %, restarts once at or below 50 %. */
     public static boolean heatStopped(boolean wasStopped, double heat) {
         if (heat >= HEAT_STOP) {

@@ -3,6 +3,9 @@ package com.sva.client;
 import org.lwjgl.opengl.GL11;
 
 import com.sc.manual.Lang;
+import com.sc.util.ArmorGasSC.Gas;
+import com.sva.vehicle.HoverMath;
+import com.sva.vehicle.VehicleGases;
 import com.sva.entity.EntitySeatSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.vehicle.VehicleMath;
@@ -15,7 +18,10 @@ import net.minecraft.client.gui.Gui;
 import net.minecraft.entity.Entity;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 
-/** The vehicle panel (bottom left, mock-up veh_3_hud.png) while riding: speed, EU + range, heat, hull, cargo, warnings. */
+/**
+ * The vehicle panel (bottom left, mock-up veh_3_hud.png) while riding: speed, EU + range, heat, hull, gas tanks
+ * (core gas colours; the lift gas with the time it lasts at the current rate), cargo, warnings.
+ */
 public class HudVehicleSVA {
 
     private static final int W = 128;
@@ -64,7 +70,7 @@ public class HudVehicleSVA {
         } else if (v.isHeatStopped()) {
             warn = Lang.tr("sva.hud.warn.overheat");
         } else if (energy <= 0) {
-            warn = Lang.tr("sva.hud.warn.empty");
+            warn = Lang.tr(t.movement.lifts ? "sva.hud.warn.emptyLand" : "sva.hud.warn.empty");
         } else if (ePct < 0.1) {
             warn = Lang.tr("sva.hud.warn.lowEnergy");
             warnColor = AMBER;
@@ -72,7 +78,21 @@ public class HudVehicleSVA {
             warn = Lang.tr("sva.hud.warn.hot");
             warnColor = AMBER;
         }
-        int rows = 5 + (wear ? 1 : 0) + (warn != null ? 1 : 0);
+        VehicleGases gs = t.gases;
+        Gas lift = gs.liftGas;
+        double liftRate = lift == null ? 0 : (v.isBoosting() ? gs.boostPerSecond : gs.liftPerSecond);
+        if (warn == null || warnColor == AMBER) {
+            String gw = gasWarning(v, gs, liftRate);
+            if (gw != null) {
+                warn = gw;
+                warnColor = gw.startsWith("!") ? WARN : AMBER;
+                if (gw.startsWith("!")) {
+                    warn = gw.substring(1);
+                }
+            }
+        }
+        int gasRows = gs.gases().size() + (lift != null ? 1 : 0);
+        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0);
         int h = 24 + (rows - 1) * 10 + 4;
         int x = 4, y = e.resolution.getScaledHeight() - h - 4;
 
@@ -100,6 +120,18 @@ public class HudVehicleSVA {
             bar(fr, x, ry, Lang.tr("sva.hud.hull"), hpPct, hpPct < 0.25 ? 0xFFFF4040 : C_HP, (int) Math.round(hpPct * 100) + "%");
             ry += 10;
         }
+        for (Gas g : gs.gases()) {
+            int cap = Math.max(1, gs.capacity(g));
+            int mb = v.getGas(g);
+            bar(fr, x, ry, Lang.tr("sva.gas." + g.key()), mb / (double) cap, 0xFF000000 | g.color, (int) Math.floor(mb * 100.0 / cap) + "%");
+            ry += 10;
+        }
+        if (lift != null) {
+            double sec = HoverMath.secondsLeft(v.getGas(lift), v.isLifting() ? liftRate : gs.liftPerSecond);
+            String left = Double.isInfinite(sec) ? "∞" : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
+            fr.drawString(Lang.tr("sva.hud.gasLeft", Lang.tr("sva.gas." + lift.key()), left), x + 6, ry, v.isBoosting() ? AMBER : DIM);
+            ry += 10;
+        }
         fr.drawString(Lang.tr("sva.hud.cargo", Integer.valueOf(v.getCargoUsed()), Integer.valueOf(t.cargoSlots)), x + 6, ry, TEXT);
         ry += 10;
         if (warn != null) {
@@ -108,6 +140,34 @@ public class HudVehicleSVA {
         }
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
+
+    /** Lift gas out / low, coolant out / low; a leading "!" = red. Null when all is fine. */
+    private static String gasWarning(EntityVehicleSVA v, VehicleGases gs, double liftRate) {
+        Gas lift = gs.liftGas;
+        if (lift != null) {
+            int mb = v.getGas(lift);
+            if (mb <= 0) {
+                return "!" + Lang.tr("sva.hud.warn.noLift." + lift.key());
+            }
+            if (HoverMath.secondsLeft(mb, Math.max(liftRate, gs.liftPerSecond)) < LOW_SECONDS || mb < gs.capacity(lift) / 10) {
+                return Lang.tr("sva.hud.warn.low." + lift.key());
+            }
+        }
+        Gas c = gs.coolant;
+        if (c != null && c != lift) {
+            int mb = v.getGas(c);
+            if (mb <= 0 && v.getHeat() > VehicleMath.HE_START) {
+                return Lang.tr("sva.hud.warn.noCoolant." + c.key());
+            }
+            if (mb < gs.capacity(c) / 10) {
+                return Lang.tr("sva.hud.warn.low." + c.key());
+            }
+        }
+        return null;
+    }
+
+    /** "Low" when the lift gas lasts under this many seconds. */
+    private static final int LOW_SECONDS = 120;
 
     private static void bar(FontRenderer fr, int x, int y, String label, double frac, int color, String value) {
         fr.drawString(label, x + 6, y, DIM);

@@ -8,6 +8,7 @@ import com.sva.entity.EntityVehicleSVA;
 import com.sva.init.ModContentSVA;
 import com.sva.item.ComponentType;
 import com.sva.item.ItemVehicleSVA;
+import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleState;
 import com.sva.vehicle.VehicleType;
@@ -63,6 +64,11 @@ public final class SelfTestSVA {
             workbenchUpgrades();
             workbenchPlanner();
             components();
+            gasTanks();
+            helium();
+            hover();
+            hoverType();
+            pickUp();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -393,4 +399,136 @@ public final class SelfTestSVA {
         check(s.getUnlocalizedName().endsWith(".component.hull3"), "components: unlocalized name per key");
     }
 
+    // ------------------------------------------------------------------ stage A: gases, helium, hover, pick-up
+
+    private static void gasTanks() {
+        com.sc.util.ArmorGasSC.Gas H = com.sc.util.ArmorGasSC.Gas.HYDROGEN, HE = com.sc.util.ArmorGasSC.Gas.HELIUM,
+                AR = com.sc.util.ArmorGasSC.Gas.ARGON;
+        VehicleState s = new VehicleState(VehicleType.HOVER);
+        check(s.gasCapacity(H) == 4000 && s.gasCapacity(HE) == 2000 && s.gasCapacity(AR) == 0, "gas: hover tanks H2 4000, He 2000, no argon");
+        check(new VehicleState(VehicleType.BUGGY).gasCapacity(H) == 0 && !VehicleType.BUGGY.gases.any(), "gas: the buggy has no tanks");
+        check(s.fillGas(H, 1500, true) == 1500 && s.gas(H) == 0, "gas: simulate fills nothing");
+        check(s.fillGas(H, 3000, false) == 3000 && s.fillGas(H, 3000, false) == 1000 && s.gas(H) == 4000, "gas: fill capped at the tank (3000 + 1000)");
+        check(s.fillGas(AR, 100, false) == 0, "gas: no tank - nothing goes in");
+        check(s.drainGas(H, 500, false) == 500 && s.gas(H) == 3500, "gas: drain");
+        int took = 0;
+        for (int i = 0; i < 20; i++) {
+            took += s.drainGasFraction(H, 0.1);              // 2 mB/s for one second
+        }
+        check(took == 2 && s.gas(H) == 3498, "gas: 20 x 0.1 mB fractions = 2 whole mB (" + took + ")");
+        s.drainGasFraction(H, 0.25);
+        check(s.gasFrac[H.ordinal()] > 0.2 && s.gasFrac[H.ordinal()] < 0.3 && s.gas(H) == 3498, "gas: the part below a mB is kept");
+        NBTTagCompound t = new NBTTagCompound();
+        s.writeNBT(t);
+        VehicleState r = new VehicleState(VehicleType.HOVER);
+        r.readNBT(t);
+        check(r.gas(H) == 3498 && r.gasFrac[H.ordinal()] == s.gasFrac[H.ordinal()] && r.gas(HE) == 0, "gas: NBT round trip keeps mB and the fraction");
+        NBTTagCompound bad = new NBTTagCompound();
+        NBTTagCompound g = new NBTTagCompound();
+        g.setInteger(H.key(), 999999);
+        g.setInteger(AR.key(), 50);
+        bad.setTag(VehicleState.K_GASES, g);
+        VehicleState b = new VehicleState(VehicleType.HOVER);
+        b.readNBT(bad);
+        check(b.gas(H) == 4000 && b.gas(AR) == 0, "gas: NBT clamped to the tanks");
+        VehicleState e = new VehicleState(VehicleType.HOVER);
+        e.fillGas(H, 1, false);
+        int got = 0;
+        for (int i = 0; i < 30; i++) {
+            got += e.drainGasFraction(H, 0.1);
+        }
+        check(got == 1 && e.gas(H) == 0 && e.gasFrac[H.ordinal()] == 0, "gas: an empty tank keeps no fraction, never below 0");
+        ItemStack item = ItemVehicleSVA.withState(new ItemStack(ModContentSVA.vehicle, 1, VehicleType.HOVER.ordinal()), s);
+        check(ItemVehicleSVA.stateOf(item).gas(H) == 3498, "gas: the item keeps the gas");
+        VehicleState full = new VehicleState(VehicleType.HOVER);
+        full.fillAllGases();
+        check(full.gas(H) == 4000 && full.gas(HE) == 2000, "gas: fillAllGases (creative full stack)");
+    }
+
+    private static void helium() {
+        check(VehicleMath.heliumCooling(30, 1000) == 0, "helium: idle below 40% heat");
+        check(near(VehicleMath.heliumCooling(80, 1000), 0.05, 1e-12), "helium: full pump 0.05 %/t when hot");
+        check(near(VehicleMath.heliumCooling(41, 1000), 0.02, 1e-12), "helium: proportional just above 40% (0.02 %/t at 41%)");
+        check(VehicleMath.heliumCooling(80, 0) == 0, "helium: empty tank cools nothing");
+        check(near(VehicleMath.heliumUse(0.05), 0.025, 1e-12), "helium: 2 heat-% per mB (full pump = 0.5 mB/s)");
+        // boost at top speed (load 1.35^2): overheats without helium, holds with it
+        double load = 1.35 * 1.35, h1 = 0, h2 = 0, he = 2000;
+        boolean stop1 = false, stop2 = false;
+        for (int i = 0; i < 12000; i++) {
+            h1 = VehicleMath.heatStep(h1, load, 0);
+            stop1 |= VehicleMath.heatStopped(stop1, h1);
+            double c = VehicleMath.heliumCooling(h2, he);
+            he -= VehicleMath.heliumUse(c);
+            h2 = VehicleMath.heatStep(h2, load, c);
+            stop2 |= VehicleMath.heatStopped(stop2, h2);
+        }
+        check(stop1, "helium: boosting without helium overheats");
+        check(!stop2 && h2 < 45, "helium: boosting with helium holds " + Math.round(h2) + "% (spent " + Math.round(2000 - he) + " mB in 10 min)");
+    }
+
+    private static void hover() {
+        double base = HoverMath.targetY(64, 64, false);
+        check(near(base, 65.5, 1e-9) && near(HoverMath.targetY(64, Double.NaN, true), 66.8, 1e-9), "hover: holds 1.5 (Space 2.8) over the surface");
+        check(near(HoverMath.targetY(64, 70, false), 64 + HoverMath.HOVER_CAP, 1e-9), "hover: a wall under the nose lifts it to the cap only (4 over the centre)");
+        check(HoverMath.targetY(Double.NaN, 70, false) == Double.NEGATIVE_INFINITY, "hover: no surface under the centre - nothing to hold");
+        boolean never = true;
+        for (double surf = 0; surf < 100; surf += 7.3) {
+            for (double hi = -5; hi < 50; hi += 3.1) {
+                never &= HoverMath.targetY(surf, surf + hi, true) - surf <= HoverMath.HOVER_CAP + 1e-9;
+            }
+        }
+        check(never, "hover: the target is never over the cap");
+        check(HoverMath.verticalSpeed(70, 65.5, true, 0) == -HoverMath.SINK && HoverMath.verticalSpeed(60, 65.5, true, 0) == HoverMath.CLIMB,
+                "hover: sinks at 0.15 / climbs at 0.2 b/t at most");
+        check(near(HoverMath.verticalSpeed(65.4, 65.5, true, 0), 0.02, 1e-9), "hover: eases into the height");
+        double y = 65.5, vy = 0;
+        int ticks = 0;
+        boolean gentle = true;
+        for (; ticks < 400 && y > 64; ticks++) {
+            vy = HoverMath.verticalSpeed(y, 65.5, false, vy);
+            gentle &= vy >= -HoverMath.GLIDE - 1e-12;
+            y += vy;
+        }
+        check(ticks < 400 && gentle, "hover: no lift - glides down 1.5 blocks in " + ticks + " ticks, never faster than 0.12 b/t");
+        check(HoverMath.verticalSpeed(80, Double.NEGATIVE_INFINITY, true, 0) == -HoverMath.SINK, "hover: over a ravine it sinks");
+        check(HoverMath.climbAllowed(true, 3.5) && !HoverMath.climbAllowed(true, 4.5) && !HoverMath.climbAllowed(false, 1),
+                "hover: climbing only with lift under the cap");
+        check(!HoverMath.mustDescend(true, 3) && HoverMath.mustDescend(true, 6) && HoverMath.mustDescend(false, 2) && !HoverMath.mustDescend(false, 0.2)
+                && HoverMath.mustDescend(true, Double.NaN), "hover: must come down - far over the cap, or in the air without lift");
+        VehicleType h = VehicleType.HOVER;
+        check(near(h.gases.liftPerTick(false), 0.1, 1e-12) && near(h.gases.liftPerTick(true), 0.25, 1e-12), "hover: H2 2 mB/s, boost 5 mB/s");
+        check(near(HoverMath.maxSpeed(h, true, true), 0.84 * 1.35, 1e-9) && HoverMath.maxSpeed(h, true, false) == 0.84
+                && HoverMath.maxSpeed(h, false, true) == 0, "hover: x3 sprint (0.84 b/t), boost x1.35, no lift - no thrust");
+        check(near(HoverMath.secondsLeft(4000, 2), 2000, 1e-9) && near(HoverMath.secondsLeft(4000, 5), 800, 1e-9),
+                "hover: a full H2 tank = 33 min hovering, 13 min on boost");
+    }
+
+    private static void hoverType() {
+        VehicleType h = VehicleType.HOVER;
+        check(h.ordinal() == 1 && h.movement == com.sva.vehicle.Movement.HOVER && VehicleType.BUGGY.movement == com.sva.vehicle.Movement.GROUND,
+                "hover: meta 1, HOVER movement (buggy stays GROUND)");
+        check(h.tier == Tier.QV && h.buffer == 4000000 && h.seats == 1 && h.cargoSlots == 9 && near(h.topSpeed, 0.84, 1e-9),
+                "hover: QV, 4M EU, 1 seat, 9 cargo");
+        check(near(VehicleMath.cost(h, h.topSpeed, 0, true, 1), 80, 1e-9) && near(VehicleMath.cost(h, 0, 0, true, 1), 4, 1e-9), "hover: 80 EU/t at speed, 4 hovering");
+        check(h.modelScale == 1.15F && near(h.seatY, 0.54, 1e-9) && h.seatOffsets.length == 1, "hover: model x1.15, seat on the saddle");
+        WorkbenchRecipeSVA r = WorkbenchRecipesSVA.byId("hover");
+        check(r != null && r.eu == 8000000L && r.tier == Tier.QV && r.width == 5 && r.height == 5 && ItemVehicleSVA.typeOf(r.result()) == h,
+                "hover: workbench recipe 5x5, 8M EU, QV");
+        check(!WorkbenchMath.canBuild(Tier.QV, WorkbenchMath.inputTier(0, false)) && WorkbenchMath.canBuild(Tier.QV, WorkbenchMath.inputTier(1, false)),
+                "hover: needs one transformer on the workbench");
+        check(WorkbenchRecipesSVA.byId("gasColumn") != null, "gas column: workbench recipe");
+        boolean table = false;
+        for (Object o : CraftingManager.getInstance().getRecipeList()) {
+            ItemStack out = ((IRecipe) o).getRecipeOutput();
+            table |= out != null && out.getItem() == net.minecraft.item.Item.getItemFromBlock(ModContentSVA.gasColumn);
+        }
+        check(table, "gas column: crafting-table recipe");
+    }
+
+    private static void pickUp() {
+        check(EntityVehicleSVA.pickUpCheck(true, false, 4) == EntityVehicleSVA.PICK_OK, "pick-up: owner, empty, near - ok");
+        check(EntityVehicleSVA.pickUpCheck(true, true, 4) == EntityVehicleSVA.PICK_OCCUPIED, "pick-up: someone seated - refused");
+        check(EntityVehicleSVA.pickUpCheck(false, false, 4) == EntityVehicleSVA.PICK_NOT_OWNER, "pick-up: not the owner - refused");
+        check(EntityVehicleSVA.pickUpCheck(true, false, 100) == EntityVehicleSVA.PICK_FAR, "pick-up: further than 8 blocks - refused");
+    }
 }

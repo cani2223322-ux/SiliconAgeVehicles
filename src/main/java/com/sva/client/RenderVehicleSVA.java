@@ -38,7 +38,10 @@ public class RenderVehicleSVA extends Render {
         GL11.glEnable(GL11.GL_LIGHTING);
         GL11.glEnable(GL11.GL_COLOR_MATERIAL);
         GL11.glShadeModel(GL11.GL_SMOOTH);
-        m.render(v.isWrecked() ? 0.45F : 1F);
+        // the local rider in first person: no glass at all (the clearest view); everyone else sees it see-through
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        boolean ownView = mc.gameSettings.thirdPersonView == 0 && HudVehicleSVA.vehicleOf(mc.thePlayer) == v;
+        m.render(v.isWrecked() ? 0.45F : 1F, !ownView);
         GL11.glPopAttrib();
         GL11.glPopMatrix();
     }

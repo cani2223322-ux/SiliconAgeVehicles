@@ -151,13 +151,32 @@ public final class ObjModelSVA {
         pending = null;
     }
 
-    /** Draws every group (texture 2D must already be off). `shade` darkens everything (a wreck: no glow either). */
+    /** Glass groups: drawn after the opaque ones, see-through. */
+    public static boolean isGlass(String group) {
+        return "glass".equals(group) || "canopy".equals(group);
+    }
+
+    /** Glass alpha and how far its colour is lifted toward white (the OBJ colour is a dark tint). */
+    public static final float GLASS_ALPHA = 0.28F, GLASS_LIGHTEN = 0.55F;
+
     public void render(float shade) {
+        render(shade, true);
+    }
+
+    /**
+     * Draws the opaque groups, then (withGlass) the glass / canopy groups translucent: blended, tinted lighter,
+     * no depth writes, both faces (texture 2D must already be off). `shade` darkens everything (a wreck: no glow).
+     * withGlass false: the glass is left out (the local rider's first-person view).
+     */
+    public void render(float shade, boolean withGlass) {
         if (lists < 0) {
             compile();
         }
         float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
         for (int i = 0; i < groups.size(); i++) {
+            if (isGlass(groups.get(i))) {
+                continue;
+            }
             float[] c = colors.get(i);
             if (emissive.get(i).booleanValue() && shade >= 1F) {
                 GL11.glDisable(GL11.GL_LIGHTING);
@@ -171,7 +190,28 @@ public final class ObjModelSVA {
                 GL11.glCallList(lists + i);
             }
         }
+        if (withGlass) {
+            GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            GL11.glDepthMask(false);
+            GL11.glDisable(GL11.GL_CULL_FACE);
+            for (int i = 0; i < groups.size(); i++) {
+                if (!isGlass(groups.get(i))) {
+                    continue;
+                }
+                float[] c = colors.get(i);
+                GL11.glColor4f(lighten(c[0]) * shade, lighten(c[1]) * shade, lighten(c[2]) * shade, GLASS_ALPHA);
+                GL11.glCallList(lists + i);
+            }
+            GL11.glDepthMask(true);
+            GL11.glPopAttrib();
+        }
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    private static float lighten(float c) {
+        return c + (1F - c) * GLASS_LIGHTEN;
     }
 
     /** Draws every group in one colour (the workbench hologram); the caller sets blending / lighting. */

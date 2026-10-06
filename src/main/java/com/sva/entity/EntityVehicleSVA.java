@@ -8,6 +8,9 @@ import com.sva.SVAMod;
 import com.sva.init.ModContentSVA;
 import com.sva.inventory.GuiHandlerSVA;
 import com.sva.net.NetSVA;
+import com.sc.util.ArmorGasSC.Gas;
+import com.sva.vehicle.HoverMath;
+import com.sva.vehicle.Movement;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleRegistrySVA;
 import com.sva.vehicle.VehicleState;
@@ -26,6 +29,13 @@ import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
+import net.minecraftforge.common.util.ForgeDirection;
+import net.minecraftforge.fluids.Fluid;
+import net.minecraftforge.fluids.FluidContainerRegistry;
+import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.fluids.FluidTankInfo;
+import net.minecraftforge.fluids.IFluidContainerItem;
+import net.minecraftforge.fluids.IFluidHandler;
 
 /**
  * A ground vehicle. Driver = riddenByEntity; other seats are EntitySeatSVA kept beside the body.
@@ -45,12 +55,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public static final String NBT_ROOT = "SVAVehicle";
     // data watcher ids (append-only)
     private static final int DW_ENERGY = 20, DW_HP = 21, DW_HEAT = 22, DW_FLAGS = 23, DW_CARGO = 24, DW_TYPE = 25,
-            DW_CRUISE = 26, DW_YAW = 27;
-    private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4;
-    /** Input bits. */
-    public static final int IN_FWD = 1, IN_BACK = 2, IN_LEFT = 4, IN_RIGHT = 8, IN_BRAKE = 16, IN_MASK = 31;
+            DW_CRUISE = 26, DW_YAW = 27, DW_GAS = 28;
+    private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16;
+    /** Input bits. IN_BRAKE = Space (ground: brake; hover: hold higher), IN_BOOST = sprint / «Форсаж». */
+    public static final int IN_FWD = 1, IN_BACK = 2, IN_LEFT = 4, IN_RIGHT = 8, IN_BRAKE = 16, IN_BOOST = 32, IN_MASK = 63;
     private static final int INPUT_TIMEOUT = 40, MOVE_TIMEOUT = 10, KEEPALIVE = 10;
-    private static final double BRAKE = 0.05, ROLL = 0.006, REVERSE = 0.35, WATER_SPEED = 0.35;
+    static final double BRAKE = 0.05, ROLL = 0.006, REVERSE = 0.35, WATER_SPEED = 0.35;
     public static final double RENDER_DIST = 96;
 
     public VehicleState state;
@@ -64,6 +74,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     private double speedEma, prevMoved;
     private int hitCooldown;
     private boolean registered;
+    /** Server: held up by lift / boosting this tick (synced as flags). */
+    private boolean lifting, boosting;
+    // client: the synced gas string parsed
+    private String gasSeen;
+    private final int[] gasShown = new int[Gas.values().length];
     private EntitySeatSVA[] seats;
     private Entity lastRider;
     /** World test: run the motor without a rider. */
@@ -111,6 +126,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.addObject(DW_TYPE, Byte.valueOf((byte) 0));
         dataWatcher.addObject(DW_CRUISE, Float.valueOf(0));
         dataWatcher.addObject(DW_YAW, Float.valueOf(0));
+        dataWatcher.addObject(DW_GAS, "");
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -151,6 +167,65 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return worldObj.isRemote ? dataWatcher.getWatchableObjectByte(DW_CARGO) : state.cargoUsed();
     }
 
+    /** mB of a gas (synced on clients). */
+    public int getGas(Gas g) {
+        if (g == null) {
+            return 0;
+        }
+        if (worldObj == null || !worldObj.isRemote) {
+            return state.gas(g);
+        }
+        String s = dataWatcher.getWatchableObjectString(DW_GAS);
+        if (!s.equals(gasSeen)) {
+            gasSeen = s;
+            java.util.Arrays.fill(gasShown, 0);
+            List<Gas> order = getVehicleType().gases.gases();
+            String[] p = s.length() == 0 ? new String[0] : s.split(",");
+            for (int i = 0; i < p.length && i < order.size(); i++) {
+                try {
+                    gasShown[order.get(i).ordinal()] = Integer.parseInt(p[i]);
+                } catch (NumberFormatException e) {
+                    // a garbled value shows 0
+                }
+            }
+        }
+        return gasShown[g.ordinal()];
+    }
+
+    /** The synced gas string: the type's tank amounts in its order, comma separated. */
+    static String gasString(VehicleState st) {
+        StringBuilder b = new StringBuilder();
+        for (Gas g : st.type.gases.gases()) {
+            if (b.length() > 0) {
+                b.append(',');
+            }
+            b.append(st.gas(g));
+        }
+        return b.toString();
+    }
+
+    /** Held up by its lift gas (server: this tick; clients: synced). */
+    public boolean isLifting() {
+        return worldObj.isRemote ? flag(F_LIFT) : lifting;
+    }
+
+    public boolean isBoosting() {
+        return worldObj.isRemote ? flag(F_BOOST) : boosting;
+    }
+
+    /**
+     * Has lift now (Movement.lifts types): someone at the wheel (or the world test), not wrecked / overheated,
+     * EU and lift gas left. Both sides (clients read the synced values).
+     */
+    public boolean hasLift() {
+        VehicleType t = getVehicleType();
+        if (!t.movement.lifts || t.gases.liftGas == null) {
+            return false;
+        }
+        boolean motor = riddenByEntity != null || debugDriver;
+        return motor && !isWrecked() && !isHeatStopped() && getEnergy() > 0 && getGas(t.gases.liftGas) > 0;
+    }
+
     /** EU/t at top speed with the current cargo (server config applied) - the HUD's range estimate. */
     public float getCruiseCost() {
         return dataWatcher.getWatchableObjectFloat(DW_CRUISE);
@@ -161,12 +236,14 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_ENERGY, Integer.valueOf((int) state.energy));
         dataWatcher.updateObject(DW_HP, Float.valueOf(state.hp));
         dataWatcher.updateObject(DW_HEAT, Float.valueOf((float) Math.floor(state.heat * 10) / 10F));
-        int f = (VehicleMath.wrecked(state.hp) && ConfigSVA.wear ? F_WRECKED : 0) | (state.heatStop ? F_HEAT_STOP : 0) | (ConfigSVA.wear ? F_WEAR : 0);
+        int f = (VehicleMath.wrecked(state.hp) && ConfigSVA.wear ? F_WRECKED : 0) | (state.heatStop ? F_HEAT_STOP : 0) | (ConfigSVA.wear ? F_WEAR : 0)
+                | (lifting ? F_LIFT : 0) | (boosting ? F_BOOST : 0);
         dataWatcher.updateObject(DW_FLAGS, Byte.valueOf((byte) f));
         dataWatcher.updateObject(DW_CARGO, Byte.valueOf((byte) state.cargoUsed()));
         dataWatcher.updateObject(DW_TYPE, Byte.valueOf((byte) t.ordinal()));
         dataWatcher.updateObject(DW_CRUISE, Float.valueOf((float) VehicleMath.cost(t, t.topSpeed, state.cargoFill(), true, ConfigSVA.consumption)));
         dataWatcher.updateObject(DW_YAW, Float.valueOf(rotationYaw));
+        dataWatcher.updateObject(DW_GAS, gasString(state));
     }
 
     // ------------------------------------------------------------------ geometry
@@ -299,13 +376,23 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             lastDz = dz;
         }
         prevMoved = moved;
+        // lift gas (hover): 2 mB/s held up, 5 on boost - fractions kept like the core armour
+        lifting = t.movement.lifts && hasLift();
+        boosting = lifting && (input & IN_BOOST) != 0 && (input & IN_FWD) != 0;
+        if (lifting) {
+            state.drainGasFraction(t.gases.liftGas, t.gases.liftPerTick(boosting));
+            if (riddenByEntity != null && riddenByEntity.isBurning()) {
+                riddenByEntity.extinguish();                        // the antigravity field keeps the heat off the rider
+            }
+        }
         // energy and heat
         double fill = state.cargoFill();
-        double v = Math.min(speedEma, t.topSpeed * 1.2);
-        double cost = VehicleMath.cost(t, v, fill, motorOn && state.energy > 0, ConfigSVA.consumption);
+        double v = Math.min(speedEma, t.topSpeed * (boosting ? t.gases.boostMul : 1) * 1.2);
+        boolean working = motorOn && state.energy > 0 && (!t.movement.lifts || lifting);
+        double cost = VehicleMath.cost(t, v, fill, working, ConfigSVA.consumption);
         state.energy = Math.max(0, state.energy - cost);
         boolean wasStopped = state.heatStop;
-        state.heat = VehicleMath.heatStep(state.heat, motorOn ? VehicleMath.load(t, v, fill) : 0, coolingBonus());
+        state.heat = VehicleMath.heatStep(state.heat, working ? VehicleMath.load(t, v, fill) : 0, coolingBonus());
         state.heatStop = VehicleMath.heatStopped(state.heatStop, state.heat);
         if (state.heatStop && !wasStopped) {
             tellRiders("sva.msg.overheat");
@@ -321,9 +408,17 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         lastZ = posZ;
     }
 
-    /** Extra cooling %/tick - helium cooling hooks in here (stage 3). */
+    /** Extra cooling %/tick: helium (VehicleMath.heliumCooling), spent from the coolant tank. No tank (the buggy): 0. */
     protected double coolingBonus() {
-        return 0;
+        Gas c = state.type.gases.coolant;
+        if (c == null) {
+            return 0;
+        }
+        double b = VehicleMath.heliumCooling(state.heat, state.gas(c));
+        if (b > 0) {
+            state.drainGasFraction(c, VehicleMath.heliumUse(b));
+        }
+        return b;
     }
 
     /** Is there a wall (above step height) right ahead in the direction (dx, dz)? */
@@ -338,7 +433,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** Engine may push: not wrecked, not overheated, not in deep water. */
     public boolean canThrust() {
-        return !isWrecked() && !isHeatStopped() && !inDeepWater();
+        return !isWrecked() && !isHeatStopped() && (getVehicleType().movement != Movement.GROUND || !inDeepWater());
     }
 
     public boolean inDeepWater() {
@@ -348,6 +443,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** One tick of ground physics from the input bits (driver client, or the server's fallback). */
     public void physicsStep(VehicleType t, int in) {
+        if (t.movement == Movement.HOVER) {
+            HoverPhysicsSVA.step(this, t, in);
+            return;
+        }
         boolean fwd = (in & IN_FWD) != 0, back = (in & IN_BACK) != 0, left = (in & IN_LEFT) != 0,
                 right = (in & IN_RIGHT) != 0, brake = (in & IN_BRAKE) != 0;
         boolean thrust = canThrust();
@@ -429,12 +528,25 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         VehicleType t = state.type;
         double dx = x - posX, dy = y - posY, dz = z - posZ;
         double h = Math.sqrt(dx * dx + dz * dz);
-        double limit = canThrust() ? VehicleMath.maxSpeed(t, state.energy) : Math.max(speedEma * 1.1, 0.02);      // coasting only
+        boolean hover = t.movement.lifts;
+        boolean lift = hover && hasLift() && canThrust();
+        double coast = Math.max(speedEma * 1.1, 0.02);
+        double limit = hover ? (lift ? HoverMath.maxSpeed(t, true, (input & IN_BOOST) != 0) : coast)
+                : canThrust() ? VehicleMath.maxSpeed(t, state.energy) : coast;      // coasting only
         boolean ok = moveAllowed(h, dy, dt, limit);
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
             AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx, dy, dz).contract(0.05, 0.05, 0.05);
             if (!worldObj.getCollidingBoundingBoxes(this, box).isEmpty()) {
                 ok = false;                                         // into blocks
+            } else if (hover) {
+                // no free flight: climbing only with lift and under the cap; in the air without lift (or far over
+                // the cap) it must be coming down
+                double hNew = HoverPhysicsSVA.heightAt(worldObj, x, y, z);
+                if (dy > 0.05 && !HoverMath.climbAllowed(lift, hNew)) {
+                    ok = false;
+                } else if (HoverMath.mustDescend(lift, hNew) && dy > -0.03 * dt) {
+                    ok = false;
+                }
             } else if (dy > 0.05 && worldObj.getCollidingBoundingBoxes(this, box.getOffsetBoundingBox(0, -0.6, 0)).isEmpty()) {
                 ok = false;                                         // climbing with nothing under it
             }
@@ -650,6 +762,13 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return true;
         }
         ItemStack held = p.getCurrentEquippedItem();
+        if (state.type.gases.any() && isGasContainer(held)) {
+            // anyone may refuel (harmless): a full cell / bucket / tank of a gas pours into its tank
+            com.sc.util.FluidHandSC.use(worldObj, MathHelper.floor_double(posX), MathHelper.floor_double(posY),
+                    MathHelper.floor_double(posZ), p, tanks(), held);
+            syncWatcher();
+            return true;
+        }
         if (held != null && held.getItem() instanceof com.sc.item.ItemWrenchSC && p.isSneaking()) {
             if (canManage(p)) {
                 pickUp(p);
@@ -722,6 +841,51 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         root.setTag(NBT_ROOT, st);
         s.setTagCompound(root);
         return s;
+    }
+
+    /** Pick-up button results. */
+    public static final int PICK_OK = 0, PICK_NOT_OWNER = 1, PICK_OCCUPIED = 2, PICK_FAR = 3;
+
+    /** Pure: may the cargo screen's «Убрать в инвентарь» go ahead (wrecked vehicles may be picked up too)? */
+    public static int pickUpCheck(boolean manage, boolean occupied, double dist2) {
+        if (dist2 > 64 || Double.isNaN(dist2)) {
+            return PICK_FAR;
+        }
+        if (!manage) {
+            return PICK_NOT_OWNER;
+        }
+        return occupied ? PICK_OCCUPIED : PICK_OK;
+    }
+
+    /** Anyone seated (driver or a passenger seat)? */
+    public boolean occupied() {
+        if (riddenByEntity != null) {
+            return true;
+        }
+        if (seats != null) {
+            for (EntitySeatSVA s : seats) {
+                if (s != null && !s.isDead && s.riddenByEntity != null) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** The cargo screen's pick-up button (server, from the packet): owner / op only, nobody seated. */
+    public int tryPickUp(EntityPlayer p) {
+        if (isDead || worldObj.isRemote) {
+            return PICK_FAR;
+        }
+        int r = pickUpCheck(canManage(p), occupied(), p.getDistanceSqToEntity(this));
+        if (r == PICK_NOT_OWNER) {
+            msg(p, "sva.msg.notOwner");
+        } else if (r == PICK_OCCUPIED) {
+            msg(p, "sva.msg.occupied");
+        } else if (r == PICK_OK) {
+            pickUp(p);
+        }
+        return r;
     }
 
     /** Into an item with everything (server): riders off, cargo stays inside the item. */
@@ -804,6 +968,83 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     private static void msg(EntityPlayer p, String key, Object... args) {
         p.addChatComponentMessage(new ChatComponentTranslation(key, args));
+    }
+
+    // ------------------------------------------------------------------ gases (refuelling)
+
+    /** A full container of one of the core gases (FluidContainerRegistry or IFluidContainerItem). */
+    public static boolean isGasContainer(ItemStack held) {
+        if (held == null || !com.sc.util.FluidHandSC.isContainer(held)) {
+            return false;
+        }
+        FluidStack f = FluidContainerRegistry.getFluidForFilledItem(held);
+        if (f == null && held.getItem() instanceof IFluidContainerItem) {
+            f = ((IFluidContainerItem) held.getItem()).getFluid(held);
+        }
+        return f != null && f.amount > 0 && Gas.of(f.getFluid()) != null;
+    }
+
+    /** The tanks as a fluid handler: filled by hand (FluidHandSC) and the Gas Column; never drained from outside. */
+    public IFluidHandler tanks() {
+        return new Tanks();
+    }
+
+    /** mB of `g` this vehicle still takes. */
+    public int gasRoom(Gas g) {
+        return state.fillGas(g, Integer.MAX_VALUE, true);
+    }
+
+    /** Puts gas in (server). @return mB taken */
+    public int addGas(Gas g, int mb) {
+        int put = state.fillGas(g, mb, false);
+        if (put > 0) {
+            dataWatcher.updateObject(DW_GAS, gasString(state));
+        }
+        return put;
+    }
+
+    private class Tanks implements IFluidHandler {
+        @Override
+        public int fill(ForgeDirection from, FluidStack res, boolean doFill) {
+            Gas g = res == null ? null : Gas.of(res.getFluid());
+            if (g == null || res.amount <= 0) {
+                return 0;
+            }
+            return doFill ? addGas(g, res.amount) : state.fillGas(g, res.amount, true);
+        }
+
+        @Override
+        public FluidStack drain(ForgeDirection from, FluidStack res, boolean doDrain) {
+            return null;
+        }
+
+        @Override
+        public FluidStack drain(ForgeDirection from, int max, boolean doDrain) {
+            return null;
+        }
+
+        @Override
+        public boolean canFill(ForgeDirection from, Fluid fluid) {
+            Gas g = Gas.of(fluid);
+            return g != null && state.gasCapacity(g) > 0;
+        }
+
+        @Override
+        public boolean canDrain(ForgeDirection from, Fluid fluid) {
+            return false;
+        }
+
+        @Override
+        public FluidTankInfo[] getTankInfo(ForgeDirection from) {
+            List<Gas> gs = state.type.gases.gases();
+            FluidTankInfo[] out = new FluidTankInfo[gs.size()];
+            for (int i = 0; i < out.length; i++) {
+                Gas g = gs.get(i);
+                Fluid f = g.fluidOf();
+                out[i] = new FluidTankInfo(f == null || state.gas(g) <= 0 ? null : new FluidStack(f, state.gas(g)), state.gasCapacity(g));
+            }
+            return out;
+        }
     }
 
     // ------------------------------------------------------------------ energy (charger)

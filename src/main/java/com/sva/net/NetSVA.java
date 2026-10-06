@@ -19,6 +19,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * Move (C->S): the driver's simulated position / yaw / speed, every tick while it changes (+ keepalive).
  * Correct (S->C): the server refused a move - the driver snaps back to the server's position.
  * Workbench (C->S): a workbench screen button (start / lay out a recipe / clear), checked against the open container.
+ * PickUp (C->S): the cargo screen's «Убрать в инвентарь» - owner / op, nobody seated, within 8 blocks (tryPickUp).
  */
 public final class NetSVA {
 
@@ -32,6 +33,7 @@ public final class NetSVA {
         CHANNEL.registerMessage(MoveHandler.class, Move.class, 1, Side.SERVER);
         CHANNEL.registerMessage(CorrectHandler.class, Correct.class, 2, Side.CLIENT);
         CHANNEL.registerMessage(WorkbenchHandler.class, Workbench.class, 3, Side.SERVER);
+        CHANNEL.registerMessage(PickUpHandler.class, PickUp.class, 4, Side.SERVER);
     }
 
     // ---------------------------------------------------------------- input
@@ -233,6 +235,50 @@ public final class NetSVA {
                         return;
                     }
                     c.action(p, m.action, m.recipe);
+                }
+            });
+            return null;
+        }
+    }
+
+    // ---------------------------------------------------------------- cargo screen: pick the vehicle up
+
+    public static class PickUp implements IMessage {
+        public int entity;
+
+        public PickUp() {
+        }
+
+        public PickUp(int entity) {
+            this.entity = entity;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+        }
+    }
+
+    public static class PickUpHandler implements IMessageHandler<PickUp, IMessage> {
+        @Override
+        public IMessage onMessage(final PickUp m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    if (p.worldObj == null) {
+                        return;
+                    }
+                    Entity e = p.worldObj.getEntityByID(m.entity);
+                    if (e instanceof EntityVehicleSVA && !e.isDead
+                            && ((EntityVehicleSVA) e).tryPickUp(p) == EntityVehicleSVA.PICK_OK) {
+                        p.closeScreen();
+                    }
                 }
             });
             return null;

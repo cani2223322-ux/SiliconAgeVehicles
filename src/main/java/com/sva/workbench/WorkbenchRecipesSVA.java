@@ -163,8 +163,18 @@ public final class WorkbenchRecipesSVA {
                 'S', steel, 'M', part(ComponentType.MOTOR_I), 'F', part(ComponentType.FLIGHT_COMPUTER),
                 'E', part(ComponentType.ENERGY_BLOCK_MV), 'K', coil, 'T', controller);
 
+        // Hoverbike (mock-up veh_8_workbench_recipes.png): titanium plates on top, gas tanks + hull III + computer,
+        // antigrav engines round the QV energy block, coils + controller, titanium ingots below. QV: needs an HV input.
+        ItemStack ti = ingot(Material.TITANIUM);
+        vehicle(VehicleType.HOVER, 8000000L, 3600,
+                " PPP ", "GHFHG", "IAEAI", " KTK ", " III ",
+                'P', tiPlate, 'G', part(ComponentType.GAS_TANK), 'H', part(ComponentType.HULL_III), 'F', part(ComponentType.FLIGHT_COMPUTER),
+                'I', ti, 'A', part(ComponentType.ANTIGRAV_ENGINE), 'E', part(ComponentType.ENERGY_BLOCK_QV), 'K', coil, 'T', controller);
+
         // ---- blocks (also on the crafting table)
         block("charger", new ItemStack(ModContentSVA.charger, 1, Tier.MV.ordinal()), Tier.MV, "XXX", "KEK", "STS",
                 'X', casing, 'K', coil, 'E', cellMV, 'S', steel, 'T', ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.TRANSFORMER));
+        block("gasColumn", new ItemStack(ModContentSVA.gasColumn), Tier.HV, "XGX", "RCR", "XBX",
+                'X', casing, 'G', part(ComponentType.GAS_TANK), 'R', rubber, 'C', controller, 'B', Items.bucket);
     }
 }

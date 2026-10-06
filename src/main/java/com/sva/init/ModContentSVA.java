@@ -33,6 +33,7 @@ public final class ModContentSVA {
     public static BlockChargerSVA charger;
     public static ItemComponentSVA component;
     public static BlockWorkbenchSVA workbench;
+    public static com.sva.block.BlockGasColumnSVA gasColumn;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -59,6 +60,10 @@ public final class ModContentSVA {
         workbench.setCreativeTab(TAB);
         GameRegistry.registerBlock(workbench, ItemBlockWorkbenchSVA.class, "workbench");
         GameRegistry.registerTileEntity(TileEntityWorkbenchSVA.class, ReferenceSVA.MODID + ":workbench");
+        gasColumn = new com.sva.block.BlockGasColumnSVA();
+        gasColumn.setCreativeTab(TAB);
+        GameRegistry.registerBlock(gasColumn, com.sva.block.ItemBlockGasColumnSVA.class, "gasColumn");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityGasColumnSVA.class, ReferenceSVA.MODID + ":gasColumn");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);
@@ -77,6 +82,11 @@ public final class ModContentSVA {
         GameRegistry.addRecipe(new ShapedOreRecipe(new ItemStack(workbench),
                 "XCX", "KTK", "XEX",
                 'X', casing, 'C', controller, 'K', coil, 'T', net.minecraft.init.Blocks.crafting_table, 'E', cell));
+        // plan §4.3: gas tank, steel casing x4, rubber x2 (the hose), controller, bucket
+        GameRegistry.addRecipe(new ShapedOreRecipe(new ItemStack(gasColumn),
+                "XGX", "RCR", "XBX",
+                'X', casing, 'G', component.stackOf(com.sva.item.ComponentType.GAS_TANK, 1), 'R', new ItemStack(ModItems.rubber),
+                'C', controller, 'B', net.minecraft.init.Items.bucket));
         // components and vehicles: only on the workbench (the stage 1 crafting-table buggy is gone)
         WorkbenchRecipesSVA.register();
     }

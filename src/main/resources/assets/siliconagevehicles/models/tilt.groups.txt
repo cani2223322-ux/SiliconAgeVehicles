@@ -1,0 +1,24 @@
+# material r g b emissive(1 = drawn without lighting)
+accent 70 225 150 1
+belt 200 60 40 0
+cabin 255 236 200 1
+carpet 32 32 36 0
+chrome 70 72 78 0
+dark 40 42 48 0
+ext 200 30 30 0
+fabric 54 58 68 0
+gauge 255 190 60 1
+glass 14 20 28 0
+hazard 128 128 128 0
+holo 90 220 255 1
+leather 110 62 36 0
+needle 255 70 40 1
+net 30 30 34 0
+ok 60 255 120 1
+paint 34 112 98 0
+paint2 30 36 40 0
+rubber 26 26 28 0
+steel 120 124 132 0
+thruster 255 140 50 1
+warn 255 60 40 1
+white 225 228 232 0

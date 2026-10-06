@@ -132,18 +132,26 @@ public class ItemVehicleSVA extends Item {
             list.add(st.hp <= 0 ? Lang.tr("sva.tooltip.wrecked")
                     : Lang.tr("sva.tooltip.hp", Integer.valueOf(Math.round(st.hp * 100 / t.maxHp))));
         }
+        for (com.sc.util.ArmorGasSC.Gas g : t.gases.gases()) {
+            list.add(Lang.tr("sva.tooltip.gas", Lang.tr("sva.gas." + g.key()), fmt(st.gas(g)), fmt(st.gasCapacity(g))));
+        }
         list.add(Lang.tr("sva.tooltip.cargo", Integer.valueOf(st.cargoUsed()), Integer.valueOf(t.cargoSlots)));
         if (st.ownerName != null && st.ownerName.length() > 0) {
             list.add(Lang.tr("sva.tooltip.owner", st.ownerName));
         }
+        boolean ground = t.movement == com.sva.vehicle.Movement.GROUND;
         String details = Lang.tr("sva.tooltip.details." + t.key) + "\n"
                 + Lang.tr("sva.tooltip.vehicle.stats", t.tier.name(), Integer.valueOf(VehicleMath.kmh(t.topSpeed)),
                 Integer.valueOf(t.seats), Integer.valueOf(t.cargoSlots)) + "\n"
                 + Lang.tr("sva.tooltip.vehicle.energy", fmt((long) (t.cruiseCost * ConfigSVA.consumption)), fmt((long) (t.idleCost * ConfigSVA.consumption)),
                 fmt((long) VehicleMath.range(t, t.buffer, 0, ConfigSVA.consumption))) + "\n"
-                + Lang.tr("sva.tooltip.vehicle.limits", new Object[0]);
-        TooltipSC.more(list, details, Lang.tr("sva.tooltip.howto.vehicle1") + "\n" + Lang.tr("sva.tooltip.howto.vehicle2")
-                + "\n" + Lang.tr("sva.tooltip.howto.vehicle3", new Object[0]));
+                + (t.gases.liftGas != null ? Lang.tr("sva.tooltip.vehicle.gas." + t.key, fmt(Math.round(t.gases.liftPerSecond)),
+                        fmt(Math.round(t.gases.boostPerSecond))) + "\n" : "")
+                + Lang.tr(ground ? "sva.tooltip.vehicle.limits" : "sva.tooltip.limits." + t.key, new Object[0]);
+        TooltipSC.more(list, details, Lang.tr("sva.tooltip.howto.vehicle1") + "\n"
+                + Lang.tr(ground ? "sva.tooltip.howto.vehicle2" : "sva.tooltip.howto." + t.key + "2") + "\n"
+                + Lang.tr(ground ? "sva.tooltip.howto.vehicle3" : "sva.tooltip.howto." + t.key + "3", new Object[0]) + "\n"
+                + Lang.tr("sva.tooltip.howto.pickUp", new Object[0]));
     }
 
     static String fmt(long n) {
@@ -158,6 +166,12 @@ public class ItemVehicleSVA extends Item {
             VehicleState full = new VehicleState(t);
             full.energy = full.maxEnergy();
             list.add(withState(new ItemStack(item, 1, t.ordinal()), full));
+            if (t.gases.any()) {
+                VehicleState gassed = new VehicleState(t);
+                gassed.energy = gassed.maxEnergy();
+                gassed.fillAllGases();
+                list.add(withState(new ItemStack(item, 1, t.ordinal()), gassed));
+            }
         }
     }
 

@@ -1,0 +1,24 @@
+# material r g b emissive(1 = drawn without lighting)
+accent 90 190 255 1
+belt 200 60 40 0
+canopy 60 40 10 0
+chrome 70 72 78 0
+copper 190 100 50 0
+dark 40 42 48 0
+dashlite 60 140 255 1
+fabric 54 58 68 0
+gasH 235 130 40 0
+gasHe 110 210 240 0
+gauge 255 190 60 1
+green 50 255 90 1
+hazard 128 128 128 0
+holo 90 220 255 1
+ok 60 255 120 1
+paint 34 46 76 0
+paint3 140 150 168 0
+red 255 40 40 1
+rubber 26 26 28 0
+screen 90 220 255 1
+steel 120 124 132 0
+thruster 255 140 50 1
+warn 255 60 40 1

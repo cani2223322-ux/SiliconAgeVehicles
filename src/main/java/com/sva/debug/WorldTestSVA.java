@@ -2,6 +2,8 @@ package com.sva.debug;
 
 import com.sva.ConfigSVA;
 import com.sva.block.TileEntityChargerSVA;
+import com.sva.block.TileEntityGasColumnSVA;
+import com.sva.vehicle.HoverMath;
 import com.sva.block.TileEntityWorkbenchSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.init.ModContentSVA;
@@ -21,6 +23,8 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.util.DamageSource;
+import net.minecraft.util.MathHelper;
+import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.world.World;
 import net.minecraftforge.common.DimensionManager;
 
@@ -79,8 +83,8 @@ public class WorldTestSVA {
                 workbenchCheck();
             } else if (ticks == WB_CLEAN) {
                 workbenchClean(w);
-                System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
-                System.out.println("[SVA-WORLDTEST] DONE");
+            } else if (ticks >= HV_START && hvPhase < 6) {
+                hoverTick(w);
             }
         } catch (Throwable t) {
             failed++;
@@ -90,6 +94,13 @@ public class WorldTestSVA {
                 ticks = CLEAN - 1;
             } else if (ticks > WB_START && ticks < WB_CLEAN) {
                 ticks = WB_CLEAN - 1;
+            } else if (ticks >= HV_START && hvPhase < 6) {
+                try {
+                    finish(w);
+                } catch (Throwable t2) {
+                    hvPhase = 6;
+                    System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
+                }
             }
         }
     }
@@ -388,6 +399,249 @@ public class WorldTestSVA {
             }
         }
         clearArea(w);
+    }
+    // ------------------------------------------------------------------ the hoverbike, gases, the Gas Column, pick-up (phase 3)
+
+    private static final int HV_START = WB_CLEAN + 50, HV_RISE = HV_START + 25, HV_DRIVE_END = HV_START + 200;
+    private static final int HV_Z = 33;
+    private EntityVehicleSVA hover;
+    private int hvStop = -1, liftTicks, hvPhase;
+    private double minOverWater = 99, maxOverSurface = -99;
+    private int h2AtStart, waterTicks;
+    private double euAtStart;
+    private TileEntityGasColumnSVA column;
+    private int columnH2Before, bikeH2Before, columnAt;
+
+    private static final com.sc.util.ArmorGasSC.Gas H2 = com.sc.util.ArmorGasSC.Gas.HYDROGEN, HE = com.sc.util.ArmorGasSC.Gas.HELIUM;
+
+    private void hoverZone(World w, boolean build) {
+        int z0 = bz + HV_Z - 3, z1 = bz + HV_Z + 3;
+        for (int x = bx - 2; x <= bx + 96; x++) {
+            for (int z = z0; z <= z1; z++) {
+                for (int y = Y - 1; y <= Y + 6; y++) {
+                    if (!w.isAirBlock(x, y, z)) {
+                        w.setBlockToAir(x, y, z);
+                    }
+                }
+            }
+        }
+        if (!build) {
+            return;
+        }
+        for (int x = bx; x <= bx + 95; x++) {
+            for (int z = bz + HV_Z - 2; z <= bz + HV_Z + 2; z++) {
+                boolean water = x >= bx + 20 && x <= bx + 60 && Math.abs(z - (bz + HV_Z)) <= 1;
+                if (water) {
+                    w.setBlock(x, Y - 1, z, Blocks.stone, 0, 2);
+                    w.setBlock(x, Y, z, Blocks.water, 0, 2);
+                } else {
+                    w.setBlock(x, Y, z, Blocks.stone, 0, 2);
+                }
+            }
+        }
+    }
+
+    private void hoverTick(World w) {
+        if (ticks == HV_START) {
+            hoverSetup(w);
+            return;
+        }
+        if (hover == null) {
+            if (hvPhase == 5 && ticks == columnAt + 80 || hvPhase < 5 && ticks == HV_DRIVE_END + 400) {
+                finish(w);
+            }
+            return;
+        }
+        if (hover.isLifting()) {
+            liftTicks++;
+        }
+        if (ticks == HV_RISE) {
+            double h = hover.posY - (Y + 1);
+            check(h >= 1.0 && h <= 3.0 && hover.isLifting(), "hover: rose to " + Math.round(h * 100) / 100.0 + " blocks over the floor (1-3)");
+        }
+        if (hvPhase == 0) {
+            double[] s = com.sva.entity.HoverPhysicsSVA.surface(w, hover.posX, hover.posY, hover.posZ);
+            if (!Double.isNaN(s[0]) && ticks > HV_RISE) {
+                maxOverSurface = Math.max(maxOverSurface, hover.posY - s[0]);
+            }
+            if (s[1] > 0) {
+                waterTicks++;
+                minOverWater = Math.min(minOverWater, hover.posY - s[0]);
+            }
+            if (hover.posX > bx + 72 || ticks >= HV_DRIVE_END) {
+                hoverOverWaterCheck();
+                hover.speed = 0;
+                hover.serverInput(0);                    // still at the wheel (debugDriver), just let go
+                hvPhase = 1;
+                hvStop = ticks;
+                hover.state.heat = 80;
+            }
+            return;
+        }
+        if (hvPhase == 1 && ticks == hvStop + 60) {
+            check(hover.state.gas(HE) < 2000 && hover.state.heat < 80, "helium: cooled the hot motor (He " + hover.state.gas(HE)
+                    + " mB, heat " + Math.round(hover.state.heat) + "%)");
+            hover.state.gas[H2.ordinal()] = 2;            // run it dry
+            hover.state.gasFrac[H2.ordinal()] = 0;
+            hvPhase = 2;
+        } else if (hvPhase == 2 && ticks == hvStop + 160) {
+            double h = hover.posY - (Y + 1);
+            check(hover.state.gas(H2) == 0 && !hover.isLifting(), "hover: out of H2, no lift");
+            check(h >= -0.01 && h < 0.1 && hover.onGround, "hover: landed on the floor (" + Math.round(h * 100) / 100.0 + ")");
+            check(hover.state.hp == VehicleType.HOVER.maxHp, "hover: no landing damage (" + hover.state.hp + " HP)");
+            columnSetup(w);
+            hvPhase = 3;
+        } else if (hvPhase == 3 && ticks == columnAt + 60) {
+            columnCheck(w);
+            hvPhase = 4;
+        } else if (hvPhase == 4 && ticks == columnAt + 70) {
+            handAndPickUp(w);
+            hvPhase = 5;
+        }
+    }
+
+    private void hoverSetup(World w) {
+        ChunkCoordinates sp = w.getSpawnPoint();
+        bx = sp.posX + 4;
+        bz = sp.posZ + 4;
+        hoverZone(w, true);
+        VehicleState st = new VehicleState(VehicleType.HOVER);
+        st.energy = st.maxEnergy();
+        st.fillAllGases();
+        ItemStack stack = ItemVehicleSVA.withState(new ItemStack(ModContentSVA.vehicle, 1, VehicleType.HOVER.ordinal()), st);
+        hover = ItemVehicleSVA.spawn(w, stack, bx + 3.5, Y + 1, bz + HV_Z + 0.5, -90F, OWNER, "WorldTest");
+        check(hover != null && hover.state.gas(H2) == 4000 && hover.state.gas(HE) == 2000, "hover: placed full (H2 4000, He 2000)");
+        if (hover == null) {
+            return;
+        }
+        h2AtStart = hover.state.gas(H2);
+        euAtStart = hover.state.energy;
+        hover.debugDrive(EntityVehicleSVA.IN_FWD);
+    }
+
+    private void hoverOverWaterCheck() {
+        check(hover.posX > bx + 62, "hover: crossed the 40-block pool (x+" + Math.round(hover.posX - bx) + ")");
+        check(waterTicks > 20 && minOverWater >= 1.0, "hover: stayed over the water, lowest " + Math.round(minOverWater * 100) / 100.0
+                + " blocks above it (" + waterTicks + " ticks)");
+        check(maxOverSurface <= HoverMath.HOVER_MAX + 0.05, "hover: never higher than 3 blocks (" + Math.round(maxOverSurface * 100) / 100.0 + ")");
+        int spent = h2AtStart - hover.state.gas(H2);
+        check(liftTicks > 50 && spent >= (int) (liftTicks * 0.1) - 1 && spent <= (int) (liftTicks * 0.1) + 1,
+                "hover: H2 " + spent + " mB for " + liftTicks + " ticks up (2 mB/s)");
+        check(euAtStart - hover.state.energy > 1000, "hover: spent " + Math.round(euAtStart - hover.state.energy) + " EU");
+    }
+
+    private void columnSetup(World w) {
+        int cx = MathHelper.floor_double(hover.posX), cz = bz + HV_Z + 3;
+        w.setBlock(cx, Y + 1, cz, ModContentSVA.gasColumn, 2, 3);
+        TileEntity te = w.getTileEntity(cx, Y + 1, cz);
+        column = te instanceof TileEntityGasColumnSVA ? (TileEntityGasColumnSVA) te : null;
+        check(column != null, "column: placed with its tile");
+        columnAt = ticks;
+        if (column == null) {
+            return;
+        }
+        column.setOwner("00000000-5bad-4e57-0000-0000000000ff", "Stranger");
+        check(!column.serves(hover), "column: a stranger's column doesn't serve the bike");
+        column.setOwner(OWNER, "WorldTest");
+        check(column.serves(hover), "column: the owner's column does");
+        net.minecraftforge.fluids.Fluid h2 = H2.fluidOf(), he = HE.fluidOf();
+        int in = column.fill(net.minecraftforge.common.util.ForgeDirection.UP, new net.minecraftforge.fluids.FluidStack(h2, 8000), true);
+        int inHe = column.fill(net.minecraftforge.common.util.ForgeDirection.WEST, new net.minecraftforge.fluids.FluidStack(he, 1000), true);
+        int water = column.fill(net.minecraftforge.common.util.ForgeDirection.UP,
+                new net.minecraftforge.fluids.FluidStack(net.minecraftforge.fluids.FluidRegistry.WATER, 1000), true);
+        check(in == 8000 && inHe == 1000 && water == 0, "column: pipes fill H2 8000 / He 1000 from any side, water refused");
+        check(column.drain(net.minecraftforge.common.util.ForgeDirection.UP, 100, true) == null, "column: nothing drains it");
+        columnH2Before = column.amount(H2);
+        bikeH2Before = hover.state.gas(H2);
+    }
+
+    private void columnCheck(World w) {
+        if (column == null) {
+            return;
+        }
+        int bike = hover.state.gas(H2), col = column.amount(H2);
+        int moved = columnH2Before - col;
+        check(moved >= 1000 && bike >= bikeH2Before + moved - 20, "column: refuelled the bike with " + moved + " mB H2 in 3 s (bike " + bike + " mB)");
+        check(col + bike <= columnH2Before + bikeH2Before && col + bike >= columnH2Before + bikeH2Before - 20,
+                "column: nothing made or lost (" + (col + bike) + " of " + (columnH2Before + bikeH2Before) + ", less what it burnt)");
+        check(hover.isLifting(), "hover: lifts again with fresh H2");
+        NBTTagCompound t = new NBTTagCompound();
+        column.writeToNBT(t);
+        TileEntityGasColumnSVA copy = new TileEntityGasColumnSVA();
+        copy.readFromNBT(t);
+        check(copy.amount(H2) == col && copy.serves(hover), "column: NBT keeps tanks and owner");
+    }
+
+    private void handAndPickUp(World w) {
+        net.minecraftforge.common.util.FakePlayer owner = net.minecraftforge.common.util.FakePlayerFactory.get((net.minecraft.world.WorldServer) w,
+                new com.mojang.authlib.GameProfile(java.util.UUID.fromString(OWNER), "WorldTest"));
+        net.minecraftforge.common.util.FakePlayer other = net.minecraftforge.common.util.FakePlayerFactory.get((net.minecraft.world.WorldServer) w,
+                new com.mojang.authlib.GameProfile(java.util.UUID.fromString("00000000-5bad-4e57-0000-0000000000ff"), "Stranger"));
+        owner.setPosition(hover.posX + 2, hover.posY, hover.posZ);
+        other.setPosition(hover.posX + 2, hover.posY, hover.posZ);
+        // (a) a full hydrogen container right-clicked on the bike - by a stranger (anyone may refuel)
+        ItemStack filled = null;
+        int amount = 0;
+        for (net.minecraftforge.fluids.FluidContainerRegistry.FluidContainerData d
+                : net.minecraftforge.fluids.FluidContainerRegistry.getRegisteredFluidContainerData()) {
+            if (d.fluid != null && d.fluid.getFluid() == H2.fluidOf() && d.filledContainer != null) {
+                filled = d.filledContainer.copy();
+                amount = d.fluid.amount;
+                break;
+            }
+        }
+        hover.debugDrive(0);
+        hover.state.gas[H2.ordinal()] = 100;
+        if (filled != null) {
+            ItemStack keep = other.inventory.getStackInSlot(0);
+            other.inventory.currentItem = 0;
+            other.inventory.setInventorySlotContents(0, filled);
+            hover.interactFirst(other);
+            check(hover.state.gas(H2) == 100 + amount, "refuel by hand: a stranger's " + filled.getDisplayName() + " put " + amount + " mB H2 in ("
+                    + hover.state.gas(H2) + ")");
+            other.inventory.setInventorySlotContents(0, keep);
+        } else {
+            check(false, "refuel by hand: no filled hydrogen container registered");
+        }
+        // the cargo screen's pick-up button: occupied / stranger refused, owner gets the item with gas and cargo
+        hover.setInventorySlotContents(3, new ItemStack(Items.diamond, 2));
+        hover.riddenByEntity = other;
+        other.ridingEntity = hover;
+        check(hover.tryPickUp(owner) == EntityVehicleSVA.PICK_OCCUPIED && !hover.isDead, "pick-up: refused while someone sits in it");
+        hover.riddenByEntity = null;
+        other.ridingEntity = null;
+        check(hover.tryPickUp(other) == EntityVehicleSVA.PICK_NOT_OWNER && !hover.isDead, "pick-up: a stranger is refused");
+        int h2 = hover.state.gas(H2);
+        for (int i = 0; i < owner.inventory.mainInventory.length; i++) {
+            owner.inventory.mainInventory[i] = null;
+        }
+        check(hover.tryPickUp(owner) == EntityVehicleSVA.PICK_OK && hover.isDead, "pick-up: the owner picks it up");
+        ItemStack got = null;
+        for (ItemStack s : owner.inventory.mainInventory) {
+            if (s != null && s.getItem() == ModContentSVA.vehicle) {
+                got = s;
+            }
+        }
+        VehicleState st = got == null ? null : ItemVehicleSVA.stateOf(got);
+        check(st != null && st.type == VehicleType.HOVER && st.gas(H2) == h2 && st.cargo[3] != null && st.cargo[3].stackSize == 2,
+                "pick-up: the item in the inventory keeps H2 " + h2 + " mB and the cargo");
+        for (int i = 0; i < owner.inventory.mainInventory.length; i++) {
+            owner.inventory.mainInventory[i] = null;
+        }
+        hover = null;
+    }
+
+    private void finish(World w) {
+        if (hover != null) {
+            hover.setDead();
+            hover = null;
+        }
+        hoverZone(w, false);
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        check(reg.count(OWNER) == 0, "hover cleanup: no test vehicles left in the registry");
+        hvPhase = 6;
+        System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
+        System.out.println("[SVA-WORLDTEST] DONE");
     }
 
 }
