@@ -9,8 +9,11 @@ import com.sva.init.ModContentSVA;
 import com.sva.inventory.GuiHandlerSVA;
 import com.sva.net.NetSVA;
 import com.sc.util.ArmorGasSC.Gas;
+import com.sva.vehicle.FlightMath;
+import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.Movement;
+import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleRegistrySVA;
 import com.sva.vehicle.VehicleState;
@@ -55,10 +58,15 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public static final String NBT_ROOT = "SVAVehicle";
     // data watcher ids (append-only)
     private static final int DW_ENERGY = 20, DW_HP = 21, DW_HEAT = 22, DW_FLAGS = 23, DW_CARGO = 24, DW_TYPE = 25,
-            DW_CRUISE = 26, DW_YAW = 27, DW_GAS = 28;
-    private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32;
-    /** Input bits. IN_BRAKE = Space (ground: brake; hover: hold higher), IN_BOOST = sprint / «Форсаж». */
-    public static final int IN_FWD = 1, IN_BACK = 2, IN_LEFT = 4, IN_RIGHT = 8, IN_BRAKE = 16, IN_BOOST = 32, IN_MASK = 63;
+            DW_CRUISE = 26, DW_YAW = 27, DW_GAS = 28, DW_THR = 29, DW_COST = 30;
+    private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
+            /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
+            F_AUTO = 64, F_STALL = 128;
+    /**
+     * Input bits. IN_BRAKE = Space (ground: brake; hover: hold higher; heli: collective up; plane: pull up),
+     * IN_BOOST = sprint / «Форсаж» (aircraft: down, like IN_DOWN), IN_DOWN = «Снижение» (heli: collective down; plane: push down).
+     */
+    public static final int IN_FWD = 1, IN_BACK = 2, IN_LEFT = 4, IN_RIGHT = 8, IN_BRAKE = 16, IN_BOOST = 32, IN_DOWN = 64, IN_MASK = 127;
     private static final int INPUT_TIMEOUT = 40, MOVE_TIMEOUT = 10, KEEPALIVE = 10;
     static final double BRAKE = 0.05, ROLL = 0.006, REVERSE = 0.35, WATER_SPEED = 0.35;
     public static final double RENDER_DIST = 96;
@@ -76,6 +84,15 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     private boolean registered;
     /** Server: held up by lift / boosting this tick (synced as flags). */
     private boolean lifting, boosting;
+    /** Plane throttle 0..1 (the driver's client and the server integrate it from the same keys). */
+    public double throttle;
+    // server, aircraft: in the air now / last tick, unpowered in the air, stalling, measured vertical speed, EU this tick
+    private boolean wasAirborne, autoNow, stallNow;
+    private double lastDy;
+    private float costNow;
+    // client, aircraft: rotor / propeller angle and spin rate (deg/tick), the body's visual pitch / bank
+    public float rotorAngle, prevRotorAngle, renderPitch, prevRenderPitch, renderRoll, prevRenderRoll;
+    private float rotorRate;
     // client: the synced gas string parsed
     private String gasSeen;
     private final int[] gasShown = new int[Gas.values().length];
@@ -130,6 +147,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.addObject(DW_CRUISE, Float.valueOf(0));
         dataWatcher.addObject(DW_YAW, Float.valueOf(0));
         dataWatcher.addObject(DW_GAS, "");
+        dataWatcher.addObject(DW_THR, Float.valueOf(0));
+        dataWatcher.addObject(DW_COST, Float.valueOf(0));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -245,11 +264,49 @@ public class EntityVehicleSVA extends Entity implements IInventory {
      */
     public boolean hasLift() {
         VehicleType t = getVehicleType();
-        if (!t.movement.lifts || t.gases.liftGas == null) {
+        if (!t.movement.lifts || !t.movement.flies && t.gases.liftGas == null) {
             return false;
         }
         boolean motor = riddenByEntity != null || debugDriver;
-        return motor && !isWrecked() && !isHeatStopped() && getEnergy() > 0 && getGas(t.gases.liftGas) > 0;
+        if (!motor || isWrecked() || isHeatStopped() || getEnergy() <= 0) {
+            return false;
+        }
+        return t.gases.liftGas == null || getGas(t.gases.liftGas) > 0;      // aircraft fly on EU alone
+    }
+
+    /** Aircraft in the air without power: the heli autorotates, the plane glides (server: this tick; clients: synced). */
+    public boolean isAutorotating() {
+        return worldObj.isRemote ? flag(F_AUTO) : autoNow;
+    }
+
+    /** A plane below its stall speed in the air (server: this tick; clients: synced). */
+    public boolean isStalling() {
+        return worldObj.isRemote ? flag(F_STALL) : stallNow;
+    }
+
+    /** Plane throttle 0..1 (clients: synced; the driver's own client: its simulated value). */
+    public double getThrottle() {
+        if (worldObj.isRemote && !(riddenByEntity != null && riddenByEntity == SVAMod.proxy.localPlayer())) {
+            return dataWatcher.getWatchableObjectFloat(DW_THR);
+        }
+        return throttle;
+    }
+
+    /** EU a tick the server charged last (config multiplier included; clients: synced). */
+    public float getCostNow() {
+        return worldObj.isRemote ? dataWatcher.getWatchableObjectFloat(DW_COST) : costNow;
+    }
+
+    /** Is the block under the centre a Runway block (plane: x0.5 take-off run, soft brakes)? */
+    public boolean onRunway() {
+        int x = MathHelper.floor_double(posX), y = MathHelper.floor_double(posY - 0.2), z = MathHelper.floor_double(posZ);
+        return ModContentSVA.runway != null && worldObj.getBlock(x, y, z) == ModContentSVA.runway;
+    }
+
+    /** No block within FlightMath.AIRBORNE under the collision box at (x, y, z) - in the air. */
+    public boolean airborneAt(double x, double y, double z) {
+        AxisAlignedBB box = boundingBox.getOffsetBoundingBox(x - posX, y - posY - FlightMath.AIRBORNE, z - posZ).contract(0.05, 0, 0.05);
+        return worldObj.getCollidingBoundingBoxes(this, box).isEmpty();
     }
 
     /** EU/t at top speed with the current cargo (server config applied) - the HUD's range estimate. */
@@ -263,11 +320,15 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_HP, Float.valueOf(state.hp));
         dataWatcher.updateObject(DW_HEAT, Float.valueOf((float) Math.floor(state.heat * 10) / 10F));
         int f = (VehicleMath.wrecked(state.hp) && ConfigSVA.wear ? F_WRECKED : 0) | (state.heatStop ? F_HEAT_STOP : 0) | (ConfigSVA.wear ? F_WEAR : 0)
-                | (lifting ? F_LIFT : 0) | (boosting ? F_BOOST : 0) | (chargeTicks > 0 ? F_CHARGING : 0);
+                | (lifting ? F_LIFT : 0) | (boosting ? F_BOOST : 0) | (chargeTicks > 0 ? F_CHARGING : 0)
+                | (autoNow ? F_AUTO : 0) | (stallNow ? F_STALL : 0);
         dataWatcher.updateObject(DW_FLAGS, Byte.valueOf((byte) f));
         dataWatcher.updateObject(DW_CARGO, Byte.valueOf((byte) state.cargoUsed()));
         dataWatcher.updateObject(DW_TYPE, Byte.valueOf((byte) t.ordinal()));
-        dataWatcher.updateObject(DW_CRUISE, Float.valueOf((float) VehicleMath.cost(t, t.topSpeed, state.cargoFill(), true, ConfigSVA.consumption)));
+        dataWatcher.updateObject(DW_CRUISE, Float.valueOf((float) (t.movement.flies ? FlightMath.cruiseCost(t, state.cargoFill(), posY) * ConfigSVA.consumption
+                : VehicleMath.cost(t, t.topSpeed, state.cargoFill(), true, ConfigSVA.consumption))));
+        dataWatcher.updateObject(DW_THR, Float.valueOf((float) throttle));
+        dataWatcher.updateObject(DW_COST, Float.valueOf(costNow));
         dataWatcher.updateObject(DW_YAW, Float.valueOf(rotationYaw));
         dataWatcher.updateObject(DW_GAS, gasString(state));
     }
@@ -369,7 +430,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             input = 0;                                              // keys went stale: let go
         }
         boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
-        if (!clientDriven && (motorOn || Math.abs(speed) > 0.0005 || !onGround || ticksExisted < 3)) {
+        // aircraft: also while the last tick ended in the air (a driver who got out mid-air - onGround is stale then)
+        if (!clientDriven && (motorOn || Math.abs(speed) > 0.0005 || !onGround || ticksExisted < 3 || t.movement.flies && wasAirborne)) {
             physicsStep(t, motorOn ? input : 0);
         }
         // measured displacement - the base for EU, heat and wall hits on both control paths
@@ -406,9 +468,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         prevMoved = moved;
         // lift gas (hover): 2 mB/s held up, 5 on boost - fractions kept like the core armour
-        lifting = t.movement.lifts && hasLift();
-        boosting = lifting && (input & IN_BOOST) != 0 && (input & IN_FWD) != 0;
-        if (lifting) {
+        lifting = t.movement.lifts && hasLift() && (!t.movement.flies || canThrust());
+        boosting = lifting && t.movement == Movement.HOVER && (input & IN_BOOST) != 0 && (input & IN_FWD) != 0;
+        if (lifting && t.gases.liftGas != null) {
             state.drainGasFraction(t.gases.liftGas, t.gases.liftPerTick(boosting));
             if (riddenByEntity != null && riddenByEntity.isBurning()) {
                 riddenByEntity.extinguish();                        // the antigravity field keeps the heat off the rider
@@ -418,10 +480,19 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         double fill = state.cargoFill();
         double v = Math.min(speedEma, t.topSpeed * (boosting ? t.gases.boostMul : 1) * 1.2);
         boolean working = motorOn && state.energy > 0 && (!t.movement.lifts || lifting);
-        double cost = VehicleMath.cost(t, v, fill, working, ConfigSVA.consumption);
+        double cost, load;
+        if (t.movement.flies) {
+            double base = flightTick(t, clientDriven, v, fill, working);
+            cost = base * Math.max(0, ConfigSVA.consumption);
+            load = working ? FlightMath.load(t, base) : 0;
+        } else {
+            cost = VehicleMath.cost(t, v, fill, working, ConfigSVA.consumption);
+            load = working ? VehicleMath.load(t, v, fill) : 0;
+        }
+        costNow = (float) cost;
         state.energy = Math.max(0, state.energy - cost);
         boolean wasStopped = state.heatStop;
-        state.heat = VehicleMath.heatStep(state.heat, working ? VehicleMath.load(t, v, fill) : 0, coolingBonus());
+        state.heat = VehicleMath.heatStep(state.heat, load, coolingBonus());
         state.heatStop = VehicleMath.heatStopped(state.heatStop, state.heat);
         if (state.heatStop && !wasStopped) {
             tellRiders("sva.msg.overheat");
@@ -435,6 +506,67 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         lastX = posX;
         lastY = posY;
         lastZ = posZ;
+    }
+
+    /**
+     * Server, aircraft, once a tick from the measured motion: in the air or not, touch-down damage (HeliMath /
+     * PlaneMath.landingDamage - never to the riders), autorotation / glide / stall flags (+ a chat line when it
+     * starts), the plane's throttle when the client drives, brake scuffs off a runway, the riders' fall distance kept 0.
+     * @return EU this tick before the config multiplier
+     */
+    private double flightTick(VehicleType t, boolean clientDriven, double v, double fill, boolean working) {
+        double dy = posY - lastY;
+        boolean air = airborneAt(posX, posY, posZ);
+        boolean plane = t.movement == Movement.PLANE;
+        if (clientDriven) {
+            onGround = !air;                                        // the server's fallback physics starts from the truth
+            if (plane) {
+                throttle = PlaneMath.throttleStep(throttle, (input & IN_FWD) != 0, (input & IN_BACK) != 0, lifting);
+            }
+        }
+        if (wasAirborne && !air && ticksExisted > 5) {
+            double impact = Math.max(0, -Math.min(dy, lastDy));
+            double dmg = plane ? PlaneMath.landingDamage(t.maxHp, impact, v, lifting) : HeliMath.landingDamage(t.maxHp, impact, !lifting);
+            if (dmg > 0) {
+                damageHull((float) dmg);
+                worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 0.6F);
+            }
+        }
+        boolean wasAuto = autoNow;
+        autoNow = air && !lifting;
+        stallNow = plane && air && PlaneMath.stalled(v);
+        if (autoNow && !wasAuto && ticksExisted > 5) {
+            tellRiders(plane ? "sva.msg.glide" : "sva.msg.autorotation");
+        }
+        if (plane && !air && ConfigSVA.wear && (input & IN_BACK) != 0 && throttle <= 0 && v > PlaneMath.BRAKE_WEAR_SPEED && !onRunway()) {
+            damageHull(PlaneMath.BRAKE_WEAR);                       // skidding on bare ground - a runway brakes softly
+        }
+        for (Entity r : riders()) {
+            r.fallDistance = 0;                                     // seated: no fall damage; off in the air - a normal fall
+        }
+        wasAirborne = air;
+        lastDy = dy;
+        if (plane) {
+            double thr = lifting ? Math.max(throttle, PlaneMath.throttleFloor(t, v)) : 0;
+            return PlaneMath.cost(t, thr, air, dy, posY, fill, working);
+        }
+        return HeliMath.cost(t, air, v, dy, fill, working);
+    }
+
+    /** Everyone seated: the driver and the passenger seats' riders. */
+    public List<Entity> riders() {
+        List<Entity> out = new ArrayList<Entity>();
+        if (riddenByEntity != null) {
+            out.add(riddenByEntity);
+        }
+        if (seats != null) {
+            for (EntitySeatSVA s : seats) {
+                if (s != null && !s.isDead && s.riddenByEntity != null) {
+                    out.add(s.riddenByEntity);
+                }
+            }
+        }
+        return out;
     }
 
     /** Extra cooling %/tick: helium (VehicleMath.heliumCooling), spent from the coolant tank. No tank (the buggy): 0. */
@@ -462,7 +594,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** Engine may push: not wrecked, not overheated, not in deep water. */
     public boolean canThrust() {
-        return !isWrecked() && !isHeatStopped() && (getVehicleType().movement != Movement.GROUND || !inDeepWater());
+        return !isWrecked() && !isHeatStopped() && (getVehicleType().movement == Movement.HOVER || !inDeepWater());
     }
 
     public boolean inDeepWater() {
@@ -474,6 +606,14 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public void physicsStep(VehicleType t, int in) {
         if (t.movement == Movement.HOVER) {
             HoverPhysicsSVA.step(this, t, in);
+            return;
+        }
+        if (t.movement == Movement.HELI) {
+            HeliPhysicsSVA.step(this, t, in);
+            return;
+        }
+        if (t.movement == Movement.PLANE) {
+            PlanePhysicsSVA.step(this, t, in);
             return;
         }
         boolean fwd = (in & IN_FWD) != 0, back = (in & IN_BACK) != 0, left = (in & IN_LEFT) != 0,
@@ -527,7 +667,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     @Override
     protected void fall(float distance) {
         // the hull takes the landing, not the riders
-        if (!worldObj.isRemote && ConfigSVA.wear && distance > 4) {
+        if (!worldObj.isRemote && ConfigSVA.wear && distance > 4 && !state.type.movement.flies) {     // aircraft: flightTick
             damageHull((distance - 4) * 5);
         }
     }
@@ -557,16 +697,21 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         VehicleType t = state.type;
         double dx = x - posX, dy = y - posY, dz = z - posZ;
         double h = Math.sqrt(dx * dx + dz * dz);
-        boolean hover = t.movement.lifts;
-        boolean lift = hover && hasLift() && canThrust();
+        boolean flies = t.movement.flies;
+        boolean hover = t.movement.lifts && !flies;
+        boolean lift = t.movement.lifts && hasLift() && canThrust();
         double coast = Math.max(speedEma * 1.1, 0.02);
         double limit = hover ? (lift ? HoverMath.maxSpeed(t, true, (input & IN_BOOST) != 0) : coast)
                 : canThrust() ? VehicleMath.maxSpeed(t, state.energy) : coast;      // coasting only
-        boolean ok = moveAllowed(h, dy, dt, limit);
+        // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
+        boolean ok = flies ? FlightMath.moveAllowed(t, h, dy, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
+                : moveAllowed(h, dy, dt, limit);
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
             AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx, dy, dz).contract(0.05, 0.05, 0.05);
             if (!worldObj.getCollidingBoundingBoxes(this, box).isEmpty()) {
                 ok = false;                                         // into blocks
+            } else if (flies) {
+                ok = true;                                          // FlightMath.moveAllowed checked it
             } else if (hover) {
                 // no free flight: climbing only with lift and under the cap; in the air without lift (or far over
                 // the cap) it must be coming down
@@ -636,6 +781,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         // the local rider's view turns with the vehicle every frame (ClientProxySVA.onRenderTick), not here once
         // a tick - a 20 Hz jump of the camera is what shook the screen in turns
+        if (t.movement.flies) {
+            animateFlight(t);
+        }
         if (isWrecked() && ticksExisted % 4 == 0) {
             worldObj.spawnParticle("largesmoke", posX + (rand.nextDouble() - 0.5), posY + 1.0, posZ + (rand.nextDouble() - 0.5), 0, 0.05, 0);
         } else if (isHeatStopped() && ticksExisted % 6 == 0) {
@@ -644,12 +792,56 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
     }
 
+    /**
+     * Client, aircraft: the rotor / propeller spin (heli: 42 deg/t powered, 30 autorotating; plane: 18 + 50 x throttle,
+     * windmilling 8 in a glide; spins up / down smoothly) and the body's visual attitude - the heli dips its nose with
+     * speed and banks in turns, the plane pitches with its climb (nose down in a stall) and banks into turns.
+     */
+    private void animateFlight(VehicleType t) {
+        prevRotorAngle = rotorAngle;
+        prevRenderPitch = renderPitch;
+        prevRenderRoll = renderRoll;
+        boolean heli = t.movement == Movement.HELI;
+        boolean lift = isLifting(), auto = isAutorotating();
+        float target = heli ? (lift ? 42F : auto ? 30F : 0F) : (lift ? 18F + 50F * (float) getThrottle() : auto ? 8F : 0F);
+        rotorRate += MathHelper.clamp_float(target - rotorRate, -0.8F, 1.2F);
+        rotorAngle = (rotorAngle + rotorRate) % 360F;
+        double dx = posX - prevPosX, dy = posY - prevPosY, dz = posZ - prevPosZ;
+        double r = Math.toRadians(rotationYaw);
+        double fwd = dx * -Math.sin(r) + dz * Math.cos(r);
+        float yawRate = MathHelper.wrapAngleTo180_float(rotationYaw - prevRotationYaw);
+        boolean air = airborneAt(posX, posY, posZ);
+        float tp, tr;
+        if (heli) {
+            tp = (float) (-fwd / t.topSpeed * 10);
+            tr = air ? MathHelper.clamp_float(yawRate * 3F, -12F, 12F) : 0F;
+        } else {
+            tp = air ? (float) Math.toDegrees(Math.atan2(dy, Math.max(0.15, Math.abs(fwd)))) : 0F;
+            tp = isStalling() ? -12F : MathHelper.clamp_float(tp, -20F, 20F);
+            tr = air ? MathHelper.clamp_float(yawRate * 10F, -25F, 25F) : 0F;
+        }
+        renderPitch += (tp - renderPitch) * 0.2F;
+        renderRoll += (tr - renderRoll) * 0.2F;
+    }
+
+    /** Client: the rotor / propeller angle at partial tick pt (degrees). */
+    public float rotorAngle(float pt) {
+        return prevRotorAngle + MathHelper.wrapAngleTo180_float(rotorAngle - prevRotorAngle) * pt;
+    }
+
+    /** Client: rotor spin rate, deg/tick (the renderer's motion-blur disc). */
+    public float rotorRate() {
+        return rotorRate;
+    }
+
     /** Correction from the server (client thread). */
     public void applyCorrection(double x, double y, double z, float yaw) {
         setPosition(x, y, z);
         rotationYaw = yaw;
         prevRotationYaw = yaw;
-        speed = 0;
+        if (!getVehicleType().movement.flies) {
+            speed = 0;                                              // aircraft keep their airspeed (a stop = a stall)
+        }
         motionX = motionY = motionZ = 0;
         sentX = x;
         sentY = y;

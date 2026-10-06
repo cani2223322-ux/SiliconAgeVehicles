@@ -176,6 +176,22 @@ public final class WorkbenchRecipesSVA {
                 'P', tiPlate, 'G', part(ComponentType.GAS_TANK), 'H', part(ComponentType.HULL_III), 'F', part(ComponentType.FLIGHT_COMPUTER),
                 'I', ti, 'A', part(ComponentType.ANTIGRAV_ENGINE), 'E', part(ComponentType.ENERGY_BLOCK_QV), 'K', coil, 'T', controller);
 
+        // Light Helicopter (plan §4.2: hull II, electric motor II, HV energy block, flight computer, main rotor x2, cabin):
+        // the rotors on the top corners over an aluminium frame, the cabin / computer / hull row, the motor between
+        // copper coils and polymer plates, the energy block in the belly, steel skids. HV - any workbench builds it.
+        ItemStack hull2 = part(ComponentType.HULL_II), motor2 = part(ComponentType.MOTOR_II), ebHV = part(ComponentType.ENERGY_BLOCK_HV),
+                computer = part(ComponentType.FLIGHT_COMPUTER), cabin = part(ComponentType.CABIN);
+        vehicle(VehicleType.HELI, 1500000L, 1800,
+                "RAAAR", "ICFHI", "PKMKP", "SIEIS", " S S ",
+                'R', part(ComponentType.ROTOR), 'A', alFrame, 'I', al, 'C', cabin, 'F', computer, 'H', hull2, 'P', polymer,
+                'K', coil, 'M', motor2, 'S', steel, 'E', ebHV);
+        // Light Plane (plan §4.2: hull II, electric motor II, HV energy block, flight computer, wing x2, wheel x3, cabin):
+        // the cabin on top, the wings either side of the computer, motor - hull - energy block across, three wheels below.
+        vehicle(VehicleType.PLANE, 1500000L, 1800,
+                " ACA ", "WIFIW", "KMHEK", " AIA ", "T T T",
+                'A', alFrame, 'C', cabin, 'W', part(ComponentType.WING), 'I', al, 'F', computer, 'K', coil, 'M', motor2,
+                'H', hull2, 'E', ebHV, 'T', part(ComponentType.WHEEL));
+
         // ---- blocks (also on the crafting table)
         block("charger", new ItemStack(ModContentSVA.charger, 1, Tier.MV.ordinal()), Tier.MV, "XXX", "KEK", "STS",
                 'X', casing, 'K', coil, 'E', cellMV, 'S', steel, 'T', ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.TRANSFORMER));
@@ -190,6 +206,12 @@ public final class WorkbenchRecipesSVA {
                 "PPP", "PYP", "PPP", 'P', plate, 'Y', new ItemStack(Items.dye, 1, 11));
         block("chargePlateEdge", new ItemStack(ModContentSVA.chargePlate, 2, com.sva.block.BlockChargePlateSVA.EDGE), Tier.MV,
                 "PGP", 'P', plate, 'G', Items.glowstone_dust);
+        // ---- the runway (plan §4.3: smooth stone x6, glowstone, redstone, steel ingot -> x8); lit edge: runway x4 + glowstone dust
+        ItemStack runway = new ItemStack(ModContentSVA.runway, 1, com.sva.block.BlockRunwaySVA.PLAIN);
+        block("runway", new ItemStack(ModContentSVA.runway, 8, com.sva.block.BlockRunwaySVA.PLAIN), Tier.HV,
+                "TTT", "GRS", "TTT", 'T', Blocks.stone, 'G', Blocks.glowstone, 'R', Items.redstone, 'S', steel);
+        block("runwayLit", new ItemStack(ModContentSVA.runway, 4, com.sva.block.BlockRunwaySVA.LIT), Tier.HV,
+                " P ", "PDP", " P ", 'P', runway, 'D', Items.glowstone_dust);
         com.sva.item.ItemStationModuleSVA mod = ModContentSVA.module;
         module("moduleGas", mod.stackOf(com.sva.item.ItemStationModuleSVA.GAS), Tier.HV, "XQX", "RCR", "XBX",
                 'X', casing, 'Q', quartzChamber, 'R', rubber, 'C', controller, 'B', Items.bucket);

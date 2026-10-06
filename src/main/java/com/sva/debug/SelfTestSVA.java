@@ -9,7 +9,9 @@ import com.sva.init.ModContentSVA;
 import com.sva.item.ComponentType;
 import com.sva.item.ItemVehicleSVA;
 import com.sva.platform.PlatformMath;
+import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
+import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.PlatformSize;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleState;
@@ -72,6 +74,11 @@ public final class SelfTestSVA {
             hoverType();
             pickUp();
             platform();
+            aircraftTypes();
+            heli();
+            plane();
+            flightMoves();
+            aircraftContent();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -533,6 +540,170 @@ public final class SelfTestSVA {
         check(EntityVehicleSVA.pickUpCheck(true, true, 4) == EntityVehicleSVA.PICK_OCCUPIED, "pick-up: someone seated - refused");
         check(EntityVehicleSVA.pickUpCheck(false, false, 4) == EntityVehicleSVA.PICK_NOT_OWNER, "pick-up: not the owner - refused");
         check(EntityVehicleSVA.pickUpCheck(true, false, 100) == EntityVehicleSVA.PICK_FAR, "pick-up: further than 8 blocks - refused");
+    }
+
+    // ------------------------------------------------------------------ stage B: aircraft (heli, plane, runway)
+
+    private static void aircraftTypes() {
+        VehicleType h = VehicleType.HELI, p = VehicleType.PLANE;
+        check(h.ordinal() == 2 && p.ordinal() == 3 && h.movement == com.sva.vehicle.Movement.HELI && p.movement == com.sva.vehicle.Movement.PLANE
+                && h.movement.flies && p.movement.flies && !com.sva.vehicle.Movement.HOVER.flies, "aircraft: metas 2 / 3, HELI / PLANE movement (flies)");
+        check(h.tier == Tier.HV && h.buffer == 3000000 && h.seats == 2 && h.cargoSlots == 9 && near(h.topSpeed, 0.70, 1e-9)
+                && h.seatOffsets.length == 2 && h.modelScale == 1.5F, "heli: HV, 3M EU, 2 seats, 9 cargo, x2.5 sprint, model x1.5");
+        check(p.tier == Tier.HV && p.buffer == 4000000 && p.seats == 3 && p.cargoSlots == 9 && near(p.topSpeed, 1.12, 1e-9)
+                && p.seatOffsets.length == 3 && p.modelScale == 2.3F, "plane: HV, 4M EU, 3 seats, 9 cargo, x4 sprint, model x2.3");
+        check(h.platformSize == PlatformSize.P5x5 && p.platformSize == PlatformSize.P5x5, "aircraft: 5x5 charging platform");
+        check(h.gases.capacity(com.sc.util.ArmorGasSC.Gas.HELIUM) == 1000 && h.gases.coolant == com.sc.util.ArmorGasSC.Gas.HELIUM
+                && h.gases.liftGas == null && p.gases.coolant == com.sc.util.ArmorGasSC.Gas.HELIUM, "aircraft: helium tank 1000 mB for cooling, no lift gas");
+        // a seated player fits: cushion top (seatY + 0.25) and seats shoulder-wide / staggered
+        check(near(h.seatY + 0.25, 0.66 * 1.5, 0.02) && Math.abs(h.seatOffsets[0][1] - h.seatOffsets[1][1]) >= 0.75
+                && near(p.seatY + 0.25, 0.64 * 2.3, 0.02) && p.seatOffsets[0][0] - p.seatOffsets[1][0] >= 1.0,
+                "aircraft: seats on the model's cushions (heli 0.75 apart, plane staggered 1.1+)");
+    }
+
+    private static void heli() {
+        VehicleType h = VehicleType.HELI;
+        double hover = HeliMath.cost(h, true, 0, 0, 0, true), fwd = HeliMath.cost(h, true, h.topSpeed, 0, 0, true);
+        check(near(hover, 110, 1e-9) && near(fwd, 90, 1e-9) && hover > fwd, "heli: hovering 110 EU/t costs more than flying forward 90");
+        check(near(HeliMath.cost(h, false, 0, 0, 0, true), 3, 1e-9) && HeliMath.cost(h, true, 0, 0, 0, false) == 0,
+                "heli: rotor idling on the ground 3 EU/t, nobody at the controls 0");
+        check(HeliMath.cost(h, true, 0, HeliMath.CLIMB, 0, true) > hover && HeliMath.cost(h, true, 0, -HeliMath.DESCEND, 0, true) < hover
+                && near(HeliMath.cost(h, true, 0, 0, 1, true), 137.5, 1e-9), "heli: climbing costs more, descending less, full cargo x1.25");
+        // the ceiling: holding Space from Y 150
+        double y = 150, vy = 0, top = 0;
+        for (int i = 0; i < 2000; i++) {
+            vy = HeliMath.poweredVy(vy, true, false, y);
+            y += vy;
+            top = Math.max(top, y);
+        }
+        check(top <= com.sva.vehicle.FlightMath.CEILING + 0.01 && top > 199, "heli: climbs to the ceiling and no higher (" + Math.round(top * 100) / 100.0 + ")");
+        check(HeliMath.targetVy(true, false, 205) < 0 && HeliMath.targetVy(false, false, 120) == 0 && HeliMath.targetVy(false, true, 120) == -HeliMath.DESCEND,
+                "heli: over the ceiling it settles down; neutral holds the height; down = 0.3 b/t");
+        // autorotation from 100 blocks up
+        y = 100;
+        vy = 0;
+        int t = 0;
+        boolean slow = true;
+        double first = HeliMath.autoVy(0);
+        for (; y > 0 && t < 5000; t++) {
+            vy = HeliMath.autoVy(vy);
+            slow &= vy >= -HeliMath.AUTO_SINK - 1e-12;
+            y += vy;
+        }
+        check(first <= -HeliMath.AUTO_START && slow && near(vy, -0.15, 1e-9), "heli: autorotation sinks at once, never faster than 0.15 b/t (3 m/s)");
+        check(t >= 600, "heli: autorotation from 100 blocks takes " + t + " ticks (" + t / 20 + " s)");
+        float hp = h.maxHp;
+        check(HeliMath.landingDamage(hp, 0.15, true) <= 0.1 * hp && HeliMath.landingDamage(hp, 3.0, true) <= 0.1 * hp + 1e-9
+                && HeliMath.landingDamage(hp, 0.15, true) > 0, "heli: autorotation landing costs the hull " + Math.round(HeliMath.landingDamage(hp, 0.15, true))
+                + " HP, never over 10% (" + hp * 0.1 + ")");
+        check(HeliMath.landingDamage(hp, HeliMath.DESCEND, false) == 0 && HeliMath.landingDamage(hp, 0.6, false) > 0,
+                "heli: a powered landing at the full descent rate is free, a drop is not");
+        // helium: hovering (load 1.2) overheats without helium, holds with it; forward flight settles below 100 %
+        double l = com.sva.vehicle.FlightMath.load(h, hover), h1 = 0, h2 = 0, h3 = 0, he = 1000;
+        boolean st1 = false, st2 = false;
+        for (int i = 0; i < 24000; i++) {
+            h1 = VehicleMath.heatStep(h1, l, 0);
+            st1 |= VehicleMath.heatStopped(st1, h1);
+            double c = VehicleMath.heliumCooling(h2, he);
+            he -= VehicleMath.heliumUse(c);
+            h2 = VehicleMath.heatStep(h2, l, c);
+            st2 |= VehicleMath.heatStopped(st2, h2);
+            h3 = VehicleMath.heatStep(h3, com.sva.vehicle.FlightMath.load(h, fwd), 0);
+        }
+        check(near(l, 1.2, 1e-9) && st1 && !st2 && h3 < 100, "heli: a long hover overheats without helium, not with it (He left " + Math.round(he)
+                + " mB of 1000 after 20 min); forward flight settles at " + Math.round(h3) + "%");
+    }
+
+    private static void plane() {
+        VehicleType p = VehicleType.PLANE;
+        // lift / stall
+        check(PlaneMath.climbCapacity(PlaneMath.STALL) == 0 && near(PlaneMath.climbCapacity(0.75), PlaneMath.CLIMB, 1e-9)
+                && PlaneMath.climbCapacity(0.6) > 0 && PlaneMath.climbCapacity(0.6) < PlaneMath.climbCapacity(0.7), "plane: lift grows with airspeed over the stall");
+        check(PlaneMath.airVy(0.4, 0, true, false, true, 120) < 0 && PlaneMath.airVy(0.4, 0, false, false, true, 120) <= -PlaneMath.GLIDE_START,
+                "plane: below the stall the nose drops even with Space held");
+        check(PlaneMath.airVy(0.9, 0, false, false, true, 120) == 0 && PlaneMath.airVy(0.9, 0, true, false, true, 120) > 0
+                && PlaneMath.airVy(0.9, 0, false, true, true, 120) < 0, "plane: over the stall - level holds, Space climbs, down dives");
+        check(PlaneMath.airAccel(p, 0.4, 0, -0.3, false, true) > 0 && PlaneMath.airAccel(p, 0.4, 0, -0.3, false, false) > 0,
+                "plane: a stalled nose-down gains speed (recovery)");
+        // it can't hover: full throttle, Space held, from the stall speed - it never stays slow in the air
+        double v = PlaneMath.STALL, vy = 0, minV = 9;
+        for (int i = 0; i < 600; i++) {
+            vy = PlaneMath.airVy(v, vy, true, false, true, 120);
+            v += PlaneMath.airAccel(p, v, 1, vy, true, true);
+            if (i > 200) {
+                minV = Math.min(minV, v);
+            }
+        }
+        check(minV > PlaneMath.STALL && vy > 0.1, "plane: a full-throttle climb settles at " + Math.round(v * 72) + " km/h, " + Math.round(vy * 200) / 10.0 + " m/s up");
+        // take-off run
+        double ground = PlaneMath.takeoffDistance(p, false), runway = PlaneMath.takeoffDistance(p, true);
+        check(ground >= 25 && ground <= 36, "plane: take-off run ~30 blocks (" + Math.round(ground) + ")");
+        check(runway / ground > 0.4 && runway / ground < 0.6, "plane: on a runway about half (" + Math.round(runway) + " blocks)");
+        // cost: take-off run, cruise, the discount at Y >= 100
+        check(near(PlaneMath.cost(p, 1, false, 0, 64, 0, true), 120, 1e-9) && near(PlaneMath.cost(p, 1, true, 0, 80, 0, true), 50, 1e-9)
+                && near(PlaneMath.cost(p, 1, true, 0, 120, 0, true), 40, 1e-9), "plane: take-off run 120 EU/t, cruise 50, at Y >= 100 40 (-20%)");
+        check(near(PlaneMath.cost(p, 0.5, true, 0, 120, 0, true) / PlaneMath.cost(p, 0.5, true, 0, 80, 0, true), 0.8, 1e-9)
+                && PlaneMath.cost(p, 1, true, PlaneMath.CLIMB, 120, 0, true) > PlaneMath.cost(p, 1, true, 0, 120, 0, true),
+                "plane: cruise discount x0.8 at any throttle; climbing costs more");
+        check(near(com.sva.vehicle.FlightMath.cruiseCost(p, 0, 150), 40, 1e-9) && near(com.sva.vehicle.FlightMath.cruiseCost(p, 0, 70), 50, 1e-9),
+                "plane: the HUD's cruise cost follows the height");
+        // a 1:8 glide without power
+        v = PlaneMath.GLIDE_SPEED;
+        vy = 0;
+        double y = 150, x = 0, dx = 0, dyy = 0;
+        for (int i = 0; i < 600; i++) {
+            vy = PlaneMath.airVy(v, vy, false, false, false, y);
+            v += PlaneMath.airAccel(p, v, 0, vy, false, false);
+            if (i >= 100) {
+                dx += v;
+                dyy -= vy;
+            }
+            y += vy;
+        }
+        check(dyy > 0 && dx / dyy > 7.5 && dx / dyy < 8.5, "plane: unpowered glide 1:" + Math.round(dx / dyy * 10) / 10.0);
+        // landings and brakes
+        check(PlaneMath.landingDamage(p.maxHp, 0.25, 0.6, true) == 0 && PlaneMath.landingDamage(p.maxHp, 0.1, 0.6, false) >= p.maxHp * 0.05
+                && PlaneMath.landingDamage(p.maxHp, 5, 2, false) <= p.maxHp * 0.6, "plane: a wheels landing is free, a belly landing wears the hull (capped)");
+        check(PlaneMath.brake(true) < PlaneMath.brake(false) && PlaneMath.throttleStep(0.5, true, false, false) < 0.5
+                && PlaneMath.throttleStep(0.98, true, false, true) == 1, "plane: softer brakes on a runway; no power - the throttle winds down");
+    }
+
+    private static void flightMoves() {
+        VehicleType h = VehicleType.HELI, p = VehicleType.PLANE;
+        check(com.sva.vehicle.FlightMath.moveAllowed(h, 0.5, 0.25, 1, 120, true, true, true, 0.5), "flight move: a powered heli climbs 0.25 b/t");
+        check(!com.sva.vehicle.FlightMath.moveAllowed(h, 0.2, 0.2, 1, 120, false, true, true, 0.2), "flight move: no power - no climbing");
+        check(!com.sva.vehicle.FlightMath.moveAllowed(h, 0.2, 0, 1, 120, false, true, true, 0.2)
+                && com.sva.vehicle.FlightMath.moveAllowed(h, 0.2, -0.1, 1, 120, false, true, true, 0.2), "flight move: unpowered in the air it must come down");
+        check(com.sva.vehicle.FlightMath.moveAllowed(h, 0.1, 0, 1, 120, true, true, true, 0.1), "flight move: a powered heli may hover");
+        check(!com.sva.vehicle.FlightMath.moveAllowed(p, 0.15, 0, 1, 120, true, true, true, 0.15)
+                && com.sva.vehicle.FlightMath.moveAllowed(p, 0.9, 0, 1, 120, true, true, true, 0.9), "flight move: a plane can't hang in the air slowly");
+        check(!com.sva.vehicle.FlightMath.moveAllowed(p, 0.3, 0.15, 1, 70, true, true, true, 0.3)
+                && com.sva.vehicle.FlightMath.moveAllowed(p, 0.8, 0.15, 1, 70, true, true, true, 0.8), "flight move: a plane climbs only with airspeed");
+        check(!com.sva.vehicle.FlightMath.moveAllowed(h, 0.2, 0.2, 1, 200.8, true, true, true, 0.2), "flight move: no climbing over the ceiling");
+        check(com.sva.vehicle.FlightMath.moveAllowed(p, 0.3, 1.0, 1, 65, false, false, false, 0.3)
+                && !com.sva.vehicle.FlightMath.moveAllowed(p, 0.3, 1.0, 1, 65, false, true, true, 0.3), "flight move: a block step from the ground, not in the air");
+        check(!com.sva.vehicle.FlightMath.moveAllowed(p, 3.0, 0, 1, 120, true, true, true, 1.0) && !com.sva.vehicle.FlightMath.moveAllowed(h, 12, 0, 10, 120, true, true, true, 0.7)
+                && com.sva.vehicle.FlightMath.moveAllowed(p, 1.3, 0, 1, 120, true, true, true, 1.1), "flight move: too fast / teleports refused, a dive's speed accepted");
+    }
+
+    private static void aircraftContent() {
+        WorkbenchRecipeSVA h = WorkbenchRecipesSVA.byId("heli"), p = WorkbenchRecipesSVA.byId("plane");
+        check(h != null && h.eu == 1500000L && h.tier == Tier.HV && h.width == 5 && h.height == 5 && ItemVehicleSVA.typeOf(h.result()) == VehicleType.HELI
+                && WorkbenchMath.canBuild(Tier.HV, WorkbenchMath.inputTier(0, false)), "heli: workbench 5x5, 1.5M EU, HV (no transformer needed)");
+        check(p != null && p.eu == 1500000L && p.tier == Tier.HV && p.width == 5 && p.height == 5 && ItemVehicleSVA.typeOf(p.result()) == VehicleType.PLANE,
+                "plane: workbench 5x5, 1.5M EU, HV");
+        WorkbenchRecipeSVA r = WorkbenchRecipesSVA.byId("runway"), rl = WorkbenchRecipesSVA.byId("runwayLit");
+        check(r != null && r.result().stackSize == 8 && r.result().getItem() == net.minecraft.item.Item.getItemFromBlock(ModContentSVA.runway)
+                && rl != null && rl.result().getItemDamage() == com.sva.block.BlockRunwaySVA.LIT, "runway: x8 plain, lit edge from runway + glowstone dust");
+        check(com.sva.block.BlockRunwaySVA.variant(3) == com.sva.block.BlockRunwaySVA.LIT && com.sva.block.BlockRunwaySVA.variant(2) == 0
+                && ModContentSVA.runway.damageDropped(3) == 1, "runway: the axis bit is not kept in the item");
+        VehicleState st = new VehicleState(VehicleType.PLANE);
+        st.fillAllGases();
+        NBTTagCompound t = new NBTTagCompound();
+        st.writeNBT(t);
+        VehicleState back = new VehicleState(VehicleType.PLANE);
+        back.readNBT(t);
+        check(back.type == VehicleType.PLANE && back.gas(com.sc.util.ArmorGasSC.Gas.HELIUM) == 1000, "plane: NBT keeps the type and helium");
     }
 
     // ------------------------------------------------------------------ the charging platform (plan §9)

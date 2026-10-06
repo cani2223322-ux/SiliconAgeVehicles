@@ -13,6 +13,8 @@ import net.minecraft.util.ResourceLocation;
 public class RenderVehicleSVA extends Render {
 
     private static final ResourceLocation NONE = new ResourceLocation("textures/blocks/iron_block.png");
+    /** Aircraft pitch / bank about this model height (model units). */
+    private static final float ATTITUDE_Y = 0.7F;
 
     public RenderVehicleSVA() {
         shadowSize = 1.2F;
@@ -41,7 +43,27 @@ public class RenderVehicleSVA extends Render {
         // the local rider in first person: no glass at all (the clearest view); everyone else sees it see-through
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
         boolean ownView = mc.gameSettings.thirdPersonView == 0 && HudVehicleSVA.vehicleOf(mc.thePlayer) == v;
-        m.render(v.isWrecked() ? 0.45F : 1F, !ownView);
+        if (v.getVehicleType().movement.flies && !ownView) {
+            // aircraft attitude (pitch nose up +, bank right +) about the body's middle; the own cockpit view stays level
+            float pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
+            float roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
+            GL11.glTranslatef(0F, ATTITUDE_Y, 0F);
+            GL11.glRotatef(pitch, 0F, 0F, 1F);
+            GL11.glRotatef(roll, 1F, 0F, 0F);
+            GL11.glTranslatef(0F, -ATTITUDE_Y, 0F);
+        }
+        float shade = v.isWrecked() ? 0.45F : 1F;
+        m.render(shade, !ownView);
+        java.util.List<ObjModelSVA.Part> parts = m.parts();
+        if (!parts.isEmpty()) {
+            // rotor / propeller: turned by the synced spin; a faint blur disc while it spins fast
+            float a = v.rotorAngle(pt), rate = Math.abs(v.rotorRate());
+            float blur = rate > 20F ? 0.05F + 0.07F * Math.min(1F, (rate - 20F) / 20F) : 0F;
+            for (ObjModelSVA.Part p : parts) {
+                m.renderPart(p, a * p.speed, shade);
+                ObjModelSVA.renderDisc(p, blur);
+            }
+        }
         GL11.glPopAttrib();
         GL11.glPopMatrix();
     }

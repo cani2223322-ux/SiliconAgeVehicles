@@ -5,7 +5,10 @@ import com.sva.block.TileEntityChargerSVA;
 import com.sva.block.TileEntityGasColumnSVA;
 import com.sva.vehicle.HoverMath;
 import com.sva.block.TileEntityWorkbenchSVA;
+import com.sva.entity.EntitySeatSVA;
 import com.sva.entity.EntityVehicleSVA;
+import com.sva.vehicle.HeliMath;
+import com.sva.vehicle.PlaneMath;
 import com.sva.init.ModContentSVA;
 import com.sva.item.ItemVehicleSVA;
 import com.sva.vehicle.VehicleMath;
@@ -90,6 +93,8 @@ public class WorldTestSVA {
                 hoverTick(w);
             } else if (pfAt > 0 && ticks >= pfAt && pfPhase < PF_DONE) {
                 platformTick(w);
+            } else if (afAt > 0 && ticks >= afAt && afPhase < AF_DONE) {
+                aircraftTick(w);
             }
         } catch (Throwable t) {
             failed++;
@@ -108,6 +113,8 @@ public class WorldTestSVA {
                 }
             } else if (pfAt > 0 && pfPhase < PF_DONE) {
                 platformFinish(w);
+            } else if (afAt > 0 && afPhase < AF_DONE) {
+                aircraftFinish(w);
             }
         }
     }
@@ -894,6 +901,321 @@ public class WorldTestSVA {
         VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
         check(reg.count(OWNER) == 0 && reg.count(STRANGER) == 0, "platform cleanup: no test vehicles left in the registry");
         pfPhase = PF_DONE;
+        afAt = ticks + 20;                                      // the aircraft next
+    }
+
+    // ------------------------------------------------------------------ aircraft: helicopter and plane (phase 5, stage B)
+
+    private static final int AF_DONE = 99, AY = 150;
+    private int afAt = -1, afPhase, afT0, afTicks;
+    private int hx, hz, rx0, rz;
+    private EntityVehicleSVA heli, plane;
+    private net.minecraft.entity.passive.EntityVillager pilot;
+    private net.minecraft.entity.passive.EntityPig passenger;
+    private int heliInput;
+    private double afY0, afEu0, afYMin, afYMax, afSum, afMinVy, afYaw0, afX0, liftX = -1;
+    private int afCount;
+
+    /** Clears (and with build lays stone / runway at AY) a box of the test area. */
+    private void afBox(World w, int x0, int z0, int x1, int z1, boolean build, int runwayTo) {
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                for (int y = AY; y <= AY + 30; y++) {
+                    if (!w.isAirBlock(x, y, z)) {
+                        w.setBlockToAir(x, y, z);
+                    }
+                }
+                if (build) {
+                    if (x <= runwayTo) {
+                        w.setBlock(x, AY, z, ModContentSVA.runway, Math.abs(z - rz) == 2 ? 1 | 2 : 2, 2);
+                    } else {
+                        w.setBlock(x, AY, z, Blocks.stone, 0, 2);
+                    }
+                }
+            }
+        }
+    }
+
+    private EntityVehicleSVA afSpawn(World w, VehicleType t, double x, double z) {
+        VehicleState st = new VehicleState(t);
+        st.energy = st.maxEnergy();
+        st.fillAllGases();
+        return ItemVehicleSVA.spawn(w, ItemVehicleSVA.withState(new ItemStack(ModContentSVA.vehicle, 1, t.ordinal()), st),
+                x, AY + 1, z, -90F, OWNER, "WorldTest");
+    }
+
+    private void aircraftTick(World w) {
+        int t = ticks - afAt;
+        if (t == 0) {
+            heliSetup(w);
+            return;
+        }
+        if (afPhase < 10) {
+            heliTick(w, t);
+        } else if (afPhase < 20) {
+            planeTick(w);
+        }
+    }
+
+    // ---- the helicopter: up 20 blocks, hover, fly forward, brake, then out of EU - autorotation down with the riders
+
+    private void heliSetup(World w) {
+        ChunkCoordinates sp = w.getSpawnPoint();
+        hx = sp.posX + 20;
+        hz = sp.posZ - 60;
+        rz = Integer.MIN_VALUE;
+        afBox(w, hx - 20, hz - 22, hx + 50, hz + 22, true, Integer.MIN_VALUE);
+        heli = afSpawn(w, VehicleType.HELI, hx + 0.5, hz + 0.5);
+        check(heli != null && heli.state.gas(HE) == 1000, "heli: placed on the pad at Y " + (AY + 1) + ", full (3M EU, He 1000)");
+        if (heli == null) {
+            afPhase = 10;
+            return;
+        }
+        pilot = new net.minecraft.entity.passive.EntityVillager(w);
+        pilot.setPosition(heli.posX, heli.posY, heli.posZ);
+        w.spawnEntityInWorld(pilot);
+        pilot.mountEntity(heli);                             // a villager at the controls (the motor runs; keys from the test)
+        afPhase = 1;
+        afT0 = ticks;
+    }
+
+    private void heliKeys(int in) {
+        heliInput = in;
+        heli.serverInput(in);                                // the Input packet's path, refreshed every tick
+    }
+
+    private void heliTick(World w, int t) {
+        if (heli == null) {
+            heliFinish(w);
+            return;
+        }
+        heliKeys(heliInput);
+        int pt = ticks - afT0;
+        double dy = heli.posY - heli.prevPosY;
+        if (afPhase == 1) {
+            if (pt == 5) {
+                EntitySeatSVA seat = heli.freeSeat();
+                passenger = new net.minecraft.entity.passive.EntityPig(w);
+                passenger.setPosition(heli.posX, heli.posY, heli.posZ);
+                w.spawnEntityInWorld(passenger);
+                if (seat != null) {
+                    passenger.mountEntity(seat);
+                }
+                check(heli.riddenByEntity == pilot && seat != null && passenger.ridingEntity == seat, "heli: a villager at the controls, a pig in the co-pilot seat");
+                afY0 = heli.posY;
+                afMinVy = 0;
+                heliKeys(EntityVehicleSVA.IN_BRAKE);         // Space: collective up
+            } else if (pt > 5) {
+                afMinVy = Math.max(afMinVy, dy);
+                if (heli.posY >= afY0 + 20) {
+                    check(pt - 5 >= 80 && afMinVy <= HeliMath.CLIMB + 1e-6, "heli: vertical take-off, +20 blocks in " + (pt - 5) + " ticks, climb "
+                            + Math.round(afMinVy * 200) / 10.0 + " m/s (max 5)");
+                    heliKeys(0);                              // neutral collective: hold the height
+                    afPhase = 2;
+                    afT0 = ticks;
+                } else if (pt > 400) {
+                    check(false, "heli: did not climb 20 blocks (" + Math.round((heli.posY - afY0) * 10) / 10.0 + ")");
+                    heliFinish(w);
+                }
+            }
+        } else if (afPhase == 2) {
+            if (pt == 20) {
+                afYMin = afYMax = heli.posY;
+                afEu0 = heli.state.energy;
+            } else if (pt > 20) {
+                afYMin = Math.min(afYMin, heli.posY);
+                afYMax = Math.max(afYMax, heli.posY);
+            }
+            if (pt == 50) {
+                double perTick = (afEu0 - heli.state.energy) / 30.0;
+                afSum = perTick;
+                check(afYMax - afYMin < 0.3 && heli.isLifting() && !heli.isAutorotating(), "heli: hovers (height held within "
+                        + Math.round((afYMax - afYMin) * 100) / 100.0 + ")");
+                check(perTick > 100 && perTick < 120, "heli: hovering costs " + Math.round(perTick) + " EU/t (110)");
+                heliKeys(EntityVehicleSVA.IN_FWD);
+                afX0 = heli.posX;
+                afPhase = 3;
+                afT0 = ticks;
+            }
+        } else if (afPhase == 3) {
+            if (pt == 40) {
+                afEu0 = heli.state.energy;
+            } else if (pt == 50) {
+                double perTick = (afEu0 - heli.state.energy) / 10.0;
+                check(heli.posX - afX0 > 12 && Math.abs(heli.posY - afYMax) < 1.0, "heli: flew forward " + Math.round(heli.posX - afX0)
+                        + " blocks at a steady height");
+                check(perTick < afSum && perTick > 80, "heli: forward flight " + Math.round(perTick) + " EU/t, cheaper than hovering (" + Math.round(afSum) + ")");
+                heliKeys(EntityVehicleSVA.IN_BACK);          // slow down
+                afPhase = 4;
+                afT0 = ticks;
+            }
+        } else if (afPhase == 4) {
+            if (pt == 35) {
+                heliKeys(0);
+                heli.state.energy = 0;                       // the battery runs flat
+                afYaw0 = heli.rotationYaw;
+                afY0 = heli.posY;
+                afSum = 0;
+                afCount = 0;
+                afPhase = 5;
+                afT0 = ticks;
+            }
+        } else if (afPhase == 5) {
+            boolean air = heli.airborneAt(heli.posX, heli.posY, heli.posZ);
+            if (pt == 3) {
+                check(heli.isAutorotating() && !heli.isLifting(), "heli: out of EU in the air - autorotation");
+            }
+            if (pt > 25 && air) {
+                afSum += dy;
+                afCount++;
+            }
+            if (!air && pt > 5) {
+                double vy = afCount > 0 ? afSum / afCount : 0;
+                double turned = Math.abs(heli.rotationYaw - afYaw0);
+                check(vy < -0.12 && vy > -0.17, "heli: autorotation sink " + Math.round(-vy * 200) / 10.0 + " m/s (3)");
+                check(turned > 90, "heli: came down in a spiral (turned " + Math.round(turned) + " deg in " + pt + " ticks)");
+                afPhase = 6;
+                afT0 = ticks;
+            } else if (pt > 600) {
+                check(false, "heli: never landed (" + Math.round(heli.posY - AY) + " blocks up)");
+                heliFinish(w);
+            }
+        } else if (afPhase == 6 && pt == 10) {
+            float hp = heli.state.hp, max = VehicleType.HELI.maxHp;
+            if (ConfigSVA.wear) {
+                check(hp < max && hp >= max * 0.9F - 0.01F, "heli: autorotation landing took " + Math.round(max - hp) + " HP (at most 10% of " + Math.round(max) + ")");
+            }
+            check(Math.abs(heli.posY - (AY + 1)) < 0.05, "heli: landed on the ground (Y " + Math.round(heli.posY * 100) / 100.0 + ")");
+            check(pilot.isEntityAlive() && pilot.getHealth() == pilot.getMaxHealth() && passenger.isEntityAlive()
+                    && passenger.getHealth() == passenger.getMaxHealth() && pilot.ridingEntity == heli && passenger.ridingEntity instanceof EntitySeatSVA,
+                    "heli: both riders alive, unhurt and still seated after falling " + Math.round(afY0 - heli.posY) + " blocks");
+            heliFinish(w);
+        }
+    }
+
+    private void heliFinish(World w) {
+        if (pilot != null) {
+            pilot.mountEntity(null);
+            pilot.setDead();
+        }
+        if (passenger != null) {
+            passenger.mountEntity(null);
+            passenger.setDead();
+        }
+        if (heli != null) {
+            heli.setDead();
+            heli = null;
+        }
+        afBox(w, hx - 20, hz - 22, hx + 50, hz + 22, false, Integer.MIN_VALUE);
+        planeSetup(w);
+    }
+
+    // ---- the plane: take-off run on runway blocks, climb, cruise at Y >= 100, descend, land and brake on stone
+
+    private void planeSetup(World w) {
+        ChunkCoordinates sp = w.getSpawnPoint();
+        rx0 = sp.posX - 94;
+        rz = sp.posZ - 80;
+        afBox(w, rx0 - 3, rz - 2, sp.posX + 96, rz + 2, true, rx0 + 30);
+        plane = afSpawn(w, VehicleType.PLANE, rx0 + 0.5, rz + 0.5);
+        check(plane != null && plane.onRunway(), "plane: placed on the runway (Y " + (AY + 1) + ")");
+        afPhase = plane == null ? 20 : 11;
+        afT0 = ticks;
+        liftX = -1;
+        if (plane != null) {
+            afX0 = plane.posX;
+            plane.debugDrive(EntityVehicleSVA.IN_FWD | EntityVehicleSVA.IN_BRAKE);    // full throttle, stick back
+        }
+    }
+
+    private void planeTick(World w) {
+        if (plane == null || afPhase >= 20) {
+            aircraftFinish(w);
+            return;
+        }
+        int pt = ticks - afT0;
+        double h = plane.posY - (AY + 1);
+        boolean air = plane.airborneAt(plane.posX, plane.posY, plane.posZ);
+        if (plane.posX > rx0 + 186 || pt > 900) {
+            check(false, "plane: ran out of strip / time (phase " + afPhase + ", x+" + Math.round(plane.posX - rx0) + ")");
+            aircraftFinish(w);
+            return;
+        }
+        if (afPhase == 11) {
+            if (liftX < 0 && h > 0.05) {
+                liftX = plane.posX - afX0;
+                double want = PlaneMath.takeoffDistance(VehicleType.PLANE, true);
+                check(Math.abs(liftX - want) < 5 && liftX < PlaneMath.takeoffDistance(VehicleType.PLANE, false) * 0.7,
+                        "plane: lifted off the runway after " + Math.round(liftX) + " blocks (runway ~" + Math.round(want) + ", without ~"
+                                + Math.round(PlaneMath.takeoffDistance(VehicleType.PLANE, false)) + ")");
+            }
+            if (h >= 6) {
+                check(!plane.isStalling() && plane.isLifting(), "plane: climbed 6 blocks in " + pt + " ticks");
+                plane.debugDrive(EntityVehicleSVA.IN_FWD);   // level cruise
+                afPhase = 12;
+                afT0 = ticks;
+            }
+        } else if (afPhase == 12) {
+            if (pt == 12) {
+                afEu0 = plane.state.energy;
+                afYMin = afYMax = plane.posY;
+            } else if (pt > 12) {
+                afYMin = Math.min(afYMin, plane.posY);
+                afYMax = Math.max(afYMax, plane.posY);
+            }
+            if (pt == 32) {
+                double perTick = (afEu0 - plane.state.energy) / 20.0;
+                check(afYMax - afYMin < 0.6 && air && !plane.isStalling(), "plane: level cruise at Y " + Math.round(plane.posY) + " (height held within "
+                        + Math.round((afYMax - afYMin) * 100) / 100.0 + ")");
+                check(perTick > 35 && perTick < 45, "plane: cruising at Y >= 100 costs " + Math.round(perTick) + " EU/t (50 - 20% = 40)");
+                plane.debugDrive(EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BACK);   // nose down, throttle back
+                afPhase = 13;
+                afT0 = ticks;
+            }
+        } else if (afPhase == 13) {
+            if (h <= 3) {
+                plane.debugDrive(EntityVehicleSVA.IN_BACK);  // flare: level the descent
+                afPhase = 14;
+                afT0 = ticks;
+                afY0 = plane.state.hp;
+            }
+        } else if (afPhase == 14) {
+            if (plane.posY - plane.prevPosY > -0.1 && air) {
+                plane.debugDrive(EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BACK);   // levelled off: settle onto the wheels
+            }
+            if (!air) {
+                check(plane.state.hp > (float) afY0 - 1F, "plane: a gentle wheels landing, no landing damage (" + Math.round(afY0 - plane.state.hp) + " HP)");
+                afPhase = 15;
+                afT0 = ticks;
+            }
+        } else if (afPhase == 15) {
+            if (plane.speed < 0.01 && pt > 3) {
+                float hp = plane.state.hp, max = VehicleType.PLANE.maxHp;
+                check(Math.abs(plane.posY - (AY + 1)) < 0.05 && plane.posX < rx0 + 186, "plane: stopped on the strip after a " + pt + "-tick rollout, x+"
+                        + Math.round(plane.posX - rx0));
+                check(hp > max - 20 && !plane.isWrecked(), "plane: hull " + Math.round(hp) + " / " + Math.round(max) + " (braking on bare stone scuffs a little)");
+                aircraftFinish(w);
+            }
+        }
+    }
+
+    private void aircraftFinish(World w) {
+        if (heli != null || pilot != null && !pilot.isDead) {
+            heliFinish(w);
+            return;
+        }
+        if (plane != null) {
+            plane.debugDrive(0);
+            plane.setDead();
+            plane = null;
+        }
+        if (rz != Integer.MIN_VALUE && rx0 != 0) {
+            ChunkCoordinates sp = w.getSpawnPoint();
+            afBox(w, rx0 - 3, rz - 2, sp.posX + 96, rz + 2, false, Integer.MIN_VALUE);
+        }
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        check(reg.count(OWNER) == 0, "aircraft cleanup: no test vehicles left in the registry");
+        afPhase = AF_DONE;
         System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
         System.out.println("[SVA-WORLDTEST] DONE");
     }

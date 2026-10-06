@@ -22,10 +22,66 @@ import net.minecraft.util.ResourceLocation;
  * NAME.groups.txt ("material r g b emissive"). A small parser of our own instead of Forge's WavefrontObject,
  * which shades with face normals only. Each group is compiled into a GL display list ONCE (the first time it
  * is drawn); the vertex data is dropped afterwards.
+ * Moving parts (rotors, propellers) are cut out of the material groups when the model loads (see Part / PARTS): their
+ * triangles go to extra groups "#part/material" that render() leaves out and renderPart() draws turned.
  */
 public final class ObjModelSVA {
 
     private static final Map<String, ObjModelSVA> CACHE = new HashMap<String, ObjModelSVA>();
+
+    /**
+     * A part that moves: the triangles of `groups` whose centre lies in the box [min, max] (model units), turning
+     * about `axis` (0 x, 1 y, 2 z) through `pivot` at `speed` x the vehicle's rotor angle; `disc` > 0 = the radius of
+     * the translucent motion-blur disc drawn while it spins fast.
+     */
+    public static final class Part {
+        public final String name;
+        final java.util.Set<String> groups = new java.util.HashSet<String>();
+        final float[] min, max;
+        public final float[] pivot;
+        public final int axis;
+        public final float speed, disc;
+
+        Part(String name, String[] groups, float[] min, float[] max, float[] pivot, int axis, float speed, float disc) {
+            this.name = name;
+            java.util.Collections.addAll(this.groups, groups);
+            this.min = min;
+            this.max = max;
+            this.pivot = pivot;
+            this.axis = axis;
+            this.speed = speed;
+            this.disc = disc;
+        }
+
+        boolean holds(String group, float x, float y, float z) {
+            return groups.contains(group) && x >= min[0] && x <= max[0] && y >= min[1] && y <= max[1] && z >= min[2] && z <= max[2];
+        }
+    }
+
+    /** Model name -> its moving parts. Numbers measured from the exported OBJ (export_obj.py: x forward, y up, centred). */
+    private static final Map<String, List<Part>> PARTS = new HashMap<String, List<Part>>();
+
+    static {
+        // heli.obj: the main rotor - 4 blades (dark, hazard tips, r 2.25) and the hub (chrome) over the mast at x 0.364,
+        // z 0, y 1.86..2.04; nothing else of those materials is up there
+        part("heli", new Part("rotor", new String[] {"dark", "hazard", "chrome"}, new float[] {-1.95F, 1.85F, -2.4F},
+                new float[] {2.7F, 2.1F, 2.4F}, new float[] {0.364F, 1.92F, 0F}, 1, 1F, 2.3F));
+        // the tail rotor: two dark blades at x -2.32..-2.26 turning about x through the concept's hub (-42.5, 25, 1.6)/16
+        part("heli", new Part("tail", new String[] {"dark"}, new float[] {-2.4F, 1.0F, -0.2F},
+                new float[] {-2.2F, 2.1F, 0.8F}, new float[] {-2.292F, 1.544F, 0.1F}, 0, 3F, 0F));
+        // plane.obj: the 3-blade propeller (dark, hazard tips) at x 2.27..2.30, about x through the spinner (2.284, 0.631, 0.019)
+        part("plane", new Part("prop", new String[] {"dark", "hazard"}, new float[] {2.25F, 0F, -0.9F},
+                new float[] {2.4F, 1.4F, 0.9F}, new float[] {2.284F, 0.631F, 0.019F}, 0, 1F, 0.72F));
+    }
+
+    private static void part(String model, Part p) {
+        List<Part> l = PARTS.get(model);
+        if (l == null) {
+            l = new ArrayList<Part>();
+            PARTS.put(model, l);
+        }
+        l.add(p);
+    }
 
     private final String name;
     private final List<String> groups = new ArrayList<String>();
@@ -38,6 +94,12 @@ public final class ObjModelSVA {
 
     private ObjModelSVA(String name) {
         this.name = name;
+    }
+
+    /** This model's moving parts (empty for most). */
+    public List<Part> parts() {
+        List<Part> l = PARTS.get(name);
+        return l == null ? java.util.Collections.<Part>emptyList() : l;
     }
 
     public static ObjModelSVA get(String name) {
@@ -79,6 +141,8 @@ public final class ObjModelSVA {
             }
             List<float[]> v = new ArrayList<float[]>(), vn = new ArrayList<float[]>();
             List<float[]> cur = null;
+            String curName = "default";
+            List<Part> parts = parts();
             r = new BufferedReader(new InputStreamReader(open(name + ".obj"), "UTF-8"), 1 << 16);
             try {
                 String line;
@@ -89,6 +153,7 @@ public final class ObjModelSVA {
                         vn.add(floats(line));
                     } else if (line.startsWith("g ") || line.startsWith("o ") || line.startsWith("usemtl ")) {
                         String g = line.substring(line.indexOf(' ') + 1).trim();
+                        curName = g;
                         cur = pending.get(g);
                         if (cur == null) {
                             cur = new ArrayList<float[]>();
@@ -108,9 +173,22 @@ public final class ObjModelSVA {
                             poly[i] = new float[] {pos[0], pos[1], pos[2], n == null ? 0 : n[0], n == null ? 1 : n[1], n == null ? 0 : n[2]};
                         }
                         for (int i = 1; i + 1 < poly.length; i++) {
-                            cur.add(poly[0]);
-                            cur.add(poly[i]);
-                            cur.add(poly[i + 1]);
+                            List<float[]> to = cur;
+                            for (Part pt : parts) {
+                                if (pt.holds(curName, (poly[0][0] + poly[i][0] + poly[i + 1][0]) / 3F,
+                                        (poly[0][1] + poly[i][1] + poly[i + 1][1]) / 3F, (poly[0][2] + poly[i][2] + poly[i + 1][2]) / 3F)) {
+                                    String key = "#" + pt.name + "/" + curName;
+                                    to = pending.get(key);
+                                    if (to == null) {
+                                        to = new ArrayList<float[]>();
+                                        pending.put(key, to);
+                                    }
+                                    break;
+                                }
+                            }
+                            to.add(poly[0]);
+                            to.add(poly[i]);
+                            to.add(poly[i + 1]);
                         }
                     }
                 }
@@ -124,9 +202,10 @@ public final class ObjModelSVA {
         }
         for (String g : pending.keySet()) {
             groups.add(g);
-            float[] c = palette.get(g);
+            String mat = g.startsWith("#") ? g.substring(g.indexOf('/') + 1) : g;     // a part keeps its material's colour
+            float[] c = palette.get(mat);
             colors.add(c != null ? c : new float[] {0.6F, 0.6F, 0.6F});
-            Boolean e = glow.get(g);
+            Boolean e = glow.get(mat);
             emissive.add(e != null ? e : Boolean.FALSE);
         }
     }
@@ -172,23 +251,11 @@ public final class ObjModelSVA {
         if (lists < 0) {
             compile();
         }
-        float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
         for (int i = 0; i < groups.size(); i++) {
-            if (isGlass(groups.get(i))) {
+            if (isGlass(groups.get(i)) || groups.get(i).startsWith("#")) {
                 continue;
             }
-            float[] c = colors.get(i);
-            if (emissive.get(i).booleanValue() && shade >= 1F) {
-                GL11.glDisable(GL11.GL_LIGHTING);
-                OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
-                GL11.glColor4f(c[0], c[1], c[2], 1F);
-                GL11.glCallList(lists + i);
-                OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
-                GL11.glEnable(GL11.GL_LIGHTING);
-            } else {
-                GL11.glColor4f(c[0] * shade, c[1] * shade, c[2] * shade, 1F);
-                GL11.glCallList(lists + i);
-            }
+            drawGroup(i, shade);
         }
         if (withGlass) {
             GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
@@ -212,6 +279,73 @@ public final class ObjModelSVA {
 
     private static float lighten(float c) {
         return c + (1F - c) * GLASS_LIGHTEN;
+    }
+
+    /** One opaque group: lit and shaded, or (emissive, not a wreck) full bright. */
+    private void drawGroup(int i, float shade) {
+        float[] c = colors.get(i);
+        if (emissive.get(i).booleanValue() && shade >= 1F) {
+            float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
+            GL11.glDisable(GL11.GL_LIGHTING);
+            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+            GL11.glColor4f(c[0], c[1], c[2], 1F);
+            GL11.glCallList(lists + i);
+            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
+            GL11.glEnable(GL11.GL_LIGHTING);
+        } else {
+            GL11.glColor4f(c[0] * shade, c[1] * shade, c[2] * shade, 1F);
+            GL11.glCallList(lists + i);
+        }
+    }
+
+    /** Draws a moving part turned by `angle` degrees about its axis through its pivot (same state as render()). */
+    public void renderPart(Part p, float angle, float shade) {
+        if (lists < 0) {
+            compile();
+        }
+        String prefix = "#" + p.name + "/";
+        GL11.glPushMatrix();
+        GL11.glTranslatef(p.pivot[0], p.pivot[1], p.pivot[2]);
+        GL11.glRotatef(angle, p.axis == 0 ? 1F : 0F, p.axis == 1 ? 1F : 0F, p.axis == 2 ? 1F : 0F);
+        GL11.glTranslatef(-p.pivot[0], -p.pivot[1], -p.pivot[2]);
+        for (int i = 0; i < groups.size(); i++) {
+            if (groups.get(i).startsWith(prefix)) {
+                drawGroup(i, shade);
+            }
+        }
+        GL11.glPopMatrix();
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /** The translucent motion-blur disc of a fast-spinning part (radius p.disc, across its axis through the pivot). */
+    public static void renderDisc(Part p, float alpha) {
+        if (p.disc <= 0 || alpha <= 0) {
+            return;
+        }
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glDepthMask(false);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glColor4f(0.16F, 0.17F, 0.19F, alpha);
+        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+        GL11.glVertex3f(p.pivot[0], p.pivot[1], p.pivot[2]);
+        for (int k = 0; k <= 32; k++) {
+            double a = k * Math.PI * 2 / 32;
+            float u = (float) (Math.cos(a) * p.disc), w = (float) (Math.sin(a) * p.disc);
+            if (p.axis == 1) {
+                GL11.glVertex3f(p.pivot[0] + u, p.pivot[1], p.pivot[2] + w);
+            } else if (p.axis == 0) {
+                GL11.glVertex3f(p.pivot[0], p.pivot[1] + u, p.pivot[2] + w);
+            } else {
+                GL11.glVertex3f(p.pivot[0] + u, p.pivot[1] + w, p.pivot[2]);
+            }
+        }
+        GL11.glEnd();
+        GL11.glDepthMask(true);
+        GL11.glPopAttrib();
+        GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
     /** Draws every group in one colour (the workbench hologram); the caller sets blending / lighting. */

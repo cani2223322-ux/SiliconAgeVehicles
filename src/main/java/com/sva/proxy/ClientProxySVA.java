@@ -39,10 +39,18 @@ public class ClientProxySVA extends CommonProxySVA {
     public static final net.minecraft.client.settings.KeyBinding KEY_BOOST =
             new net.minecraft.client.settings.KeyBinding("key.sva.boost", org.lwjgl.input.Keyboard.KEY_NONE, "key.categories.sva");
 
+    /**
+     * «Снижение» (aircraft: helicopter collective down, plane nose down; the sprint key works too). Default X - free in
+     * vanilla 1.7.10 and in the core (K, R, P, H, J, G); Shift stays the vanilla «get out».
+     */
+    public static final net.minecraft.client.settings.KeyBinding KEY_DOWN =
+            new net.minecraft.client.settings.KeyBinding("key.sva.down", org.lwjgl.input.Keyboard.KEY_X, "key.categories.sva");
+
     @Override
     public void init(FMLInitializationEvent e) {
         super.init(e);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_BOOST);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DOWN);
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
         FMLCommonHandler.instance().bus().register(this);
@@ -53,7 +61,10 @@ public class ClientProxySVA extends CommonProxySVA {
         return Minecraft.getMinecraft().thePlayer;
     }
 
-    /** W/S throttle / reverse, A/D steer, Space brake (hover: higher), sprint / «Форсаж» boost (Shift stays vanilla: get out). */
+    /**
+     * W/S throttle / reverse, A/D steer, Space brake (hover: higher; heli: collective up; plane: pull up), sprint /
+     * «Форсаж» boost (aircraft: down), «Снижение» down (Shift stays vanilla: get out).
+     */
     @Override
     public int driverInput() {
         EntityPlayer p = Minecraft.getMinecraft().thePlayer;
@@ -78,6 +89,9 @@ public class ClientProxySVA extends CommonProxySVA {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.currentScreen == null && (mc.gameSettings.keyBindSprint.getIsKeyPressed() || KEY_BOOST.getIsKeyPressed())) {
             f |= EntityVehicleSVA.IN_BOOST;
+        }
+        if (mc.currentScreen == null && KEY_DOWN.getIsKeyPressed()) {
+            f |= EntityVehicleSVA.IN_DOWN;
         }
         return f;
     }
