@@ -5,7 +5,15 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 
 ## Не выпущено / Unreleased
 
-_(пусто / empty)_
+### Русский
+- Исправлено: у пилотов «Транспортного челнока» вид от первого лица был сплошной тёмно-серой стеной (видны только рука и HUD). Камера Minecraft от первого лица стоит на 0,1 блока позади глаз, а глаза пилота были в 2 сотых блока от подголовника - камера оказывалась внутри подголовника. Кресла пилотов сдвинуты на 0,1 блока вперёд (голова по-прежнему под потолком), а своя машина от первого лица теперь не рисуется позади плоскости глаз - подголовник или стенка за головой больше не закрывают обзор ни в одной машине.
+- Исправлено: у пассажиров второго ряда «Сингулярного корабля» поперёк обзора шла старая обшивка палубы, оставшаяся внутри салона после переделки мостика; от первого лица она теперь вырезается.
+- Исправлено: от первого лица из своей кабины огни на крыше и под днищем (мигалки вездехода и буровой, маячок под полом челнока, рабочие фары буровой над стеклом) больше не «просвечивают» в салон большими пятнами; ореолы огней и ламп кабины ограничены по размеру.
+
+### English
+- Fixed: the Transport Shuttle pilots' first-person view was a solid dark grey wall (only the hand and the HUD visible). Minecraft's first-person camera sits 0.1 blocks behind the eyes, and the pilots' eyes were 0.02 blocks in front of the headrest - the camera ended up inside it. The pilot seats moved 0.1 blocks forward (the head still under the ceiling), and the own vehicle in first person is no longer drawn behind the eye plane - a headrest or the wall behind the head can't cover the view in any vehicle.
+- Fixed: the Singular Ship's second-row passengers had the old deck skin, left inside the cabin by the bridge rework, across their view; it is now cut away in first person.
+- Fixed: in first person from your own cockpit, lights on the roof and under the belly (the crawler's and drill's beacons, the shuttle's belly beacon, the drill's work lights over the windscreen) no longer bleed into the cabin as large blobs; light and cockpit-lamp halos are size-limited.
 
 ## 0.1.0-alpha — 2026-10-07
 

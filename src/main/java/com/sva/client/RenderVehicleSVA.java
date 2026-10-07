@@ -67,6 +67,9 @@ public class RenderVehicleSVA extends Render {
         boolean ownView = mc.gameSettings.thirdPersonView == 0 && HudVehicleSVA.vehicleOf(mc.thePlayer) == v;
         float pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
         float roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
+        if (ownView) {
+            eyeClip(true);
+        }
         if (vt.movement.flies && !ownView) {
             // aircraft attitude (pitch nose up +, bank right +) about the body's middle; the own cockpit view stays level
             GL11.glTranslatef(0F, ATTITUDE_Y, 0F);
@@ -108,7 +111,7 @@ public class RenderVehicleSVA extends Render {
         } else if (ConfigSVA.seeThroughHull) {
             m.render(shade, 0F, vt.cabShellAlpha, null);
         } else {
-            m.render(shade, ObjModelSVA.COCKPIT_GLASS_ALPHA, 1F, vt.cabWindows);
+            m.render(shade, ObjModelSVA.COCKPIT_GLASS_ALPHA, 1F, vt.ownViewCuts());
         }
         // wave 2, ★8: installed upgrades as extra parts (not in the own cockpit view)
         if (!ownView) {
@@ -229,9 +232,38 @@ public class RenderVehicleSVA extends Render {
             ObjModelSVA.renderFlame(EntityVehicleSVA.NOZZLE_X, EntityVehicleSVA.NOZZLE_Y, EntityVehicleSVA.NOZZLE_R, 0.9F, flicker);
         }
         // ★6 / ★7: headlight beams, nav lights, beacons, brake glow (in this model frame)
-        VehicleLightsSVA.render(v, vt, pt, gear);
+        VehicleLightsSVA.render(v, vt, pt, gear, ownView);
+        if (ownView) {
+            eyeClip(false);
+        }
         GL11.glPopAttrib();
         GL11.glPopMatrix();
+    }
+
+    /** The own view's eye clip: GL_CLIP_PLANE5 (the window cut uses 0..MAX_WINDOWS-1). */
+    private static final int EYE_CLIP_PLANE = GL11.GL_CLIP_PLANE5;
+    private static final java.nio.DoubleBuffer EYE_EQ = org.lwjgl.BufferUtils.createDoubleBuffer(4);
+
+    /**
+     * Fix 2026-10 (the shuttle pilot's view was one dark grey wall): vanilla's first-person camera sits
+     * CockpitView.CAMERA_BACK (0.1) blocks behind the player's eye, so anything of the vehicle right behind the head - a
+     * headrest, the wall behind a back-row seat - lies in front of the camera and can fill the screen. In the own
+     * first-person view the vehicle is clipped at the eye's depth (a plane given in eye space - the modelview loaded with
+     * identity - keeping depth >= CockpitView.EYE_CLIP): nothing behind the eye plane is drawn, everything in front as
+     * before. Turned on before the model and off after the lights (also undone by the attrib pop: GL_ENABLE_BIT).
+     */
+    private static void eyeClip(boolean on) {
+        if (!on) {
+            GL11.glDisable(EYE_CLIP_PLANE);
+            return;
+        }
+        GL11.glPushMatrix();
+        GL11.glLoadIdentity();
+        EYE_EQ.clear();
+        EYE_EQ.put(0).put(0).put(-1).put(-com.sva.vehicle.CockpitView.EYE_CLIP).flip();
+        GL11.glClipPlane(EYE_CLIP_PLANE, EYE_EQ);
+        GL11.glPopMatrix();
+        GL11.glEnable(EYE_CLIP_PLANE);
     }
 
     /**

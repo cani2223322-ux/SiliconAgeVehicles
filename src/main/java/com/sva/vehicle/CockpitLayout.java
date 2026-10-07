@@ -648,7 +648,7 @@ public final class CockpitLayout {
         return norm(new float[] {(float) vec[0][least], (float) vec[1][least], (float) vec[2][least]});
     }
 
-    static float[] sub(float[] a, float[] b) {
+    public static float[] sub(float[] a, float[] b) {
         return new float[] {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
     }
 
@@ -668,7 +668,7 @@ public final class CockpitLayout {
         return new float[] {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
     }
 
-    static float len(float[] a) {
+    public static float len(float[] a) {
         return (float) Math.sqrt(dot(a, a));
     }
 

@@ -107,6 +107,7 @@ public final class SelfTestSVA {
             stageEContent();
             glyphsAndCargoKey();
             riderFit();
+            ownView();
             cockpitWindows();
             cargoV2();
             skins();
@@ -1543,6 +1544,67 @@ public final class SelfTestSVA {
             check(bad.length() == 0, "rider fit: " + t.key + " (model x" + t.modelScale + ", seatY " + t.seatY + ") - every rider's chest and head inside the hull"
                     + bad);
         }
+    }
+
+    /**
+     * Fix 2026-10 (the shuttle pilot's first-person view was one dark grey wall - the camera, 0.1 blocks behind the eye in
+     * vanilla, sat in the headrest): every seat of every type, from vanilla's camera (debug/ViewCheckSVA; 70 deg view,
+     * near plane 0.05, the own view's eye clip and window / interior cuts) in 7 looks (ahead, 30 up / down, 45 / 90 to
+     * both sides) - no surface within 0.15 blocks of the camera covers more than 5 % of the screen; every glow sprite /
+     * lamp and dial halo drawn in the own view covers at most 5 % looked at straight (visible parts) and never reaches
+     * the near plane. Plus the clamps' math, and the detector itself: the shuttle pilot's old eye (seat x 2.48) without
+     * the eye clip is a wall over >90 % of the view.
+     */
+    private static void ownView() throws java.io.IOException {
+        check(com.sva.vehicle.CockpitView.EYE_CLIP == com.sva.vehicle.CockpitView.CAMERA_BACK
+                && com.sva.vehicle.CockpitView.EYE_CLIP > com.sva.vehicle.CockpitView.NEAR
+                && Math.abs(com.sva.vehicle.CockpitView.ownGlow(1.0, 2.0) - 0.24) < 1e-9 && com.sva.vehicle.CockpitView.ownGlow(0.35, 10) == 0.35
+                && Math.abs(com.sva.vehicle.CockpitView.lampHalo(0.02, 0.4) - 0.048) < 1e-9 && Math.abs(com.sva.vehicle.CockpitView.lampHalo(0.02, 1) - 0.06) < 1e-9
+                && Math.abs(com.sva.vehicle.CockpitView.lampHalo(0.02, 0.05) - 0.024) < 1e-9,
+                "own view: eye clip at the eye (0.1 = vanilla's camera offset, past the near plane 0.05); glow / halo clamps");
+        VehicleType sh = VehicleType.SHUTTLE;
+        ViewCheckSVA.Mesh shm = ViewCheckSVA.load(sh.model);
+        double[] old = {2.48 / sh.modelScale, (sh.seatY + sh.seatDy(0) + com.sva.vehicle.CockpitView.EYE_OVER_SEAT) / sh.modelScale, 0.26 / sh.modelScale};
+        double oldWall = shm == null ? 0 : ViewCheckSVA.blockedAt(sh, shm, old, 0, 0, com.sva.vehicle.CockpitView.NEAR, ViewCheckSVA.CLOSE, null);
+        double oldClip = shm == null ? 1 : ViewCheckSVA.blockedAt(sh, shm, old, 0, 0, com.sva.vehicle.CockpitView.EYE_CLIP, ViewCheckSVA.CLOSE, null);
+        double nowWall = shm == null ? 1 : ViewCheckSVA.blocked(sh, shm, 0, 0, 0, false);
+        check(oldWall > 0.9 && oldClip < 0.01 && nowWall < 0.01 && sh.seatOffsets[0][0] == 2.58 && sh.seatOffsets[1][0] == 2.58,
+                "own view: the shuttle pilot's old eye (seat x 2.48) looks at the headrest from vanilla's camera (" + pct(oldWall)
+                        + " of the view a wall; " + pct(oldClip) + " with the eye clip); at x 2.58 " + pct(nowWall) + " even without it");
+        for (VehicleType t : VehicleType.values()) {
+            ViewCheckSVA.Mesh m = ViewCheckSVA.load(t.model);
+            if (m == null) {
+                check(false, "own view: " + t.key + " - models/" + t.model + ".obj not found");
+                continue;
+            }
+            StringBuilder bad = new StringBuilder();
+            double worst = 0, worstO = 0;
+            for (int i = 0; i < t.seatOffsets.length; i++) {
+                for (double[] p : ViewCheckSVA.POSES) {
+                    double b = ViewCheckSVA.blocked(t, m, i, p[0], p[1], true);
+                    worst = Math.max(worst, b);
+                    if (b > ViewCheckSVA.LIMIT) {
+                        bad.append(" seat ").append(i).append(" look ").append((int) p[0]).append("/").append((int) p[1]).append(": a wall over ")
+                                .append(pct(b)).append(";");
+                    }
+                }
+                double[] cam = ViewCheckSVA.camera(t, i, ViewCheckSVA.dir(0, 0));
+                for (ViewCheckSVA.Overlay o : ViewCheckSVA.overlays(t, cam, true)) {
+                    double[] r = ViewCheckSVA.overlayShare(t, m, i, o, true);
+                    worstO = Math.max(worstO, r[0]);
+                    if (r[0] > ViewCheckSVA.LIMIT) {
+                        bad.append(" seat ").append(i).append(" ").append(o.what).append(" ").append(pct(r[0])).append(" at ")
+                                .append(String.format(java.util.Locale.ROOT, "%.2f", r[1])).append(" blocks;");
+                    }
+                }
+            }
+            check(bad.length() == 0, "own view: " + t.key + " - " + t.seatOffsets.length + " seats x 7 looks: walls in front of the face at most "
+                    + pct(worst) + ", glows / halos at most " + pct(worstO) + " of the screen (limit 5 %)" + bad);
+        }
+    }
+
+    private static String pct(double f) {
+        return String.format(java.util.Locale.ROOT, "%.1f %%", f * 100);
     }
 
     /**

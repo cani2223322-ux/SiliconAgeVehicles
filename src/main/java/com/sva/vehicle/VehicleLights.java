@@ -152,6 +152,35 @@ public final class VehicleLights {
         return false;
     }
 
+    /** Kind names (logs, the view self-test). */
+    public static final String[] NAMES = {"head", "red", "green", "strobe", "beacon", "amber", "marker", "brake", "white"};
+
+    /**
+     * The glow sprite's largest radius by kind (blocks; VehicleLightsSVA - a beacon swells to its size at the peak of its
+     * turn). In the own first-person view CockpitView.ownGlow clamps it.
+     */
+    public static float glowSize(int kind) {
+        switch (kind) {
+            case HEAD:
+                return 0.45F;
+            case BRAKE:
+                return 0.5F;
+            case RED:
+            case GREEN:
+            case WHITE:
+                return 0.35F;
+            case MARKER:
+                return 0.25F;
+            case STROBE:
+                return 1.0F;
+            case BEACON:
+            case AMBER:
+                return 0.8F;
+            default:
+                return 0.3F;
+        }
+    }
+
     /** Light colour 0xRRGGBB by kind. */
     public static int colour(int kind) {
         switch (kind) {

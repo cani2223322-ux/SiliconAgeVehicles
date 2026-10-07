@@ -112,10 +112,15 @@ public enum VehicleType {
     // ceiling 1.20 over it; the body is 8.2 long, 5.9 across the solar wings, 2.9 high. EIGHT seats (the plan says 4; the
     // model has 2 pilot + 6 passenger seats - a transport for a group): the pilots (cushion centre x 1.88, z +-0.22; driver
     // right) and three rows of two (x 0.26 / -0.30 / -0.86, z +-0.31), all x1.4 (+0.05 forward for the pilots), seatY 0.94.
-    // Rider fit: the pilots' heads went 0.13 into the cockpit roof - pilots now x 2.48, z +-0.26, 0.13 lower (seatDy;
-    // further back the eye would sit in the headrest); the passenger rows fit as they were. Eyes: pilots 1.93, others 2.06.
+    // Rider fit: the pilots' heads went 0.13 into the cockpit roof - pilots now x 2.58, z +-0.26, 0.13 lower (seatDy);
+    // the passenger rows fit as they were. Eyes: pilots 1.93, others 2.06.
+    // Fix 2026-10 (the user: the pilot's first-person view was one dark grey wall): at x 2.48 the eye (model x 1.771) was
+    // 0.012 in front of the headrest (fabric x 1.602..1.759, up to y 1.45) - and vanilla's first-person camera sits 0.1
+    // blocks BEHIND the eye (0.071 model), inside the headrest: its fabric covered 100 % of the screen (debug/ViewCheckSVA).
+    // x 2.58 (eye 1.843; cushion centre 1.88): the camera stays clear of it in every look (0 % blocked), the head top
+    // under the ceiling (1.563 up to x 2.0, rider fit passes; x 2.62 already pokes 1 point through).
     SHUTTLE("shuttle", "shuttle", Tier.XV, 32000000, 200, 8, 1.12, 0.03, 3.0, 8, 27, 500, 3.0F, 2.0F,
-            new double[][] {{2.48, 0.26, -0.13}, {2.48, -0.26, -0.13}, {0.36, 0.43}, {0.36, -0.43}, {-0.42, 0.43}, {-0.42, -0.43}, {-1.20, 0.43},
+            new double[][] {{2.58, 0.26, -0.13}, {2.58, -0.26, -0.13}, {0.36, 0.43}, {0.36, -0.43}, {-0.42, 0.43}, {-0.42, -0.43}, {-1.20, 0.43},
                     {-1.20, -0.43}}, 1.4F, 0.94, Movement.HELI,
             VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(3000), Gas.HELIUM, Integer.valueOf(3000), Gas.OXYGEN, Integer.valueOf(2000),
                     Gas.DEUTERIUM, Integer.valueOf(4000)).afterburner(Gas.HYDROGEN, 3, 1.5)),
@@ -218,6 +223,27 @@ public enum VehicleType {
     /** An endless side of a cabWindows box. */
     public static final float OPEN = Float.MAX_VALUE;
     /**
+     * Fix 2026-10 (own-view check, debug/ViewCheckSVA): leftover INNER shell surfaces that run through the cabin at a
+     * rider's head, cut like the windows in the own first-person view only (same boxes, same clip planes; with
+     * cabWindows at most CockpitView.MAX_WINDOWS boxes). null: none.
+     */
+    public float[][] cabCuts;
+    /** cabWindows + cabCuts: the boxes the own first-person view cuts out of the shell (null without windows). */
+    private float[][] ownCut;
+
+    /** The boxes the local rider's first-person view cuts out of the body shell: the windows, then the interior cuts. */
+    public float[][] ownViewCuts() {
+        if (ownCut == null && cabWindows != null) {
+            int n = cabWindows.length, k = cabCuts == null ? 0 : cabCuts.length;
+            ownCut = new float[n + k][];
+            System.arraycopy(cabWindows, 0, ownCut, 0, n);
+            if (k > 0) {
+                System.arraycopy(cabCuts, 0, ownCut, n, k);
+            }
+        }
+        return ownCut;
+    }
+    /**
      * An open seat (the buggy's roll cage, the hoverbike's saddle): the rider's head is outside the body by design, so
      * the self-test's «rider inside the hull» check (RiderFitSVA) skips it.
      */
@@ -294,12 +320,17 @@ public enum VehicleType {
         // drill: eye (0.36, 1.84, -0.31); the front glass (x 0.78..0.86, y 1.09..2.03, z -0.66..0.03) up to the cab's
         // right wall (z 0) and the left side window (x -0.06..0.69, y 1.22..1.97) - the corner pillar stays.
         DRILL.cabWindows = new float[][] {{0.76F, 0.95F, 1.09F, 2.04F, -0.66F, 0F}, {-0.07F, 0.70F, 1.21F, 1.98F, -OPEN, -0.6F}};
-        // shuttle: pilots' eye (1.77, 1.38, 0.19); the front glass (x 2.17..2.73, y 1.01..1.57, |z| 0.44) and the lit side
+        // shuttle: pilots' eye (1.84, 1.38, 0.19); the front glass (x 2.17..2.73, y 1.01..1.57, |z| 0.44) and the lit side
         // windows (the "window" strip x -1.65..1.17, y 1.19..1.44) open sideways for the passengers.
         SHUTTLE.cabWindows = new float[][] {{2.10F, 2.80F, 1.01F, 1.57F, -0.44F, 0.44F}, {-1.70F, 1.20F, 1.18F, 1.45F, -OPEN, OPEN}};
         // ship: pilots' eye (2.38, 1.01, 0.22); the bubble canopy (x 1.77..3.39, y 0.22..1.38, |z| 0.54) from over the
         // console (0.40).
         SHIP.cabWindows = new float[][] {{1.76F, 3.40F, 0.40F, 1.38F, -0.54F, 0.54F}};
+        // ship (fix 2026-10, own-view check): the old upper-deck skin (paint, x 0.58..2.08, y 1.12 at the back sloping to
+        // 0.85 at the front, |z| <= 0.71) stayed inside bridge v2's raised deck (paint2, y 1.44, walls |z| 0.62..0.65) and
+        // ran through the rear row's heads (eye (1.06, 1.01, +-0.41): the skin 0.011 over the eye - 32 % of the forward
+        // view a wall, 44 % looking up). Cut from the own view up to the paint2 frame at x 1.70 (the front row looks over it).
+        SHIP.cabCuts = new float[][] {{0.56F, 1.68F, 0.80F, 1.13F, -0.60F, 0.60F}};
     }
 
     VehicleType(String key, String model, Tier tier, int buffer, double cruiseCost, double idleCost, double topSpeed, double accel,

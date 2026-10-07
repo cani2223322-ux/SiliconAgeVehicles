@@ -823,7 +823,9 @@ public final class CockpitInstrumentsSVA {
             frame(p.c, n, up, right, p.r * 1.2F);
             int keep = glowRgb;
             glowRgb = rgb;
-            glowRing(p.r * 0.5F, p.r * 3F, 0.3F + 0.4F * night, 0F);
+            // the halo: 3 x the lamp, at most CockpitView.HALO_MAX x its distance from the eye (overhead lamps right over the head)
+            float halo = (float) com.sva.vehicle.CockpitView.lampHalo(p.r, CockpitLayout.len(CockpitLayout.sub(p.c, eye)));
+            glowRing(Math.min(p.r * 0.5F, halo * 0.5F), halo, 0.3F + 0.4F * night, 0F);
             glowRgb = keep;
             GL11.glPopMatrix();
         }

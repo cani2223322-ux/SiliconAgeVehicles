@@ -65,7 +65,21 @@ public final class VehicleLightsSVA {
     /** ★8: the beam length of the vehicle being drawn x this («Люстра фар»: 2). */
     private static float lenMul = 1F;
 
+    /** This draw is the local rider's own first-person view (glow: no pull toward the camera, size clamped). */
+    private static boolean own;
+
     public static void render(EntityVehicleSVA v, VehicleType t, float pt, float gear) {
+        render(v, t, pt, gear, false);
+    }
+
+    /**
+     * ownView (the local rider in first person): the glows are not pulled toward the camera - from inside, that pull took
+     * lights on the roof / under the floor INTO the cabin (the truck's amber beacons 23 % of the view, the shuttle's
+     * belly beacon 16 % for the passengers, the drill's work lights 45 %, debug/ViewCheckSVA) - and their radius is at
+     * most CockpitView.GLOW_MAX x the distance: seen through the windscreen they stay glows, never blobs over the view.
+     */
+    public static void render(EntityVehicleSVA v, VehicleType t, float pt, float gear, boolean ownView) {
+        own = ownView;
         boolean heads = ConfigSVA.headlights, navs = ConfigSVA.navLights;
         lenMul = (float) v.tuneLight();
         if (!heads && !navs || !v.powered()) {
@@ -110,36 +124,36 @@ public final class VehicleLightsSVA {
             switch (l.kind) {
                 case VehicleLights.HEAD:
                     if (heads && (landing || l.has(VehicleLights.F_DISC))) {
-                        glow(l, rgb, 0.45F, 0.5F * dark + 0.15F, 0.07F);
+                        glow(l, rgb, VehicleLights.glowSize(l.kind), 0.5F * dark + 0.15F, 0.07F);
                     }
                     break;
                 case VehicleLights.BRAKE:
                     if (heads && v.anim.braking()) {
-                        glow(l, rgb, 0.5F, 0.75F, 0F);
+                        glow(l, rgb, VehicleLights.glowSize(l.kind), 0.75F, 0F);
                     }
                     break;
                 case VehicleLights.RED:
                 case VehicleLights.GREEN:
                 case VehicleLights.WHITE:
                     if (navs) {
-                        glow(l, rgb, 0.35F, 0.55F * day, 0.06F);
+                        glow(l, rgb, VehicleLights.glowSize(l.kind), 0.55F * day, 0.06F);
                     }
                     break;
                 case VehicleLights.MARKER:
                     if (navs) {
-                        glow(l, rgb, 0.25F, 0.45F * day, 0.05F);
+                        glow(l, rgb, VehicleLights.glowSize(l.kind), 0.45F * day, 0.05F);
                     }
                     break;
                 case VehicleLights.STROBE:
                     if (navs && AnimMath.strobe((long) time, phase)) {
-                        glow(l, rgb, 1.0F, 0.9F, 0.09F);
+                        glow(l, rgb, VehicleLights.glowSize(l.kind), 0.9F, 0.09F);
                     }
                     break;
                 case VehicleLights.BEACON:
                 case VehicleLights.AMBER:
                     if (navs) {
                         float b = AnimMath.beacon(time, phase, l.kind == VehicleLights.AMBER ? AnimMath.BEACON_PERIOD * 4 / 5 : AnimMath.BEACON_PERIOD);
-                        glow(l, rgb, 0.3F + 0.5F * b, b * (0.4F + 0.6F * day), 0.07F);
+                        glow(l, rgb, VehicleLights.glowSize(l.kind) * (0.375F + 0.625F * b), b * (0.4F + 0.6F * day), 0.07F);
                     }
                     break;
                 default:
@@ -198,7 +212,11 @@ public final class VehicleLightsSVA {
         float ey = MV.get(1) * l.x + MV.get(5) * l.y + MV.get(9) * l.z + MV.get(13);
         float ez = MV.get(2) * l.x + MV.get(6) * l.y + MV.get(10) * l.z + MV.get(14);
         float d = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
-        if (d > 0.5F) {
+        if (own) {
+            float k = (float) (com.sva.vehicle.CockpitView.ownGlow(size, d) / size);
+            size *= k;
+            core *= k;
+        } else if (d > 0.5F) {
             float f = (d - 0.25F) / d;
             ex *= f;
             ey *= f;

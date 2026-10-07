@@ -707,7 +707,7 @@ public final class ObjModelSVA {
 
     /** Glass groups: drawn after the opaque ones, see-through. */
     public static boolean isGlass(String group) {
-        return "glass".equals(group) || "canopy".equals(group);
+        return com.sva.vehicle.CockpitView.isGlass(group);       // shared with the server-side view check
     }
 
     /** Glass alpha and how far its colour is lifted toward white (the OBJ colour is a dark tint). */
@@ -719,8 +719,7 @@ public final class ObjModelSVA {
      * (dark), seats, screens, steering wheels, levers and the other glowing parts are never cut.
      */
     public static boolean isShell(String group) {
-        return "paint".equals(group) || "paint2".equals(group) || "paint3".equals(group) || "white".equals(group)
-                || "tiles".equals(group) || "nb".equals(group) || "window".equals(group);
+        return com.sva.vehicle.CockpitView.isShell(group);       // shared with the server-side view check
     }
 
     /** Glass alpha seen from the own cockpit (lighter than outside: the view through the windscreen stays clear). */
