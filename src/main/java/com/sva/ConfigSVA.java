@@ -15,6 +15,11 @@ public final class ConfigSVA {
     public static float chargerRate = 1F;
     /** Vehicles' EU use x this. */
     public static float consumption = 1F;
+    /**
+     * Client: the first-person view from a closed vehicle shows the world through the whole hull (drawn see-through)
+     * instead of only through the cockpit windows. Off by default.
+     */
+    public static boolean seeThroughHull = false;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -36,6 +41,9 @@ public final class ConfigSVA {
                     "Charging station speed: input voltage x this / Скорость зарядной станции: напряжение входа x это");
             consumption = num(c, "consumption", v, 1F, 0F, 100F,
                     "Vehicles' EU use x this / Расход EU техникой x это");
+            seeThroughHull = c.getBoolean("seeThroughHull", v, false,
+                    "Client: from the cockpit (first person) see the world through the whole hull, not only through the windows / "
+                            + "Клиент: из кабины (от первого лица) видно мир сквозь весь корпус, а не только через стёкла");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));

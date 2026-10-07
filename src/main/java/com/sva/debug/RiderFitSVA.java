@@ -76,6 +76,47 @@ public final class RiderFitSVA {
         return tris.toArray(new float[tris.size()][]);
     }
 
+    /**
+     * The bounding box {minX, minY, minZ, maxX, maxY, maxZ} of the given groups of models/NAME.obj (model units), null
+     * when the file can't be read or has none of them.
+     */
+    public static float[] bounds(String model, String... groups) throws java.io.IOException {
+        InputStream in = RiderFitSVA.class.getResourceAsStream("/assets/siliconagevehicles/models/" + model + ".obj");
+        if (in == null) {
+            return null;
+        }
+        java.util.Set<String> want = new java.util.HashSet<String>(java.util.Arrays.asList(groups));
+        List<float[]> v = new ArrayList<float[]>();
+        float[] b = null;
+        boolean take = false;
+        BufferedReader r = new BufferedReader(new InputStreamReader(in, "UTF-8"), 1 << 16);
+        try {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.startsWith("v ")) {
+                    String[] p = line.trim().split("\\s+");
+                    v.add(new float[] {Float.parseFloat(p[1]), Float.parseFloat(p[2]), Float.parseFloat(p[3])});
+                } else if (line.startsWith("g ") || line.startsWith("o ") || line.startsWith("usemtl ")) {
+                    take = want.contains(line.substring(line.indexOf(' ') + 1).trim());
+                } else if (take && line.startsWith("f ")) {
+                    for (String f : line.substring(2).trim().split("\\s+")) {
+                        float[] q = v.get(Integer.parseInt(f.split("/")[0]) - 1);
+                        if (b == null) {
+                            b = new float[] {q[0], q[1], q[2], q[0], q[1], q[2]};
+                        }
+                        for (int a = 0; a < 3; a++) {
+                            b[a] = Math.min(b[a], q[a]);
+                            b[a + 3] = Math.max(b[a + 3], q[a]);
+                        }
+                    }
+                }
+            }
+        } finally {
+            r.close();
+        }
+        return b;
+    }
+
     /** Does the ray from o along d hit any triangle? */
     private static boolean hits(float[][] tris, double ox, double oy, double oz, float[] d) {
         for (float[] t : tris) {

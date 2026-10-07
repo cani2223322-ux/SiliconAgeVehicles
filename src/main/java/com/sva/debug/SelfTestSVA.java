@@ -105,6 +105,7 @@ public final class SelfTestSVA {
             stageEContent();
             glyphsAndCargoKey();
             riderFit();
+            cockpitWindows();
             cargoV2();
         } catch (Throwable t) {
             failed++;
@@ -1529,6 +1530,55 @@ public final class SelfTestSVA {
             }
             check(bad.length() == 0, "rider fit: " + t.key + " (model x" + t.modelScale + ", seatY " + t.seatY + ") - every rider's chest and head inside the hull"
                     + bad);
+        }
+    }
+
+    /**
+     * Cockpit windows (VehicleType.cabWindows): the open seats (buggy, hoverbike) have none, every closed type 1..3 boxes;
+     * the first (the windscreen) holds the driver's straight-ahead view ray within 2 blocks of the eye; every box lies
+     * over the type's glass (glass / canopy, the shuttle's lit "window" strip): its finite sides within the glass bounds
+     * +-0.1 (x: +-0.6 - an inset windscreen's box reaches through the shell in front of it). The clip math: a box's outer
+     * half-spaces (open sides have none), the shell kept outside and cut inside the boxes.
+     */
+    private static void cockpitWindows() throws java.io.IOException {
+        float[] box = {1F, 2F, 0F, 1F, -VehicleType.OPEN, VehicleType.OPEN};
+        float[][] one = {box}, two = {box, {-1F, 0F, 0F, 1F, -0.5F, 0.5F}};
+        check(com.sva.vehicle.CockpitView.outerPlanes(box).length == 4 && com.sva.vehicle.CockpitView.outerPlanes(two[1]).length == 6
+                && !com.sva.vehicle.CockpitView.shellKept(one, 1.5, 0.5, 40) && com.sva.vehicle.CockpitView.shellKept(one, 2.5, 0.5, 0)
+                && com.sva.vehicle.CockpitView.shellKept(one, 1.5, 1.2, 0) && !com.sva.vehicle.CockpitView.shellKept(two, -0.5, 0.5, 0.2)
+                && com.sva.vehicle.CockpitView.shellKept(two, -0.5, 0.5, 0.7) && !com.sva.vehicle.CockpitView.shellKept(two, 1.2, 0.3, -9),
+                "cockpit windows: clip half-spaces (an open side has none), the shell cut inside the boxes and kept outside");
+        for (VehicleType t : VehicleType.values()) {
+            if (t.openCab) {
+                check(t.cabWindows == null, "cockpit windows: " + t.key + " - an open seat, no window cut (the hull opaque)");
+                continue;
+            }
+            float[][] w = t.cabWindows;
+            if (w == null || w.length == 0 || w.length > com.sva.vehicle.CockpitView.MAX_WINDOWS) {
+                check(false, "cockpit windows: " + t.key + " - 1.." + com.sva.vehicle.CockpitView.MAX_WINDOWS + " window boxes");
+                continue;
+            }
+            double[] e = com.sva.vehicle.CockpitView.eye(t, 0);
+            boolean ray = false;
+            for (double d = 0; d <= 2.0 / t.modelScale; d += 0.01) {
+                ray |= com.sva.vehicle.CockpitView.inside(w[0], e[0] + d, e[1], e[2]);
+            }
+            float[] g = RiderFitSVA.bounds(t.model, "glass", "canopy", "window");
+            StringBuilder bad = new StringBuilder();
+            for (int i = 0; i < w.length && g != null; i++) {
+                for (int a = 0; a < 3; a++) {
+                    float tol = a == 0 ? 0.6F : 0.1F;
+                    float lo = w[i][a * 2], hi = w[i][a * 2 + 1];
+                    if (lo >= hi || lo > -VehicleType.OPEN && lo < g[a] - tol || hi < VehicleType.OPEN && hi > g[a + 3] + tol
+                            || lo > g[a + 3] || hi < g[a]) {
+                        bad.append(" box ").append(i).append(" axis ").append("xyz".charAt(a)).append(" [").append(lo).append(", ").append(hi)
+                                .append("] vs glass [").append(g[a]).append(", ").append(g[a + 3]).append("];");
+                    }
+                }
+            }
+            check(ray && g != null && bad.length() == 0, "cockpit windows: " + t.key + " - " + w.length + " box(es) over the glass, the driver's eye ("
+                    + String.format(java.util.Locale.ROOT, "%.2f, %.2f, %.2f", e[0], e[1], e[2]) + ") looks ahead through the windscreen box"
+                    + (ray ? "" : " NOT through it") + (g == null ? " (no glass in the OBJ)" : "") + bad);
         }
     }
 

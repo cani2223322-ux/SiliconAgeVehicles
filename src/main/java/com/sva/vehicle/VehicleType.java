@@ -51,8 +51,11 @@ public enum VehicleType {
     // Rider fit: at x2.3 the fuselage tube is only ~1.12 blocks high inside - the heads stood out over it. Now x2.9
     // (13.5 long, 14.5 across the wings): pilot x 2.50, passengers x 1.06 / -0.39 (z +-0.28), seatY 1.26 (hips 0.12-0.14
     // into the seat surface at 1.60); eyes 2.38, the roof 0.34-0.36 over them.
+    // Cockpit view (2026-10): the pilot looked at the instrument cluster, under the fuselage top - his seat now stands on a
+    // pedestal 0.48 higher (seatDy; cushion top 2.08), the canopy was raised to 3.33 (glass top 1.15) and the dash lowered
+    // to 0.84 (2.42): eyes 2.86, over the dash and the nose (look-down over the nose ~7 deg), head top 0.18 under the glass.
     PLANE("plane", "plane", Tier.HV, 4000000, 50, 2, 1.12, PlaneMath.THRUST, 1.8, 3, 9, 250, 3.0F, 2.0F,
-            new double[][] {{2.50, -0.28}, {1.06, 0.28}, {-0.39, -0.28}}, 2.9F, 1.26, Movement.PLANE,
+            new double[][] {{2.50, -0.28, 0.48}, {1.06, 0.28}, {-0.39, -0.28}}, 2.9F, 1.26, Movement.PLANE,
             VehicleGases.of(Gas.HELIUM, Integer.valueOf(1000))),
     // Cargo Crawler (plan §2, HV): 2M EU, 60 EU/t at speed / 2 idle, x1.4 sprint (0.392 b/t), 2 seats, 54 cargo + the
     // trailer's 54 (trailerSlots), helium under load (one gas tank: 2000 mB), tracks (Movement.CRAWLER: turns on the
@@ -197,17 +200,29 @@ public enum VehicleType {
     /** Stage E: the Singular Ship's own portal «Прыжок», the gravity anchor and invisibility for mobs. */
     public boolean singular;
     /**
-     * The local rider's first-person view: the body shell (ObjModelSVA.isShell - paint / paint2 / paint3 / white) is drawn
-     * see-through with this alpha so the world outside shows through the cab walls; the cockpit (seats, dash, wheel,
-     * screens) stays solid. 1 = opaque (the old look). Every type uses it (the user's choice, also the open buggy / bike).
+     * The config fallback vehicles.seeThroughHull (default off): the local rider's first-person view draws the body shell
+     * (ObjModelSVA.isShell) see-through with this alpha instead of cutting the cockpit windows (cabWindows).
      */
     public float cabShellAlpha = CAB_SHELL_ALPHA;
+    /**
+     * COCKPIT WINDOWS (2026-10, the user: «вид должен быть только через лобовое стекло, как в реальных самолётах»): for
+     * the local rider in first person the body shell is drawn OPAQUE except inside these boxes {x0, x1, y0, y1, z0, z1}
+     * (model units, x forward, y up, z right; OPEN = an endless side) - the windscreen / canopy / side window openings,
+     * cut with GL clip planes (ObjModelSVA.renderShellClipped); the glass over them stays lightly tinted. Every box is
+     * derived from the type's glass pieces in its OBJ (the windscreen box from the glass ahead of the eye, its floor at
+     * the glass bottom or over the dash, reaching forward through the shell in front of an inset windscreen; side boxes
+     * over the side glass, open sideways so both walls get the opening). null: an open seat (buggy, hoverbike) - the
+     * shell is simply drawn opaque. Numbers and the measured view per type: the static block below.
+     */
+    public float[][] cabWindows;
+    /** An endless side of a cabWindows box. */
+    public static final float OPEN = Float.MAX_VALUE;
     /**
      * An open seat (the buggy's roll cage, the hoverbike's saddle): the rider's head is outside the body by design, so
      * the self-test's «rider inside the hull» check (RiderFitSVA) skips it.
      */
     public boolean openCab;
-    /** Default see-through alpha of the shell from inside (see cabShellAlpha). */
+    /** See-through alpha of the shell from inside with vehicles.seeThroughHull (see cabShellAlpha). */
     public static final float CAB_SHELL_ALPHA = 0.18F;
 
     static {
@@ -254,6 +269,34 @@ public enum VehicleType {
         SHUTTLE.longRange = SHIP.longRange = true;
         SHUTTLE.bridgeDock = SHIP.bridgeDock = true;
         SHIP.singular = true;
+        // cockpit windows (cabWindows; model units). Eyes = the driver seat's eye (seatY + seatDy + 1.12) in model units;
+        // "visible" = the share of the forward view cone (yaw +-60, pitch +-35) through the glass that reaches the world
+        // (measured by ray-casting the OBJ with the cut shell; the rest is the dash, pillars, the nose, rotors...).
+        // heli: eye (0.83, 1.07, 0.19); the nose bubble (glass x 0.93..1.75, y 0.35..1.30) and the cabin door windows
+        // (x -0.01..0.68, y 0.67..1.17) - both open sideways: the shell around the bubble and the doors.
+        HELI.cabWindows = new float[][] {{0.90F, 1.80F, 0.35F, 1.30F, -OPEN, OPEN}, {-0.02F, 0.69F, 0.66F, 1.18F, -OPEN, OPEN}};
+        // plane: eye (0.86, 0.99, -0.10) - the pilot sits 0.48 higher (seatDy) on a raised seat under the raised canopy
+        // (glass x 0.36..1.48, y 0.78..1.15, |z| 0.24) and looks over the lowered dash (top 0.84) and the nose; the
+        // passengers' side windows (x -0.58..-0.02, y 0.57..0.71) open sideways.
+        PLANE.cabWindows = new float[][] {{0.36F, 1.50F, 0.84F, 1.16F, -0.24F, 0.24F}, {-0.58F, -0.01F, 0.565F, 0.71F, -OPEN, OPEN}};
+        // jet: eye (1.21, 0.92, 0); the canopy (x 0.61..1.74, y 0.71..1.04, |z| 0.20).
+        JET.cabWindows = new float[][] {{0.61F, 1.75F, 0.71F, 1.04F, -0.21F, 0.21F}};
+        // tilt: pilots' eye (1.57, 0.83, 0.11); the cockpit glass (x 1.09..2.03, y 0.71..1.05, |z| 0.26) over the
+        // clusters lowered to 0.73.
+        TILT.cabWindows = new float[][] {{1.09F, 2.05F, 0.70F, 1.06F, -0.27F, 0.27F}};
+        // truck: eye (2.17, 1.54, -0.30); the windscreen glass is inset (x 2.36..2.63, y 1.20..1.64) behind the cab's
+        // sloped front - the box reaches through the slope (x to 3.20) over the dash hump (from 1.40); the door windows
+        // (x 1.87..2.43, y 1.27..1.64) open sideways.
+        TRUCK.cabWindows = new float[][] {{2.30F, 3.20F, 1.40F, 1.70F, -0.70F, 0.70F}, {1.86F, 2.44F, 1.26F, 1.65F, -OPEN, OPEN}};
+        // drill: eye (0.36, 1.84, -0.31); the front glass (x 0.78..0.86, y 1.09..2.03, z -0.66..0.03) up to the cab's
+        // right wall (z 0) and the left side window (x -0.06..0.69, y 1.22..1.97) - the corner pillar stays.
+        DRILL.cabWindows = new float[][] {{0.76F, 0.95F, 1.09F, 2.04F, -0.66F, 0F}, {-0.07F, 0.70F, 1.21F, 1.98F, -OPEN, -0.6F}};
+        // shuttle: pilots' eye (1.77, 1.38, 0.19); the front glass (x 2.17..2.73, y 1.01..1.57, |z| 0.44) and the lit side
+        // windows (the "window" strip x -1.65..1.17, y 1.19..1.44) open sideways for the passengers.
+        SHUTTLE.cabWindows = new float[][] {{2.10F, 2.80F, 1.01F, 1.57F, -0.44F, 0.44F}, {-1.70F, 1.20F, 1.18F, 1.45F, -OPEN, OPEN}};
+        // ship: pilots' eye (2.38, 1.01, 0.22); the bubble canopy (x 1.77..3.39, y 0.22..1.38, |z| 0.54) from over the
+        // console (0.40).
+        SHIP.cabWindows = new float[][] {{1.76F, 3.40F, 0.40F, 1.38F, -0.54F, 0.54F}};
     }
 
     VehicleType(String key, String model, Tier tier, int buffer, double cruiseCost, double idleCost, double topSpeed, double accel,

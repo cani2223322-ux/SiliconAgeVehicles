@@ -41,8 +41,10 @@ public class RenderVehicleSVA extends Render {
         GL11.glEnable(GL11.GL_LIGHTING);
         GL11.glEnable(GL11.GL_COLOR_MATERIAL);
         GL11.glShadeModel(GL11.GL_SMOOTH);
-        // the local rider in first person: no glass at all (the clearest view) and the body shell see-through
-        // (cabShellAlpha) so the world outside shows through the cab walls; everyone else sees glass see-through
+        // the local rider in first person: the hull opaque with the cockpit windows cut out (VehicleType.cabWindows, GL
+        // clip planes) and the glass over them lightly tinted - the world shows only through the windscreen / canopy.
+        // Config vehicles.seeThroughHull: the older look (no glass, the whole shell see-through). Everyone else: opaque
+        // hull, glass see-through.
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
         boolean ownView = mc.gameSettings.thirdPersonView == 0 && HudVehicleSVA.vehicleOf(mc.thePlayer) == v;
         if (v.getVehicleType().movement.flies && !ownView) {
@@ -55,7 +57,13 @@ public class RenderVehicleSVA extends Render {
             GL11.glTranslatef(0F, -ATTITUDE_Y, 0F);
         }
         float shade = v.isWrecked() ? 0.45F : 1F;
-        m.render(shade, !ownView, ownView ? v.getVehicleType().cabShellAlpha : 1F);
+        if (!ownView) {
+            m.render(shade, ObjModelSVA.GLASS_ALPHA, 1F, null);
+        } else if (com.sva.ConfigSVA.seeThroughHull) {
+            m.render(shade, 0F, v.getVehicleType().cabShellAlpha, null);
+        } else {
+            m.render(shade, ObjModelSVA.COCKPIT_GLASS_ALPHA, 1F, v.getVehicleType().cabWindows);
+        }
         java.util.List<ObjModelSVA.Part> parts = m.parts();
         if (!parts.isEmpty()) {
             // rotor / propeller: turned by the synced spin; a faint blur disc while it spins fast

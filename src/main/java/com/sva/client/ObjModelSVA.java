@@ -297,40 +297,50 @@ public final class ObjModelSVA {
 
     /**
      * Body shell groups (the painted hull: paint, paint2, paint3, white and the shuttle's lit side windows; tiles / nb
-     * kept for future models): drawn see-through from inside the cab (render's shellAlpha). Dashboards / consoles
-     * (dark), seats, screens, steering wheels, levers and the other glowing parts stay solid.
+     * kept for future models): the cockpit-window clip (render's windows) cuts only these. Dashboards / consoles
+     * (dark), seats, screens, steering wheels, levers and the other glowing parts are never cut.
      */
     public static boolean isShell(String group) {
         return "paint".equals(group) || "paint2".equals(group) || "paint3".equals(group) || "white".equals(group)
                 || "tiles".equals(group) || "nb".equals(group) || "window".equals(group);
     }
 
+    /** Glass alpha seen from the own cockpit (lighter than outside: the view through the windscreen stays clear). */
+    public static final float COCKPIT_GLASS_ALPHA = 0.15F;
+
     public void render(float shade) {
-        render(shade, true, 1F);
+        render(shade, GLASS_ALPHA, 1F, null);
     }
 
     public void render(float shade, boolean withGlass) {
-        render(shade, withGlass, 1F);
+        render(shade, withGlass ? GLASS_ALPHA : 0F, 1F, null);
     }
 
     /**
-     * Draws the opaque groups, then (withGlass) the glass / canopy groups translucent: blended, tinted lighter,
-     * no depth writes, both faces (texture 2D must already be off). `shade` darkens everything (a wreck: no glow).
-     * withGlass false: the glass is left out (the local rider's first-person view). shellAlpha < 1 (the same view):
-     * the body shell (isShell) is drawn after the opaque groups, lit, blended with that alpha and without depth writes,
-     * so the world outside shows through the cab walls while the cockpit stays solid.
+     * Draws the opaque groups, then the glass / canopy groups translucent with `glassAlpha` (0: left out): blended,
+     * tinted lighter, no depth writes, both faces (texture 2D must already be off). `shade` darkens everything (a
+     * wreck: no glow).
+     * windows (the local rider's first-person view, VehicleType.cabWindows): boxes {x0, x1, y0, y1, z0, z1} in model
+     * units - the body shell (isShell) is drawn opaque everywhere EXCEPT inside them: the cockpit window openings, so
+     * the world shows only through the windscreen / canopy (see renderShellClipped).
+     * shellAlpha < 1 (the config fallback vehicles.seeThroughHull): the whole shell is drawn after the opaque groups,
+     * lit, blended with that alpha and without depth writes (the older see-through look).
      */
-    public void render(float shade, boolean withGlass, float shellAlpha) {
+    public void render(float shade, float glassAlpha, float shellAlpha, float[][] windows) {
         if (lists < 0) {
             compile();
         }
         boolean seeThrough = shellAlpha < 1F;
+        boolean clip = !seeThrough && windows != null && windows.length > 0;
         for (int i = 0; i < groups.size(); i++) {
             String g = groups.get(i);
-            if (isGlass(g) || g.startsWith("#") || seeThrough && isShell(g)) {
+            if (isGlass(g) || g.startsWith("#") || (seeThrough || clip) && isShell(g)) {
                 continue;
             }
             drawGroup(i, shade);
+        }
+        if (clip) {
+            renderShellClipped(shade, windows);
         }
         if (seeThrough) {
             GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
@@ -349,7 +359,7 @@ public final class ObjModelSVA {
             GL11.glDepthMask(true);
             GL11.glPopAttrib();
         }
-        if (withGlass) {
+        if (glassAlpha > 0F) {
             GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
             GL11.glEnable(GL11.GL_BLEND);
             GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -360,13 +370,61 @@ public final class ObjModelSVA {
                     continue;
                 }
                 float[] c = colors.get(i);
-                GL11.glColor4f(lighten(c[0]) * shade, lighten(c[1]) * shade, lighten(c[2]) * shade, GLASS_ALPHA);
+                GL11.glColor4f(lighten(c[0]) * shade, lighten(c[1]) * shade, lighten(c[2]) * shade, glassAlpha);
                 GL11.glCallList(lists + i);
             }
             GL11.glDepthMask(true);
             GL11.glPopAttrib();
         }
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /**
+     * The shell minus the window boxes, with user clip planes given in model space (after the model transform; GL keeps
+     * them in eye space). Outside one box = the union of its (up to 6) outer half-spaces; outside all boxes = the
+     * intersection over the boxes. So: one pass per combination of one outer half-space of every box, clip plane b
+     * (GL_CLIP_PLANE0 + b) holding box b's chosen half-space - 6 passes for one box, 36 for two. Passes overlap (a point
+     * outside on two sides is drawn twice): the same geometry at the same depth (GL_LEQUAL) and colour - harmless.
+     */
+    private static final java.nio.DoubleBuffer CLIP_EQ = org.lwjgl.BufferUtils.createDoubleBuffer(4);
+
+    private void renderShellClipped(float shade, float[][] windows) {
+        int n = Math.min(windows.length, com.sva.vehicle.CockpitView.MAX_WINDOWS);
+        double[][][] planes = new double[n][][];
+        for (int b = 0; b < n; b++) {
+            planes[b] = com.sva.vehicle.CockpitView.outerPlanes(windows[b]);
+            if (planes[b].length == 0) {
+                return;                                         // an endless box: no shell outside it
+            }
+        }
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_TRANSFORM_BIT);
+        int[] pick = new int[n];
+        java.nio.DoubleBuffer buf = CLIP_EQ;
+        while (true) {
+            for (int b = 0; b < n; b++) {
+                buf.clear();
+                buf.put(planes[b][pick[b]]).flip();
+                GL11.glClipPlane(GL11.GL_CLIP_PLANE0 + b, buf);
+                GL11.glEnable(GL11.GL_CLIP_PLANE0 + b);
+            }
+            for (int i = 0; i < groups.size(); i++) {
+                if (isShell(groups.get(i))) {
+                    drawGroup(i, shade);
+                }
+            }
+            int b = 0;                                          // the next combination (odometer)
+            while (b < n && ++pick[b] >= planes[b].length) {
+                pick[b] = 0;
+                b++;
+            }
+            if (b >= n) {
+                break;
+            }
+        }
+        for (int b = 0; b < n; b++) {
+            GL11.glDisable(GL11.GL_CLIP_PLANE0 + b);
+        }
+        GL11.glPopAttrib();
     }
 
     private static float lighten(float c) {
