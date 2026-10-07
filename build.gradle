@@ -48,6 +48,12 @@ sourceSets.main.compileClasspath += configurations.compileOnlySVA
 
 dependencies {
     compileOnlySVA files(coreDir, 'libs/industrialcraft-2-2.2.828-experimental.jar')
+    // NEI plugin (com.sva.nei) - compile only, never packed into our jar and kept off the dev run's classpath:
+    // NEI finds NEISiliconAgeVehiclesConfig by its name when it is installed; without NEI nothing loads it.
+    // The jars are copied from ../SiliconAge/libs (libs/ is gitignored).
+    compileOnlySVA files('libs/NotEnoughItems-1.7.10-1.0.5.120-universal.jar',
+            'libs/CodeChickenCore-1.7.10-1.0.7.48-universal.jar',
+            'libs/CodeChickenLib-1.7.10-1.1.3.141-universal.jar')
 }
 
 processResources {

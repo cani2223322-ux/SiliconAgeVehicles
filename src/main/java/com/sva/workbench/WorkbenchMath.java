@@ -60,6 +60,11 @@ public final class WorkbenchMath {
         return Tier.byOrdinal(tier.ordinal() - 3);
     }
 
+    /** Transformer upgrades a bare workbench needs for a recipe of `tier` (0 up to EV, QV 1, XV 2, SV 3). */
+    public static int transformersFor(Tier tier) {
+        return requiredInput(tier).ordinal() - BASE_TIER.ordinal();
+    }
+
     public static boolean canBuild(Tier recipeTier, Tier input) {
         return input.ordinal() >= requiredInput(recipeTier).ordinal();
     }

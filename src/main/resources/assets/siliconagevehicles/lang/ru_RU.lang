@@ -538,3 +538,11 @@ sva.msg.dock.field=§eНа той стороне моста — чужой пр�
 sva.msg.dock.eu=§eМало EU на массу перехода: нужно %s
 sva.msg.dock.failed=§cСтыковка сорвалась — машина осталась на месте
 sva.msg.dock.done=§bСтыковка с мостом «%s»: прибытие в %s %s %s (масса перехода — %s EU)
+
+# NEI: the Engineering Workbench page (com.sva.nei)
+sva.nei.workbench=Инженерный верстак
+sva.nei.cost=%s EU · %s с
+sva.nei.input=Вход: %s (нужно трансформаторов: %s)
+sva.nei.input.base=Вход: %s (без трансформаторов)
+sva.nei.instant=Мгновенно, без EU
+sva.nei.category=Категория: %s

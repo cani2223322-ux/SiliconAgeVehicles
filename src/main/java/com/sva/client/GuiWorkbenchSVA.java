@@ -44,6 +44,8 @@ public class GuiWorkbenchSVA extends GuiContainer {
     private static final int W = 400, H = 232;
     private static final int LIST_X = 6, LIST_Y = 64, ROW_H = 20, ROWS = 5, LIST_W = 118;
     private static final int BTN_START = 10, BTN_FILL = 11, BTN_CLEAR = 12;
+    /** The progress arrow (screen-relative), also NEI's «recipes» click area (com.sva.nei). */
+    public static final int ARROW_X = 226, ARROW_Y = 57, ARROW_W = 32, ARROW_H = 12;
     // colours
     private static final int BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, PANEL = 0xFF232833, PANEL_HI = 0xFF2E3542, SLOT = 0xFF2B313C, SLOT_DARK = 0xFF0D1015,
             GOLD = 0xF2C04A, CYAN = 0x5EC8F0, TEXT = 0xD8DCE4, MUTED = 0x8A93A3, GREEN = 0x62E06A, RED = 0xF06060, YELLOW = 0xF0D060;
@@ -265,6 +267,27 @@ public class GuiWorkbenchSVA extends GuiContainer {
         clear.enabled = !gridEmpty();
     }
 
+    /**
+     * From NEI's «?» (com.sva.nei.WorkbenchOverlayHandlerSVA, no NEI classes here): pick recipe `r` in the list (its
+     * tab, scrolled into view - the screen then shows its ghost items and checklist) and, with `fill`, lay it out
+     * like the «Разложить» button (the same server packet; not while an assembly runs).
+     */
+    public void selectFromNei(WorkbenchRecipeSVA r, boolean fill) {
+        if (r == null) {
+            return;
+        }
+        category = r.category.ordinal();
+        if (search != null) {
+            search.setText("");
+        }
+        selected = r;
+        int row = filtered().indexOf(r);
+        scroll = Math.max(0, row - ROWS + 1);
+        if (fill && !tile.isAssembling()) {
+            NetSVA.CHANNEL.sendToServer(new NetSVA.Workbench(tile.xCoord, tile.yCoord, tile.zCoord, NetSVA.Workbench.FILL, r.id));
+        }
+    }
+
     private static boolean inside(int mx, int my, int x, int y, int w, int h) {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
@@ -331,7 +354,7 @@ public class GuiWorkbenchSVA extends GuiContainer {
         rect(ox - 4, oy - 4, 24, 24, 0xFF151920);
         frame(ox - 1, oy - 1, 18, 18, SLOT_DARK, SLOT);
         // progress arrow
-        int ax = x + 226, ay = y + 59;
+        int ax = x + ARROW_X, ay = y + ARROW_Y + 2;
         float p = tile.isAssembling() && tile.getTotalTicks() > 0 ? Math.min(1F, tile.getProgress() / (float) tile.getTotalTicks())
                 : (cur != null && cur.instant() || outputDone()) ? 1F : 0F;
         int arrowColour = cur != null && cur.instant() && !tile.isAssembling() ? 0xFF62E06A : 0xFF5EC8F0;

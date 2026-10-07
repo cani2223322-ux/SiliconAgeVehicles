@@ -71,6 +71,7 @@ public final class SelfTestSVA {
             workbenchRecipes();
             workbenchUpgrades();
             workbenchPlanner();
+            neiLayout();
             components();
             gasTanks();
             helium();
@@ -417,6 +418,76 @@ public final class SelfTestSVA {
             missing += v == FillPlannerSVA.MISSING ? 1 : 0;
         }
         check(missing == 23, "planner: empty inventory - all 23 buggy cells missing (" + missing + ")");
+    }
+
+    /** The NEI page layout (WorkbenchNeiLayoutSVA - pure, the NEI handler draws from it; no NEI class is touched here). */
+    private static void neiLayout() {
+        int G = WorkbenchRecipeSVA.GRID, S = com.sva.workbench.WorkbenchNeiLayoutSVA.STEP;
+        int gx = com.sva.workbench.WorkbenchNeiLayoutSVA.GRID_X, gy = com.sva.workbench.WorkbenchNeiLayoutSVA.GRID_Y;
+        boolean inside = true, counts = true, centred = true, same = true, craftable = true, shown = true, ghost = true;
+        String bad = "";
+        for (WorkbenchRecipeSVA r : WorkbenchRecipesSVA.all()) {
+            java.util.List<com.sva.workbench.WorkbenchNeiLayoutSVA.Cell> cells = com.sva.workbench.WorkbenchNeiLayoutSVA.cells(r);
+            int[] o = com.sva.workbench.WorkbenchNeiLayoutSVA.origin(r);
+            boolean ok = true;
+            if (cells.size() != com.sva.workbench.WorkbenchNeiLayoutSVA.patternCount(r)) {
+                counts = ok = false;
+            }
+            // centred: left / right (top / bottom) margins differ by at most one cell
+            int left = o[0], right = G - r.width - o[0], top = o[1], bottom = G - r.height - o[1];
+            if (left < 0 || right < 0 || top < 0 || bottom < 0 || Math.abs(left - right) > 1 || Math.abs(top - bottom) > 1) {
+                centred = ok = false;
+            }
+            ItemStack[] grid = new ItemStack[WorkbenchRecipeSVA.CELLS];
+            java.util.Set<Integer> seen = new java.util.HashSet<Integer>();
+            for (com.sva.workbench.WorkbenchNeiLayoutSVA.Cell c : cells) {
+                if (c.col < 0 || c.col >= G || c.row < 0 || c.row >= G || c.index != c.row * G + c.col || !seen.add(Integer.valueOf(c.index))
+                        || c.x != gx + c.col * S || c.y != gy + c.row * S) {
+                    inside = ok = false;
+                    continue;
+                }
+                int px = c.col - o[0], py = c.row - o[1];
+                if (px < 0 || px >= r.width || py < 0 || py >= r.height || r.cell(px, py) != c.ingredient) {
+                    same = ok = false;
+                }
+                if (c.x + com.sva.workbench.WorkbenchNeiLayoutSVA.GHOST_DX != com.sva.inventory.ContainerWorkbenchSVA.GRID_X + c.col * 18
+                        || c.y + com.sva.workbench.WorkbenchNeiLayoutSVA.GHOST_DY != com.sva.inventory.ContainerWorkbenchSVA.GRID_Y + c.row * 18) {
+                    ghost = ok = false;
+                }
+                ItemStack d = WorkbenchRecipeSVA.displayOf(c.ingredient);
+                if (d == null) {
+                    shown = ok = false;
+                } else {
+                    grid[c.index] = d;
+                }
+            }
+            // what the page shows, put into a workbench grid, is that very recipe
+            if (shown && WorkbenchRecipesSVA.find(grid) != r) {
+                craftable = ok = false;
+            }
+            if (!ok && bad.length() < 120) {
+                bad += " " + r.id;
+            }
+        }
+        int n = WorkbenchRecipesSVA.all().size();
+        check(counts, "nei: every page shows as many items as its recipe's pattern (" + n + " recipes)" + bad);
+        check(inside, "nei: every cell inside the 5x5 page grid on the 18-px step, no cell twice");
+        check(centred && WorkbenchRecipesSVA.byId("wheel") != null
+                && java.util.Arrays.equals(com.sva.workbench.WorkbenchNeiLayoutSVA.origin(WorkbenchRecipesSVA.byId("wheel")), new int[] {1, 1})
+                && java.util.Arrays.equals(com.sva.workbench.WorkbenchNeiLayoutSVA.origin(WorkbenchRecipesSVA.byId("buggy")), new int[] {0, 0}),
+                "nei: small patterns centred (3x3 at 1,1), a 5x5 fills the grid");
+        check(same, "nei: each page cell holds the recipe's own ingredient");
+        check(shown && craftable, "nei: every page laid into a workbench grid matches its own recipe");
+        check(ghost, "nei: «?» ghost offset maps every page cell onto the workbench grid slot");
+        check(gx - 4 >= 0 && gx + G * S <= com.sva.workbench.WorkbenchNeiLayoutSVA.ARROW_X
+                && com.sva.workbench.WorkbenchNeiLayoutSVA.ARROW_X + com.sva.workbench.WorkbenchNeiLayoutSVA.ARROW_W <= com.sva.workbench.WorkbenchNeiLayoutSVA.OUT_X - 4
+                && com.sva.workbench.WorkbenchNeiLayoutSVA.OUT_X + 16 + 4 < 148 && gy + G * S <= 98,
+                "nei: page fits NEI's 166-px recipe area (grid | arrow | output, clear of the «?» button, text below)");
+        check(WorkbenchMath.transformersFor(Tier.MV) == 0 && WorkbenchMath.transformersFor(Tier.EV) == 0 && WorkbenchMath.transformersFor(Tier.QV) == 1
+                && WorkbenchMath.transformersFor(Tier.XV) == 2 && WorkbenchMath.transformersFor(Tier.SV) == 3,
+                "nei: transformers needed MV/EV 0, QV 1, XV 2, SV 3");
+        check(SelfTestSVA.class.getClassLoader().getResource("com/sva/nei/NEISiliconAgeVehiclesConfig.class") != null,
+                "nei: plugin class packed as a resource (never loaded here - NEI loads it by name)");
     }
 
     private static void components() {

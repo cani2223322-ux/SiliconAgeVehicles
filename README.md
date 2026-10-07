@@ -63,10 +63,11 @@
 1. Minecraft **1.7.10**, Forge **10.13.4.1614** (или новее для 1.7.10), Java 8.
 2. Мод **Silicon Age 0.1.8** или новее (обязателен).
 3. Положите jar аддона в папку `.minecraft/mods` рядом с Silicon Age. IndustrialCraft 2 — необязателен, как и для ядра.
+4. NEI (Not Enough Items) — необязателен: если он установлен, все рецепты Инженерного верстака видны в NEI (страница «Инженерный верстак»: сетка 5×5, EU, время, нужный вход и трансформаторы). R — как сделать, U — где используется (и U по самому верстаку — все рецепты), клик по стрелке в окне верстака — список рецептов, «?» — подсказка раскладки в сетке, Shift + «?» — разложить, как кнопкой «Разложить». Без NEI аддон работает как обычно.
 
 ### Сборка из исходников
 1. JDK 8 и Gradle 2.14 (ForgeGradle 1.2).
-2. Рядом должен лежать проект ядра `../SiliconAge` с собранными классами (`build/classes/main`), в `libs/` — `industrialcraft-2-2.2.828-experimental.jar` (только для компиляции).
+2. Рядом должен лежать проект ядра `../SiliconAge` с собранными классами (`build/classes/main`), в `libs/` — `industrialcraft-2-2.2.828-experimental.jar` и для плагина NEI `NotEnoughItems-1.7.10-1.0.5.120-universal.jar`, `CodeChickenCore-1.7.10-1.0.7.48-universal.jar`, `CodeChickenLib-1.7.10-1.1.3.141-universal.jar` (только для компиляции, в jar не попадают; берутся из `../SiliconAge/libs`).
 3. `gradle build` — jar появится в `build/libs/`.
 
 ### Лицензия
@@ -131,10 +132,11 @@ Every key can be rebound in the controls settings ("Silicon Age: Vehicles").
 1. Minecraft **1.7.10**, Forge **10.13.4.1614** (or newer for 1.7.10), Java 8.
 2. **Silicon Age 0.1.8** or newer (required).
 3. Put the add-on jar into `.minecraft/mods` next to Silicon Age. IndustrialCraft 2 is optional, as for the core.
+4. NEI (Not Enough Items) is optional: with it every Engineering Workbench recipe shows in NEI (the "Engineering Workbench" page: 5x5 grid, EU, time, required input and transformers). R - how to make, U - where it is used (U on the workbench itself - all recipes), clicking the arrow in the workbench screen lists the recipes, "?" shows the layout over the grid, Shift + "?" lays it out like the "Lay out" button. Without NEI the add-on works as usual.
 
 ### Building from source
 1. JDK 8 and Gradle 2.14 (ForgeGradle 1.2).
-2. The core project `../SiliconAge` must sit next to it with its classes built (`build/classes/main`); `libs/` holds `industrialcraft-2-2.2.828-experimental.jar` (compile only).
+2. The core project `../SiliconAge` must sit next to it with its classes built (`build/classes/main`); `libs/` holds `industrialcraft-2-2.2.828-experimental.jar` and, for the NEI plugin, `NotEnoughItems-1.7.10-1.0.5.120-universal.jar`, `CodeChickenCore-1.7.10-1.0.7.48-universal.jar`, `CodeChickenLib-1.7.10-1.1.3.141-universal.jar` (compile only, never packed into the jar; copy them from `../SiliconAge/libs`).
 3. `gradle build` - the jar appears in `build/libs/`.
 
 ### License

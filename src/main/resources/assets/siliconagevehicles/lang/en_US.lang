@@ -538,3 +538,11 @@ sva.msg.dock.field=§eSomeone else's private field on the bridge's far side
 sva.msg.dock.eu=§eNot enough EU for the pass's mass: needs %s
 sva.msg.dock.failed=§cDocking failed - the vehicle stayed
 sva.msg.dock.done=§bDocked with the bridge "%s": arrived at %s %s %s (mass toll %s EU)
+
+# NEI: the Engineering Workbench page (com.sva.nei)
+sva.nei.workbench=Engineering Workbench
+sva.nei.cost=%s EU · %s s
+sva.nei.input=Input: %s (transformers needed: %s)
+sva.nei.input.base=Input: %s (no transformers)
+sva.nei.instant=Instant, no EU
+sva.nei.category=Category: %s
