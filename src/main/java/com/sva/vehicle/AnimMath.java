@@ -49,6 +49,32 @@ public final class AnimMath {
         public float lastDy, lastFwd;
         public int brakeTicks;
         public boolean inited;
+        /**
+         * Cockpit stage 1: the cabin controls' inputs, -1..1 (AnimParts PITCH, ROLL, YAW, LIFT, THROTTLE - the throttle
+         * as -1..1), smoothed like the surfaces (controls()); prev* for the partial-tick lerp.
+         */
+        public float ctlPitch, prevCtlPitch, ctlRoll, prevCtlRoll, ctlYaw, prevCtlYaw, ctlLift, prevCtlLift, ctlThrottle = -1F,
+                prevCtlThrottle = -1F;
+
+        /** A CONTROL input (AnimParts.STEER..THROTTLE) at partial tick pt, -1..1. */
+        public float control(int in, float pt) {
+            switch (in) {
+                case AnimParts.STEER:
+                    return lerp(prevSteer, steer, pt) / MAX_STEER;
+                case AnimParts.PITCH:
+                    return lerp(prevCtlPitch, ctlPitch, pt);
+                case AnimParts.ROLL:
+                    return lerp(prevCtlRoll, ctlRoll, pt);
+                case AnimParts.YAW:
+                    return lerp(prevCtlYaw, ctlYaw, pt);
+                case AnimParts.LIFT:
+                    return lerp(prevCtlLift, ctlLift, pt);
+                case AnimParts.THROTTLE:
+                    return lerp(prevCtlThrottle, ctlThrottle, pt);
+                default:
+                    return 0F;
+            }
+        }
 
         public boolean braking() {
             return brakeTicks > 0;
@@ -124,6 +150,29 @@ public final class AnimMath {
             s.prevGear = s.gear;
             s.inited = true;
         }
+    }
+
+    /**
+     * Cockpit stage 1, one client tick of the cabin controls (after tick()): each input eases toward its target (clamped
+     * to -1..1; the throttle 0..1 becomes -1..1) by SMOOTH a tick; animate off = everything at rest (the throttle lever in
+     * its back stop). The targets come from the driver's keys or, for anyone else, from the motion (EntityVehicleSVA).
+     */
+    public static void controls(State s, float pitch, float roll, float yaw, float lift, float throttle01, boolean animate) {
+        s.prevCtlPitch = s.ctlPitch;
+        s.prevCtlRoll = s.ctlRoll;
+        s.prevCtlYaw = s.ctlYaw;
+        s.prevCtlLift = s.ctlLift;
+        s.prevCtlThrottle = s.ctlThrottle;
+        if (!animate) {
+            s.ctlPitch = s.ctlRoll = s.ctlYaw = s.ctlLift = 0F;
+            s.ctlThrottle = -1F;
+            return;
+        }
+        s.ctlPitch = smooth(s.ctlPitch, clamp(pitch, -1, 1));
+        s.ctlRoll = smooth(s.ctlRoll, clamp(roll, -1, 1));
+        s.ctlYaw = smooth(s.ctlYaw, clamp(yaw, -1, 1));
+        s.ctlLift = smooth(s.ctlLift, clamp(lift, -1, 1));
+        s.ctlThrottle = smooth(s.ctlThrottle, clamp(throttle01, 0, 1) * 2F - 1F);
     }
 
     /**

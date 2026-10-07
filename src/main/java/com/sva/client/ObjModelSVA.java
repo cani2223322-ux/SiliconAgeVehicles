@@ -51,7 +51,9 @@ public final class ObjModelSVA {
                 /** Stage E, the Singular Ship: the singularity's black sphere (pulses) and its gold rings + disk (spin). */
                 CORE = 4, RINGS = 5,
                 /** ★10 (vehicle/AnimParts): wheels (spin, steer, retract), landing gear legs (retract), control surfaces. */
-                WHEEL = com.sva.vehicle.AnimParts.WHEEL, GEAR = com.sva.vehicle.AnimParts.GEAR, SURFACE = com.sva.vehicle.AnimParts.SURFACE;
+                WHEEL = com.sva.vehicle.AnimParts.WHEEL, GEAR = com.sva.vehicle.AnimParts.GEAR, SURFACE = com.sva.vehicle.AnimParts.SURFACE,
+                /** Cockpit stage 1: the cabin controls (steering wheels, cyclic, collective, yoke, throttle, pedals). */
+                CONTROL = com.sva.vehicle.AnimParts.CONTROL;
         /** ★10: the animated part's data (wheel radius, steering, gear travel, surface control); null for the older parts. */
         public com.sva.vehicle.AnimParts.Def def;
         /** NACELLE: the point the rotor swings forward about (model units). */
@@ -133,7 +135,7 @@ public final class ObjModelSVA {
                 new float[] {0.5F, 3.2F, 0.9F}, new float[] {-0.545F, 2.065F, 0F}, 1, 1F, 0F));
         // ★10: wheels, gear legs and control surfaces (vehicle/AnimParts) go in FRONT of the parts above - the first part
         // that takes a triangle wins, so the truck's trailer wheels are wheels and not part of the plain trailer part
-        String[] animated = {"buggy", "truck", "drill", "plane", "jet", "tilt", "shuttle"};
+        String[] animated = {"buggy", "truck", "drill", "heli", "plane", "jet", "tilt", "shuttle"};
         for (String model : animated) {
             List<com.sva.vehicle.AnimParts.Def> defs = com.sva.vehicle.AnimParts.of(model);
             List<Part> l = PARTS.get(model);
@@ -503,9 +505,14 @@ public final class ObjModelSVA {
         return ConfigSVA.liveries && livery >= 0;
     }
 
+    /** ★7 the trim's livery (config vehicles.interiorTrim, independent of vehicles.liveries), -1 off. */
+    private int trimLivery() {
+        return ConfigSVA.interiorTrim && livery >= 0 ? livery : -1;
+    }
+
     /** A group's draw colour: the livery's repaint, white under tiles with their own colours, else groups.txt. */
     private float[] colourOf(int i) {
-        int key = (liveried() ? livery : -1) * 2 + (ConfigSVA.textures ? 1 : 0);
+        int key = ((liveried() ? livery : -1) * 2 + (ConfigSVA.textures ? 1 : 0)) * 8 + trimLivery() + 1;
         if (drawColours == null || key != drawKey) {
             drawColours = new float[groups.size()][];
             for (int g = 0; g < groups.size(); g++) {
@@ -519,6 +526,11 @@ public final class ObjModelSVA {
                     if (rgb != base) {
                         c = new float[] {(rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F};
                     }
+                }
+                if (trimLivery() >= 0 && SkinMath.trimRole(mat) >= 0) {
+                    // ★7: the cabin trim's colour by tier (seats, floor, inserts, roof lining)
+                    int rgb = SkinMath.trimColour(trimLivery(), mat, rgb(c));
+                    c = new float[] {(rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F};
                 }
                 drawColours[g] = c;
             }
@@ -536,6 +548,8 @@ public final class ObjModelSVA {
         int[] l = baseLists[i];
         String[] t = baseTiles[i];
         int lv = liveried() ? livery : -1;
+        String mat = mats.get(i);
+        int tl = trimLivery();
         boolean scroll = textured && treadShift != 0F && "tread".equals(mats.get(i));
         if (scroll) {
             // ★10: the crawler's tread runs - its box UVs have u = x (1 tile per model unit) on the sides and the top,
@@ -548,7 +562,7 @@ public final class ObjModelSVA {
         for (int k = 0; k < l.length; k++) {
             if (textured && t[k] != null) {
                 GL11.glEnable(GL11.GL_TEXTURE_2D);
-                LiverySVA.bindTile(SkinMath.tileFor(lv, t[k]));
+                LiverySVA.bindTile(SkinMath.trimTile(tl, mat, SkinMath.tileFor(lv, t[k])));
             } else {
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
             }

@@ -274,7 +274,10 @@ public enum VehicleType {
         // (measured by ray-casting the OBJ with the cut shell; the rest is the dash, pillars, the nose, rotors...).
         // heli: eye (0.83, 1.07, 0.19); the nose bubble (glass x 0.93..1.75, y 0.35..1.30) and the cabin door windows
         // (x -0.01..0.68, y 0.67..1.17) - both open sideways: the shell around the bubble and the doors.
-        HELI.cabWindows = new float[][] {{0.90F, 1.80F, 0.35F, 1.30F, -OPEN, OPEN}, {-0.02F, 0.69F, 0.66F, 1.18F, -OPEN, OPEN}};
+        // Cockpit stage 1: the nose box now reaches down without a floor - the CHIN WINDOW: under the pilot's feet (x 0.96..1.19,
+        // z 0.05..0.41) the floor has a glass pane in a dark frame instead of carpet, and the belly shell under the whole
+        // bubble (y < 0.35, x >= 0.90) is cut, so the ground shows through it (the co-pilot's side keeps its carpet).
+        HELI.cabWindows = new float[][] {{0.90F, 1.80F, -OPEN, 1.30F, -OPEN, OPEN}, {-0.02F, 0.69F, 0.66F, 1.18F, -OPEN, OPEN}};
         // plane: eye (0.86, 0.99, -0.10) - the pilot sits 0.48 higher (seatDy) on a raised seat under the raised canopy
         // (glass x 0.36..1.48, y 0.78..1.15, |z| 0.24) and looks over the lowered dash (top 0.84) and the nose; the
         // passengers' side windows (x -0.58..-0.02, y 0.57..0.71) open sideways.

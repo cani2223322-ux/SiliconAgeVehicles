@@ -20,7 +20,15 @@ import java.util.Map;
 public final class AnimParts {
 
     /** Part kinds (the same numbers as ObjModelSVA.Part's - ROTOR 0 .. RINGS 5 are the older ones). */
-    public static final int WHEEL = 6, GEAR = 7, SURFACE = 8;
+    public static final int WHEEL = 6, GEAR = 7, SURFACE = 8,
+            /** Cockpit stage 1: a moving control in the cabin (steering wheel, cyclic, collective, yoke, throttle, pedals). */
+            CONTROL = 9;
+    /**
+     * CONTROL inputs (AnimMath.State): STEER = the front wheels' angle / MAX_STEER, PITCH (+ = pull back, nose up), ROLL
+     * (+ = right), YAW (+ = right), LIFT (+ = collective up), THROTTLE (the 0..1 throttle as -1..1: the lever's middle at
+     * half throttle). All -1..1.
+     */
+    public static final int STEER = 0, PITCH = 1, ROLL = 2, YAW = 3, LIFT = 4, THROTTLE = 5;
     /** SURFACE controls. */
     public static final int AILERON = 0, ELEVATOR = 1, RUDDER = 2;
     /** Axes. */
@@ -52,6 +60,33 @@ public final class AnimParts {
         public boolean cut;
         /** Self-test: at least this many triangles must fall in (cut: be clipped into) the box. */
         public int minTris = 8;
+        /**
+         * CONTROL: turned by in1 x ang1 degrees about axis1 (a unit vector, through `pivot`), then by in2 x ang2 about
+         * axis2, and moved by inMove x move (model units); -1 = no such input. Signs: + input turns the right-hand way.
+         */
+        public int in1 = -1, in2 = -1, inMove = -1;
+        public float ang1, ang2;
+        public float[] axis1, axis2, move;
+
+        Def turn(int in, float[] axis, float deg) {
+            in1 = in;
+            axis1 = axis;
+            ang1 = deg;
+            return this;
+        }
+
+        Def turn2(int in, float[] axis, float deg) {
+            in2 = in;
+            axis2 = axis;
+            ang2 = deg;
+            return this;
+        }
+
+        Def move(int in, float[] by) {
+            inMove = in;
+            move = by;
+            return this;
+        }
 
         Def(String model, String name, int kind, String[] groups, float[] min, float[] max, float[] pivot) {
             this.model = model;
@@ -207,6 +242,25 @@ public final class AnimParts {
                 g.minTris = 60;
             }
         }
+        // ---- cockpit stage 1 (2026-10, mock-up docs/mockups/veh_cab_5_controls.png): the moving controls, measured by the
+        // concept scratchpad vehicles/cab/controls.py from the exported OBJs - each box holds exactly its control's
+        // triangles (centres, +0.004) and no other triangle of those materials. Steering wheels (rim leather, spokes steel,
+        // hub accent; the dark column stays) turn up to 90 deg about the column (the wheel's normal, pointing away from the
+        // driver) at full steering; the heli's cyclic (dark shaft + grip, a red - not a 'warn' lamp - button) tilts 12 deg
+        // fore / aft and sideways about its foot, the collective (black grip, steel lever) rises 10 deg, the pedals slide
+        // 0.028 (0.45 concept units) against each other; the plane's yoke turns 30 deg with the roll and slides 0.037 back
+        // when pulled, its throttle lever swings +-28 deg about the quadrant top with the throttle.
+        control("buggy", "steering", new String[] {"accent", "leather", "steel"}, new float[] {-0.100F, 0.849F, -0.432F}, new float[] {0.062F, 1.139F, -0.118F}, new float[] {-0.019F, 0.994F, -0.275F}).turn(STEER, new float[] {0.906F, -0.423F, 0.000F}, 90.0F);
+        control("truck", "steering", new String[] {"accent", "leather", "steel"}, new float[] {2.350F, 1.020F, -0.479F}, new float[] {2.575F, 1.323F, -0.121F}, new float[] {2.462F, 1.171F, -0.300F}).turn(STEER, new float[] {0.819F, -0.574F, 0.000F}, 90.0F);
+        control("drill", "steering", new String[] {"accent", "leather", "steel"}, new float[] {0.502F, 1.142F, -0.463F}, new float[] {0.673F, 1.421F, -0.155F}, new float[] {0.588F, 1.281F, -0.309F}).turn(STEER, new float[] {0.883F, -0.469F, 0.000F}, 90.0F);
+        control("heli", "collective", new String[] {"black", "steel"}, new float[] {0.752F, 0.660F, 0.002F}, new float[] {1.030F, 0.752F, 0.055F}, new float[] {0.758F, 0.669F, 0.028F}).turn(LIFT, new float[] {0.000F, 0.000F, 1.000F}, 10.0F);
+        control("heli", "cyclic", new String[] {"dark", "red"}, new float[] {1.075F, 0.464F, 0.215F}, new float[] {1.154F, 0.784F, 0.285F}, new float[] {1.139F, 0.475F, 0.250F}).turn(PITCH, new float[] {0.000F, 0.000F, 1.000F}, 12.0F).turn2(ROLL, new float[] {1.000F, 0.000F, 0.000F}, 12.0F);
+        control("heli", "pedalL", new String[] {"steel"}, new float[] {1.204F, 0.453F, 0.109F}, new float[] {1.237F, 0.597F, 0.204F}, new float[] {1.220F, 0.456F, 0.156F}).move(YAW, new float[] {-0.028F, 0.000F, 0.000F});
+        control("heli", "pedalR", new String[] {"steel"}, new float[] {1.204F, 0.453F, 0.296F}, new float[] {1.237F, 0.597F, 0.391F}, new float[] {1.220F, 0.456F, 0.344F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
+        control("plane", "pedalL", new String[] {"steel"}, new float[] {1.249F, 0.465F, -0.254F}, new float[] {1.282F, 0.610F, -0.159F}, new float[] {1.266F, 0.469F, -0.206F}).move(YAW, new float[] {-0.028F, 0.000F, 0.000F});
+        control("plane", "pedalR", new String[] {"steel"}, new float[] {1.249F, 0.465F, -0.066F}, new float[] {1.282F, 0.610F, 0.029F}, new float[] {1.266F, 0.469F, -0.019F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
+        control("plane", "throttle", new String[] {"black", "steel"}, new float[] {1.178F, 0.652F, 0.100F}, new float[] {1.228F, 0.801F, 0.150F}, new float[] {1.203F, 0.656F, 0.125F}).turn(THROTTLE, new float[] {0.000F, 0.000F, 1.000F}, -28.0F);
+        control("plane", "yoke", new String[] {"accent", "dark", "steel"}, new float[] {1.124F, 0.640F, -0.245F}, new float[] {1.320F, 0.810F, 0.054F}, new float[] {1.150F, 0.684F, -0.096F}).turn(ROLL, new float[] {1.000F, 0.000F, 0.000F}, 30.0F).move(PITCH, new float[] {-0.037F, 0.000F, 0.000F});
         for (List<Def> l : TABLE.values()) {
             ALL.addAll(l);
         }
@@ -232,6 +286,13 @@ public final class AnimParts {
         Def d = box(model, name, WHEEL, groups, x - dx, y - dy, zIn, x + dx, y + dy, zOut, s, new float[] {x, y, z});
         d.radius = radius;
         d.axis = Z;
+        return d;
+    }
+
+    /** A CONTROL part: the box (model units) and the point it turns about; its inputs are set by turn / turn2 / move. */
+    private static Def control(String model, String name, String[] groups, float[] min, float[] max, float[] pivot) {
+        Def d = box(model, name, CONTROL, groups, min[0], min[1], min[2], max[0], max[1], max[2], 0, pivot);
+        d.minTris = 100;
         return d;
     }
 

@@ -190,6 +190,12 @@ public final class SkinMath {
         if ("carpet".equals(mat)) {
             return "carpet";
         }
+        if ("trim".equals(mat)) {
+            return "rubber";                                // ★7 inserts: the livery I look without interiorTrim
+        }
+        if ("headliner".equals(mat)) {
+            return "fabric";
+        }
         if ("glass".equals(mat) || "canopy".equals(mat)) {
             return "glass";
         }
@@ -201,11 +207,52 @@ public final class SkinMath {
 
     /** Every tile tile() can return (the self-test checks each PNG is in the jar). */
     public static final String[] TILES = {"paint", "paint_smooth", "metal", "steel", "chrome", "rubber", "tread", "dark", "dark_plate",
-            "dark_grille", "fabric", "leather", "carpet", "glass", "hazard", "solar", "lamp", "wood", "stone"};
+            "dark_grille", "fabric", "leather", "carpet", "glass", "hazard", "solar", "lamp", "wood", "stone", "alcantara", "velvet", "carbon",
+            "mat", "darkglass", "headliner"};
 
     /** The tile actually bound for a livery: the Singular paint has seams but no rivets. */
     public static String tileFor(int livery, String tile) {
         return livery == SINGULAR && "paint".equals(tile) ? "paint_smooth" : tile;
+    }
+
+    // ------------------------------------------------------------------ ★7 interior trim by tier (config vehicles.interiorTrim)
+
+    /** Trim roles: seats / upholstery (fabric, leather), the floor (carpet), inserts (trim), the roof lining (headliner); -1 none. */
+    public static final int SEAT = 0, FLOOR = 1, INSERT = 2, LINING = 3;
+    /**
+     * Per livery (WORK, CIVIL, SILICON, SINGULAR) and role: the tile and the colour (mock-up veh_cab_4_trim_night.png):
+     * I rubber + fabric, ribbed mats; II leather, carpet, wood inserts, a light perforated lining; III alcantara, carbon;
+     * Singular velvet + dark glass. The seat belts ('belt') and everything else keep their own look.
+     */
+    private static final String[][] TRIM_TILE = {{"fabric", "mat", "rubber", "fabric"}, {"leather", "carpet", "wood", "headliner"},
+            {"alcantara", "carbon", "carbon", "alcantara"}, {"velvet", "darkglass", "darkglass", "velvet"}};
+    private static final int[][] TRIM_RGB = {{0x3A3E48, 0x2A2A2E, 0x2C2C30, 0x4A4E56}, {0x6E3E24, 0x2A2624, 0x8C5E30, 0x8A8478},
+            {0x2C313C, 0x1A1C22, 0x22242A, 0x30343E}, {0x2E1A44, 0x100C18, 0x1A1026, 0x2A1A3C}};
+
+    /** The trim role of a material, -1 when it is not interior trim. */
+    public static int trimRole(String mat) {
+        if ("fabric".equals(mat) || "leather".equals(mat)) {
+            return SEAT;
+        }
+        if ("carpet".equals(mat)) {
+            return FLOOR;
+        }
+        if ("trim".equals(mat)) {
+            return INSERT;
+        }
+        return "headliner".equals(mat) ? LINING : -1;
+    }
+
+    /** The tile bound for a trim material in a livery (`tile` unchanged for livery -1 or a non-trim material). */
+    public static String trimTile(int livery, String mat, String tile) {
+        int r = trimRole(mat);
+        return livery < 0 || livery > SINGULAR || r < 0 || tile == null ? tile : TRIM_TILE[livery][r];
+    }
+
+    /** The colour of a trim material in a livery (0xRRGGBB; `base` for livery -1 or a non-trim material). */
+    public static int trimColour(int livery, String mat, int base) {
+        int r = trimRole(mat);
+        return livery < 0 || livery > SINGULAR || r < 0 ? base : TRIM_RGB[livery][r];
     }
 
     /** Tiles that carry their own colours: the group is drawn white under them (hazard stripes, solar cells). */

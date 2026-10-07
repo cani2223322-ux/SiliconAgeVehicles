@@ -1366,6 +1366,27 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         double tilt = t.movement == Movement.TILT ? getTiltPos() : Double.NaN;
         com.sva.vehicle.AnimMath.tick(anim, fwd, dy, yawRate, (float) t.turnRate, t.modelScale, ground, steerIn, brakeIn, gearType,
                 planeNow() && flies, t.movement == Movement.HOVER, bounce, tilt, ConfigSVA.animations);
+        // cockpit stage 1: the cabin controls - the driver's own keys (W/S cyclic or nothing, Space / «Снижение» the
+        // collective or the yoke, A/D roll and pedals), else guessed from the motion (cyclic forward with speed, the
+        // surfaces' deflection for the yoke, the climb for the collective); the throttle lever from the synced throttle
+        float cp, cr, cyw, cl;
+        boolean heliNow = t.movement == Movement.HELI || t.movement == Movement.TILT && !planeNow();
+        if (animIn >= 0) {
+            boolean up = (animIn & IN_BRAKE) != 0, down = (animIn & (IN_DOWN | IN_BOOST)) != 0;
+            float side = ((animIn & IN_RIGHT) != 0 ? 1F : 0F) - ((animIn & IN_LEFT) != 0 ? 1F : 0F);
+            float fb = ((animIn & IN_BACK) != 0 ? 1F : 0F) - ((animIn & IN_FWD) != 0 ? 1F : 0F);
+            cp = heliNow ? fb : (up ? 1F : 0F) - (down ? 1F : 0F);
+            cr = side;
+            cyw = side;
+            cl = (up ? 1F : 0F) - (down ? 1F : 0F);
+        } else {
+            float m = com.sva.vehicle.AnimMath.MAX_SURFACE, st = anim.steer / com.sva.vehicle.AnimMath.MAX_STEER;
+            cp = heliNow ? -fwd / (float) Math.max(0.05, t.topSpeed) : anim.elevator / m;
+            cr = heliNow ? st : anim.aileron / m;
+            cyw = heliNow ? st : anim.rudder / m;
+            cl = dy / 0.15F;
+        }
+        com.sva.vehicle.AnimMath.controls(anim, cp, cr, cyw, cl, (float) getThrottle(), ConfigSVA.animations);
     }
 
     /**

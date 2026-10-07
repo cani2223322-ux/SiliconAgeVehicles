@@ -1,5 +1,6 @@
 # material r g b emissive(1 = drawn without lighting)
 accent 225 70 70 1
+aid 235 235 235 0
 amber 255 150 20 1
 belt 200 60 40 0
 cabin 255 236 200 1
@@ -7,7 +8,6 @@ carpet 32 32 36 0
 chrome 70 72 78 0
 copper 190 100 50 0
 dark 40 42 48 0
-dashlite 60 140 255 1
 ext 200 30 30 0
 fabric 54 58 68 0
 gasAr 160 100 230 0
@@ -16,13 +16,16 @@ gauge 255 190 60 1
 glass 14 20 28 0
 gold 150 110 40 0
 hazard 128 128 128 0
+headliner 74 78 86 0
 holo 90 220 255 1
 leather 110 62 36 0
 needle 255 70 40 1
 ok 60 255 120 1
 paint 180 36 32 0
 paint2 44 46 52 0
+red 255 40 40 1
 steel 120 124 132 0
 stone 105 103 100 0
 tread 22 22 24 0
+trim 40 40 44 0
 warn 255 60 40 1

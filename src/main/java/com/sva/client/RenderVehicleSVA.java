@@ -140,6 +140,26 @@ public class RenderVehicleSVA extends Render {
                     AnimParts.Def d = p.def;
                     float cmd = d.control == AnimParts.AILERON ? ail : d.control == AnimParts.ELEVATOR ? elev : rud;
                     m.renderPart(p, cmd * d.gain, shade);
+                } else if (p.kind == ObjModelSVA.Part.CONTROL) {
+                    // cockpit stage 1: steering wheel / cyclic / collective / yoke / throttle / pedals follow their input
+                    AnimParts.Def d = p.def;
+                    GL11.glPushMatrix();
+                    if (animate) {
+                        if (d.inMove >= 0) {
+                            float k = an.control(d.inMove, pt);
+                            GL11.glTranslatef(d.move[0] * k, d.move[1] * k, d.move[2] * k);
+                        }
+                        GL11.glTranslatef(d.pivot[0], d.pivot[1], d.pivot[2]);
+                        if (d.in1 >= 0) {
+                            GL11.glRotatef(d.ang1 * an.control(d.in1, pt), d.axis1[0], d.axis1[1], d.axis1[2]);
+                        }
+                        if (d.in2 >= 0) {
+                            GL11.glRotatef(d.ang2 * an.control(d.in2, pt), d.axis2[0], d.axis2[1], d.axis2[2]);
+                        }
+                        GL11.glTranslatef(-d.pivot[0], -d.pivot[1], -d.pivot[2]);
+                    }
+                    m.renderPart(p, 0F, shade);
+                    GL11.glPopMatrix();
                 } else if (p.kind == ObjModelSVA.Part.TRAILER) {
                     if (v.hasTrailer()) {
                         m.renderPart(p, 0F, shade);

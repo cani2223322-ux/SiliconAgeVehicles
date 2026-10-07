@@ -11,10 +11,12 @@ public final class CockpitDials {
 
     // readings
     public static final int SPEED = 0, ALT = 1, VSPEED = 2, CHARGE = 3, RPM = 4, DRILL = 5, DEPTH = 6, CARGO = 7, CORE = 8,
-            SHIELD = 9, HEAT = 10, HULL = 11, THROTTLE = 12, GAS = 13;
+            SHIELD = 9, HEAT = 10, HULL = 11, THROTTLE = 12, GAS = 13,
+            /** Cockpit stage 1, the plane's six-pack: turn rate (deg/s, centred) and heading (0..360, 0 = north). */
+            TURN = 14, HEADING = 15;
     /** Lang key part per reading: sva.cockpit.dial.KEY (the label) and sva.cockpit.unit.KEY (the unit line). */
     public static final String[] KEYS = {"speed", "alt", "vs", "charge", "rpm", "drill", "depth", "cargo", "core", "shield", "heat",
-            "hull", "throttle", "gas"};
+            "hull", "throttle", "gas", "turn", "heading"};
 
     // screen jobs
     /** The largest screen: a few text lines (charge bar, hull, gas, mode, gear...). */
@@ -37,25 +39,27 @@ public final class CockpitDials {
 
     /**
      * Dials left -> right as the pilot sees them (CockpitLayout's order); a table may be longer than the model's dial
-     * count (the rest goes unused), never shorter (self-test). Counts measured from the OBJs: buggy 2 (the 14-gon disc
-     * behind the left dial is dropped), heli 5 (4 on the dash + the small round one up left), plane 3 (2 + the small one
-     * over them), truck 2, drill 2, jet 1 (the small disc right of the glass panels), tilt 4, shuttle 4, ship 4 (the
-     * console under the canopy), hoverbike 0 (one flat screen).
+     * count (the rest goes unused), never shorter (self-test). Counts measured from the OBJs (cockpit stage 1, 2026-10):
+     * buggy / truck 2 (the cluster: speed, charge), drill 4 (the cluster + the drill console right of it: power, depth),
+     * heli 5 (the co-pilot's cluster on the left: vertical speed, charge; the pilot's panel: altitude, speed, [the attitude
+     * screen], rotor rpm), plane 5 (the six-pack column by column, left -> right, top -> bottom: speed / turn, [attitude] /
+     * heading, altitude / vertical speed), jet 1 (the small disc right of the glass panels), tilt 4, shuttle 4, ship 4
+     * (the console under the canopy), hoverbike 0 (one flat screen).
      */
     public static int[] table(VehicleType t) {
         switch (t) {
             case BUGGY:
-                return new int[] {SPEED, CHARGE, CARGO};
+                return new int[] {SPEED, CHARGE};
             case HOVER:
                 return new int[] {SPEED, CHARGE};
             case HELI:
-                return new int[] {ALT, VSPEED, SPEED, RPM, CHARGE};
+                return new int[] {VSPEED, CHARGE, ALT, SPEED, RPM};
             case PLANE:
-                return new int[] {SPEED, VSPEED, ALT};
+                return new int[] {SPEED, TURN, HEADING, ALT, VSPEED};
             case TRUCK:
-                return new int[] {SPEED, CHARGE, CARGO};
+                return new int[] {SPEED, CHARGE};
             case DRILL:
-                return new int[] {DRILL, DEPTH, CHARGE};
+                return new int[] {SPEED, CHARGE, DRILL, DEPTH};
             case JET:
                 return new int[] {THROTTLE, SPEED};
             case TILT:
@@ -92,12 +96,13 @@ public final class CockpitDials {
 
     /** The low end of a reading's scale (vertical speed is centred: -max..+max; the rest start at 0). */
     public static float min(int kind, VehicleType t) {
-        return kind == VSPEED ? -max(kind, t, 0) : 0F;
+        return kind == VSPEED || kind == TURN ? -max(kind, t, 0) : 0F;
     }
 
     /**
      * The high end: speed = the type's fastest (afterburner / boost / tiltrotor plane mode included) rounded up to a
-     * round number (niceMax), altitude = the world height 256, vertical speed 10 blocks/s, depth Y 128, cargo = the
+     * round number (niceMax), altitude = the world height 256, vertical speed 10 blocks/s, turn rate = the type's full
+     * turn rate in deg/s (niceMax; centred like the vertical speed), heading 360, depth Y 128, cargo = the
      * slots (with a trailer when hitched: `cargoSlots`), the rest 100 %.
      */
     public static float max(int kind, VehicleType t, int cargoSlots) {
@@ -113,6 +118,10 @@ public final class CockpitDials {
                 return 256F;
             case VSPEED:
                 return 10F;
+            case TURN:
+                return niceMax(t.turnRate * 20);                   // the type's full turn rate, deg/s
+            case HEADING:
+                return 360F;
             case DEPTH:
                 return 128F;
             case CARGO:

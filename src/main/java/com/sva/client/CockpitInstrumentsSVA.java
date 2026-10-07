@@ -46,7 +46,7 @@ public final class CockpitInstrumentsSVA {
 
     private static final class State {
         float[] shown = new float[0];
-        float speed, vy, pitch, roll;
+        float speed, vy, pitch, roll, turn;
         long lastNs;
         int gearTick = Integer.MIN_VALUE;
         boolean gearDown = true;
@@ -83,6 +83,7 @@ public final class CockpitInstrumentsSVA {
         double dx = v.posX - v.prevPosX, dz = v.posZ - v.prevPosZ;
         s.speed = CockpitDials.follow(dt < 0 ? Float.NaN : s.speed, (float) Math.sqrt(dx * dx + dz * dz), dt);
         s.vy = CockpitDials.follow(dt < 0 ? Float.NaN : s.vy, (float) (v.posY - v.prevPosY), dt);
+        s.turn = CockpitDials.follow(dt < 0 ? Float.NaN : s.turn, MathHelper.wrapAngleTo180_float(v.rotationYaw - v.prevRotationYaw), dt);
         s.pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
         s.roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
         if (t.movement == Movement.PLANE || t.movement == Movement.TILT) {
@@ -191,6 +192,13 @@ public final class CockpitInstrumentsSVA {
                 return v.getHp() * 100F / t.maxHp;
             case CockpitDials.THROTTLE:
                 return (float) v.getThrottle() * 100F;
+            case CockpitDials.TURN:
+                return s.turn * 20F;                               // deg/tick -> deg/s, + = turning right
+            case CockpitDials.HEADING: {
+                // Minecraft yaw 0 = south: the compass heading (0 north, 90 east) is yaw + 180
+                float yaw = v.prevRotationYaw + MathHelper.wrapAngleTo180_float(v.rotationYaw - v.prevRotationYaw) * pt;
+                return ((yaw + 180F) % 360F + 360F) % 360F;
+            }
             case CockpitDials.GAS: {
                 Gas g = mainGas(t);
                 return g == null ? 0F : gasPct(v, t, g);
@@ -238,8 +246,10 @@ public final class CockpitInstrumentsSVA {
                 return new float[] {1F, 0.75F, 0.25F};
             case CockpitDials.ALT:
             case CockpitDials.GAS:
+            case CockpitDials.HEADING:
                 return new float[] {0.45F, 0.85F, 1F};
             case CockpitDials.VSPEED:
+            case CockpitDials.TURN:
             case CockpitDials.CHARGE:
             case CockpitDials.HULL:
                 return new float[] {0.3F, 0.9F, 0.55F};

@@ -2,6 +2,7 @@
 accent 255 140 50 1
 aid 235 235 235 0
 belt 200 60 40 0
+black 4 3 8 0
 cabin 255 236 200 1
 carpet 32 32 36 0
 chrome 70 72 78 0
