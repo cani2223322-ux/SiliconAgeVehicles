@@ -519,10 +519,4 @@ public class GuiVehicleSVA extends GuiScreen {
     public boolean doesGuiPauseGame() {
         return false;
     }
-
-    @Override
-    public void onGuiClosed() {
-        // diagnostics: who closed the menu (a menu that "doesn't open" may be closed right away by something)
-        org.apache.logging.log4j.LogManager.getLogger("SiliconAgeVehicles").info("[SVA-KEYS] menu closed", new Throwable("closed from"));
-    }
 }

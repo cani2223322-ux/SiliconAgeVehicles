@@ -43,7 +43,6 @@ public final class VehicleKeyBindsSVA {
 
     private static final Map<VehicleFn, int[]> BINDS = new EnumMap<VehicleFn, int[]>(VehicleFn.class);
     private static final Map<VehicleFn, KeyBindMath.Edge> EDGES = new EnumMap<VehicleFn, KeyBindMath.Edge>(VehicleFn.class);
-    private static final KeyBindMath.Edge MENU_EDGE = new KeyBindMath.Edge();
     private static Configuration config;
     /** The held functions' state this tick (boost / down), read by ClientProxySVA.driverInput. */
     private static boolean boostHeld, downHeld;
@@ -177,20 +176,31 @@ public final class VehicleKeyBindsSVA {
                 KEYLOG.info("[SVA-KEYS] key " + k + " '" + Keyboard.getEventCharacter() + "' menuKey " + menu + " riding "
                         + riding + " screen " + (mc.currentScreen == null ? "-" : mc.currentScreen.getClass().getName()));
             }
-            if (k == menu && mc.thePlayer != null && mc.currentScreen == null) {
-                // open right on the press (vanilla's event loop), not a tick later - nothing in between can lose it
-                MENU_EDGE.hold(true);
-                mc.displayGuiScreen(new GuiVehicleSVA());
-                KEYLOG.info("[SVA-KEYS] menu opened, screen now "
-                        + (mc.currentScreen == null ? "-" : mc.currentScreen.getClass().getName()));
+            if (k == menu) {
+                openMenu(mc);
             }
         }
 
         @cpw.mods.fml.common.eventhandler.SubscribeEvent
         public void onMouse(cpw.mods.fml.common.gameevent.InputEvent.MouseInputEvent e) {
             if (Mouse.getEventButtonState() && Mouse.getEventButton() >= 0) {
-                TAPPED.add(Integer.valueOf(KeyBindMath.MOUSE_BASE + Mouse.getEventButton()));
+                int code = KeyBindMath.MOUSE_BASE + Mouse.getEventButton();
+                TAPPED.add(Integer.valueOf(code));
+                if (code == KEY_MENU.getKeyCode()) {                 // the menu on a mouse button (vanilla: -100 + button)
+                    openMenu(Minecraft.getMinecraft());
+                }
             }
+        }
+    }
+
+    /**
+     * The menu, opened from the key / button EVENT: vanilla posts InputEvent only while no screen is open and after the
+     * event is used up, so the press that opens the menu never reaches it (the menu closes on its own key).
+     */
+    private static void openMenu(Minecraft mc) {
+        if (mc.thePlayer != null && mc.currentScreen == null) {
+            mc.displayGuiScreen(new GuiVehicleSVA());
+            KEYLOG.info("[SVA-KEYS] menu opened");
         }
     }
 
@@ -284,17 +294,9 @@ public final class VehicleKeyBindsSVA {
     public static void tick(Minecraft mc) {
         // no Display.isActive() here: some window / fullscreen mods keep it false while the game has focus
         boolean free = mc.thePlayer != null && mc.currentScreen == null;
-        boolean menuHit = false;
         while (KEY_MENU.isPressed()) {
-            menuHit = true;                                     // vanilla's own press (when the key's hash is ours)
-        }
-        int mk = KEY_MENU.getKeyCode();
-        boolean menuDown = menuHit || downOrTapped(mk);
-        if (free ? MENU_EDGE.fire(menuDown) : false) {
-            mc.displayGuiScreen(new GuiVehicleSVA());
-            free = false;
-        } else if (!free) {
-            MENU_EDGE.hold(menuDown);
+            // drained: the menu opens from the key EVENT (Taps), never from a poll here - a poll at the tick's start
+            // saw the key down, opened the menu, and then the same press was delivered to the open menu, which closed it
         }
         EntityVehicleSVA v = free ? HudVehicleSVA.vehicleOf(mc.thePlayer) : null;
         int held = free ? modifiersDown() : 0;
