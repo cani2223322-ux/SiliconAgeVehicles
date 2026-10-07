@@ -150,6 +150,34 @@ public final class VehicleKeyBindsSVA {
                 || key == Keyboard.KEY_RSHIFT || key == Keyboard.KEY_LMENU || key == Keyboard.KEY_RMENU;
     }
 
+    /**
+     * Keys / mouse buttons that went down since the last client tick (InputEvent, from vanilla's own event queue): a
+     * tap shorter than a tick (50 ms) is over before tick() polls Keyboard.isKeyDown - the latch still counts it.
+     */
+    private static final java.util.Set<Integer> TAPPED = new java.util.HashSet<Integer>();
+
+    /** FML bus: every key / mouse button press while no screen is open (vanilla posts these only then). */
+    public static final class Taps {
+        @cpw.mods.fml.common.eventhandler.SubscribeEvent
+        public void onKey(cpw.mods.fml.common.gameevent.InputEvent.KeyInputEvent e) {
+            if (Keyboard.getEventKeyState() && Keyboard.getEventKey() != 0) {
+                TAPPED.add(Integer.valueOf(Keyboard.getEventKey()));
+            }
+        }
+
+        @cpw.mods.fml.common.eventhandler.SubscribeEvent
+        public void onMouse(cpw.mods.fml.common.gameevent.InputEvent.MouseInputEvent e) {
+            if (Mouse.getEventButtonState() && Mouse.getEventButton() >= 0) {
+                TAPPED.add(Integer.valueOf(KeyBindMath.MOUSE_BASE + Mouse.getEventButton()));
+            }
+        }
+    }
+
+    /** Down now, or tapped since the last tick. */
+    private static boolean downOrTapped(int k) {
+        return k != 0 && (keyDown(k) || TAPPED.contains(Integer.valueOf(k)));
+    }
+
     private static boolean keyDown(int k) {
         if (k == 0) {
             return false;
@@ -233,12 +261,14 @@ public final class VehicleKeyBindsSVA {
      * presses fire on the edge, holds are latched for driverInput. Otherwise every edge just remembers the state.
      */
     public static void tick(Minecraft mc) {
-        boolean free = mc.thePlayer != null && mc.currentScreen == null && org.lwjgl.opengl.Display.isActive();
+        // no Display.isActive() here: some window / fullscreen mods keep it false while the game has focus
+        boolean free = mc.thePlayer != null && mc.currentScreen == null;
+        boolean menuHit = false;
         while (KEY_MENU.isPressed()) {
-            // drained: the raw edge below decides (a press another binding's hash took is seen there too)
+            menuHit = true;                                     // vanilla's own press (when the key's hash is ours)
         }
         int mk = KEY_MENU.getKeyCode();
-        boolean menuDown = mk != 0 && keyDown(mk);
+        boolean menuDown = menuHit || downOrTapped(mk);
         if (free ? MENU_EDGE.fire(menuDown) : false) {
             mc.displayGuiScreen(new GuiVehicleSVA());
             free = false;
@@ -251,7 +281,7 @@ public final class VehicleKeyBindsSVA {
         boolean boost = false, down = false;
         for (VehicleFn f : VehicleFn.values()) {
             int[] b = BINDS.get(f);
-            boolean kd = b != null && keyDown(b[0]);
+            boolean kd = b != null && downOrTapped(b[0]);
             KeyBindMath.Edge e = EDGES.get(f);
             if (v == null || v.isDead) {
                 e.hold(kd);
@@ -271,6 +301,7 @@ public final class VehicleKeyBindsSVA {
         }
         boostHeld = boost;
         downHeld = down;
+        TAPPED.clear();
     }
 
     /**

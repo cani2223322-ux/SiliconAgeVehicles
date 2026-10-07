@@ -64,6 +64,7 @@ public class ClientProxySVA extends CommonProxySVA {
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new com.sva.client.RiderAttitudeSVA());   // riders lean with the body
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
+        FMLCommonHandler.instance().bus().register(new com.sva.client.VehicleKeyBindsSVA.Taps());  // short taps between ticks
         MinecraftForge.EVENT_BUS.register(new Wheel());                            // ★3 / ★4: the mouse wheel while riding
         FMLCommonHandler.instance().bus().register(this);
         // ★6: headlights light the blocks ahead (client world only; restored on leave / unload)
