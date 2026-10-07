@@ -263,7 +263,7 @@ final class SelfTestWave3SVA {
                         && ItemTrailerSVA.kindOf(WorkbenchRecipesSVA.byId("trailerCharger").result()) == TrailerMath.CHARGER,
                 "wave 3: the recipes make the right kinds");
         Set<String> ru = keys("/assets/siliconagevehicles/lang/ru_RU.lang"), en = keys("/assets/siliconagevehicles/lang/en_US.lang");
-        boolean lang = ru.equals(en) && ru.contains("key.sva.map") && ru.contains("sva.map.title") && ru.contains("sva.gui.tip.tab.trailer");
+        boolean lang = ru.equals(en) && ru.contains("key.sva.menu") && ru.contains("sva.map.title") && ru.contains("sva.gui.tip.tab.trailer");
         for (int k = 1; k < TrailerMath.COUNT; k++) {
             String key = TrailerMath.KEYS[k];
             lang &= ru.contains("item.siliconagevehicles.trailer_" + key + ".name") && ru.contains("sva.tooltip.trailer." + key + ".summary")

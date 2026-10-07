@@ -195,6 +195,7 @@ public class ItemVehicleSVA extends Item {
         TooltipSC.more(list, details, Lang.tr("sva.tooltip.howto.vehicle1") + "\n"
                 + Lang.tr(ground ? "sva.tooltip.howto.vehicle2" : "sva.tooltip.howto." + t.key + "2") + "\n"
                 + Lang.tr(ground ? "sva.tooltip.howto.vehicle3" : "sva.tooltip.howto." + t.key + "3", new Object[0]) + "\n"
+                + Lang.tr("sva.tooltip.howto.menuKey", com.sva.client.VehicleKeyBindsSVA.menuKeyName()) + "\n"
                 + Lang.tr("sva.tooltip.howto.cargoKey", com.sva.proxy.ClientProxySVA.cargoKeyName()) + "\n"
                 + (t.hasDrill ? Lang.tr("sva.tooltip.howto.drillHead", com.sva.proxy.ClientProxySVA.cargoKeyName()) + "\n" : "")
                 + Lang.tr("sva.tooltip.howto.pickUp", new Object[0]));

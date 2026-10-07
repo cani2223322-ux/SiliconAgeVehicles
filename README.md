@@ -67,24 +67,25 @@
 | **Shift + ПКМ** | Багажник (и кнопка «Убрать в инвентарь»); гаечный ключ ядра — сразу в инвентарь |
 | **W / S, A / D** | Газ / тормоз и задний ход, поворот (у авиации — вперёд / назад, разворот) |
 | **Пробел** | Тормоз; ховербайк — выше; вертолёт, челнок, корабль — вверх; самолёт — нос вверх |
-| **X** («Снижение»), **Ctrl** (бег) | Авиация — вниз / нос вниз |
-| **F** («Форсаж») | Ховербайк, реактивный, конвертоплан, челнок, корабль |
-| **B** | Бур: вкл / выкл |
-| **N** («Режим») | Режим бура; конвертоплан — вертикальный / самолёт; челнок и корабль — «Дальний режим» |
-| **V** | «Прыжок» (Сингулярный корабль) |
-| **Y** | Цель прыжка: Координатор / дом |
-| **Z** | Гравитационный якорь |
-| **C** | Невидимость для мобов |
+| **X** («Снижение»)\*, **Ctrl** (бег) | Авиация — вниз / нос вниз |
+| **F** («Форсаж»)\* | Ховербайк, реактивный, конвертоплан, челнок, корабль |
+| **B**\* | Бур: вкл / выкл |
+| **N** («Режим»)\* | Режим бура; конвертоплан — вертикальный / самолёт; челнок и корабль — «Дальний режим» |
+| **V**\* | «Прыжок» (Сингулярный корабль) |
+| **Y**\* | Цель прыжка: Координатор / дом |
+| **Z**\* | Гравитационный якорь |
+| **C**\* | Невидимость для мобов |
 | **Shift** (выйти) | Встать с места |
 | ПКМ ячейкой / ведром газа | Заправить машину (может любой) |
 | ПКМ Координатором ядра | Точки A / B автодоставки вездехода |
-| **L** («Багажник») | Багажник, сидя в машине |
-| **O** («Круиз») | Круиз-контроль / автопилот |
+| **L** («Багажник»)\* | Багажник, сидя в машине |
+| **O** («Круиз»)\* | Круиз-контроль / автопилот |
 | **Колёсико** | Дистанция камеры; при круизе — скорость ±5 км/ч |
-| **M** | Карта техники |
+| **M**\* | Карта техники (в машине; пешком - кнопка в меню) |
+| **&#96;** / **Ё** («Техника») | Меню функций машины: состояние, кнопки, назначение клавиш |
 | Пустая ключ-карта: ПКМ / Shift + ПКМ по машине | Карта владельца / окно доступа |
 
-Все клавиши переназначаются в настройках управления (раздел «Кремниевый век: Техника»).
+\* Клавиши функций машины назначаются в меню «Техника» (клавиша **&#96;** / **Ё**): любая клавиша, с Ctrl / Shift / Alt, или средняя / боковая кнопка мыши; хранятся в `config/SiliconAgeVehicles_keys.cfg`. Работают только в машине и не конфликтуют с другими модами. В настройках управления (раздел «Кремниевый век: Техника») осталась одна клавиша - самого меню.
 
 ### Требования и установка
 1. Minecraft **1.7.10**, Forge **10.13.4.1614** (или новее для 1.7.10), Java 8.
@@ -164,24 +165,25 @@
 | **Shift + right-click** | Cargo (and the "Pick up" button); a core wrench - straight into the inventory |
 | **W / S, A / D** | Throttle / brake and reverse, steer (aircraft: forward / back, turn) |
 | **Space** | Brake; hoverbike - higher; helicopter, shuttle, ship - up; plane - nose up |
-| **X** (Descend), **Ctrl** (sprint) | Aircraft - down / nose down |
-| **F** (Boost) | Hoverbike, jet, tiltrotor, shuttle, ship |
-| **B** | Drill on / off |
-| **N** (Mode) | Drill mode; tiltrotor - vertical / airplane; shuttle and ship - long-range mode |
-| **V** | Jump (Singular Ship) |
-| **Y** | Jump target: Coordinator / home |
-| **Z** | Gravity anchor |
-| **C** | Invisibility to mobs |
+| **X** (Descend)\*, **Ctrl** (sprint) | Aircraft - down / nose down |
+| **F** (Boost)\* | Hoverbike, jet, tiltrotor, shuttle, ship |
+| **B**\* | Drill on / off |
+| **N** (Mode)\* | Drill mode; tiltrotor - vertical / airplane; shuttle and ship - long-range mode |
+| **V**\* | Jump (Singular Ship) |
+| **Y**\* | Jump target: Coordinator / home |
+| **Z**\* | Gravity anchor |
+| **C**\* | Invisibility to mobs |
 | **Shift** (dismount) | Get off |
 | Right-click with a gas cell / bucket | Refuel the vehicle (anyone may) |
 | Right-click with a core Coordinator | The crawler's auto-delivery points A / B |
-| **L** (Cargo) | Cargo while seated |
-| **O** (Cruise) | Cruise control / autopilot |
+| **L** (Cargo)\* | Cargo while seated |
+| **O** (Cruise)\* | Cruise control / autopilot |
 | **Mouse wheel** | Camera distance; with cruise on - speed ±5 km/h |
-| **M** | Vehicle map |
+| **M**\* | Vehicle map (riding; on foot - the menu's button) |
+| **&#96;** (Vehicle menu) | The vehicle's functions: state, buttons, key setup |
 | A blank key card: right-click / Shift + right-click a vehicle | Owner card / access screen |
 
-Every key can be rebound in the controls settings ("Silicon Age: Vehicles").
+\* The vehicle function keys are set in the vehicle menu (key **&#96;**): any key, with Ctrl / Shift / Alt, or a middle / side mouse button; kept in `config/SiliconAgeVehicles_keys.cfg`. They work only while riding and don't clash with other mods. The controls settings ("Silicon Age: Vehicles") keep just one key - the menu's.
 
 ### Requirements and installation
 1. Minecraft **1.7.10**, Forge **10.13.4.1614** (or newer for 1.7.10), Java 8.

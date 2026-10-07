@@ -130,6 +130,14 @@ public final class LangKeysSVA {
      * dev run; null when neither can be found.
      */
     public static Set<String> literalKeys() throws IOException {
+        return constants(null);
+    }
+
+    /**
+     * The mod's class-file string constants starting with `prefix` (null: the key-like ones, as literalKeys) - e.g.
+     * "key.sva." for the KeyBinding ids the code carries.
+     */
+    public static Set<String> constants(String prefix) throws IOException {
         java.net.URL u = LangKeysSVA.class.getResource("LangKeysSVA.class");
         if (u == null) {
             return null;
@@ -149,7 +157,7 @@ public final class LangKeysSVA {
                 for (Enumeration<JarEntry> en = jar.entries(); en.hasMoreElements();) {
                     JarEntry e = en.nextElement();
                     if (e.getName().startsWith("com/sva/") && e.getName().endsWith(".class")) {
-                        addKeys(keys, jar.getInputStream(e));
+                        addKeys(keys, jar.getInputStream(e), prefix);
                     }
                 }
             } finally {
@@ -164,29 +172,29 @@ public final class LangKeysSVA {
             } catch (Exception e) {
                 return null;
             }
-            walk(dir, keys);
+            walk(dir, keys, prefix);
             return keys;
         }
         return null;
     }
 
-    private static void walk(File dir, Set<String> keys) throws IOException {
+    private static void walk(File dir, Set<String> keys, String prefix) throws IOException {
         File[] fs = dir.listFiles();
         if (fs == null) {
             return;
         }
         for (File f : fs) {
             if (f.isDirectory()) {
-                walk(f, keys);
+                walk(f, keys, prefix);
             } else if (f.getName().endsWith(".class")) {
-                addKeys(keys, new FileInputStream(f));
+                addKeys(keys, new FileInputStream(f), prefix);
             }
         }
     }
 
-    private static void addKeys(Set<String> keys, InputStream in) throws IOException {
+    private static void addKeys(Set<String> keys, InputStream in, String prefix) throws IOException {
         for (String c : classStrings(in)) {
-            if (keyLike(c)) {
+            if (prefix == null ? keyLike(c) : c.startsWith(prefix)) {
                 keys.add(c);
             }
         }

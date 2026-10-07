@@ -29,6 +29,7 @@ public class ClientProxySVA extends CommonProxySVA {
     @Override
     public void preInit(FMLPreInitializationEvent e) {
         super.preInit(e);
+        com.sva.client.VehicleKeyBindsSVA.load(e.getModConfigurationDirectory(), Minecraft.getMinecraft().mcDataDir);
         RenderingRegistry.registerEntityRenderingHandler(EntityVehicleSVA.class, new RenderVehicleSVA());
         RenderingRegistry.registerEntityRenderingHandler(EntitySeatSVA.class, new RenderSeatSVA());
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityWorkbenchSVA.class,
@@ -40,78 +41,21 @@ public class ClientProxySVA extends CommonProxySVA {
         RenderingRegistry.registerBlockHandler(new com.sva.client.RenderRoadSVA(com.sva.block.RoadsSVA.renderId));
     }
 
-    /**
-     * «Форсаж»: the hoverbike's boost (the sprint key works there too) and - stage D - the jet's / tiltrotor's
-     * afterburner (IN_AFTER; in aircraft the sprint key means «down»). Default F (stage D; was unbound): free in vanilla
-     * 1.7.10 and the core (K, R, P, H, J, G) and in this addon (X, B, N); R stays the core armour's dash.
+    /*
+     * Fix 2026-10: the vehicle functions (Форсаж F, Снижение X, Бур B, Режим N, Прыжок V, Цель Y, Якорь Z, Невидимость C,
+     * Круиз O, Багажник L, Карта M) are no longer KeyBindings - their long names ran off the controls list and other
+     * mods' bindings on the same letters took the presses (1.7.10's KeyBinding.hash: one binding a key). They are set
+     * in the «Техника» menu and read raw while riding (client.VehicleKeyBindsSVA); Controls keeps only the menu key.
      */
-    public static final net.minecraft.client.settings.KeyBinding KEY_BOOST =
-            new net.minecraft.client.settings.KeyBinding("key.sva.boost", org.lwjgl.input.Keyboard.KEY_F, "key.categories.sva");
-
-    /**
-     * «Снижение» (aircraft: helicopter collective down, plane nose down; the sprint key works too). Default X - free in
-     * vanilla 1.7.10 and in the core (K, R, P, H, J, G); Shift stays the vanilla «get out».
-     */
-    public static final net.minecraft.client.settings.KeyBinding KEY_DOWN =
-            new net.minecraft.client.settings.KeyBinding("key.sva.down", org.lwjgl.input.Keyboard.KEY_X, "key.categories.sva");
-
-    /** «Бур: вкл/выкл» (the drill vehicle; its driver). Default B - free in vanilla 1.7.10 and the core. */
-    public static final net.minecraft.client.settings.KeyBinding KEY_DRILL =
-            new net.minecraft.client.settings.KeyBinding("key.sva.drill", org.lwjgl.input.Keyboard.KEY_B, "key.categories.sva");
-
-    /** «Режим»: the drill's Tunnel / Ore only / Level; the tiltrotor's vertical <-> airplane mode (stage D). Default N. */
-    public static final net.minecraft.client.settings.KeyBinding KEY_DRILL_MODE =
-            new net.minecraft.client.settings.KeyBinding("key.sva.drillMode", org.lwjgl.input.Keyboard.KEY_N, "key.categories.sva");
-
-    /**
-     * Stage E, the Singular Ship (its pilot): «Прыжок» V, «Цель прыжка» Y (Coordinator / home), «Гравитационный якорь» Z,
-     * «Невидимость» C. All free in vanilla 1.7.10, the core (K, R, P, H, J, G) and this addon (F, X, B, N).
-     * The shuttle's / ship's «Дальний режим» is the «Режим» key (N).
-     */
-    public static final net.minecraft.client.settings.KeyBinding KEY_JUMP =
-            new net.minecraft.client.settings.KeyBinding("key.sva.jump", org.lwjgl.input.Keyboard.KEY_V, "key.categories.sva");
-    public static final net.minecraft.client.settings.KeyBinding KEY_TARGET =
-            new net.minecraft.client.settings.KeyBinding("key.sva.jumpTarget", org.lwjgl.input.Keyboard.KEY_Y, "key.categories.sva");
-    public static final net.minecraft.client.settings.KeyBinding KEY_ANCHOR =
-            new net.minecraft.client.settings.KeyBinding("key.sva.anchor", org.lwjgl.input.Keyboard.KEY_Z, "key.categories.sva");
-    public static final net.minecraft.client.settings.KeyBinding KEY_CLOAK =
-            new net.minecraft.client.settings.KeyBinding("key.sva.cloak", org.lwjgl.input.Keyboard.KEY_C, "key.categories.sva");
-
-    /**
-     * «Багажник»: opens the cargo / bunker screen of the vehicle the player sits in (driver or a seat) - Shift (the
-     * vanilla «get out») can't be used for Shift+RMB while seated. Default L: free in vanilla 1.7.10, the core
-     * (K, R, P, H, J, G) and this addon (F, X, B, N, V, Y, Z, C).
-     */
-    public static final net.minecraft.client.settings.KeyBinding KEY_CARGO =
-            new net.minecraft.client.settings.KeyBinding("key.sva.cargo", org.lwjgl.input.Keyboard.KEY_L, "key.categories.sva");
-
-    /**
-     * Wave 3, ★19 «Моя техника»: the vehicle map (on foot or riding, no screen open). Default M - free in vanilla 1.7.10,
-     * the core (K, R, P, H, J, G) and this addon (F, X, B, N, V, Y, Z, C, L, O). Rebindable.
-     */
-    public static final net.minecraft.client.settings.KeyBinding KEY_MAP =
-            new net.minecraft.client.settings.KeyBinding("key.sva.map", org.lwjgl.input.Keyboard.KEY_M, "key.categories.sva");
-
     /** The current key of «Багажник» as shown to the player (HUD / tooltips). */
     public static String cargoKeyName() {
-        int c = KEY_CARGO.getKeyCode();
-        return c == 0 ? "-" : net.minecraft.client.settings.GameSettings.getKeyDisplayString(c);
+        return com.sva.client.VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.CARGO);
     }
 
     @Override
     public void init(FMLInitializationEvent e) {
         super.init(e);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_BOOST);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DOWN);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DRILL);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_DRILL_MODE);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_JUMP);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_TARGET);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_ANCHOR);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CLOAK);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CARGO);
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_MAP);              // ★19
-        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(com.sva.client.CruiseClientSVA.KEY_CRUISE);   // ★4
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(com.sva.client.VehicleKeyBindsSVA.KEY_MENU);   // the only one
         // ★16: vehicle / trailer items as 3D models (each type declines itself with vehicles.icons3d = false)
         net.minecraftforge.client.MinecraftForgeClient.registerItemRenderer(com.sva.init.ModContentSVA.vehicle,
                 new com.sva.client.RenderItemVehicleSVA(false));
@@ -135,7 +79,8 @@ public class ClientProxySVA extends CommonProxySVA {
 
     /**
      * W/S throttle / reverse, A/D steer, Space brake (hover: higher; heli: collective up; plane: pull up), sprint /
-     * «Форсаж» boost (aircraft: down), «Снижение» down (Shift stays vanilla: get out).
+     * «Форсаж» boost (aircraft: down), «Снижение» down (Shift stays vanilla: get out). «Форсаж» / «Снижение» are the
+     * raw held state of their binds (VehicleKeyBindsSVA, latched each client tick while riding with no screen open).
      */
     @Override
     public int driverInput() {
@@ -162,10 +107,10 @@ public class ClientProxySVA extends CommonProxySVA {
         if (mc.currentScreen == null && mc.gameSettings.keyBindSprint.getIsKeyPressed()) {
             f |= EntityVehicleSVA.IN_BOOST;
         }
-        if (mc.currentScreen == null && KEY_BOOST.getIsKeyPressed()) {
+        if (mc.currentScreen == null && com.sva.client.VehicleKeyBindsSVA.boostHeld()) {
             f |= EntityVehicleSVA.IN_AFTER;
         }
-        if (mc.currentScreen == null && KEY_DOWN.getIsKeyPressed()) {
+        if (mc.currentScreen == null && com.sva.client.VehicleKeyBindsSVA.downHeld()) {
             f |= EntityVehicleSVA.IN_DOWN;
         }
         if (p.ridingEntity instanceof EntityVehicleSVA) {
@@ -306,41 +251,6 @@ public class ClientProxySVA extends CommonProxySVA {
         p.prevRotationYaw += d;
     }
 
-    /** The drill keys while driving the drill vehicle: one Action packet a press. */
-    private static void drillKeys() {
-        Minecraft mc = Minecraft.getMinecraft();
-        if (KEY_CARGO.isPressed() && mc.thePlayer != null && mc.currentScreen == null) {
-            EntityVehicleSVA cv = ridden(mc.thePlayer);                 // driver or a passenger seat
-            if (cv != null && !cv.isDead) {
-                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(cv.getEntityId(), EntityVehicleSVA.A_CARGO));
-            }
-        }
-        boolean toggle = KEY_DRILL.isPressed(), mode = KEY_DRILL_MODE.isPressed();
-        boolean jump = KEY_JUMP.isPressed(), target = KEY_TARGET.isPressed(), anchor = KEY_ANCHOR.isPressed(), cloak = KEY_CLOAK.isPressed();
-        if (mc.thePlayer == null || mc.currentScreen != null || !(toggle || mode || jump || target || anchor || cloak)) {
-            return;
-        }
-        Entity r = mc.thePlayer.ridingEntity;
-        if (!(r instanceof EntityVehicleSVA)) {
-            return;
-        }
-        com.sva.vehicle.VehicleType t = ((EntityVehicleSVA) r).getVehicleType();
-        if (t.hasDrill) {
-            NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), toggle ? EntityVehicleSVA.A_DRILL_TOGGLE : EntityVehicleSVA.A_DRILL_MODE));
-        } else if (mode && t.movement == com.sva.vehicle.Movement.TILT) {
-            NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), EntityVehicleSVA.A_FLIGHT_MODE));     // «Режим»
-        } else if (mode && t.longRange) {
-            NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), EntityVehicleSVA.A_LONG_RANGE));      // «Дальний режим»
-        }
-        if (t.singular) {
-            int a = jump ? EntityVehicleSVA.A_JUMP : target ? EntityVehicleSVA.A_JUMP_TARGET : anchor ? EntityVehicleSVA.A_ANCHOR
-                    : cloak ? EntityVehicleSVA.A_INVIS : -1;
-            if (a >= 0) {
-                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(r.getEntityId(), a));
-            }
-        }
-    }
-
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent e) {
         if (e.phase != TickEvent.Phase.START) {
@@ -364,13 +274,9 @@ public class ClientProxySVA extends CommonProxySVA {
             mapPending = null;
             com.sva.client.GuiMapSVA.receive(mi);                   // ★19
         }
-        Minecraft mk = Minecraft.getMinecraft();
-        if (KEY_MAP.isPressed() && mk.thePlayer != null && mk.currentScreen == null) {
-            com.sva.client.GuiMapSVA.openAtPlayer(mk);              // ★19 «Моя техника»
-        }
-        drillKeys();
         Minecraft mcc = Minecraft.getMinecraft();
-        com.sva.client.CruiseClientSVA.tick(mcc);                    // ★4: the «Круиз» key
+        com.sva.client.VehicleKeyBindsSVA.tick(mcc);                 // the menu key; riding: the function keys (raw)
+        com.sva.client.CruiseClientSVA.tick(mcc);                    // ★4: off when the driver left
         com.sva.client.VehicleSoundsSVA.tick(mcc);                   // ★1: engine loops
         com.sva.client.CockpitInstrumentsSVA.clientTick();
         NetSVA.Correct m;

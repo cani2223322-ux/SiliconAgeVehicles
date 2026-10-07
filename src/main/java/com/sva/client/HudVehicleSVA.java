@@ -258,7 +258,7 @@ public class HudVehicleSVA {
         boolean other = dim != v.worldObj.provider.dimensionId;
         String tgt;
         if (code == com.sva.vehicle.SpaceMath.NO_TARGET) {
-            tgt = Lang.tr("sva.hud.jump.noTarget");
+            tgt = Lang.tr("sva.hud.jump.noTarget", VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.TARGET));
         } else if (home) {
             tgt = Lang.tr("sva.hud.jump.home", other ? Lang.tr("sva.hud.jump.otherDim", Integer.valueOf(dim)) : fmt(dist));
         } else {
@@ -275,7 +275,7 @@ public class HudVehicleSVA {
             st = Lang.tr("sva.hud.jump.portal");
             sc = blink ? 0xC85AFF : 0x8040B0;
         } else if (code == com.sva.vehicle.SpaceMath.OK) {
-            st = Lang.tr("sva.hud.jump.ready");
+            st = Lang.tr("sva.hud.jump.ready", VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.JUMP));
             sc = GREEN;
         } else if (code == com.sva.vehicle.SpaceMath.COOLDOWN) {
             st = Lang.tr("sva.hud.jump.cooldown", Integer.valueOf(cd));

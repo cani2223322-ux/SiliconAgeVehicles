@@ -12,10 +12,10 @@ import com.sva.vehicle.VehicleType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
-import net.minecraft.client.settings.KeyBinding;
 
 /**
- * Wave 1, ★4 on the driver's client: the «Круиз» key (default O - K is the core armour's; rebindable), the state (on,
+ * Wave 1, ★4 on the driver's client: the «Круиз» function (VehicleFn.CRUISE: key O by default, set in the «Техника»
+ * menu - VehicleKeyBindsSVA fires toggleFor), the state (on,
  * the set speed / heading / height), the wheel's set-speed steps, and the HUD panel (mock-up veh_more_2_camera_cruise.png).
  * <p>
  * The state lives here; every tick ClientProxySVA.driverInput passes the keys through apply(): it switches the state off
@@ -25,9 +25,6 @@ import net.minecraft.client.settings.KeyBinding;
  * the set speed to what it reached.
  */
 public final class CruiseClientSVA {
-
-    /** «Круиз / автопилот». Default O: K is the core's armour screen; O is free in vanilla 1.7.10, the core and this addon. */
-    public static final KeyBinding KEY_CRUISE = new KeyBinding("key.sva.cruise", org.lwjgl.input.Keyboard.KEY_O, "key.categories.sva");
 
     /** How long the «switched off» line stays on the HUD (ms). */
     private static final long OFF_SHOWN = 3000;
@@ -46,8 +43,7 @@ public final class CruiseClientSVA {
     }
 
     public static String keyName() {
-        int c = KEY_CRUISE.getKeyCode();
-        return c == 0 ? "-" : net.minecraft.client.settings.GameSettings.getKeyDisplayString(c);
+        return VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.CRUISE);
     }
 
     /** The vehicle the local player drives (the driver's seat), or null. */
@@ -59,18 +55,16 @@ public final class CruiseClientSVA {
         return v.isDead ? null : v;
     }
 
-    /** Client tick: the key, and off when the driver left. */
+    /** Client tick: off when the driver left. */
     public static void tick(Minecraft mc) {
         EntityVehicleSVA v = driven(mc);
         if (on && (v == null || v.getEntityId() != vehicleId)) {
             on = false;                                        // got out: nothing to tell
         }
-        if (KEY_CRUISE.isPressed() && mc.currentScreen == null && v != null) {
-            toggle(v);
-        }
     }
 
-    private static void toggle(EntityVehicleSVA v) {
+    /** The «Круиз» key or the menu's button (the driver of v): on / off, or why it can't. */
+    public static void toggleFor(EntityVehicleSVA v) {
         if (on) {
             off(0);
             return;

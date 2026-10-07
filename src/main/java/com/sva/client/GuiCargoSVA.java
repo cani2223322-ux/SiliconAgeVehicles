@@ -21,7 +21,6 @@ import com.sva.inventory.CargoToolsSVA;
 import com.sva.inventory.ContainerCargoSVA;
 import com.sva.item.ComponentType;
 import com.sva.net.NetSVA;
-import com.sva.proxy.ClientProxySVA;
 import com.sva.vehicle.AutoDelivery;
 import com.sva.vehicle.CrawlerMath;
 import com.sva.vehicle.DrillMath;
@@ -34,8 +33,6 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.renderer.RenderHelper;
-import net.minecraft.client.settings.GameSettings;
-import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.inventory.Slot;
@@ -145,7 +142,7 @@ public class GuiCargoSVA extends GuiContainer {
         search.setText(old);
         // drill tab
         if (type.hasDrill) {
-            drill = add(new Dark(BTN_DRILL, x + X0, y + 78, CW, 13, "", tip("drill", key(ClientProxySVA.KEY_DRILL))));
+            drill = add(new Dark(BTN_DRILL, x + X0, y + 78, CW, 13, "", tip("drill", key(com.sva.vehicle.VehicleFn.DRILL))));
             for (int m = 0; m < DrillMath.MODES; m++) {
                 modes[m] = add(new Dark(BTN_MODE + m, x + X0 + m * 55, y + 93, 52, 13, Lang.tr("sva.drill.mode." + m), tip("mode." + m)));
             }
@@ -206,8 +203,8 @@ public class GuiCargoSVA extends GuiContainer {
         return com.sc.init.ModItems.coordinator != null ? new ItemStack(com.sc.init.ModItems.coordinator) : new ItemStack(net.minecraft.init.Items.compass);
     }
 
-    private static String key(KeyBinding k) {
-        return k == null ? "?" : GameSettings.getKeyDisplayString(k.getKeyCode());
+    private static String key(com.sva.vehicle.VehicleFn f) {
+        return VehicleKeyBindsSVA.name(f);
     }
 
     @Override
@@ -244,7 +241,7 @@ public class GuiCargoSVA extends GuiContainer {
         if (drill != null) {
             drill.visible = special;
             boolean on = vehicle.isDrillOn();
-            drill.displayString = Lang.tr(on ? "sva.gui.drill.onKey" : "sva.gui.drill.offKey", key(ClientProxySVA.KEY_DRILL));
+            drill.displayString = Lang.tr(on ? "sva.gui.drill.onKey" : "sva.gui.drill.offKey", key(com.sva.vehicle.VehicleFn.DRILL));
             drill.activeColor = on ? GREEN : 0;
             drill.active = on;
             for (int m = 0; m < modes.length; m++) {
@@ -894,33 +891,33 @@ public class GuiCargoSVA extends GuiContainer {
     /** «Клавиши: L - багажник, B - бур, N - режим» for this vehicle, with the player's bindings. */
     private String keysLine() {
         StringBuilder b = new StringBuilder();
-        add(b, ClientProxySVA.KEY_CARGO, "cargo");
+        add(b, com.sva.vehicle.VehicleFn.CARGO, "cargo");
         if (type.hasDrill) {
-            add(b, ClientProxySVA.KEY_DRILL, "drill");
-            add(b, ClientProxySVA.KEY_DRILL_MODE, "mode");
+            add(b, com.sva.vehicle.VehicleFn.DRILL, "drill");
+            add(b, com.sva.vehicle.VehicleFn.MODE, "mode");
         }
         if (type.movement == Movement.TILT) {
-            add(b, ClientProxySVA.KEY_DRILL_MODE, "tilt");
+            add(b, com.sva.vehicle.VehicleFn.MODE, "tilt");
         }
         if (type.longRange) {
-            add(b, ClientProxySVA.KEY_DRILL_MODE, "long");
+            add(b, com.sva.vehicle.VehicleFn.MODE, "long");
         }
         if (type.movement == Movement.HELI || type.movement == Movement.PLANE || type.movement == Movement.TILT) {
-            add(b, ClientProxySVA.KEY_DOWN, "down");
+            add(b, com.sva.vehicle.VehicleFn.DOWN, "down");
         }
         if (type.movement == Movement.HOVER || type.gases.boostGas != null) {
-            add(b, ClientProxySVA.KEY_BOOST, "boost");
+            add(b, com.sva.vehicle.VehicleFn.BOOST, "boost");
         }
         if (type.singular) {
-            add(b, ClientProxySVA.KEY_JUMP, "jump");
-            add(b, ClientProxySVA.KEY_TARGET, "target");
-            add(b, ClientProxySVA.KEY_ANCHOR, "anchor");
-            add(b, ClientProxySVA.KEY_CLOAK, "cloak");
+            add(b, com.sva.vehicle.VehicleFn.JUMP, "jump");
+            add(b, com.sva.vehicle.VehicleFn.TARGET, "target");
+            add(b, com.sva.vehicle.VehicleFn.ANCHOR, "anchor");
+            add(b, com.sva.vehicle.VehicleFn.CLOAK, "cloak");
         }
         return Lang.tr("sva.gui.keys", b.toString());
     }
 
-    private static void add(StringBuilder b, KeyBinding k, String what) {
+    private static void add(StringBuilder b, com.sva.vehicle.VehicleFn k, String what) {
         if (b.length() > 0) {
             b.append(", ");
         }

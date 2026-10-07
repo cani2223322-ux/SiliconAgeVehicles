@@ -1,0 +1,136 @@
+package com.sva.vehicle;
+
+import com.sva.entity.EntityVehicleSVA;
+
+/**
+ * The vehicle functions that have a key (the «Техника» menu, GuiVehicleSVA; the keys: client.VehicleKeyBindsSVA) -
+ * pure, so the dedicated server's self-test checks the table.
+ * <p>
+ * Fix 2026-10 (the user's screenshot of Options > Controls): the eleven addon KeyBindings had long names that ran off
+ * the left edge of the 1.7.10 controls list, and ten of their letters were red - taken by other mods. In 1.7.10
+ * KeyBinding.hash maps a key code to ONE binding, so of two bindings on a letter only one ever gets the press: the
+ * vehicle's function could silently not work. Now only «Техника (меню)» (key.sva.menu, CONTROLS) is a KeyBinding; the
+ * functions' keys live in the player's own file, are set in the menu (any key with Ctrl / Shift / Alt, or a middle /
+ * side mouse button) and are read raw from the keyboard - only while riding a vehicle with no screen open, so another
+ * mod's binding on the same letter no longer matters and nothing is taken from anyone on foot.
+ * <p>
+ * Key codes are LWJGL's (org.lwjgl.input.Keyboard - written as numbers: this class is loaded on the dedicated server,
+ * which has no LWJGL). The old KeyBinding ids (oldId: options.txt "key_key.sva." + oldId) are kept for the one-time
+ * migration of the player's own letters.
+ */
+public enum VehicleFn {
+
+    /** «Форсаж»: the hoverbike's boost, the jet's / tiltrotor's / shuttle's / ship's afterburner. Held. F. */
+    BOOST("boost", "boost", 33, true, true),
+    /** «Снижение»: aircraft down / nose down (the sprint key works too). Held. X. */
+    DOWN("down", "down", 45, true, true),
+    /** «Бур»: the drill vehicle's drill on / off. B. */
+    DRILL("drill", "drill", 48, false, true),
+    /** «Режим»: the drill's mode; the tiltrotor's vertical / airplane; the shuttle's / ship's long-range mode. N. */
+    MODE("mode", "drillMode", 49, false, true),
+    /** The Singular Ship: «Прыжок» V, «Цель прыжка» Y, «Якорь» Z, «Невидимость» C. */
+    JUMP("jump", "jump", 47, false, true),
+    TARGET("target", "jumpTarget", 21, false, true),
+    ANCHOR("anchor", "anchor", 44, false, true),
+    CLOAK("cloak", "cloak", 46, false, true),
+    /** «Круиз / автопилот» (the driver's client state, CruiseClientSVA). O. */
+    CRUISE("cruise", "cruise", 24, false, true),
+    /** «Багажник»: the cargo / bunker screen from any seat (owner / the «Багажник» right - the server checks). L. */
+    CARGO("cargo", "cargo", 38, false, false),
+    /** «Карта техники» (GuiMapSVA). M. */
+    MAP("map", "map", 50, false, false);
+
+    /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
+    public static final String[] CONTROLS = {"key.sva.menu"};
+    /** The menu key's default: ` / Ё (LWJGL KEY_GRAVE) - free in vanilla 1.7.10, the core (K R P H J G) and the old letters. */
+    public static final int MENU_DEFAULT = 41;
+    /** The options.txt line prefix of the old KeyBindings ("key_" + the binding's id). */
+    public static final String OPTIONS_PREFIX = "key_key.sva.";
+
+    /** The config / lang id ("sva.fn." + key); the old KeyBinding id; the default key; held (not pressed); only the driver. */
+    public final String key, oldId;
+    public final int defaultKey;
+    public final boolean hold, driverOnly;
+
+    VehicleFn(String key, String oldId, int defaultKey, boolean hold, boolean driverOnly) {
+        this.key = key;
+        this.oldId = oldId;
+        this.defaultKey = defaultKey;
+        this.hold = hold;
+        this.driverOnly = driverOnly;
+    }
+
+    /** Does this vehicle type have the function (the same rules the keys always had)? */
+    public boolean appliesTo(VehicleType t) {
+        switch (this) {
+            case BOOST:
+                return t.movement == Movement.HOVER || t.gases.boostGas != null;
+            case DOWN:
+                return t.movement == Movement.HELI || t.movement == Movement.PLANE || t.movement == Movement.TILT;
+            case DRILL:
+                return t.hasDrill;
+            case MODE:
+                return t.hasDrill || t.movement == Movement.TILT || t.longRange;
+            case JUMP:
+            case TARGET:
+            case ANCHOR:
+            case CLOAK:
+                return t.singular;
+            case CRUISE:
+                return CruiseMath.kind(t.movement, false) != CruiseMath.NONE || CruiseMath.kind(t.movement, true) != CruiseMath.NONE;
+            default:
+                return true;                                        // cargo, map: every vehicle
+        }
+    }
+
+    /**
+     * The Action packet a press sends on this type (EntityVehicleSVA.A_*), or -1: held functions go in the Input
+     * packet, cruise is the driver's client state, the map is a screen.
+     */
+    public int action(VehicleType t) {
+        if (!appliesTo(t)) {
+            return -1;
+        }
+        switch (this) {
+            case DRILL:
+                return EntityVehicleSVA.A_DRILL_TOGGLE;
+            case MODE:
+                return t.hasDrill ? EntityVehicleSVA.A_DRILL_MODE : t.movement == Movement.TILT ? EntityVehicleSVA.A_FLIGHT_MODE
+                        : EntityVehicleSVA.A_LONG_RANGE;
+            case JUMP:
+                return EntityVehicleSVA.A_JUMP;
+            case TARGET:
+                return EntityVehicleSVA.A_JUMP_TARGET;
+            case ANCHOR:
+                return EntityVehicleSVA.A_ANCHOR;
+            case CLOAK:
+                return EntityVehicleSVA.A_INVIS;
+            case CARGO:
+                return EntityVehicleSVA.A_CARGO;
+            default:
+                return -1;
+        }
+    }
+
+    /** The menu's name of the function on this type (lang key): «Режим» says what it switches. */
+    public String nameKey(VehicleType t) {
+        if (this == MODE && t != null) {
+            return t.hasDrill ? "sva.fn.mode.drill" : t.movement == Movement.TILT ? "sva.fn.mode.tilt" : t.longRange ? "sva.fn.mode.long" : "sva.fn.mode";
+        }
+        return "sva.fn." + key;
+    }
+
+    /** The hover explanation (lang key), per type for «Режим». */
+    public String tipKey(VehicleType t) {
+        return nameKey(t) + ".tip";
+    }
+
+    public static VehicleFn byKey(String k) {
+        for (VehicleFn f : values()) {
+            if (f.key.equals(k)) {
+                return f;
+            }
+        }
+        return null;
+    }
+}
