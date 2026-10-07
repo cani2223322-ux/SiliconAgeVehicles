@@ -70,7 +70,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             // stage E: the space panel's line (SpaceLogicSVA.hudString)
             DW_SPACE = 14,
             // cargo screen v2: the owner's name («Машина» tab), torches the drill has put down («Бур» tab)
-            DW_OWNER = 13, DW_TORCHES = 12;
+            DW_OWNER = 13, DW_TORCHES = 12,
+            // skins: the board number on the side decal (SkinMath.boardNumber of the vehicle's id)
+            DW_BOARD = 11;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
             X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15,
             // stage D: the tiltrotor's wanted mode (airplane) and its nacelle step (0..40, 6 bits)
@@ -171,6 +173,18 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     // client: the jump portal's swirl; the ship's singularity rings (deg, deg/tick)
     private int portalFx;
     private float coreAngle, prevCoreAngle, coreRate;
+    /**
+     * Client (★6 / ★10): the animation state - wheels rolled, steering, control surfaces, gear, bob, lean, the smoothed
+     * nacelles, brake lights (vehicle/AnimMath; nothing synced - ticked from the motion every client sees).
+     */
+    public final com.sva.vehicle.AnimMath.State anim = new com.sva.vehicle.AnimMath.State();
+    /** Client: the local driver's keys this tick (-1: someone else drives / nobody). */
+    private int animIn = -1;
+    /** Client: the vehicle has charge and is not a wreck - its lights work (VehicleLightsSVA, DynamicLightSVA). */
+    public boolean powered() {
+        return getEnergy() > 0 && !isWrecked();
+    }
+
     /** Client: seat entities that found this body (positioned here each tick). */
     final List<EntitySeatSVA> clientSeats = new ArrayList<EntitySeatSVA>();
 
@@ -219,6 +233,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.addObject(DW_SPACE, "");
         dataWatcher.addObject(DW_OWNER, "");
         dataWatcher.addObject(DW_TORCHES, Integer.valueOf(0));
+        dataWatcher.addObject(DW_BOARD, Integer.valueOf(0));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -332,6 +347,18 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     public int getDug() {
         return worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_DUG) : (int) Math.min(Integer.MAX_VALUE, state.dug);
+    }
+
+    /**
+     * The board number on the side decal (1..99, stable per vehicle: from its id in the item NBT), synced; before the
+     * first sync a stand-in from the entity id.
+     */
+    public int getBoardNumber() {
+        if (!worldObj.isRemote) {
+            return com.sva.vehicle.SkinMath.boardNumber(state.vehId);
+        }
+        int n = dataWatcher.getWatchableObjectInt(DW_BOARD);
+        return n > 0 ? n : getEntityId() % 99 + 1;
     }
 
     /** The owner's name ("" - nobody's), synced. */
@@ -613,6 +640,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_ROUTE, routeText());
         dataWatcher.updateObject(DW_OWNER, state.ownerName == null ? "" : state.ownerName);
         dataWatcher.updateObject(DW_TORCHES, Integer.valueOf(state.torches));
+        dataWatcher.updateObject(DW_BOARD, Integer.valueOf(com.sva.vehicle.SkinMath.boardNumber(state.vehId)));
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
             dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
@@ -1208,6 +1236,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         EntityPlayer local = SVAMod.proxy.localPlayer();
         if (local != null && riddenByEntity == local) {
             int in = SVAMod.proxy.driverInput();
+            animIn = in;
             physicsStep(t, in);
             lerpSteps = 0;
             if (in != lastSentInput || ++inputTimer >= KEEPALIVE) {
@@ -1226,6 +1255,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             }
         } else {
             lastSentInput = -1;
+            animIn = -1;
             if (lerpSteps > 0) {
                 setPosition(posX + (lx - posX) / lerpSteps, posY + (ly - posY) / lerpSteps, posZ + (lz - posZ) / lerpSteps);
                 lerpSteps--;
@@ -1249,7 +1279,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             float target = isDrillOn() && riddenByEntity != null ? 32F : 0F;
             drillRate += MathHelper.clamp_float(target - drillRate, -1.5F, 2F);
             drillAngle = (drillAngle + drillRate) % 360F;
+            if (ConfigSVA.animations && drillRate > 20F && isDrillOn()) {
+                drillSparks(t);
+            }
         }
+        animTick(t);
         if (isWrecked() && ticksExisted % 4 == 0) {
             worldObj.spawnParticle("largesmoke", posX + (rand.nextDouble() - 0.5), posY + 1.0, posZ + (rand.nextDouble() - 0.5), 0, 0.05, 0);
         } else if (isHeatStopped() && ticksExisted % 6 == 0) {
@@ -1302,6 +1336,58 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         renderPitch += (tp - renderPitch) * 0.2F;
         renderRoll += (tr - renderRoll) * 0.2F;
+    }
+
+    /**
+     * Client (★10): one tick of the part animations (AnimMath.tick) from this tick's motion - the speed along the facing
+     * and the yaw rate (interpolated positions for other players' vehicles, the own physics for the driver), the driver's
+     * own A/D and brake keys when it is the local player's, the height over the ground (aircraft, every 4 ticks).
+     */
+    private void animTick(VehicleType t) {
+        double dx = posX - prevPosX, dz = posZ - prevPosZ, r = Math.toRadians(rotationYaw);
+        float fwd = (float) (dx * -Math.sin(r) + dz * Math.cos(r));
+        float dy = (float) (posY - prevPosY);
+        float yawRate = MathHelper.wrapAngleTo180_float(rotationYaw - prevRotationYaw);
+        boolean flies = t.movement.flies;
+        if (flies && (ticksExisted & 3) == 0) {
+            anim.height = heightAboveGround(10);
+        } else if (!flies) {
+            anim.height = 0;
+        }
+        float steerIn = Float.NaN;
+        boolean brakeIn = false;
+        if (animIn >= 0) {
+            steerIn = ((animIn & IN_RIGHT) != 0 ? 1F : 0F) - ((animIn & IN_LEFT) != 0 ? 1F : 0F);
+            brakeIn = !flies && ((animIn & IN_BRAKE) != 0 || (animIn & IN_BACK) != 0 && fwd > 0.02F);
+        }
+        boolean gearType = t.movement == Movement.PLANE || t == VehicleType.SHUTTLE;
+        boolean ground = !flies || anim.height < 0.6;
+        boolean bounce = t.movement == Movement.GROUND || t.movement == Movement.CRAWLER;
+        double tilt = t.movement == Movement.TILT ? getTiltPos() : Double.NaN;
+        com.sva.vehicle.AnimMath.tick(anim, fwd, dy, yawRate, (float) t.turnRate, t.modelScale, ground, steerIn, brakeIn, gearType,
+                planeNow() && flies, t.movement == Movement.HOVER, bounce, tilt, ConfigSVA.animations);
+    }
+
+    /**
+     * Client (★10): sparks and rock chips off the bore's tip while it drills (drill.obj's tip x 3.0, y 1.031 x the
+     * model scale, the model drawn moved back by modelOffsetX).
+     */
+    private void drillSparks(VehicleType t) {
+        double[] w = toWorld((3.0 - t.modelOffsetX) * t.modelScale + 0.1, 0);
+        double x = posX + w[0], y = posY + 1.031 * t.modelScale, z = posZ + w[1];
+        for (int i = 0; i < 2; i++) {
+            worldObj.spawnParticle("crit", x + (rand.nextDouble() - 0.5) * 0.4, y + (rand.nextDouble() - 0.5) * 0.4,
+                    z + (rand.nextDouble() - 0.5) * 0.4, (rand.nextDouble() - 0.5) * 0.6, rand.nextDouble() * 0.3, (rand.nextDouble() - 0.5) * 0.6);
+        }
+        if (ticksExisted % 3 == 0) {
+            double[] f = toWorld((3.0 - t.modelOffsetX) * t.modelScale + 0.6, 0);
+            int bx = MathHelper.floor_double(posX + f[0]), by = MathHelper.floor_double(y), bz = MathHelper.floor_double(posZ + f[1]);
+            net.minecraft.block.Block b = worldObj.getBlock(bx, by, bz);
+            if (b.getMaterial() != net.minecraft.block.material.Material.air) {
+                worldObj.spawnParticle("blockcrack_" + net.minecraft.block.Block.getIdFromBlock(b) + "_" + worldObj.getBlockMetadata(bx, by, bz),
+                        x, y, z, (rand.nextDouble() - 0.5) * 0.3, 0.15, (rand.nextDouble() - 0.5) * 0.3);
+            }
+        }
     }
 
     /** Jet nozzle in model units (jet.obj's thruster disc: x -2.975, y 0.561, radius 0.175). */

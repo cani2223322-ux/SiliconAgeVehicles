@@ -1,0 +1,71 @@
+package com.sva.client;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import org.lwjgl.opengl.GL11;
+
+import com.sva.ReferenceSVA;
+import com.sva.vehicle.SkinMath;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.TextureUtil;
+import net.minecraft.util.ResourceLocation;
+
+/**
+ * The textures behind the vehicle skins (SkinMath): the material tiles (textures/models/TILE.png through the texture
+ * manager - GL_NEAREST, GL_REPEAT, resource-pack overridable) and the generated ones - the livery overlays (per model,
+ * livery and material) and the side decals (per livery colour and board number, at most 99 per colour) - uploaded once
+ * as plain GL textures, GL_NEAREST + GL_CLAMP, and kept for the session.
+ */
+public final class LiverySVA {
+
+    private static final Map<String, ResourceLocation> TILES = new HashMap<String, ResourceLocation>();
+    /** key -> GL texture id; 0 = nothing to draw (an empty overlay). */
+    private static final Map<String, Integer> GENERATED = new HashMap<String, Integer>();
+
+    private LiverySVA() {
+    }
+
+    /** Binds a material tile (SkinMath.tile / tileFor). */
+    public static void bindTile(String tile) {
+        ResourceLocation rl = TILES.get(tile);
+        if (rl == null) {
+            rl = new ResourceLocation(ReferenceSVA.ASSETS, "textures/models/" + tile + ".png");
+            TILES.put(tile, rl);
+        }
+        Minecraft.getMinecraft().getTextureManager().bindTexture(rl);
+    }
+
+    /** The overlay texture of `mat` on `model` in `livery` (0: none), generating it the first time. */
+    public static int overlay(String model, int livery, String mat, String primary, float[] box, int civilStripe, int matColour, boolean glow) {
+        String key = "o/" + model + "/" + livery + "/" + mat + "/" + glow;
+        Integer id = GENERATED.get(key);
+        if (id == null) {
+            int[] px = SkinMath.overlay(livery, mat, primary, box, civilStripe, matColour, glow);
+            id = Integer.valueOf(px == null ? 0 : upload(px, SkinMath.overlayW(box), SkinMath.overlayH(box)));
+            GENERATED.put(key, id);
+        }
+        return id.intValue();
+    }
+
+    /** The side decal for a board number in a colour. */
+    public static int decal(int number, int rgb) {
+        String key = "d/" + (rgb & 0xFFFFFF) + "/" + SkinMath.boardText(number);
+        Integer id = GENERATED.get(key);
+        if (id == null) {
+            id = Integer.valueOf(upload(SkinMath.decal(number, rgb), SkinMath.DECAL_W, SkinMath.DECAL_H));
+            GENERATED.put(key, id);
+        }
+        return id.intValue();
+    }
+
+    private static int upload(int[] argb, int w, int h) {
+        int id = TextureUtil.glGenTextures();
+        TextureUtil.allocateTexture(id, w, h);
+        TextureUtil.uploadTexture(id, argb, w, h);              // binds it, GL_NEAREST
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
+        return id;
+    }
+}

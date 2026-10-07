@@ -16,6 +16,7 @@ import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.PlatformSize;
+import com.sva.vehicle.SkinMath;
 import com.sva.vehicle.TiltMath;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleState;
@@ -107,6 +108,11 @@ public final class SelfTestSVA {
             riderFit();
             cockpitWindows();
             cargoV2();
+            skins();
+        cockpitInstruments();
+            animParts();
+            animLogic();
+            lightTable();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -1689,5 +1695,763 @@ public final class SelfTestSVA {
         VehicleState back = new VehicleState(VehicleType.DRILL);
         back.readNBT(tag);
         check(back.torches == 23, "drill: torches put down are saved (the cargo screen's drill tab counter)");
+    }
+
+    /**
+     * Skins (design *1-*3, SkinMath): liveries by tier, the board number from the vehicle id, box-projected UVs, the
+     * material tiles in the jar (16x16), the livery overlays (hazard band / stripe / glowing lines), the decal (number,
+     * emblem, clear rim, mirrored on the left side) and that every model's decal box lies on painted side faces.
+     */
+    private static void skins() throws java.io.IOException {
+        // liveries by tier
+        check(SkinMath.livery(Tier.MV) == SkinMath.WORK && SkinMath.livery(Tier.HV) == SkinMath.CIVIL && SkinMath.livery(Tier.EV) == SkinMath.CIVIL
+                && SkinMath.livery(Tier.QV) == SkinMath.SILICON && SkinMath.livery(Tier.XV) == SkinMath.SILICON
+                && SkinMath.livery(Tier.SV) == SkinMath.SINGULAR, "skins: livery by tier (MV I, HV/EV II, QV/XV III, SV Singular)");
+        boolean[] seen = new boolean[4];
+        for (VehicleType t : VehicleType.values()) {
+            seen[SkinMath.livery(t.tier)] = true;
+        }
+        check(seen[0] && seen[1] && seen[2] && seen[3], "skins: every livery is worn by some vehicle");
+        check(SkinMath.paintColour(SkinMath.SILICON, "paint", "paint", 0xEEAC18) == 0x1E2636
+                && SkinMath.paintColour(SkinMath.SINGULAR, "paint2", "paint", 0x1A1A1E) == 0x0C0814
+                && SkinMath.paintColour(SkinMath.SILICON, "white", "white", 0xE1E4E8) == 0x1E2636
+                && SkinMath.paintColour(SkinMath.WORK, "paint", "paint", 0xEEAC18) == 0xEEAC18
+                && SkinMath.paintColour(SkinMath.CIVIL, "paint2", "paint", 0x123456) == 0x123456
+                && SkinMath.paintColour(SkinMath.SILICON, "steel", "paint", 0x787C84) == 0x787C84,
+                "skins: III / Singular repaint paint (white without paint) and paint2, I / II keep the paint");
+        check("paint_smooth".equals(SkinMath.tileFor(SkinMath.SINGULAR, "paint")) && "paint".equals(SkinMath.tileFor(SkinMath.SILICON, "paint"))
+                && "paint".equals(SkinMath.tileFor(-1, "paint")) && "steel".equals(SkinMath.tileFor(SkinMath.SINGULAR, "steel")),
+                "skins: the Singular paint has no rivets");
+        // board number
+        String id = java.util.UUID.randomUUID().toString();
+        java.util.Set<Integer> nums = new java.util.HashSet<Integer>();
+        boolean range = true;
+        for (int i = 0; i < 600; i++) {
+            int n = SkinMath.boardNumber(java.util.UUID.randomUUID().toString());
+            range &= n >= 1 && n <= 99;
+            nums.add(Integer.valueOf(n));
+        }
+        check(range && nums.size() >= 90 && SkinMath.boardNumber(id) == SkinMath.boardNumber(new String(id)) && SkinMath.boardNumber(null) == 1
+                && SkinMath.boardNumber("") == 1, "skins: board number 1..99, stable per id, spread (" + nums.size() + " of 99 over 600 ids)");
+        check("07".equals(SkinMath.boardText(7)) && "42".equals(SkinMath.boardText(42)) && "99".equals(SkinMath.boardText(150))
+                && "01".equals(SkinMath.boardText(0)), "skins: board number as two digits");
+        VehicleState st = new VehicleState(VehicleType.BUGGY);
+        NBTTagCompound tag = new NBTTagCompound();
+        st.writeNBT(tag);
+        VehicleState back = new VehicleState(VehicleType.BUGGY);
+        back.readNBT(tag);
+        check(SkinMath.boardNumber(back.vehId) == SkinMath.boardNumber(st.vehId), "skins: the board number survives the item NBT");
+        // UVs: dominant axis, one tile per model unit, sides read upright
+        float[] uv = new float[2], uv2 = new float[2];
+        SkinMath.uv(2, 0.25F, 1F, 0.5F, uv);
+        SkinMath.uv(2, 1.25F, 2F, 0.5F, uv2);
+        boolean side = near(uv2[0] - uv[0], 1, 1e-6) && near(uv2[1] - uv[1], -1, 1e-6);
+        SkinMath.uv(0, 3F, 1F, 0.5F, uv);
+        SkinMath.uv(1, 0.25F, 7F, -0.5F, uv2);
+        check(SkinMath.axis(0.1F, 0.2F, -0.9F) == 2 && SkinMath.axis(-0.8F, 0.5F, 0.1F) == 0 && SkinMath.axis(0.3F, 0.9F, 0.3F) == 1 && side
+                && near(uv[0], 0.5, 1e-6) && near(uv[1], -1, 1e-6) && near(uv2[0], 0.25, 1e-6) && near(uv2[1], -0.5, 1e-6),
+                "skins: box projection along the face's dominant axis, 1 tile (16 texels) per model unit, v down the sides");
+        check("dark_plate".equals(SkinMath.tile("dark", 1, 0.95F, false)) && "dark_grille".equals(SkinMath.tile("dark", 0, 0.1F, false))
+                && "dark".equals(SkinMath.tile("dark", 2, 0.1F, false)) && SkinMath.tile("screen", 0, 0F, true) == null
+                && "lamp".equals(SkinMath.tile("lamp", 0, 0F, true)) && "paint".equals(SkinMath.tile("white", 2, 0F, false))
+                && SkinMath.ownColours("hazard") && !SkinMath.ownColours("paint"), "skins: tiles by material and face (floor plate, grille, screens untextured)");
+        // every tile is in the jar, 16x16; every groups.txt material maps to one of them (or stays untextured)
+        StringBuilder bad = new StringBuilder();
+        java.util.Set<String> known = new java.util.HashSet<String>(java.util.Arrays.asList(SkinMath.TILES));
+        for (String t : SkinMath.TILES) {
+            java.io.InputStream in = SelfTestSVA.class.getResourceAsStream("/assets/siliconagevehicles/textures/models/" + t + ".png");
+            java.awt.image.BufferedImage img = in == null ? null : javax.imageio.ImageIO.read(in);
+            if (img == null || img.getWidth() != 16 || img.getHeight() != 16) {
+                bad.append(' ').append(t);
+            }
+        }
+        java.util.Set<String> models = new java.util.HashSet<String>();
+        for (VehicleType t : VehicleType.values()) {
+            models.add(t.model);
+        }
+        for (String m : models) {
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    SelfTestSVA.class.getResourceAsStream("/assets/siliconagevehicles/models/" + m + ".groups.txt"), "UTF-8"));
+            try {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    String[] p = line.trim().split("\\s+");
+                    if (p.length < 5 || p[0].startsWith("#")) {
+                        continue;
+                    }
+                    for (int ax = 0; ax < 3; ax++) {
+                        String t = SkinMath.tile(p[0], ax, ax == 1 ? 1F : 0F, "1".equals(p[4]));
+                        if (t != null && !known.contains(t)) {
+                            bad.append(' ').append(m).append('/').append(p[0]).append("->").append(t);
+                        }
+                    }
+                }
+            } finally {
+                r.close();
+            }
+        }
+        check(bad.length() == 0, "skins: material tiles in the jar (16x16), every model material maps to one" + bad);
+        // overlays on a 4 x 2 unit paint box
+        float[] box = {-2F, 0F, 2F, 2F};
+        int w = SkinMath.overlayW(box), h = SkinMath.overlayH(box);
+        int[] work = SkinMath.overlay(SkinMath.WORK, "paint", "paint", box, 0x2E5288, 0xEEAC18, false);
+        boolean yellow = false, black = false, cleanMid = true, stripe = false, rim = true;
+        for (int j = 0; j < h && work != null; j++) {
+            float hh = (box[3] - (j - 0.5F) / 16F - box[1]) / (box[3] - box[1]);
+            for (int i = 0; i < w; i++) {
+                int c = work[j * w + i];
+                if (i == 0 || j == 0 || i == w - 1 || j == h - 1) {
+                    rim &= c == 0;
+                } else if (hh < 0.19F) {
+                    yellow |= c == 0xFFEBBE1E;
+                    black |= c == 0xFF18181A;
+                } else if (hh > 0.22F && hh < 0.38F || hh > 0.5F) {
+                    cleanMid &= c == 0;
+                } else if (hh > 0.42F && hh < 0.46F) {
+                    stripe |= c == 0xFF1A1A1E;
+                }
+            }
+        }
+        check(w == 66 && h == 34 && work != null && yellow && black && stripe && cleanMid && rim,
+                "skins: livery I - black-yellow hazard band on the lowest 20 %, a dark stripe, clear elsewhere and on the rim");
+        int[] civil = SkinMath.overlay(SkinMath.CIVIL, "paint", "paint", box, 0x2E5288, 0xEEAC18, false);
+        boolean civ = false;
+        for (int k = 0; civil != null && k < civil.length; k++) {
+            civ |= civil[k] == 0xFF2E5288;
+        }
+        check(civ && SkinMath.overlay(SkinMath.CIVIL, "white", "paint", box, 0xE1E4E8, 0xE1E4E8, false) == null
+                && SkinMath.overlay(SkinMath.CIVIL, "paint", "paint", box, 0x2E5288, 0xEEAC18, true) == null,
+                "skins: livery II - a stripe in the accent colour (none on a group of that colour), no glow");
+        int[] glow = SkinMath.overlay(SkinMath.SILICON, "paint", "paint", box, 0, 0, true);
+        int lit = 0;
+        for (int k = 0; glow != null && k < glow.length; k++) {
+            lit += glow[k] == (0xFF000000 | SkinMath.glowColour(SkinMath.SILICON)) ? 1 : 0;
+        }
+        check(glow != null && lit > 40 && lit < glow.length / 4 && SkinMath.overlay(SkinMath.SILICON, "paint", "paint", box, 0, 0, false) == null
+                && SkinMath.overlay(SkinMath.SINGULAR, "paint2", "paint", box, 0, 0, true) != null
+                && SkinMath.overlay(SkinMath.SINGULAR, "steel", "paint", box, 0, 0, true) == null,
+                "skins: III / Singular - glowing lines on paint and paint2 (" + lit + " texels), no stripe layer");
+        // decal
+        int[] d7 = SkinMath.decal(7, 0xFFFFFF), d8 = SkinMath.decal(8, 0xFFFFFF);
+        boolean differ = false, decRim = true;
+        for (int k = 0; k < d7.length; k++) {
+            differ |= d7[k] != d8[k] && k % SkinMath.DECAL_W >= 18 && k % SkinMath.DECAL_W < 40;
+            int x = k % SkinMath.DECAL_W, y = k / SkinMath.DECAL_W;
+            if (x == 0 || y == 0 || x == SkinMath.DECAL_W - 1 || y == SkinMath.DECAL_H - 1) {
+                decRim &= d7[k] == 0;
+            }
+        }
+        check(differ && decRim && d7[8 * SkinMath.DECAL_W + 8] == 0xFF141418 && d7[8 * SkinMath.DECAL_W + 2] == 0xFFFFFFFF,
+                "skins: decal - hexagon emblem (dark core), the number's digits, a clear rim");
+        float[] db = {1F, 0F, 3F, 0.5F};
+        SkinMath.decalUv(db, 1.5F, 0.4F, 0.9F, uv);
+        SkinMath.decalUv(db, 1.5F, 0.4F, -0.9F, uv2);
+        check(near(uv[0], 0.25, 1e-6) && near(uv2[0], 0.75, 1e-6) && near(uv[1], 0.2, 1e-6) && near(uv2[1], 0.2, 1e-6),
+                "skins: decal UVs mirrored on the left side (the emblem leads, the number reads left to right on both sides)");
+        // every model's decal box lies on its painted side faces, nothing in front of it (both sides)
+        for (String m : models) {
+            float[] b = SkinMath.decalBox(m);
+            if (b == null) {
+                check(false, "skins: " + m + " has a decal box");
+                continue;
+            }
+            float[][] tris = paintTris(m);
+            int[] cov = new int[2];
+            int tot = 0;
+            for (int xi = 0; xi < 10; xi++) {
+                for (int yi = 0; yi < 3; yi++) {
+                    float x = b[0] + (b[2] - b[0]) * (0.05F + 0.1F * xi), y = b[1] + (b[3] - b[1]) * (0.1F + 0.4F * yi);
+                    tot++;
+                    for (int s = 0; s < 2; s++) {
+                        float sgn = s == 0 ? 1F : -1F, top = -1e9F;
+                        float[] front = null;
+                        for (float[] t : tris) {
+                            float z = zAt(t, x, y);
+                            if (!Float.isNaN(z) && z * sgn > top) {
+                                top = z * sgn;
+                                front = t;
+                            }
+                        }
+                        if (front != null && front[12] > 0 && front[11] * sgn > SkinMath.SIDE_NZ) {
+                            cov[s]++;
+                        }
+                    }
+                }
+            }
+            check(cov[0] >= tot * 0.85F && cov[1] >= tot * 0.85F, "skins: " + m + " decal box on the outermost painted side faces (right " + cov[0] + "/" + tot
+                    + ", left " + cov[1] + "/" + tot + ")");
+        }
+    }
+
+    /**
+     * The triangles of models/NAME.obj but the glass: 9 position floats, the face normal (turned along the smooth normals),
+     * then 1 for a painted one.
+     */
+    private static float[][] paintTris(String model) throws java.io.IOException {
+        java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                SelfTestSVA.class.getResourceAsStream("/assets/siliconagevehicles/models/" + model + ".obj"), "UTF-8"), 1 << 16);
+        java.util.List<float[]> v = new java.util.ArrayList<float[]>(), vn = new java.util.ArrayList<float[]>(), out = new java.util.ArrayList<float[]>();
+        boolean take = false, paint = false;
+        try {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.startsWith("v ") || line.startsWith("vn ")) {
+                    String[] p = line.trim().split("\\s+");
+                    (line.startsWith("v ") ? v : vn).add(new float[] {Float.parseFloat(p[1]), Float.parseFloat(p[2]), Float.parseFloat(p[3])});
+                } else if (line.startsWith("g ")) {
+                    String g = line.substring(2).trim();
+                    paint = SkinMath.paintable(g);
+                    take = !"glass".equals(g) && !"canopy".equals(g);
+                } else if (take && line.startsWith("f ")) {
+                    String[] p = line.substring(2).trim().split("\\s+");
+                    for (int i = 1; i + 1 < p.length; i++) {
+                        int[] idx = {0, i, i + 1};
+                        float[] t = new float[13];
+                        float sx = 0, sy = 0, sz = 0;
+                        for (int k = 0; k < 3; k++) {
+                            String[] ix = p[idx[k]].split("/");
+                            float[] q = v.get(Integer.parseInt(ix[0]) - 1);
+                            System.arraycopy(q, 0, t, k * 3, 3);
+                            if (ix.length >= 3 && ix[2].length() > 0) {
+                                float[] n = vn.get(Integer.parseInt(ix[2]) - 1);
+                                sx += n[0];
+                                sy += n[1];
+                                sz += n[2];
+                            }
+                        }
+                        float ux = t[3] - t[0], uy = t[4] - t[1], uz = t[5] - t[2], wx = t[6] - t[0], wy = t[7] - t[1], wz = t[8] - t[2];
+                        float nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+                        float l = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+                        if (l < 1e-9F) {
+                            continue;
+                        }
+                        float s = nx * sx + ny * sy + nz * sz < 0 ? -1F : 1F;
+                        t[9] = s * nx / l;
+                        t[10] = s * ny / l;
+                        t[11] = s * nz / l;
+                        t[12] = paint ? 1F : 0F;
+                        out.add(t);
+                    }
+                }
+            }
+        } finally {
+            r.close();
+        }
+        return out.toArray(new float[out.size()][]);
+    }
+
+    /** The triangle's z over (x, y) in its xy projection, NaN outside it. */
+    private static float zAt(float[] t, float x, float y) {
+        float det = (t[4] - t[7]) * (t[0] - t[6]) + (t[6] - t[3]) * (t[1] - t[7]);
+        if (Math.abs(det) < 1e-12F) {
+            return Float.NaN;
+        }
+        float w0 = ((t[4] - t[7]) * (x - t[6]) + (t[6] - t[3]) * (y - t[7])) / det;
+        float w1 = ((t[7] - t[1]) * (x - t[6]) + (t[0] - t[6]) * (y - t[7])) / det;
+        float w2 = 1 - w0 - w1;
+        return w0 < -1e-6F || w1 < -1e-6F || w2 < -1e-6F ? Float.NaN : w0 * t[2] + w1 * t[5] + w2 * t[8];
+    }
+    // ---- *14 live cockpit instruments (vehicle/CockpitLayout, vehicle/CockpitDials)
+
+    /** A synthetic OBJ: v lines + groups of faces, built up piece by piece (1-based indices). */
+    private static final class ObjOut {
+        final StringBuilder v = new StringBuilder(), f = new StringBuilder();
+        int n;
+
+        void group(String g) {
+            f.append("g ").append(g).append('\n');
+        }
+
+        int vert(double x, double y, double z) {
+            v.append("v ").append((float) x).append(' ').append((float) y).append(' ').append((float) z).append('\n');
+            return ++n;
+        }
+
+        void face(int... ix) {
+            f.append('f');
+            for (int i : ix) {
+                f.append(' ').append(i);
+            }
+            f.append('\n');
+        }
+
+        /** export_obj.py's dial: a `sides`-gon cylinder along x (faces -x) at (x, y, z), radius r, caps fanned from centres. */
+        void cylinder(double x, double y, double z, double r, double thick, int sides) {
+            int c0 = vert(x, y, z), c1 = vert(x + thick, y, z);
+            int[] a = new int[sides], b = new int[sides];
+            for (int i = 0; i < sides; i++) {
+                double t = i * Math.PI * 2 / sides;
+                a[i] = vert(x, y + Math.cos(t) * r, z + Math.sin(t) * r);
+                b[i] = vert(x + thick, y + Math.cos(t) * r, z + Math.sin(t) * r);
+            }
+            for (int i = 0; i < sides; i++) {
+                int j = (i + 1) % sides;
+                face(a[i], a[j], b[j], b[i]);
+                face(c0, a[j], a[i]);
+                face(c1, b[i], b[j]);
+            }
+        }
+
+        /** A flattened UV sphere (the round overhead buttons). */
+        void sphere(double x, double y, double z, double r) {
+            int rings = 6, seg = 12;
+            int[][] ring = new int[rings + 1][seg];
+            for (int k = 0; k <= rings; k++) {
+                double phi = k * Math.PI / rings;
+                for (int i = 0; i < seg; i++) {
+                    double t = i * Math.PI * 2 / seg;
+                    ring[k][i] = vert(x - Math.cos(phi) * r * 0.3, y + Math.sin(phi) * Math.cos(t) * r, z + Math.sin(phi) * Math.sin(t) * r);
+                }
+            }
+            for (int k = 0; k < rings; k++) {
+                for (int i = 0; i < seg; i++) {
+                    int j = (i + 1) % seg;
+                    face(ring[k][i], ring[k][j], ring[k + 1][j], ring[k + 1][i]);
+                }
+            }
+        }
+
+        /** A box (8 corners) - square from the front: the same radius at every corner, but not round. */
+        void box(double x, double y, double z, double h) {
+            int[] c = new int[8];
+            for (int i = 0; i < 8; i++) {
+                c[i] = vert(x + ((i & 1) != 0 ? 0.01 : 0), y + ((i & 2) != 0 ? h : -h), z + ((i & 4) != 0 ? h : -h));
+            }
+            face(c[0], c[2], c[6], c[4]);
+            face(c[1], c[3], c[7], c[5]);
+            face(c[0], c[1], c[3], c[2]);
+            face(c[4], c[5], c[7], c[6]);
+            face(c[0], c[1], c[5], c[4]);
+            face(c[2], c[3], c[7], c[6]);
+        }
+
+        java.io.InputStream stream() throws java.io.UnsupportedEncodingException {
+            return new java.io.ByteArrayInputStream((v.toString() + f.toString()).getBytes("UTF-8"));
+        }
+    }
+
+    private static void cockpitInstruments() throws java.io.IOException {
+        // dial clustering on a tiny synthetic dash: the eye at the origin, the dash 0.5 ahead (x)
+        ObjOut o = new ObjOut();
+        o.group("gauge");
+        o.cylinder(0.5, 0, 0.15, 0.06, 0.02, 12);          // right dial
+        o.cylinder(0.5, 0, -0.15, 0.06, 0.02, 12);         // left dial
+        o.sphere(0.5, -0.12, 0, 0.04);                    // a button of the dial colour (r 0.04 but not a disc)
+        o.box(0.5, 0.12, 0, 0.05);                        // a square plate
+        o.cylinder(0.51, 0.01, -0.15, 0.04, 0.005, 14);   // a smaller disc behind the left dial
+        o.cylinder(2.5, 0, 0, 0.06, 0.02, 12);            // far away (2.5 > MAX_DIST)
+        o.group("needle");
+        o.box(0.4875, 0.02, 0.15, 0.005);                 // the static needle in front of the right dial
+        o.group("holo");
+        int[] q = {o.vert(0.55, -0.05, -0.05), o.vert(0.55, -0.05, 0.05), o.vert(0.55, 0.05, 0.05), o.vert(0.55, 0.05, -0.05)};
+        o.face(q[0], q[1], q[2], q[3]);
+        com.sva.vehicle.CockpitLayout l = com.sva.vehicle.CockpitLayout.parse(o.stream(), new float[] {0, 0, 0});
+        check(l.dials.size() == 2, "cockpit: synthetic dash - 2 dials (the button, plate, hidden disc and far dial left out), got " + l.dials.size());
+        if (l.dials.size() == 2) {
+            com.sva.vehicle.CockpitLayout.Dial a = l.dials.get(0), b = l.dials.get(1);
+            check(near(a.c[2], -0.15, 1e-3) && near(b.c[2], 0.15, 1e-3) && near(a.c[0], 0.51, 1e-3) && near(a.r, 0.06, 1e-3),
+                    "cockpit: dial centres / radius found, sorted left -> right (z " + a.c[2] + ", " + b.c[2] + ", r " + a.r + ")");
+            check(near(a.n[0], -1, 1e-3) && near(a.up[1], 1, 1e-3) && near(a.right[2], 1, 1e-3),
+                    "cockpit: dial normal faces the eye (-x), up = +y, right = +z");
+            check(near(b.front, 0.0225, 1e-3) && near(a.front, 0.01, 1e-3),
+                    "cockpit: the face plane goes over the static needle (" + b.front + ") / the dial front (" + a.front + ")");
+        }
+        check(l.screens.size() == 1 && near(l.screens.get(0).w, 0.1, 1e-3) && near(l.screens.get(0).h, 0.1, 1e-3),
+                "cockpit: the flat holo is a 0.1 x 0.1 screen");
+        java.util.List<java.util.List<float[]>> comps = com.sva.vehicle.CockpitLayout.components(
+                java.util.Arrays.asList(new float[] {0, 0, 0}, new float[] {1, 0, 0}, new float[] {0, 1, 0}, new float[] {1, 1, 0},
+                        new float[] {5, 5, 5}, new float[] {6, 5, 5}, new float[] {5, 6, 5}, new float[] {1F, 1F, 0F}),
+                java.util.Arrays.asList(new int[] {0, 1, 2}, new int[] {7, 1, 2}, new int[] {4, 5, 6}));
+        check(comps.size() == 2, "cockpit: components join triangles by shared vertex positions (duplicated vertices too), got " + comps.size());
+        float[] free = com.sva.vehicle.CockpitLayout.freeRect(new float[] {0, 1, 0, 1},
+                java.util.Collections.singletonList(new float[] {-0.2F, 1.2F, -0.1F, 0.6F}));
+        check(free != null && near(free[2], 0.6, 1e-6) && near(free[3], 1, 1e-6) && near(free[1] - free[0], 1, 1e-6),
+                "cockpit: a screen's free rectangle above the dials covering its lower part");
+        // needle angle mapping
+        check(com.sva.vehicle.CockpitDials.needleAngle(0, 0, 100) == -135F && com.sva.vehicle.CockpitDials.needleAngle(100, 0, 100) == 135F
+                && com.sva.vehicle.CockpitDials.needleAngle(50, 0, 100) == 0F, "cockpit: needle -135 at the bottom of the scale, +135 at the top, 0 mid");
+        check(com.sva.vehicle.CockpitDials.needleAngle(500, 0, 100) == 135F && com.sva.vehicle.CockpitDials.needleAngle(-5, 0, 100) == -135F
+                && com.sva.vehicle.CockpitDials.needleAngle(Float.NaN, 0, 100) == -135F
+                && com.sva.vehicle.CockpitDials.needleAngle(0, -10, 10) == 0F, "cockpit: needle clamped to the sweep (NaN at rest); vertical speed 0 points up");
+        check(com.sva.vehicle.CockpitDials.niceMax(36) == 40F && com.sva.vehicle.CockpitDials.niceMax(250) == 250F
+                && com.sva.vehicle.CockpitDials.niceMax(81) == 100F && com.sva.vehicle.CockpitDials.niceMax(0) == 1F,
+                "cockpit: scale tops are round numbers (36 -> 40, 81 -> 100)");
+        float f = com.sva.vehicle.CockpitDials.follow(0F, 100F, 0.15F);
+        check(near(f, 100 * (1 - Math.exp(-1)), 0.01) && com.sva.vehicle.CockpitDials.follow(Float.NaN, 42F, 0.02F) == 42F
+                && com.sva.vehicle.CockpitDials.follow(10F, 42F, 5F) == 42F, "cockpit: needles ease in (63% in 0.15 s), jump on the first frame / after a pause");
+        // the per-type dial tables against the real models
+        int[] expect = new int[VehicleType.values().length];
+        expect[VehicleType.BUGGY.ordinal()] = 2;
+        expect[VehicleType.HOVER.ordinal()] = 0;
+        expect[VehicleType.HELI.ordinal()] = 5;
+        expect[VehicleType.PLANE.ordinal()] = 3;
+        expect[VehicleType.TRUCK.ordinal()] = 2;
+        expect[VehicleType.DRILL.ordinal()] = 2;
+        expect[VehicleType.JET.ordinal()] = 1;
+        expect[VehicleType.TILT.ordinal()] = 4;
+        expect[VehicleType.SHUTTLE.ordinal()] = 4;
+        expect[VehicleType.SHIP.ordinal()] = 4;
+        StringBuilder found = new StringBuilder();
+        boolean tablesOk = true, countsOk = true, screensOk = true;
+        for (VehicleType t : VehicleType.values()) {
+            com.sva.vehicle.CockpitLayout cl = com.sva.vehicle.CockpitLayout.of(t);
+            int[] table = com.sva.vehicle.CockpitDials.table(t);
+            found.append(t.key).append(' ').append(cl.dials.size()).append('/').append(cl.screens.size()).append(' ');
+            tablesOk &= table.length >= Math.max(1, cl.dials.size()) && com.sva.vehicle.CockpitDials.smallTable(t).length > 0;
+            for (int k : table) {
+                tablesOk &= k >= 0 && k < com.sva.vehicle.CockpitDials.KEYS.length;
+            }
+            countsOk &= cl.dials.size() == expect[t.ordinal()];
+            screensOk &= t == VehicleType.HOVER ? cl.screens.size() == 1 : cl.screens.size() >= 2;
+        }
+        check(tablesOk, "cockpit: every type's dial table covers all its model's dials (dials/screens: " + found.toString().trim() + ")");
+        check(countsOk, "cockpit: dial counts per model as measured (buggy 2, hover 0, heli 5, plane 3, truck 2, drill 2, jet 1, tilt 4, shuttle 4, ship 4)");
+        check(screensOk, "cockpit: every cockpit has screens (hoverbike: its one flat screen)");
+        int[] pr = com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(VehicleType.PLANE).screens, true);
+        int[] jr = com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(VehicleType.JET).screens, true);
+        check(contains(pr, com.sva.vehicle.CockpitDials.SCREEN_ATTITUDE) && contains(jr, com.sva.vehicle.CockpitDials.SCREEN_ATTITUDE)
+                && contains(jr, com.sva.vehicle.CockpitDials.SCREEN_MAIN),
+                "cockpit: the plane and the jet get an attitude indicator, the jet a text screen too");
+        java.util.List<com.sva.vehicle.CockpitLayout.Screen> syn = new java.util.ArrayList<com.sva.vehicle.CockpitLayout.Screen>();
+        float[] z3 = {0, 0, 0};
+        syn.add(new com.sva.vehicle.CockpitLayout.Screen("holo", z3, z3, z3, z3, 0.4F, 0.1F, 0));
+        syn.add(new com.sva.vehicle.CockpitLayout.Screen("holo", z3, z3, z3, z3, 0.1F, 0.1F, 0));
+        syn.add(new com.sva.vehicle.CockpitLayout.Screen("holo", z3, z3, z3, z3, 0.04F, 0.11F, 0));
+        int[] r1 = com.sva.vehicle.CockpitDials.screenRoles(syn, true), r2 = com.sva.vehicle.CockpitDials.screenRoles(syn, false);
+        check(r1[0] == com.sva.vehicle.CockpitDials.SCREEN_MAIN && r1[1] == com.sva.vehicle.CockpitDials.SCREEN_ATTITUDE
+                && r1[2] == com.sva.vehicle.CockpitDials.SCREEN_BAR && r2[1] == com.sva.vehicle.CockpitDials.SCREEN_SMALL,
+                "cockpit: screen jobs - wide = text, square = attitude (aircraft) / one reading, narrow = bar");
+        // every dial label / unit is translated
+        boolean langOk = true;
+        for (String file : new String[] {"/assets/siliconagevehicles/lang/ru_RU.lang", "/assets/siliconagevehicles/lang/en_US.lang"}) {
+            java.util.Properties props = new java.util.Properties();
+            java.io.InputStream in = SelfTestSVA.class.getResourceAsStream(file);
+            if (in == null) {
+                langOk = false;
+                continue;
+            }
+            try {
+                props.load(new java.io.InputStreamReader(in, "UTF-8"));
+            } finally {
+                in.close();
+            }
+            for (String k : com.sva.vehicle.CockpitDials.KEYS) {
+                langOk &= props.containsKey("sva.cockpit.dial." + k) && props.containsKey("sva.cockpit.unit." + k);
+            }
+        }
+        check(langOk, "cockpit: every dial label and unit is in ru_RU and en_US");
+    }
+
+    private static boolean contains(int[] a, int v) {
+        for (int x : a) {
+            if (x == v) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ---- ★6 / ★7 / ★10: lights and part animations (vehicle/AnimParts, AnimMath, VehicleLights)
+
+    /** models/NAME.obj as triangles: {group, float[9] positions}. */
+    private static java.util.List<Object[]> objTris(String model) throws java.io.IOException {
+        java.io.InputStream in = SelfTestSVA.class.getResourceAsStream("/assets/siliconagevehicles/models/" + model + ".obj");
+        java.util.List<Object[]> out = new java.util.ArrayList<Object[]>();
+        if (in == null) {
+            return out;
+        }
+        java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(in, "UTF-8"), 1 << 16);
+        java.util.List<float[]> v = new java.util.ArrayList<float[]>();
+        String g = "default";
+        try {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.startsWith("v ")) {
+                    String[] p = line.trim().split("\\s+");
+                    v.add(new float[] {Float.parseFloat(p[1]), Float.parseFloat(p[2]), Float.parseFloat(p[3])});
+                } else if (line.startsWith("g ")) {
+                    g = line.substring(2).trim();
+                } else if (line.startsWith("f ")) {
+                    String[] p = line.substring(2).trim().split("\\s+");
+                    for (int i = 1; i + 1 < p.length; i++) {
+                        float[] t = new float[9];
+                        int[] idx = {0, i, i + 1};
+                        for (int k = 0; k < 3; k++) {
+                            System.arraycopy(v.get(Integer.parseInt(p[idx[k]].split("/")[0]) - 1), 0, t, k * 3, 3);
+                        }
+                        out.add(new Object[] {g, t});
+                    }
+                }
+            }
+        } finally {
+            r.close();
+        }
+        return out;
+    }
+
+    /**
+     * Every animated part's box catches its triangles in its model (cut parts: clips a piece out), wheels turn about their
+     * real axle (the caught vertices lie within the radius of the pivot, the farthest at ~ the radius), surfaces hinge on
+     * a face of their box, the table's flags; and the clipping keeps every bit of a triangle.
+     */
+    private static void animParts() throws java.io.IOException {
+        java.util.Map<String, java.util.List<Object[]>> cache = new java.util.HashMap<String, java.util.List<Object[]>>();
+        int defs = 0;
+        for (com.sva.vehicle.AnimParts.Def d : com.sva.vehicle.AnimParts.all()) {
+            java.util.List<Object[]> tris = cache.get(d.model);
+            if (tris == null) {
+                tris = objTris(d.model);
+                cache.put(d.model, tris);
+            }
+            int n = 0;
+            float far = 0;
+            for (Object[] o : tris) {
+                String g = (String) o[0];
+                float[] t = (float[]) o[1];
+                float[] a = {t[0], t[1], t[2]}, b = {t[3], t[4], t[5]}, c = {t[6], t[7], t[8]};
+                boolean in;
+                if (d.cut) {
+                    in = d.takes(g) && d.overlaps(a, b, c)
+                            && com.sva.vehicle.AnimParts.clipBox(new float[][] {a, b, c}, d.min, d.max, new java.util.ArrayList<float[][]>()) != null;
+                } else {
+                    in = d.holds(g, (t[0] + t[3] + t[6]) / 3F, (t[1] + t[4] + t[7]) / 3F, (t[2] + t[5] + t[8]) / 3F);
+                }
+                if (in) {
+                    n++;
+                    if (d.kind == com.sva.vehicle.AnimParts.WHEEL) {
+                        for (int k = 0; k < 3; k++) {
+                            float dx = t[k * 3] - d.pivot[0], dy = t[k * 3 + 1] - d.pivot[1];
+                            far = Math.max(far, (float) Math.sqrt(dx * dx + dy * dy));
+                        }
+                    }
+                }
+            }
+            defs++;
+            check(n >= d.minTris, "anim parts: " + d.model + " " + d.name + " catches " + n + " triangles (>= " + d.minTris + ")");
+            if (d.kind == com.sva.vehicle.AnimParts.WHEEL && d.radius > 0) {
+                check(far >= d.radius * 0.85F && far <= d.radius * 1.2F, "anim parts: " + d.model + " " + d.name + " spins about its axle (farthest "
+                        + far + " ~ r " + d.radius + ")");
+            }
+            if (d.kind == com.sva.vehicle.AnimParts.SURFACE) {
+                boolean hinge = d.axis == 1 || d.axis == 2 ? d.pivot[0] == d.min[0] || d.pivot[0] == d.max[0] : false;
+                check(hinge && Math.abs(d.gain) == 1F, "anim parts: " + d.model + " " + d.name + " hinges on its box face x " + d.pivot[0]);
+            }
+        }
+        check(defs >= 60, "anim parts: table has " + defs + " parts");
+        // flags: the buggy steers with its front wheels only, the truck's trailer wheels go with the trailer, the gear
+        boolean steerOk = true, trailerOk = false, gearOk = true;
+        for (com.sva.vehicle.AnimParts.Def d : com.sva.vehicle.AnimParts.of("buggy")) {
+            steerOk &= d.steer == d.name.contains("F");
+        }
+        for (com.sva.vehicle.AnimParts.Def d : com.sva.vehicle.AnimParts.of("truck")) {
+            trailerOk |= d.trailer && d.pivot[0] < -1.25F;
+            steerOk &= !d.steer;
+        }
+        for (String m : new String[] {"plane", "jet", "shuttle"}) {
+            int g = 0;
+            for (com.sva.vehicle.AnimParts.Def d : com.sva.vehicle.AnimParts.of(m)) {
+                g += d.gearPivot != null ? 1 : 0;
+            }
+            gearOk &= g >= 3;
+        }
+        check(steerOk && trailerOk && gearOk, "anim parts: flags (buggy front wheels steer, trailer wheels with the trailer, gear on plane/jet/shuttle)");
+        // ailerons move opposite ways, elevators the same way
+        for (String m : new String[] {"plane", "jet", "tilt"}) {
+            float l = 0, r = 0, el = 0;
+            int ne = 0, nr = 0;
+            for (com.sva.vehicle.AnimParts.Def d : com.sva.vehicle.AnimParts.of(m)) {
+                if (d.kind != com.sva.vehicle.AnimParts.SURFACE) {
+                    continue;
+                }
+                if (d.control == com.sva.vehicle.AnimParts.AILERON) {
+                    if (d.min[2] > 0) {
+                        r = d.gain;
+                    } else {
+                        l = d.gain;
+                    }
+                } else if (d.control == com.sva.vehicle.AnimParts.ELEVATOR) {
+                    el += d.gain;
+                    ne++;
+                } else {
+                    nr++;
+                }
+            }
+            check(l == -r && l != 0 && Math.abs(el) == ne && ne > 0 && nr > 0, "anim parts: " + m + " ailerons opposite (L " + l + " R " + r
+                    + "), " + ne + " elevator(s) together, " + nr + " rudder(s)");
+        }
+        // clipping: a triangle across a box splits into pieces whose areas add up, the inside piece within the box
+        float[] mn = {0F, 0F, -1F}, mx = {1F, 1F, 1F};
+        float[][] tri = {{-0.5F, 0.2F, 0F, 0F, 1F, 0F}, {1.5F, 0.4F, 0F, 0F, 1F, 0F}, {0.3F, 1.8F, 0F, 0F, 1F, 0F}};
+        java.util.List<float[][]> outside = new java.util.ArrayList<float[][]>();
+        float[][] inside = com.sva.vehicle.AnimParts.clipBox(tri, mn, mx, outside);
+        float sum = inside == null ? 0F : com.sva.vehicle.AnimParts.area(inside);
+        for (float[][] o : outside) {
+            sum += com.sva.vehicle.AnimParts.area(o);
+        }
+        boolean within = inside != null;
+        if (inside != null) {
+            for (float[] p : inside) {
+                within &= p[0] >= -1e-5F && p[0] <= 1.00001F && p[1] >= -1e-5F && p[1] <= 1.00001F && Math.abs(p[4] - 1F) < 1e-4F;
+            }
+        }
+        check(within && near(sum, com.sva.vehicle.AnimParts.area(tri), 1e-4) && outside.size() >= 2,
+                "anim parts: clipBox keeps the area (" + sum + " of " + com.sva.vehicle.AnimParts.area(tri) + ", " + outside.size() + " outside pieces)");
+    }
+
+    /** Gear retract / extend, surface and steering deflection, blink timing, brake detection, config off = at rest. */
+    private static void animLogic() {
+        // gear: retracts high and fast, stays in the band between, extends low or slow; the travel takes 1 s
+        check(com.sva.vehicle.AnimMath.gearTarget(false, 10, 0.8) && com.sva.vehicle.AnimMath.gearTarget(true, 5, 0.8)
+                && !com.sva.vehicle.AnimMath.gearTarget(false, 5, 0.8) && !com.sva.vehicle.AnimMath.gearTarget(true, 3, 0.8)
+                && !com.sva.vehicle.AnimMath.gearTarget(true, 10, 0.2), "anim: gear retracts > 6 blocks and fast, extends < 4 or slow (hysteresis)");
+        com.sva.vehicle.AnimMath.State s = new com.sva.vehicle.AnimMath.State();
+        s.height = 10;
+        int up = -1;
+        for (int i = 0; i < 40; i++) {
+            com.sva.vehicle.AnimMath.tick(s, 0.8F, 0F, 0F, 2F, 3F, false, Float.NaN, false, true, true, false, false, Double.NaN, true);
+            if (up < 0 && s.gear >= 1F) {
+                up = i + 1;
+            }
+        }
+        s.height = 2;
+        int down = -1;
+        for (int i = 0; i < 40; i++) {
+            com.sva.vehicle.AnimMath.tick(s, 0.8F, 0F, 0F, 2F, 3F, true, Float.NaN, false, true, true, false, false, Double.NaN, true);
+            if (down < 0 && s.gear <= 0F) {
+                down = i + 1;
+            }
+        }
+        check(Math.abs(up - com.sva.vehicle.AnimMath.GEAR_TICKS) <= 1 && Math.abs(down - com.sva.vehicle.AnimMath.GEAR_TICKS) <= 1,
+                "anim: gear travel up " + up + " / down " + down + " ticks (" + com.sva.vehicle.AnimMath.GEAR_TICKS + ")");
+        // control surfaces: full turn -> full deflection, clamped at 20 deg, signs; elevator from the climb
+        float M = com.sva.vehicle.AnimMath.MAX_SURFACE;
+        check(com.sva.vehicle.AnimMath.aileronTarget(1.8F, 1.8F) == M && com.sva.vehicle.AnimMath.aileronTarget(-50F, 1.8F) == -M
+                && com.sva.vehicle.AnimMath.aileronTarget(0F, 1.8F) == 0F && near(com.sva.vehicle.AnimMath.aileronTarget(0.9F, 1.8F), M / 2, 1e-4)
+                && com.sva.vehicle.AnimMath.rudderTarget(99F, 1F) == M && com.sva.vehicle.AnimMath.elevatorTarget(0.5F, 1F) > 0F
+                && com.sva.vehicle.AnimMath.elevatorTarget(-2F, 1F) == -M && com.sva.vehicle.AnimMath.elevatorTarget(0F, 1F) == 0F,
+                "anim: control surface mapping and clamping (+-" + M + " deg)");
+        // smoothing reaches the target without overshoot
+        s = new com.sva.vehicle.AnimMath.State();
+        float maxA = 0;
+        for (int i = 0; i < 40; i++) {
+            com.sva.vehicle.AnimMath.tick(s, 1F, 0F, 5F, 1.8F, 3F, false, Float.NaN, false, false, true, false, false, Double.NaN, true);
+            maxA = Math.max(maxA, s.aileron);
+        }
+        check(maxA <= M && s.aileron > M * 0.99F && s.rudder > 0 && s.gear == 0F, "anim: ailerons ease to " + s.aileron + " (no overshoot, max " + maxA + ")");
+        // steering: own keys -> +-25, else from the yaw rate (reversing flips), clamped
+        check(com.sva.vehicle.AnimMath.steerTarget(1F, 0F, 4.5F, 0F) == com.sva.vehicle.AnimMath.MAX_STEER
+                && com.sva.vehicle.AnimMath.steerTarget(-1F, 0F, 4.5F, 0F) == -com.sva.vehicle.AnimMath.MAX_STEER
+                && com.sva.vehicle.AnimMath.steerTarget(Float.NaN, 9F, 4.5F, 0.3F) == com.sva.vehicle.AnimMath.MAX_STEER
+                && com.sva.vehicle.AnimMath.steerTarget(Float.NaN, 2.25F, 4.5F, -0.3F) < 0, "anim: steering mapping (keys / yaw rate, reverse)");
+        // wheels: rolling forward turns them negative about +z (top forward); a full turn per 2 pi r
+        check(com.sva.vehicle.AnimMath.wheelAngle(0.1, 0.5F) < 0 && near(com.sva.vehicle.AnimMath.wheelAngle(Math.PI * 0.5 * 0.5, 0.5F), -90, 1e-3),
+                "anim: wheel angle from the distance rolled");
+        // blink: the strobe flashes 2 of every 20 ticks; beacons peak at 1, rest at 0.15; phases differ per vehicle
+        int on = 0;
+        for (long t = 0; t < 200; t++) {
+            on += com.sva.vehicle.AnimMath.strobe(t, 7) ? 1 : 0;
+        }
+        float bmax = 0, bmin = 2;
+        for (int t = 0; t < 40; t++) {
+            float b = com.sva.vehicle.AnimMath.beacon(t, 0, 20);
+            bmax = Math.max(bmax, b);
+            bmin = Math.min(bmin, b);
+        }
+        check(on == 20 && near(bmax, 1, 1e-4) && near(bmin, 0.15, 1e-3)
+                && com.sva.vehicle.AnimMath.phase(1) != com.sva.vehicle.AnimMath.phase(2)
+                && com.sva.vehicle.AnimMath.phase(-5) >= 0, "anim: blink timing (strobe " + on + "/200 ticks, beacon " + bmin + ".." + bmax + ")");
+        // brake lights of someone else's vehicle: slowing down while moving, not reversing / cruising
+        check(com.sva.vehicle.AnimMath.braking(0.3F, 0.25F) && !com.sva.vehicle.AnimMath.braking(0.3F, 0.3F)
+                && !com.sva.vehicle.AnimMath.braking(0.01F, 0F) && !com.sva.vehicle.AnimMath.braking(0.3F, -0.25F), "anim: braking detection");
+        // config off: everything at rest
+        s = new com.sva.vehicle.AnimMath.State();
+        s.height = 10;
+        for (int i = 0; i < 30; i++) {
+            com.sva.vehicle.AnimMath.tick(s, 0.8F, 0.3F, 3F, 1.8F, 3F, true, 1F, false, true, true, true, true, 0.5, false);
+        }
+        check(s.roll == 0 && s.steer == 0 && s.aileron == 0 && s.gear == 0 && s.bob == 0 && s.lean == 0 && s.tilt == 0.5,
+                "anim: vehicles.animations = false keeps every part at rest");
+        // the bump spring settles back to 0
+        s = new com.sva.vehicle.AnimMath.State();
+        com.sva.vehicle.AnimMath.tick(s, 0.2F, 0F, 0F, 1F, 3F, true, Float.NaN, false, false, false, false, true, Double.NaN, true);
+        com.sva.vehicle.AnimMath.tick(s, 0.2F, -0.4F, 0F, 1F, 3F, true, Float.NaN, false, false, false, false, true, Double.NaN, true);
+        com.sva.vehicle.AnimMath.tick(s, 0.2F, 0F, 0F, 1F, 3F, true, Float.NaN, false, false, false, false, true, Double.NaN, true);
+        float peak = Math.abs(s.bob);
+        for (int i = 0; i < 60; i++) {
+            com.sva.vehicle.AnimMath.tick(s, 0.2F, 0F, 0F, 1F, 3F, true, Float.NaN, false, false, false, false, true, Double.NaN, true);
+        }
+        check(peak > 0.005F && Math.abs(s.bob) < 0.002F && peak <= com.sva.vehicle.AnimMath.BOB_MAX, "anim: suspension bob on a landing (peak " + peak
+                + ") settles");
+    }
+
+    /**
+     * The nav light table: every aircraft has red on the left (z < 0), green on the right, mirrored, a strobe and a beacon
+     * under its middle; the truck and the drill amber beacons and markers; every vehicle with front lamps a headlight;
+     * every light on (or right at) its model.
+     */
+    private static void lightTable() throws java.io.IOException {
+        String[] air = {"heli", "plane", "jet", "tilt", "shuttle", "ship"};
+        for (String m : air) {
+            float red = 0, green = 0;
+            int strobe = 0, beacon = 0;
+            float[] box = objBox(m);
+            boolean beaconLow = true;
+            for (com.sva.vehicle.VehicleLights.Light l : com.sva.vehicle.VehicleLights.of(m)) {
+                if (l.kind == com.sva.vehicle.VehicleLights.RED) {
+                    red = l.z;
+                } else if (l.kind == com.sva.vehicle.VehicleLights.GREEN) {
+                    green = l.z;
+                } else if (l.kind == com.sva.vehicle.VehicleLights.STROBE) {
+                    strobe++;
+                } else if (l.kind == com.sva.vehicle.VehicleLights.BEACON) {
+                    beacon++;
+                    beaconLow &= l.y < (box[1] + box[4]) / 2;
+                }
+            }
+            check(red < 0 && green > 0 && near(-red, green, 1e-4) && strobe >= 1 && beacon >= 1 && beaconLow,
+                    "lights: " + m + " red left z " + red + ", green right z " + green + ", strobe " + strobe + ", beacon underneath " + beacon);
+        }
+        for (String m : new String[] {"truck", "drill"}) {
+            int amber = 0, marker = 0;
+            for (com.sva.vehicle.VehicleLights.Light l : com.sva.vehicle.VehicleLights.of(m)) {
+                amber += l.kind == com.sva.vehicle.VehicleLights.AMBER ? 1 : 0;
+                marker += l.kind == com.sva.vehicle.VehicleLights.MARKER ? 1 : 0;
+            }
+            check(amber >= 1 && marker >= 4 && marker % 2 == 0, "lights: " + m + " amber beacons " + amber + ", side markers " + marker);
+        }
+        boolean heads = true;
+        for (String m : new String[] {"buggy", "hover", "truck", "drill", "heli", "plane", "jet", "tilt", "shuttle", "ship"}) {
+            heads &= com.sva.vehicle.VehicleLights.hasHead(m);
+        }
+        check(heads, "lights: every vehicle has a headlight / landing light");
+        int bad = 0, all = 0;
+        String where = "";
+        for (String m : com.sva.vehicle.VehicleLights.models()) {
+            float[] b = objBox(m);
+            for (com.sva.vehicle.VehicleLights.Light l : com.sva.vehicle.VehicleLights.of(m)) {
+                all++;
+                float e = 0.15F;
+                if (l.x < b[0] - e || l.x > b[3] + e || l.y < b[1] - e || l.y > b[4] + e || l.z < b[2] - e || l.z > b[5] + e) {
+                    bad++;
+                    where += " " + m + "(" + l.x + "," + l.y + "," + l.z + ")";
+                }
+            }
+        }
+        check(bad == 0 && all >= 60, "lights: all " + all + " lights sit on their models" + where);
+        check(com.sva.vehicle.VehicleLights.colour(com.sva.vehicle.VehicleLights.RED) != com.sva.vehicle.VehicleLights.colour(com.sva.vehicle.VehicleLights.GREEN)
+                && com.sva.vehicle.VehicleLights.colour(com.sva.vehicle.VehicleLights.AMBER) == 0xFF9A18, "lights: colours");
+    }
+
+    /** The model's bounding box {x0, y0, z0, x1, y1, z1}. */
+    private static float[] objBox(String model) throws java.io.IOException {
+        float[] b = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+        for (Object[] o : objTris(model)) {
+            float[] t = (float[]) o[1];
+            for (int k = 0; k < 9; k++) {
+                b[k % 3] = Math.min(b[k % 3], t[k]);
+                b[3 + k % 3] = Math.max(b[3 + k % 3], t[k]);
+            }
+        }
+        return b;
     }
 }

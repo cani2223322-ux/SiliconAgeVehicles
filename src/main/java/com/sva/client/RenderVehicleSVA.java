@@ -2,19 +2,35 @@ package com.sva.client;
 
 import org.lwjgl.opengl.GL11;
 
+import com.sva.ConfigSVA;
 import com.sva.entity.EntityVehicleSVA;
+import com.sva.vehicle.AnimMath;
+import com.sva.vehicle.AnimParts;
+import com.sva.vehicle.Movement;
 
 import net.minecraft.client.renderer.entity.Render;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ResourceLocation;
 
-/** Draws a vehicle's OBJ model (display lists, see ObjModelSVA), rotated by the interpolated yaw. */
+/**
+ * Draws a vehicle's OBJ model (display lists, see ObjModelSVA), rotated by the interpolated yaw.
+ * ★10 (config vehicles.animations): the moving parts from vehicle/AnimParts - wheels spin by the distance rolled and the
+ * front ones steer, the crawlers' tread texture runs, control surfaces deflect, landing gear retracts, the heli's rotor
+ * disc tilts a little more than the body, the hover bike bobs and leans, ground vehicles bounce on bumps; all from the
+ * client's AnimMath.State (EntityVehicleSVA.anim). ★6 / ★7: the lights (VehicleLightsSVA) in the same model frame.
+ */
 public class RenderVehicleSVA extends Render {
 
     private static final ResourceLocation NONE = new ResourceLocation("textures/blocks/iron_block.png");
     /** Aircraft pitch / bank about this model height (model units). */
     private static final float ATTITUDE_Y = 0.7F;
+    /** ★10: the heli's rotor disc tilts this share of the body's attitude more than the body, at most ROTOR_TILT_MAX deg. */
+    private static final float ROTOR_TILT = 0.5F, ROTOR_TILT_MAX = 6F;
+    /** ★10: the hover bike's idle bob (blocks) and its rate (rad/tick). */
+    private static final float HOVER_BOB = 0.035F, HOVER_BOB_RATE = 0.15F;
+    /** ★6: the red tail lamps while not braking (1 while braking). */
+    private static final float TAIL_DIM = 0.55F;
 
     public RenderVehicleSVA() {
         shadowSize = 1.2F;
@@ -23,7 +39,8 @@ public class RenderVehicleSVA extends Render {
     @Override
     public void doRender(Entity e, double x, double y, double z, float yaw, float pt) {
         EntityVehicleSVA v = (EntityVehicleSVA) e;
-        ObjModelSVA m = ObjModelSVA.get(v.getVehicleType().model);
+        com.sva.vehicle.VehicleType vt = v.getVehicleType();
+        ObjModelSVA m = ObjModelSVA.get(vt.model);
         if (m == null) {
             return;
         }
@@ -32,9 +49,9 @@ public class RenderVehicleSVA extends Render {
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_CURRENT_BIT | GL11.GL_LIGHTING_BIT);
         GL11.glTranslated(x, y, z);
         GL11.glRotatef(-ry - 90F, 0F, 1F, 0F);         // model +x -> the entity's facing
-        float s = v.getVehicleType().modelScale;
+        float s = vt.modelScale;
         GL11.glScalef(s, s, s);
-        GL11.glTranslatef(-v.getVehicleType().modelOffsetX, 0F, 0F);   // the crawler sits forward of its trailer in truck.obj
+        GL11.glTranslatef(-vt.modelOffsetX, 0F, 0F);   // the crawler sits forward of its trailer in truck.obj
         GL11.glEnable(GL11.GL_NORMALIZE);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glDisable(GL11.GL_CULL_FACE);
@@ -47,30 +64,83 @@ public class RenderVehicleSVA extends Render {
         // hull, glass see-through.
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
         boolean ownView = mc.gameSettings.thirdPersonView == 0 && HudVehicleSVA.vehicleOf(mc.thePlayer) == v;
-        if (v.getVehicleType().movement.flies && !ownView) {
+        float pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
+        float roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
+        if (vt.movement.flies && !ownView) {
             // aircraft attitude (pitch nose up +, bank right +) about the body's middle; the own cockpit view stays level
-            float pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
-            float roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
             GL11.glTranslatef(0F, ATTITUDE_Y, 0F);
             GL11.glRotatef(pitch, 0F, 0F, 1F);
             GL11.glRotatef(roll, 1F, 0F, 0F);
             GL11.glTranslatef(0F, -ATTITUDE_Y, 0F);
         }
+        AnimMath.State an = v.anim;
+        boolean animate = ConfigSVA.animations;
+        // ★10: body bob (ground vehicles: the bump spring; the wheels stay on the ground) - not in the own cockpit view
+        float bob = animate && !ownView ? AnimMath.lerp(an.prevBob, an.bob, pt) / s : 0F;
+        if (animate && vt.movement == Movement.HOVER && !ownView) {
+            // the hover bike floats on its cushion (powered) and leans into turns
+            if (v.powered()) {
+                bob += HOVER_BOB * (float) Math.sin((v.ticksExisted + pt) * HOVER_BOB_RATE) / s;
+            }
+            float lean = AnimMath.lerp(an.prevLean, an.lean, pt);
+            GL11.glTranslatef(0F, ATTITUDE_Y * 0.5F, 0F);
+            GL11.glRotatef(lean, 1F, 0F, 0F);
+            GL11.glTranslatef(0F, -ATTITUDE_Y * 0.5F, 0F);
+        }
+        GL11.glTranslatef(0F, bob, 0F);
         float shade = v.isWrecked() ? 0.45F : 1F;
+        double rolled = animate ? an.prevRoll + (an.roll - an.prevRoll) * pt : 0;
+        // skins: the tier's livery and this vehicle's board number (config vehicles.textures / vehicles.liveries in ObjModelSVA)
+        m.style(com.sva.vehicle.SkinMath.livery(vt.tier), v.getBoardNumber());
+        // ★10 the tread runs with the distance rolled; ★6 the red tail lamps light up fully while braking
+        float tail = ConfigSVA.headlights && v.powered() ? (an.braking() ? 1F : TAIL_DIM) : 1F;
+        m.anim((float) (rolled % 1.0), tail);
         if (!ownView) {
             m.render(shade, ObjModelSVA.GLASS_ALPHA, 1F, null);
-        } else if (com.sva.ConfigSVA.seeThroughHull) {
-            m.render(shade, 0F, v.getVehicleType().cabShellAlpha, null);
+        } else if (ConfigSVA.seeThroughHull) {
+            m.render(shade, 0F, vt.cabShellAlpha, null);
         } else {
-            m.render(shade, ObjModelSVA.COCKPIT_GLASS_ALPHA, 1F, v.getVehicleType().cabWindows);
+            m.render(shade, ObjModelSVA.COCKPIT_GLASS_ALPHA, 1F, vt.cabWindows);
         }
+        // *14: live cockpit instruments over the model's dials / screens (own vehicle only)
+        CockpitInstrumentsSVA.render(v, m, pt);
+        float gear = animate ? AnimMath.lerp(an.prevGear, an.gear, pt) : 0F;
         java.util.List<ObjModelSVA.Part> parts = m.parts();
         if (!parts.isEmpty()) {
             // rotor / propeller: turned by the synced spin; a faint blur disc while it spins fast
             float a = v.rotorAngle(pt), rate = Math.abs(v.rotorRate());
             float blur = rate > 20F ? 0.05F + 0.07F * Math.min(1F, (rate - 20F) / 20F) : 0F;
+            float steer = animate ? AnimMath.lerp(an.prevSteer, an.steer, pt) : 0F;
+            float ail = animate ? AnimMath.lerp(an.prevAileron, an.aileron, pt) : 0F;
+            float elev = animate ? AnimMath.lerp(an.prevElevator, an.elevator, pt) : 0F;
+            float rud = animate ? AnimMath.lerp(an.prevRudder, an.rudder, pt) : 0F;
             for (ObjModelSVA.Part p : parts) {
-                if (p.kind == ObjModelSVA.Part.TRAILER) {
+                if (p.kind == ObjModelSVA.Part.WHEEL) {
+                    AnimParts.Def d = p.def;
+                    if (d.trailer && !v.hasTrailer()) {
+                        continue;
+                    }
+                    GL11.glPushMatrix();
+                    GL11.glTranslatef(0F, -bob, 0F);                           // wheels stay on the ground
+                    gearTransform(d, gear);
+                    if (d.steer && steer != 0F) {
+                        // + steer = right: a negative turn about +y swings the wheel's front to +z (right)
+                        GL11.glTranslatef(d.pivot[0], d.pivot[1], d.pivot[2]);
+                        GL11.glRotatef(-steer, 0F, 1F, 0F);
+                        GL11.glTranslatef(-d.pivot[0], -d.pivot[1], -d.pivot[2]);
+                    }
+                    m.renderPart(p, AnimMath.wheelAngle(rolled, d.radius), shade);
+                    GL11.glPopMatrix();
+                } else if (p.kind == ObjModelSVA.Part.GEAR) {
+                    GL11.glPushMatrix();
+                    gearTransform(p.def, gear);
+                    m.renderPart(p, 0F, shade);
+                    GL11.glPopMatrix();
+                } else if (p.kind == ObjModelSVA.Part.SURFACE) {
+                    AnimParts.Def d = p.def;
+                    float cmd = d.control == AnimParts.AILERON ? ail : d.control == AnimParts.ELEVATOR ? elev : rud;
+                    m.renderPart(p, cmd * d.gain, shade);
+                } else if (p.kind == ObjModelSVA.Part.TRAILER) {
                     if (v.hasTrailer()) {
                         m.renderPart(p, 0F, shade);
                     }
@@ -84,21 +154,51 @@ public class RenderVehicleSVA extends Render {
                 } else if (p.kind == ObjModelSVA.Part.RINGS) {
                     m.renderPart(p, v.coreAngle(pt), shade);
                 } else if (p.kind == ObjModelSVA.Part.NACELLE) {
-                    m.renderNacelle(p, com.sva.vehicle.TiltMath.nacelleAngle(v.getTiltPos()), a * p.speed, shade, blur);
+                    // ★10: the nacelles follow the client's smoothed position (the synced one moves in 1/40 steps)
+                    double tp = animate && an.tilt >= 0 ? an.prevTilt + (an.tilt - an.prevTilt) * pt : v.getTiltPos();
+                    m.renderNacelle(p, com.sva.vehicle.TiltMath.nacelleAngle(tp), a * p.speed, shade, blur);
+                } else if (animate && vt.movement == Movement.HELI && "rotor".equals(p.name) && "heli".equals(vt.model)) {
+                    // ★10: the main rotor disc leans with the attitude, a bit more than the body (forward in forward flight)
+                    float tp = AnimMath.clamp(pitch * ROTOR_TILT, -ROTOR_TILT_MAX, ROTOR_TILT_MAX);
+                    float tr = AnimMath.clamp(roll * ROTOR_TILT, -ROTOR_TILT_MAX, ROTOR_TILT_MAX);
+                    GL11.glPushMatrix();
+                    GL11.glTranslatef(p.pivot[0], p.pivot[1], p.pivot[2]);
+                    GL11.glRotatef(tp, 0F, 0F, 1F);
+                    GL11.glRotatef(tr, 1F, 0F, 0F);
+                    GL11.glTranslatef(-p.pivot[0], -p.pivot[1], -p.pivot[2]);
+                    m.renderPart(p, a * p.speed, shade);
+                    ObjModelSVA.renderDisc(p, blur);
+                    GL11.glPopMatrix();
                 } else {
                     m.renderPart(p, a * p.speed, shade);
                     ObjModelSVA.renderDisc(p, blur);
                 }
             }
         }
-        if (v.isBoosting() && v.getVehicleType().gases.boostGas != null && v.getVehicleType().movement == com.sva.vehicle.Movement.PLANE
-                && shade >= 1F) {
+        m.anim(0F, 1F);
+        if (v.isBoosting() && vt.gases.boostGas != null && vt.movement == Movement.PLANE && shade >= 1F) {
             // the jet's afterburner: a flickering flame cone out of the nozzle (EntityVehicleSVA adds flame particles)
             float flicker = 0.85F + 0.15F * (float) Math.sin((v.ticksExisted + pt) * 2.3F);
             ObjModelSVA.renderFlame(EntityVehicleSVA.NOZZLE_X, EntityVehicleSVA.NOZZLE_Y, EntityVehicleSVA.NOZZLE_R, 0.9F, flicker);
         }
+        // ★6 / ★7: headlight beams, nav lights, beacons, brake glow (in this model frame)
+        VehicleLightsSVA.render(v, vt, pt, gear);
         GL11.glPopAttrib();
         GL11.glPopMatrix();
+    }
+
+    /** ★10: a retracting part at gear position g (0 down .. 1 up): turned about its gear pivot, then lifted. */
+    private static void gearTransform(AnimParts.Def d, float g) {
+        if (d.gearPivot == null || g <= 0F) {
+            return;
+        }
+        GL11.glTranslatef(0F, d.gearLift * g, 0F);
+        if (d.gearAngle != 0F) {
+            float[] q = d.gearPivot;
+            GL11.glTranslatef(q[0], q[1], q[2]);
+            GL11.glRotatef(d.gearAngle * g, d.gearAxis == 0 ? 1F : 0F, d.gearAxis == 1 ? 1F : 0F, d.gearAxis == 2 ? 1F : 0F);
+            GL11.glTranslatef(-q[0], -q[1], -q[2]);
+        }
     }
 
     @Override

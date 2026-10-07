@@ -98,9 +98,18 @@ public class ClientProxySVA extends CommonProxySVA {
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_ANCHOR);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CLOAK);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CARGO);
+        // ★16: vehicle / trailer items as 3D models (each type declines itself with vehicles.icons3d = false)
+        net.minecraftforge.client.MinecraftForgeClient.registerItemRenderer(com.sva.init.ModContentSVA.vehicle,
+                new com.sva.client.RenderItemVehicleSVA(false));
+        net.minecraftforge.client.MinecraftForgeClient.registerItemRenderer(com.sva.init.ModContentSVA.trailer,
+                new com.sva.client.RenderItemVehicleSVA(true));
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
         FMLCommonHandler.instance().bus().register(this);
+        // ★6: headlights light the blocks ahead (client world only; restored on leave / unload)
+        com.sva.client.DynamicLightSVA light = new com.sva.client.DynamicLightSVA();
+        FMLCommonHandler.instance().bus().register(light);
+        MinecraftForge.EVENT_BUS.register(light);
     }
 
     @Override

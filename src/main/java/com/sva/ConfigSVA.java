@@ -20,6 +20,22 @@ public final class ConfigSVA {
      * instead of only through the cockpit windows. Off by default.
      */
     public static boolean seeThroughHull = false;
+    /** Client: material textures on the vehicle models (pixel detail, panel seams, rivets); off = flat colours. */
+    public static boolean textures = true;
+    /** Client: liveries by tier (stripe, hazard band, glowing lines) and the side decal (SA emblem, board number, charge hatch). */
+    public static boolean liveries = true;
+    /** Client (★14): the cockpit dials / screens / warning lamps show the vehicle's real readings. On by default. */
+    public static boolean liveInstruments = true;
+    /** Client (★16): vehicle and trailer items drawn as small 3D models (false: the flat 16x16 icons). On by default. */
+    public static boolean icons3d = true;
+    /** Client (★6): headlight / landing-light beams at night and brighter brake lights. On by default. */
+    public static boolean headlights = true;
+    /** Client (★6): headlights light up the blocks ahead at night (client-side block light, restored when they move on). */
+    public static boolean dynamicLight = true;
+    /** Client (★7): navigation lights - red / green / strobe / beacon on aircraft, amber beacons and markers on work vehicles. */
+    public static boolean navLights = true;
+    /** Client (★10): animated parts - wheels, tracks, steering, control surfaces, landing gear, rotor tilt, hover lean. */
+    public static boolean animations = true;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -44,6 +60,30 @@ public final class ConfigSVA {
             seeThroughHull = c.getBoolean("seeThroughHull", v, false,
                     "Client: from the cockpit (first person) see the world through the whole hull, not only through the windows / "
                             + "Клиент: из кабины (от первого лица) видно мир сквозь весь корпус, а не только через стёкла");
+            textures = c.getBoolean("textures", v, true,
+                    "Client: material textures on vehicles (pixel detail, panel seams, rivets); false = flat colours / "
+                            + "Клиент: текстуры материалов на технике (фактура, швы, заклёпки); false - заливка цветом");
+            liveries = c.getBoolean("liveries", v, true,
+                    "Client: liveries by tier and the side decal with the SA emblem and board number / "
+                            + "Клиент: ливреи по уровню машины и бортовая эмблема SA с номером");
+            liveInstruments = c.getBoolean("liveInstruments", v, true,
+                    "Client: cockpit dials, screens and warning lamps show the vehicle's real readings / "
+                            + "Клиент: приборы в кабине (стрелки, экраны, лампы) показывают реальные данные машины");
+            icons3d = c.getBoolean("icons3d", v, true,
+                    "Client: vehicle items are drawn as small 3D models (false: flat icons) / "
+                            + "Клиент: предметы машин рисуются уменьшенными 3D-моделями (false - плоские иконки)");
+            headlights = c.getBoolean("headlights", v, true,
+                    "Client: headlight and landing-light beams at night, brighter brake lights / "
+                            + "Клиент: лучи фар и посадочных фар ночью, яркие стоп-сигналы при торможении");
+            dynamicLight = c.getBoolean("dynamicLight", v, true,
+                    "Client: headlights light up the blocks ahead at night (only on your screen, nothing is saved) / "
+                            + "Клиент: фары освещают блоки впереди ночью (только у вас на экране, в мир не сохраняется)");
+            navLights = c.getBoolean("navLights", v, true,
+                    "Client: navigation lights - red/green/strobe/beacon on aircraft, amber beacons on work vehicles / "
+                            + "Клиент: бортовые огни - красный/зелёный/строб/маячок у авиации, оранжевые маячки у рабочей техники");
+            animations = c.getBoolean("animations", v, true,
+                    "Client: animated parts - wheels, tracks, steering, control surfaces, landing gear, rotor tilt / "
+                            + "Клиент: анимации деталей - колёса, гусеницы, руль, рули самолёта, шасси, наклон винта");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));
