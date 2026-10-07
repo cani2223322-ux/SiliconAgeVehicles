@@ -146,6 +146,9 @@ public final class DrillLogicSVA {
             }
             List<ItemStack> drops = blk.getDrops(w, x, y, z, meta, 0);
             w.playAuxSFX(2001, x, y, z, Block.getIdFromBlock(blk) + (meta << 12));
+            if (ore && v.ticksExisted % 2 == 0) {
+                v.oneShot("drill_ore", 0.8F, 0.9F + w.rand.nextFloat() * 0.2F);   // ★1: an ore cracks differently
+            }
             w.setBlockToAir(x, y, z);
             for (ItemStack d : drops) {
                 if (d != null && d.stackSize > 0 && v.storeCargo(d) > 0) {

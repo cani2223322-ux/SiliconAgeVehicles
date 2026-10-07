@@ -11,12 +11,14 @@ import com.sva.net.NetSVA;
 import com.sc.util.ArmorGasSC.Gas;
 import com.sva.vehicle.AutoDelivery;
 import com.sva.vehicle.CrawlerMath;
+import com.sva.vehicle.CruiseMath;
 import com.sva.vehicle.DrillMath;
 import com.sva.vehicle.FlightMath;
 import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.Movement;
 import com.sva.vehicle.PlaneMath;
+import com.sva.vehicle.RoadMath;
 import com.sva.vehicle.SpaceMath;
 import com.sva.vehicle.TiltMath;
 import com.sva.vehicle.VehicleGases;
@@ -80,7 +82,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             // stage E: long-range mode on / working, an open vortex near, held still (anchor / portal / riders boarding),
             // the anchor, invisibility, the jump portal opening
             X_LONG_ON = 1 << 23, X_LONG_ACTIVE = 1 << 24, X_DOCK_NEAR = 1 << 25, X_HELD = 1 << 26, X_ANCHOR = 1 << 27,
-            X_INVIS = 1 << 28, X_PORTAL = 1 << 29;
+            X_INVIS = 1 << 28, X_PORTAL = 1 << 29,
+            // wave 1 (★4): cruise / the autopilot engaged (the server's judgement of the driver's IN_CRUISE)
+            X_CRUISE = 1 << 30;
     /** Vehicle actions (the Action packet: cargo screen buttons, the drill keys). */
     public static final int A_DRILL_TOGGLE = 0, A_DRILL_MODE = 1, A_AUTO_TOGGLE = 2, A_TRAILER_DETACH = 3, A_ROUTE_CLEAR = 4,
             /** Stage D: the tiltrotor's «Режим» key - vertical <-> airplane (its driver). */
@@ -102,7 +106,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
      * IN_AFTER = «Форсаж» (stage D: the hoverbike's boost; the jet's / tiltrotor's afterburner - no longer «down»).
      */
     public static final int IN_FWD = 1, IN_BACK = 2, IN_LEFT = 4, IN_RIGHT = 8, IN_BRAKE = 16, IN_BOOST = 32, IN_DOWN = 64, IN_AFTER = 128,
-            IN_MASK = 255;
+            /**
+             * Wave 1 (★4): «Круиз» engaged on the driver's client - cruise (ground / hover: hold cruiseSpeed) or the
+             * autopilot (planes: hold apYaw / apAlt). The targets ride in the same Input packet.
+             */
+            IN_CRUISE = 256,
+            IN_MASK = 511;
     /** The afterburner lights only at this throttle or more. */
     public static final double AFTERBURNER_THROTTLE = 0.9;
     /** Tiltrotor: the server judges moves by the helicopter's rules for this long after the nacelles reach airplane mode. */
@@ -112,6 +121,13 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public static final double RENDER_DIST = 96;
 
     public VehicleState state;
+    /**
+     * ★4 targets (the driver's client sets them from client/CruiseClientSVA, the server from the Input packet): the cruise
+     * speed (blocks/tick), the autopilot's yaw (deg) and height (Y). Only read while the input has IN_CRUISE.
+     */
+    public double cruiseSpeed, apYaw, apAlt;
+    /** Server: cruise / autopilot engaged this tick (synced as X_CRUISE). */
+    private boolean cruiseNow;
     /** Signed speed along the facing, blocks/tick (physics). */
     public double speed;
     private int input;
@@ -150,6 +166,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     private double lx, ly, lz;
     private int lerpSteps;
     private int lastSentInput = -1, inputTimer, moveTimer;
+    /** Client: the ★4 targets last sent with an Input packet. */
+    private final float[] sentCruise = new float[3];
     private double sentX, sentY, sentZ;
     private float sentYaw;
     // stage C, server: the drill (on, dig budget, blocks driven since the last torch), auto-delivery (stuck ticks,
@@ -512,7 +530,83 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                 | (state.routeA != null ? X_ROUTE_A : 0) | (state.routeB != null ? X_ROUTE_B : 0) | (fieldNow ? X_FIELD : 0)
                 | (state.tiltPlane ? X_TILT_PLANE : 0) | ((state.tiltStep & 63) << X_TILT_SHIFT)
                 | (state.longRange ? X_LONG_ON : 0) | (longNow ? X_LONG_ACTIVE : 0) | (dockNear ? X_DOCK_NEAR : 0) | (isHeld() ? X_HELD : 0)
-                | (state.anchor ? X_ANCHOR : 0) | (state.invisible ? X_INVIS : 0) | (portalTicks > 0 ? X_PORTAL : 0);
+                | (state.anchor ? X_ANCHOR : 0) | (state.invisible ? X_INVIS : 0) | (portalTicks > 0 ? X_PORTAL : 0)
+                | (cruiseNow ? X_CRUISE : 0);
+    }
+
+    // ------------------------------------------------------------------ wave 1: cruise / autopilot, roads, sounds
+
+    /** ★4: cruise or the autopilot engaged (the server's judgement; clients: synced) - the cockpit lamp / line. */
+    public boolean isCruiseOn() {
+        return worldObj.isRemote ? (extra() & X_CRUISE) != 0 : cruiseNow;
+    }
+
+    /** ★4: what «Круиз» does on this vehicle now (CruiseMath.CRUISE / AUTOPILOT / NONE), the configs applied. */
+    public int cruiseKind() {
+        VehicleType t = getVehicleType();
+        int k = CruiseMath.kind(t.movement, planeNow());
+        if (k == CruiseMath.CRUISE && !ConfigSVA.cruise || k == CruiseMath.AUTOPILOT && !ConfigSVA.autopilot) {
+            return CruiseMath.NONE;
+        }
+        return k;
+    }
+
+    /**
+     * ★4: why cruise / the autopilot can't hold now with these keys (CruiseMath.OFF_*), 0 = it can. The same rule on
+     * the driver's client (it switches its state off) and the server (it ignores the flag).
+     */
+    public int cruiseBlocked(int in) {
+        int k = cruiseKind();
+        if (k == CruiseMath.NONE) {
+            return CruiseMath.OFF_MODE;
+        }
+        VehicleType t = getVehicleType();
+        if (k == CruiseMath.CRUISE) {
+            if (CruiseMath.cruiseCancelled((in & IN_BACK) != 0, (in & IN_BRAKE) != 0)) {
+                return CruiseMath.OFF_KEYS;
+            }
+            boolean thrust = t.movement == Movement.HOVER ? hasLift() && canThrust() : canThrust();
+            return thrust ? 0 : CruiseMath.OFF_THRUST;
+        }
+        boolean keys = (in & (IN_FWD | IN_BACK | IN_LEFT | IN_RIGHT)) != 0;
+        double charge = getEnergy() / (double) Math.max(1, t.buffer);
+        return CruiseMath.autopilotCancel(keys, charge, PlaneMath.stalled(t.plane, Math.max(0, speed)), !onGround,
+                hasLift() && canThrust());
+    }
+
+    /** ★4: cruise / the autopilot works this tick with these keys. */
+    public boolean cruiseActive(int in) {
+        return (in & IN_CRUISE) != 0 && cruiseBlocked(in) == 0;
+    }
+
+    /** ★11: the road surface under the vehicle's wheels / tracks (RoadMath.NONE / ASPHALT / CONCRETE). */
+    public int roadSurface() {
+        return com.sva.block.BlockRoadSVA.surfaceAt(worldObj, posX, posY, posZ);
+    }
+
+    /** ★11: top speed factor of the surface under it for this type (1 for anything that doesn't roll on wheels / tracks). */
+    public double roadSpeedMul(VehicleType t) {
+        return RoadMath.onWheels(t.movement) ? RoadMath.speedMul(roadSurface(), t.movement) : 1;
+    }
+
+    /**
+     * ★1: plays one of this addon's one-shot sounds (sounds.json) at the vehicle for everyone near; with vehicles.sounds
+     * off the vanilla stand-ins of before (a hit, the charger's chime, a broken block) or nothing.
+     */
+    public void oneShot(String event, float volume, float pitch) {
+        String name = soundName(event);
+        if (name != null) {
+            worldObj.playSoundAtEntity(this, name, volume, pitch);
+        }
+    }
+
+    /** The sound event for a one-shot: this addon's, or with vehicles.sounds off its vanilla stand-in / null. */
+    public static String soundName(String event) {
+        if (ConfigSVA.sounds) {
+            return com.sva.ReferenceSVA.ASSETS + ":" + event;
+        }
+        return "impact".equals(event) ? "random.anvil_land" : "ding".equals(event) ? "note.pling" : "drill_ore".equals(event)
+                ? "random.break" : null;
     }
 
     /** The synced gas string: the type's tank amounts in its order, comma separated. */
@@ -775,6 +869,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             input = 0;                                              // keys went stale: let go
         }
         int in = autoDrive ? autoIn : input;
+        cruiseNow = !autoDrive && motorOn && cruiseActive(in);
         boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
         // aircraft: also while the last tick ended in the air (a driver who got out mid-air - onGround is stale then)
         if (!clientDriven && (motorOn || Math.abs(speed) > 0.0005 || !onGround || ticksExisted < 3 || t.movement.flies && wasAirborne)) {
@@ -801,10 +896,14 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             hitCooldown--;
         }
         if (ConfigSVA.wear && hitCooldown == 0 && prevMoved > VehicleMath.HIT_SAFE && moved < prevMoved * 0.4 && blockedToward(lastDx, lastDz)) {
-            float dmg = VehicleMath.hitDamage(Math.min(prevMoved, t.topSpeed) - moved);   // capped: bunched packets aren't speed
+            float dmg = VehicleMath.hitDamage(Math.min(prevMoved, t.topSpeed * roadSpeedMul(t)) - moved);   // capped: bunched packets aren't speed
+            dmg *= (float) RoadMath.wearMul(roadSurface(), t.movement);                         // ★11: a road halves the wear
+            if (railToward(lastDx, lastDz)) {
+                dmg *= (float) com.sva.block.BlockGuardRailSVA.RAIL_WEAR;                        // ★11: the guard rail gives
+            }
             if (dmg > 0) {
                 damageHull(dmg);
-                worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 0.8F);
+                oneShot("impact", 0.7F, 0.9F);
                 hitCooldown = 10;
             }
         }
@@ -910,7 +1009,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             double dmg = plane ? PlaneMath.landingDamage(t.plane, t.maxHp, impact, v, lifting) : HeliMath.landingDamage(t, impact, !lifting);
             if (dmg > 0) {
                 damageHull((float) dmg);
-                worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 0.6F);
+                oneShot("impact", 0.8F, 0.7F);
+            } else if (plane && lifting && v > 0.2) {
+                oneShot("squeak", 0.6F, 1F);     // ★1: the tyres touch the ground
             }
         }
         boolean wasAuto = autoNow;
@@ -973,6 +1074,25 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return !worldObj.getCollidingBoundingBoxes(this, box).isEmpty();
     }
 
+    /** ★11: is the wall right ahead in the direction (dx, dz) a guard rail? */
+    private boolean railToward(double dx, double dz) {
+        double len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 1e-6 || ModContentSVA.guardRail == null) {
+            return false;
+        }
+        AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx / len * 0.4, 0, dz / len * 0.4).contract(0.05, 0.05, 0.05);
+        for (int x = MathHelper.floor_double(box.minX); x <= MathHelper.floor_double(box.maxX); x++) {
+            for (int z = MathHelper.floor_double(box.minZ); z <= MathHelper.floor_double(box.maxZ); z++) {
+                for (int y = MathHelper.floor_double(box.minY) - 1; y <= MathHelper.floor_double(box.maxY); y++) {
+                    if (worldObj.getBlock(x, y, z) == ModContentSVA.guardRail) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     /** Engine may push: not wrecked, not overheated, not in deep water (a crawler swims: lava only stops it). */
     public boolean canThrust() {
         VehicleType t = getVehicleType();
@@ -1024,13 +1144,15 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean fwd = (in & IN_FWD) != 0, back = (in & IN_BACK) != 0, left = (in & IN_LEFT) != 0,
                 right = (in & IN_RIGHT) != 0, brake = (in & IN_BRAKE) != 0;
         boolean thrust = canThrust();
-        double top = VehicleMath.maxSpeed(t, getEnergy());
+        double top = VehicleMath.maxSpeed(t, getEnergy()) * roadSpeedMul(t);    // ★11: asphalt / concrete
         boolean water = isInWater();
         boolean crawler = t.movement == Movement.CRAWLER;
         if (water) {
             top *= crawler ? CrawlerMath.WATER_SPEED : WATER_SPEED;
         }
-        if (thrust && fwd && !back) {
+        if (!fwd && cruiseActive(in)) {
+            speed = CruiseMath.groundStep(speed, Math.min(cruiseSpeed, top), t.accel, ROLL, thrust);   // ★4: cruise
+        } else if (thrust && fwd && !back) {
             speed += speed < 0 ? BRAKE : t.accel;
         } else if (thrust && back && !fwd) {
             speed -= speed > 0 ? BRAKE : t.accel * 0.6;
@@ -1081,7 +1203,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     protected void fall(float distance) {
         // the hull takes the landing, not the riders
         if (!worldObj.isRemote && ConfigSVA.wear && distance > 4 && !state.type.movement.flies) {     // aircraft: flightTick
-            damageHull((distance - 4) * 5);
+            damageHull((float) ((distance - 4) * 5 * RoadMath.wearMul(roadSurface(), state.type.movement)));
         }
     }
 
@@ -1091,6 +1213,22 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public void serverInput(int flags) {
         input = flags & IN_MASK;
         lastInputTick = worldObj.getTotalWorldTime();
+    }
+
+    /** The Input packet with the ★4 targets (sanitised: finite, speed within reach, height within the world). */
+    public void serverInput(int flags, float cruise, float yaw, float alt) {
+        serverInput(flags);
+        if ((flags & IN_CRUISE) != 0) {
+            setCruiseTargets(cruise, yaw, alt);
+        }
+    }
+
+    /** ★4 targets, sanitised (the server's packet path and the world test). */
+    public void setCruiseTargets(double cruise, double yaw, double alt) {
+        VehicleType t = state.type;
+        cruiseSpeed = finite(cruise) ? VehicleMath.clamp(cruise, 0, t.topSpeed * RoadMath.ASPHALT_SPEED) : 0;
+        apYaw = finite(yaw) ? CruiseMath.wrap(yaw) : rotationYaw;
+        apAlt = finite(alt) ? VehicleMath.clamp(alt, 1, FlightMath.CEILING) : posY;
     }
 
     /** World test: drive without a rider through the same input path. */
@@ -1122,7 +1260,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean lift = t.movement.lifts && hasLift() && canThrust();
         double coast = Math.max(speedEma * 1.1, 0.02);
         double limit = hover ? (lift ? HoverMath.maxSpeed(t, true, (input & (IN_BOOST | IN_AFTER)) != 0) : coast)
-                : canThrust() ? VehicleMath.maxSpeed(t, state.energy) : coast;      // coasting only
+                : canThrust() ? VehicleMath.maxSpeed(t, state.energy) * Math.max(roadSpeedMul(t),
+                RoadMath.speedMul(com.sva.block.BlockRoadSVA.surfaceAt(worldObj, x, y, z), t.movement)) : coast;   // coasting only; ★11 roads
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
         boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), h, dy, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
                 : moveAllowed(h, dy, dt, limit, CrawlerMath.climbLimit(t.stepHeight));
@@ -1239,10 +1378,15 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             animIn = in;
             physicsStep(t, in);
             lerpSteps = 0;
-            if (in != lastSentInput || ++inputTimer >= KEEPALIVE) {
-                NetSVA.CHANNEL.sendToServer(new NetSVA.Input(getEntityId(), in));
+            boolean targets = (in & IN_CRUISE) != 0
+                    && ((float) cruiseSpeed != sentCruise[0] || (float) apYaw != sentCruise[1] || (float) apAlt != sentCruise[2]);
+            if (in != lastSentInput || targets || ++inputTimer >= KEEPALIVE) {
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Input(getEntityId(), in, (float) cruiseSpeed, (float) apYaw, (float) apAlt));
                 lastSentInput = in;
                 inputTimer = 0;
+                sentCruise[0] = (float) cruiseSpeed;
+                sentCruise[1] = (float) apYaw;
+                sentCruise[2] = (float) apAlt;
             }
             boolean changed = Math.abs(posX - sentX) + Math.abs(posY - sentY) + Math.abs(posZ - sentZ) > 1e-3 || Math.abs(rotationYaw - sentYaw) > 0.01;
             if (changed || ++moveTimer >= KEEPALIVE) {
@@ -1663,6 +1807,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (p.isSneaking()) {
             if (canManage(p)) {
                 p.openGui(SVAMod.instance, GuiHandlerSVA.CARGO, worldObj, getEntityId(), 0, 0);
+                oneShot("cargo", 0.5F, 1F);
             } else {
                 msg(p, "sva.msg.notOwner");
             }
@@ -1671,6 +1816,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean driver = canDrive(p);
         if (driver && riddenByEntity == null) {
             p.mountEntity(this);
+            oneShot("door", 0.6F, 1F);       // ★1
             if (isWrecked()) {
                 msg(p, "sva.msg.wrecked");
             }
@@ -1679,6 +1825,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         EntitySeatSVA s = freeSeat();
         if (s != null) {
             p.mountEntity(s);
+            oneShot("door", 0.6F, 1.1F);
             if (!driver && riddenByEntity == null) {
                 msg(p, "sva.msg.passengerOnly");
             }
@@ -1822,7 +1969,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         amount = DrillMath.fieldDamage(amount, fieldNow, state.type.gases.fieldReduction);   // the argon field
         boolean was = VehicleMath.wrecked(state.hp);
+        boolean worn = state.hp < state.type.maxHp * com.sva.vehicle.CockpitLamps.WORN_HP;
         state.hp = VehicleMath.damage(state.hp, amount);
+        if (!worn && state.hp < state.type.maxHp * com.sva.vehicle.CockpitLamps.WORN_HP && state.hp > 0) {
+            oneShot("alarm", 0.8F, 1F);      // ★1: the hull is worn - the wear lamp lights
+        }
         if (!was && VehicleMath.wrecked(state.hp)) {
             tellRiders("sva.msg.wrecked");
             worldObj.playSoundAtEntity(this, "random.explode", 0.5F, 1.4F);
@@ -1992,6 +2143,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (a == A_CARGO) {
             if (carries(p)) {                                       // the key works from a seat only
                 p.openGui(SVAMod.instance, GuiHandlerSVA.CARGO, worldObj, getEntityId(), 0, 0);
+                oneShot("cargo", 0.5F, 1F);
             }
             return;
         }

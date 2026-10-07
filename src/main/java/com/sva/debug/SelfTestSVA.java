@@ -41,7 +41,8 @@ public final class SelfTestSVA {
     private SelfTestSVA() {
     }
 
-    private static void check(boolean ok, String name) {
+    /** One [SVA-TEST] line (package-visible: SelfTestWave1SVA reports through it). */
+    static void check(boolean ok, String name) {
         if (ok) {
             passed++;
         } else {
@@ -115,6 +116,7 @@ public final class SelfTestSVA {
             cockpitStage1();
             lightTable();
             cockpitStage2();
+            SelfTestWave1SVA.run();                         // wave 1: sounds, camera, cruise / autopilot, roads
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);

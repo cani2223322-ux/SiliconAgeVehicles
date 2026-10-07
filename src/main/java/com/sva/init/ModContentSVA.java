@@ -38,6 +38,12 @@ public final class ModContentSVA {
     public static com.sva.item.ItemStationModuleSVA module;
     public static com.sva.block.BlockRunwaySVA runway;
     public static com.sva.item.ItemTrailerSVA trailer;
+    // wave 1, ★11: roads
+    public static com.sva.block.BlockRoadSVA road;
+    public static com.sva.block.BlockCurbSVA curb;
+    public static com.sva.block.BlockRoadSignSVA roadSign, roadSignArrow;
+    public static com.sva.block.BlockTrafficLightSVA trafficLight;
+    public static com.sva.block.BlockGuardRailSVA guardRail;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -80,6 +86,25 @@ public final class ModContentSVA {
         trailer = new com.sva.item.ItemTrailerSVA();
         trailer.setCreativeTab(TAB);
         GameRegistry.registerItem(trailer, "trailer");
+        // wave 1, ★11: road blocks (crafting table, vanilla items - block/RoadsSVA.recipes)
+        road = new com.sva.block.BlockRoadSVA();
+        road.setCreativeTab(TAB);
+        GameRegistry.registerBlock(road, com.sva.block.ItemBlockRoadSVA.class, "road");
+        curb = new com.sva.block.BlockCurbSVA();
+        curb.setCreativeTab(TAB);
+        GameRegistry.registerBlock(curb, com.sva.block.ItemBlockRoadPartSVA.class, "curb");
+        roadSign = new com.sva.block.BlockRoadSignSVA(0);
+        roadSign.setCreativeTab(TAB);
+        GameRegistry.registerBlock(roadSign, com.sva.block.ItemBlockRoadPartSVA.class, "roadSign");
+        roadSignArrow = new com.sva.block.BlockRoadSignSVA(1);
+        roadSignArrow.setCreativeTab(TAB);
+        GameRegistry.registerBlock(roadSignArrow, com.sva.block.ItemBlockRoadPartSVA.class, "roadSignArrow");
+        trafficLight = new com.sva.block.BlockTrafficLightSVA();
+        trafficLight.setCreativeTab(TAB);
+        GameRegistry.registerBlock(trafficLight, com.sva.block.ItemBlockRoadPartSVA.class, "trafficLight");
+        guardRail = new com.sva.block.BlockGuardRailSVA();
+        guardRail.setCreativeTab(TAB);
+        GameRegistry.registerBlock(guardRail, com.sva.block.ItemBlockRoadPartSVA.class, "guardRail");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);
@@ -103,6 +128,7 @@ public final class ModContentSVA {
                 "XGX", "RCR", "XBX",
                 'X', casing, 'G', component.stackOf(com.sva.item.ComponentType.GAS_TANK, 1), 'R', new ItemStack(ModItems.rubber),
                 'C', controller, 'B', net.minecraft.init.Items.bucket));
+        com.sva.block.RoadsSVA.recipes();                    // ★11 roads: crafting table, vanilla items
         // components and vehicles: only on the workbench (the stage 1 crafting-table buggy is gone)
         WorkbenchRecipesSVA.register();
     }

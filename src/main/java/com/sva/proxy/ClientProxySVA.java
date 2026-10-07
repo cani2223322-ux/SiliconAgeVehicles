@@ -33,6 +33,9 @@ public class ClientProxySVA extends CommonProxySVA {
         RenderingRegistry.registerEntityRenderingHandler(EntitySeatSVA.class, new RenderSeatSVA());
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityWorkbenchSVA.class,
                 new com.sva.client.RenderWorkbenchSVA());
+        // ★11: road signs, traffic light, guard rail - boxes in the chunk mesh
+        com.sva.block.RoadsSVA.renderId = RenderingRegistry.getNextAvailableRenderId();
+        RenderingRegistry.registerBlockHandler(new com.sva.client.RenderRoadSVA(com.sva.block.RoadsSVA.renderId));
     }
 
     /**
@@ -98,6 +101,7 @@ public class ClientProxySVA extends CommonProxySVA {
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_ANCHOR);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CLOAK);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CARGO);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(com.sva.client.CruiseClientSVA.KEY_CRUISE);   // ★4
         // ★16: vehicle / trailer items as 3D models (each type declines itself with vehicles.icons3d = false)
         net.minecraftforge.client.MinecraftForgeClient.registerItemRenderer(com.sva.init.ModContentSVA.vehicle,
                 new com.sva.client.RenderItemVehicleSVA(false));
@@ -106,6 +110,7 @@ public class ClientProxySVA extends CommonProxySVA {
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new com.sva.client.RiderAttitudeSVA());   // riders lean with the body
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
+        MinecraftForge.EVENT_BUS.register(new Wheel());                            // ★3 / ★4: the mouse wheel while riding
         FMLCommonHandler.instance().bus().register(this);
         // ★6: headlights light the blocks ahead (client world only; restored on leave / unload)
         com.sva.client.DynamicLightSVA light = new com.sva.client.DynamicLightSVA();
@@ -153,7 +158,29 @@ public class ClientProxySVA extends CommonProxySVA {
         if (mc.currentScreen == null && KEY_DOWN.getIsKeyPressed()) {
             f |= EntityVehicleSVA.IN_DOWN;
         }
+        if (p.ridingEntity instanceof EntityVehicleSVA) {
+            f = com.sva.client.CruiseClientSVA.apply((EntityVehicleSVA) p.ridingEntity, f);   // ★4: + IN_CRUISE and its targets
+        }
         return f;
+    }
+
+    /**
+     * The mouse wheel while riding (no screen open): with cruise engaged it sets the cruise speed (+-5 km/h a notch, up =
+     * faster); else in third person it zooms the vehicle camera (up = closer). Either way the hotbar keeps still; on
+     * foot / in first person without cruise the wheel scrolls the hotbar as always.
+     */
+    public static class Wheel {
+        @SubscribeEvent
+        public void onMouse(net.minecraftforge.client.event.MouseEvent e) {
+            Minecraft mc = Minecraft.getMinecraft();
+            if (e.dwheel == 0 || mc.currentScreen != null || mc.thePlayer == null || ridden(mc.thePlayer) == null) {
+                return;
+            }
+            int notch = e.dwheel > 0 ? 1 : -1;
+            if (com.sva.client.CruiseClientSVA.wheel(mc, notch) || com.sva.client.VehicleCameraSVA.wheel(mc, -notch)) {
+                e.setCanceled(true);
+            }
+        }
     }
 
     /** The charging plates' look belongs to the world being left. */
@@ -182,6 +209,9 @@ public class ClientProxySVA extends CommonProxySVA {
 
     private EntityVehicleSVA viewVehicle;
     private float viewYaw;
+    /** ★3: the vehicle's turn the third-person view still has to follow (deg), and the last frame's time. */
+    private float yawLag;
+    private long lagNanos;
 
     /** The vehicle the local player sits in (driver or a seat), or null. */
     private static EntityVehicleSVA ridden(EntityPlayer p) {
@@ -201,27 +231,53 @@ public class ClientProxySVA extends CommonProxySVA {
      */
     @SubscribeEvent
     public void onRenderTick(TickEvent.RenderTickEvent e) {
+        Minecraft mc = Minecraft.getMinecraft();
         if (e.phase != TickEvent.Phase.START) {
+            com.sva.client.VehicleCameraSVA.frameEnd(mc);           // ★3: the look pitch back after the frame
             return;
         }
-        EntityPlayer p = Minecraft.getMinecraft().thePlayer;
+        followYaw(e.renderTickTime);
+        com.sva.client.VehicleCameraSVA.frameStart(mc);             // ★3: distance, the back view's height
+    }
+
+    /**
+     * The view turns with the vehicle (see onRenderTick). ★3: in the third-person vehicle camera the turn is followed with
+     * a lag (CameraMath.YAW_LAG): the camera swings round behind the vehicle smoothly instead of being bolted to it.
+     */
+    private void followYaw(float renderTickTime) {
+        Minecraft mc = Minecraft.getMinecraft();
+        EntityPlayer p = mc.thePlayer;
         EntityVehicleSVA v = p == null ? null : ridden(p);
+        long now = System.nanoTime();
+        double dt = lagNanos == 0 ? 0 : (now - lagNanos) / 1e9;
+        lagNanos = now;
         if (v == null || v.isDead) {
             viewVehicle = null;
+            yawLag = 0;
             return;
         }
-        float yaw = v.prevRotationYaw + net.minecraft.util.MathHelper.wrapAngleTo180_float(v.rotationYaw - v.prevRotationYaw) * e.renderTickTime;
+        float yaw = v.prevRotationYaw + net.minecraft.util.MathHelper.wrapAngleTo180_float(v.rotationYaw - v.prevRotationYaw) * renderTickTime;
         if (viewVehicle != v) {
             viewVehicle = v;
             viewYaw = yaw;
+            yawLag = 0;
             return;
         }
         float d = net.minecraft.util.MathHelper.wrapAngleTo180_float(yaw - viewYaw);
         viewYaw = yaw;
-        if (Math.abs(d) < 45F) {                                    // a correction snap is not followed by the view
-            p.rotationYaw += d;
-            p.prevRotationYaw += d;
+        if (Math.abs(d) >= 45F) {                                   // a correction snap is not followed by the view
+            return;
         }
+        if (com.sva.client.VehicleCameraSVA.active(mc) && mc.gameSettings.thirdPersonView == 1) {
+            yawLag = net.minecraft.util.MathHelper.clamp_float(yawLag + d, -90F, 90F);
+            d = (float) (yawLag * com.sva.vehicle.CameraMath.follow(dt, com.sva.vehicle.CameraMath.YAW_LAG));
+            yawLag -= d;
+        } else if (yawLag != 0) {
+            d += yawLag;                                            // left the lagging view: catch up at once
+            yawLag = 0;
+        }
+        p.rotationYaw += d;
+        p.prevRotationYaw += d;
     }
 
     /** The drill keys while driving the drill vehicle: one Action packet a press. */
@@ -273,6 +329,9 @@ public class ClientProxySVA extends CommonProxySVA {
             }
         }
         drillKeys();
+        Minecraft mcc = Minecraft.getMinecraft();
+        com.sva.client.CruiseClientSVA.tick(mcc);                    // ★4: the «Круиз» key
+        com.sva.client.VehicleSoundsSVA.tick(mcc);                   // ★1: engine loops
         com.sva.client.CockpitInstrumentsSVA.clientTick();
         NetSVA.Correct m;
         while ((m = corrections.poll()) != null) {

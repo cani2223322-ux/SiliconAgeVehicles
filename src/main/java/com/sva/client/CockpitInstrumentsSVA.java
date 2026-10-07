@@ -332,6 +332,10 @@ public final class CockpitInstrumentsSVA {
         int cap = v.cargoCapacity();
         n.cargoFull = cap > 0 && v.getCargoUsed() >= cap;
         n.drillMode = v.getDrillMode();
+        boolean held = v.isCruiseOn();
+        boolean ap = held && t.movement.flies;
+        n.autopilot = ap || t.autoDelivery && v.isAutoOn();       // the crawler's auto-delivery is its autopilot
+        n.cruise = held && !ap;
     }
 
     /**
@@ -478,8 +482,10 @@ public final class CockpitInstrumentsSVA {
         if (v.isBoosting()) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.boost"), ORANGE, -1F, null));
         }
-        if (t.autoDelivery && v.isAutoOn()) {
-            out.add(new Line(Lang.tr("sva.cockpit.ev.autopilot"), GREEN, -1F, null));
+        if (SNAP.autopilot) {
+            out.add(new Line(Lang.tr("sva.cockpit.ev.autopilot"), GREEN, -1F, null));     // auto-delivery or ★4 autopilot
+        } else if (SNAP.cruise) {
+            out.add(new Line(Lang.tr("sva.cockpit.ev.cruise"), GREEN, -1F, null));
         }
         if (SNAP.cargoFull) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.cargoFull"), BLUE, -1F, null));

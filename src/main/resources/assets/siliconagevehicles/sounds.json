@@ -1,0 +1,272 @@
+{
+  "afterburner": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "afterburner",
+        "stream": false
+      }
+    ]
+  },
+  "afterburner_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "afterburner_in",
+        "stream": false
+      }
+    ]
+  },
+  "alarm": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "alarm",
+        "stream": false
+      }
+    ]
+  },
+  "antigrav": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "antigrav",
+        "stream": false
+      }
+    ]
+  },
+  "antigrav_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "antigrav_in",
+        "stream": false
+      }
+    ]
+  },
+  "cargo": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "cargo",
+        "stream": false
+      }
+    ]
+  },
+  "core_pulse": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "core_pulse",
+        "stream": false
+      }
+    ]
+  },
+  "core_pulse_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "core_pulse_in",
+        "stream": false
+      }
+    ]
+  },
+  "ding": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "ding",
+        "stream": false
+      }
+    ]
+  },
+  "door": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "door",
+        "stream": false
+      }
+    ]
+  },
+  "drill": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "drill",
+        "stream": false
+      }
+    ]
+  },
+  "drill_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "drill_in",
+        "stream": false
+      }
+    ]
+  },
+  "drill_ore": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "drill_ore",
+        "stream": false
+      }
+    ]
+  },
+  "electric": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "electric",
+        "stream": false
+      }
+    ]
+  },
+  "electric_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "electric_in",
+        "stream": false
+      }
+    ]
+  },
+  "heli_blades": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "heli_blades",
+        "stream": false
+      }
+    ]
+  },
+  "heli_blades_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "heli_blades_in",
+        "stream": false
+      }
+    ]
+  },
+  "hover": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "hover",
+        "stream": false
+      }
+    ]
+  },
+  "hover_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "hover_in",
+        "stream": false
+      }
+    ]
+  },
+  "impact": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "impact",
+        "stream": false
+      }
+    ]
+  },
+  "jet": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "jet",
+        "stream": false
+      }
+    ]
+  },
+  "jet_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "jet_in",
+        "stream": false
+      }
+    ]
+  },
+  "propeller": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "propeller",
+        "stream": false
+      }
+    ]
+  },
+  "propeller_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "propeller_in",
+        "stream": false
+      }
+    ]
+  },
+  "squeak": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "squeak",
+        "stream": false
+      }
+    ]
+  },
+  "tracks": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "tracks",
+        "stream": false
+      }
+    ]
+  },
+  "tracks_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "tracks_in",
+        "stream": false
+      }
+    ]
+  },
+  "turbine": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "turbine",
+        "stream": false
+      }
+    ]
+  },
+  "turbine_in": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "turbine_in",
+        "stream": false
+      }
+    ]
+  },
+  "wind": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "wind",
+        "stream": false
+      }
+    ]
+  }
+}

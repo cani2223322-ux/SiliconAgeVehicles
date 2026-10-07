@@ -49,7 +49,8 @@ public class WorldTestSVA {
     private EntityVehicleSVA onCharger, driven, replaced, crasher;
     private double startX;
 
-    private void check(boolean ok, String name) {
+    /** One [SVA-WORLDTEST] line (package-visible: WorldTestWave1SVA reports through it). */
+    void check(boolean ok, String name) {
         if (ok) {
             passed++;
         } else {
@@ -125,6 +126,20 @@ public class WorldTestSVA {
                 stageCFinish(w);
             } else if (sdAt > 0 && sdPhase < SD_DONE) {
                 stageDFinish(w);
+            }
+        }
+        // wave 1 (roads, cruise, traffic light) runs alongside too, in its own area with its own owner
+        if (ticks >= WorldTestWave1SVA.START && !wave1.done) {
+            try {
+                wave1.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL wave 1 exception " + t);
+                t.printStackTrace(System.out);
+                wave1.abort(w);
+            }
+            if (wave1.done) {
+                maybeSummary();
             }
         }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
@@ -1916,6 +1931,7 @@ public class WorldTestSVA {
     private static final int SE_DONE = 99, SE_START = 100, EY = 180;
     private int seAt = SE_START, sePhase, seT0;
     private boolean dDone, eDone;
+    private final WorldTestWave1SVA wave1 = new WorldTestWave1SVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
     private String seId;
@@ -1928,9 +1944,9 @@ public class WorldTestSVA {
     private static final com.sc.util.ArmorGasSC.Gas D2 = com.sc.util.ArmorGasSC.Gas.DEUTERIUM, O2 = com.sc.util.ArmorGasSC.Gas.OXYGEN,
             SM = com.sc.util.ArmorGasSC.Gas.SINGULAR_MATTER;
 
-    /** Prints the SUMMARY once stage D and stage E are both done. */
+    /** Prints the SUMMARY once stage D, stage E and wave 1 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone) {
+        if (dDone && eDone && wave1.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

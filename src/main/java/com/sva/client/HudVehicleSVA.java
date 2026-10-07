@@ -176,11 +176,15 @@ public class HudVehicleSVA {
             boolean blink = (mc.theWorld.getTotalWorldTime() / 10) % 2 == 0 || warnColor == AMBER;
             fr.drawStringWithShadow(warn, x + 6, ry, blink ? warnColor : 0x803030);
         }
+        int rightTop = e.resolution.getScaledHeight();
         if (t.movement.flies) {
-            drawFlight(mc, fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v, t);
+            rightTop = drawFlight(mc, fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v, t);
         }
         if (t.hasDrill) {
-            drawDrill(fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v);
+            rightTop = Math.min(rightTop, drawDrill(fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v));
+        }
+        if (v.riddenByEntity == mc.thePlayer) {
+            CruiseClientSVA.drawHud(mc, fr, e.resolution.getScaledWidth(), rightTop, v);   // ★4 (the driver's own state)
         }
         if (t.bridgeDock) {
             drawSpace(mc, fr, e.resolution.getScaledWidth(), v, t);
@@ -305,7 +309,8 @@ public class HudVehicleSVA {
     private static final int GREEN = 0x5EE07A, ORANGE = 0xFF9A3C, BLUE = 0x5EC8F0;
 
     /** The aircraft instruments: altimeter tape, status line, flight panel. */
-    private void drawFlight(Minecraft mc, FontRenderer fr, int sw, int sh, EntityVehicleSVA v, VehicleType t) {
+    /** @return the flight panel's top (the cruise panel goes above it) */
+    private int drawFlight(Minecraft mc, FontRenderer fr, int sw, int sh, EntityVehicleSVA v, VehicleType t) {
         boolean tilt = t.movement == Movement.TILT;
         boolean heli = t.movement == Movement.HELI || tilt && !v.planeNow();
         boolean extraRow = tilt || t.gases.boostGas != null;
@@ -467,13 +472,15 @@ public class HudVehicleSVA {
         String left = Double.isInfinite(sec) ? "--" : sec >= 3600 ? String.format("%d:%02d:%02d", Long.valueOf((long) sec / 3600),
                 Long.valueOf((long) sec / 60 % 60), Long.valueOf((long) sec % 60)) : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
         fr.drawString(Lang.tr("sva.hud.flightTime", Integer.valueOf((int) Math.floor(energy * 100.0 / t.buffer)), left), px + 6, ry, TEXT);
+        return py;
     }
 
     /**
      * The drill panel (bottom right): «БУР: ВКЛ · Туннель 3x3», the head's wear bar and blocks left («вечная» for
      * Exo), blocks dug, the argon field.
      */
-    private void drawDrill(FontRenderer fr, int sw, int sh, EntityVehicleSVA v) {
+    /** @return the drill panel's top */
+    private int drawDrill(FontRenderer fr, int sw, int sh, EntityVehicleSVA v) {
         int pw = 168;
         // no head: where it goes - «Нет головки бура - L или Shift+ПКМ по машине: слот слева», wrapped to the panel
         java.util.List<?> hint = v.hasHead() ? java.util.Collections.emptyList()
@@ -504,6 +511,7 @@ public class HudVehicleSVA {
         fr.drawString(Lang.tr("sva.hud.drill.dug", fmt(v.getDug())), px + 6, ry, TEXT);
         ry += 11;
         fr.drawString(Lang.tr(v.isFieldOn() ? "sva.hud.field.on" : "sva.hud.field.off"), px + 6, ry, v.isFieldOn() ? 0xB27CFF : DIM);
+        return py;
     }
 
     /** A label + a bar across the flight panel + a percentage. */

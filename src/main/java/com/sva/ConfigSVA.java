@@ -46,6 +46,18 @@ public final class ConfigSVA {
     public static boolean cockpitStartup = true;
     /** Client (★11): cockpit warning sounds for the vehicle's own riders - overheating beep, stall siren. */
     public static boolean cockpitSounds = true;
+    /** Client (wave 1, ★1): engine / rotor / turbine loops and the vehicles' own one-shot sounds. On by default. */
+    public static boolean sounds = true;
+    /** Client (★1): the vehicle loops' volume x this (0..2; the game's «Игроки» slider applies too). */
+    public static float soundVolume = 1F;
+    /** Client (★3): the third-person camera while riding - distance by the vehicle's size, higher, smooth follow. */
+    public static boolean vehicleCamera = true;
+    /** Client (★3): that camera's distance x this (0.25..4; the mouse wheel zooms 0.5x..2x on top). */
+    public static float cameraDistance = 1F;
+    /** ★4: cruise control for ground vehicles and the hoverbike (key «Круиз»). */
+    public static boolean cruise = true;
+    /** ★4: the aircraft autopilot (plane, jet, tiltrotor in airplane mode) - holds heading and height. */
+    public static boolean autopilot = true;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -109,6 +121,21 @@ public final class ConfigSVA {
             cockpitSounds = c.getBoolean("cockpitSounds", v, true,
                     "Client: quiet cockpit warning sounds for the riders - overheating beep once a second, stall siren / "
                             + "Клиент: тихие звуки предупреждений в кабине - писк перегрева раз в секунду, сирена сваливания");
+            sounds = c.getBoolean("sounds", v, true,
+                    "Client: engine, rotor and turbine sounds of vehicles and their own effects (boarding, hatch, landing, hits) / "
+                            + "Клиент: звуки моторов, винтов и турбин техники и её собственные звуки (посадка, багажник, касание, удары)");
+            soundVolume = num(c, "soundVolume", v, 1F, 0F, 2F,
+                    "Client: vehicle engine sounds volume x this (0..2) / Клиент: громкость звуков моторов x это (0..2)");
+            vehicleCamera = c.getBoolean("vehicleCamera", v, true,
+                    "Client: third-person camera while riding - farther by the vehicle's size, higher, follows turns smoothly, mouse wheel zooms / "
+                            + "Клиент: камера от третьего лица в технике - дальше по размеру машины, выше, плавно догоняет, колёсико - дистанция");
+            cameraDistance = num(c, "cameraDistance", v, 1F, 0.25F, 4F,
+                    "Client: that camera's distance x this / Клиент: дистанция этой камеры x это");
+            cruise = c.getBoolean("cruise", v, true,
+                    "Cruise control for ground vehicles and the hoverbike (key 'Cruise') / Круиз-контроль наземной техники и ховербайка (клавиша 'Круиз')");
+            autopilot = c.getBoolean("autopilot", v, true,
+                    "Autopilot for the plane, jet and tiltrotor (airplane mode): holds heading and height / "
+                            + "Автопилот самолёта, реактивного и конвертоплана (режим самолёта): держит курс и высоту");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));

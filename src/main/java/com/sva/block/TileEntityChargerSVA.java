@@ -565,7 +565,8 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
             status |= S_FULL;
         }
         if (full && !wasFull && (settings & SET_SOUND) != 0) {
-            worldObj.playSoundEffect(xCoord + 0.5, yCoord + 1, zCoord + 0.5, "note.pling", 0.8F, 1.6F);
+            worldObj.playSoundEffect(xCoord + 0.5, yCoord + 1, zCoord + 0.5, com.sva.entity.EntityVehicleSVA.soundName("ding"), 0.8F,
+                    com.sva.ConfigSVA.sounds ? 1F : 1.6F);           // ★1: the charge-done chime
         }
         int power = PlatformMath.fullSignal((settings & SET_REDSTONE) != 0, full);
         if (power != lastPower) {

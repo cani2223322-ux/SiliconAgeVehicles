@@ -1,5 +1,7 @@
 package com.sva.entity;
 
+import com.sva.vehicle.CruiseMath;
+import com.sva.vehicle.FlightMath;
 import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.PlaneParams;
 import com.sva.vehicle.VehicleMath;
@@ -11,7 +13,8 @@ import com.sva.vehicle.VehicleType;
  * speed on the ground), «Снижение» / sprint push down, neither = level flight. The airspeed gives lift: below the
  * stall the nose drops. Without power: a 1:8 glide. It never goes backwards. Per-type numbers from VehicleType.plane;
  * the jet's afterburner («Форсаж» at full throttle, EntityVehicleSVA.afterburnerMul) multiplies thrust and top speed,
- * never past FlightMath.SPEED_CAP.
+ * never past FlightMath.SPEED_CAP. Wave 1 (★4): with the autopilot engaged (IN_CRUISE, in the air) the heading and the
+ * height are held by CruiseMath instead of A/D / Space / «Снижение» (any of W/S/A/D switches it off on the client).
  */
 public final class PlanePhysicsSVA {
 
@@ -30,7 +33,13 @@ public final class PlanePhysicsSVA {
         double mul = v.afterburnerMul(in);                    // the jet's afterburner (1 = off)
         double speed = Math.max(0, v.speed);
         double vy;
-        if (air) {
+        boolean auto = air && v.cruiseActive(in);
+        if (auto) {
+            // ★4 autopilot: the height held by steering the vertical speed (CruiseMath), the throttle as the pilot left it
+            double climb = PlaneMath.climbCapacity(p, speed) * FlightMath.ceilingFactor(v.posY);
+            vy = CruiseMath.holdVy(v.motionY, v.apAlt, v.posY, climb, p.dive, PlaneMath.VACC);
+            speed += PlaneMath.airAccel(t, speed, thr, vy, vy > 0, powered, mul);
+        } else if (air) {
             vy = PlaneMath.airVy(p, speed, v.motionY, up, down, powered, v.posY);
             speed += PlaneMath.airAccel(t, speed, thr, vy, up, powered, mul);
         } else {
@@ -44,7 +53,9 @@ public final class PlanePhysicsSVA {
         }
         speed = VehicleMath.clamp(speed, 0, PlaneMath.maxSpeed(t, mul));
         int steer = (right ? 1 : 0) - (left ? 1 : 0);
-        if (steer != 0 && speed > 0) {
+        if (auto) {
+            v.rotationYaw = (float) CruiseMath.headingStep(v.rotationYaw, v.apYaw, t.turnRate * VehicleMath.clamp(speed / p.stall, 0, 1));
+        } else if (steer != 0 && speed > 0) {
             double rate = air ? t.turnRate * VehicleMath.clamp(speed / p.stall, 0, 1)
                     : t.turnRate * 0.7 * Math.min(1, speed / 0.12);
             v.rotationYaw += steer * rate;

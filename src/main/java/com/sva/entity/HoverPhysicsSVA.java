@@ -54,7 +54,10 @@ public final class HoverPhysicsSVA {
         boolean boost = lift && boostKey && fwd;
         double top = HoverMath.maxSpeed(t, lift, boost);
         double speed = v.speed;
-        if (lift && fwd && !back) {
+        if (!fwd && v.cruiseActive(in)) {
+            // ★4 cruise: toward the set speed (no boost - the boost needs W)
+            speed = com.sva.vehicle.CruiseMath.groundStep(speed, Math.min(v.cruiseSpeed, top), t.accel, EntityVehicleSVA.ROLL, lift);
+        } else if (lift && fwd && !back) {
             speed += speed < 0 ? EntityVehicleSVA.BRAKE : t.accel * (boost ? 1.5 : 1);
         } else if (lift && back && !fwd) {
             speed -= speed > 0 ? EntityVehicleSVA.BRAKE : t.accel * 0.6;

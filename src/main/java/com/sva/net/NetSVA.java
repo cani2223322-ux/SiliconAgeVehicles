@@ -15,7 +15,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
  * Channel "SAVehicles".
- * Input (C->S): the driver's keys as bit flags, sent on change + a keepalive every 10 ticks.
+ * Input (C->S): the driver's keys as bit flags (+ the cruise / autopilot targets while engaged), sent on change + a
+ * keepalive every 10 ticks.
  * Move (C->S): the driver's simulated position / yaw / speed, every tick while it changes (+ keepalive).
  * Correct (S->C): the server refused a move - the driver snaps back to the server's position.
  * Workbench (C->S): a workbench screen button (start / lay out a recipe / clear), checked against the open container.
@@ -47,26 +48,46 @@ public final class NetSVA {
 
     public static class Input implements IMessage {
         public int entity;
-        public byte flags;
+        /** EntityVehicleSVA.IN_* bits (9 since wave 1: IN_CRUISE). */
+        public int flags;
+        /** ★4, only with IN_CRUISE: the cruise speed (b/t), the autopilot's yaw and height. */
+        public float cruise, yaw, alt;
 
         public Input() {
         }
 
         public Input(int entity, int flags) {
+            this(entity, flags, 0F, 0F, 0F);
+        }
+
+        public Input(int entity, int flags, float cruise, float yaw, float alt) {
             this.entity = entity;
-            this.flags = (byte) flags;
+            this.flags = flags & EntityVehicleSVA.IN_MASK;
+            this.cruise = cruise;
+            this.yaw = yaw;
+            this.alt = alt;
         }
 
         @Override
         public void fromBytes(ByteBuf buf) {
             entity = buf.readInt();
-            flags = buf.readByte();
+            flags = buf.readShort() & EntityVehicleSVA.IN_MASK;
+            if ((flags & EntityVehicleSVA.IN_CRUISE) != 0) {
+                cruise = buf.readFloat();
+                yaw = buf.readFloat();
+                alt = buf.readFloat();
+            }
         }
 
         @Override
         public void toBytes(ByteBuf buf) {
             buf.writeInt(entity);
-            buf.writeByte(flags);
+            buf.writeShort(flags);
+            if ((flags & EntityVehicleSVA.IN_CRUISE) != 0) {
+                buf.writeFloat(cruise);
+                buf.writeFloat(yaw);
+                buf.writeFloat(alt);
+            }
         }
     }
 
@@ -79,7 +100,7 @@ public final class NetSVA {
                 public void run() {
                     EntityVehicleSVA v = driven(p, m.entity);
                     if (v != null) {
-                        v.serverInput(m.flags & 0xFF);
+                        v.serverInput(m.flags, m.cruise, m.yaw, m.alt);
                     }
                 }
             });

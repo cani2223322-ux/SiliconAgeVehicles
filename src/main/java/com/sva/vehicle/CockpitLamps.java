@@ -26,9 +26,11 @@ public final class CockpitLamps {
     /** The drill console's mode lamps: tunnel / ore only / levelling (DrillMath MODE_*). */
     public static final int MODE0 = 15, MODE1 = 16, MODE2 = 17;
     public static final int STALL = 18;
+    /** Wave 1 (★4): «АВТОП.» - green while the autopilot or cruise holds (the jet's first button lights up). */
+    public static final int AUTOP = 19;
     /** Lang key part per role: sva.cockpit.lamp.KEY (the label under the lamp; "" = no label). */
     public static final String[] KEYS = {"", "master", "left", "right", "head", "handbrake", "overheat", "wear", "autorot", "lowCharge",
-            "gen", "nav", "vortex", "cargo", "door", "mode0", "mode1", "mode2", "stall"};
+            "gen", "nav", "vortex", "cargo", "door", "mode0", "mode1", "mode2", "stall", "autop"};
 
     // colours (0xRRGGBB, mock-up veh_cab_5_controls.png)
     public static final int RED = 0xFF4636, AMBER = 0xFFC23A, GREEN = 0x46E07A, BLUE = 0x6AD4FF, ORANGE = 0xFF8A2A;
@@ -65,7 +67,7 @@ public final class CockpitLamps {
             case HELI:
                 return new int[] {MASTER, AUTOROT, OVERHEAT, LOW_CHARGE, GEN, NAV, VORTEX, CARGO, DOOR, DECOR};
             case JET:
-                return new int[] {MASTER, STALL, DECOR, DECOR};
+                return new int[] {MASTER, STALL, AUTOP, DECOR};
             case TILT:
                 return new int[] {MASTER, OVERHEAT, DECOR};
             case SHUTTLE:
@@ -84,6 +86,7 @@ public final class CockpitLamps {
             case TURN_R:
             case GEN:
             case NAV:
+            case AUTOP:
                 return GREEN;
             case HEAD:
             case CARGO:
@@ -116,6 +119,8 @@ public final class CockpitLamps {
         public boolean autorotating, stalling, airborne, heliMode;
         public boolean cargoFull;
         public int drillMode;
+        /** ★4: the autopilot / cruise engaged (synced: EntityVehicleSVA.isCruiseOn); the auto-delivery counts as autopilot. */
+        public boolean autopilot, cruise;
     }
 
     /** The overheating warning (the HUD's: over HOT % or stopped). */
@@ -176,6 +181,8 @@ public final class CockpitLamps {
                 return s.drillMode == role - MODE0 ? ON : OFF;     // the selected mode, the drill on or off
             case STALL:
                 return s.stalling ? BLINK : OFF;
+            case AUTOP:
+                return s.autopilot || s.cruise ? ON : OFF;
             default:
                 return OFF;                                        // buttons, the door (never)
         }
