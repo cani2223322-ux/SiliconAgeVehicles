@@ -5,7 +5,7 @@
     "description": "Vehicles for Silicon Age: buggies, hoverbikes, helicopters, planes and more - powered by EU and the mod's gases.",
     "version": "${version}",
     "mcversion": "${mcversion}",
-    "url": "",
+    "url": "https://github.com/cani2223322-ux/SiliconAgeVehicles",
     "updateUrl": "",
     "authorList": ["Aleksandr"],
     "credits": "Designed with Claude",

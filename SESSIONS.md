@@ -119,3 +119,7 @@
 ## 2026-10-07 — Волна 3: прицепы и карта техники
 - Сделано: ★15 виды прицепов (TrailerMath, VehicleState.trailerType + TrailerData, DW 9, ItemTrailerSVA по метаданным): цистерна (ячейки тары, заправка техники в 6 бл., x0,85), платформа (багги/ховербайк предметом, тот же id при выгрузке, x0,8, отрисовка на палубе), передвижная зарядка (4M EU, солнце, подпитка от вездехода, зарядка в 4 бл.); модели trailer_*.obj в пространстве truck.obj (scratchpad vehicles/w3/veh_trailers.py), колёса в AnimParts, полоса цистерны цвета груза, иконки, вкладка «Прицеп», строка HUD/бортового компьютера, 3 рецепта в конце списка верстака (из пустого грузового прицепа). ★19 реестр машин с карточками (VehicleRegistrySVA), MapMath, пакеты MapRequest/MapInfo, окно GuiMapSVA (клавиша M, кнопка на станции). Конфиги vehicles.trailerKinds / vehicles.vehicleMap. Самотесты SelfTestWave3SVA, мир WorldTestWave3SVA; превью scratchpad vehicles/design/check_wave3.png.
 - Осталось / next steps: проверить в игре вид прицепов, платформу с машиной, окно карты; коммит волны 3 (делает ведущий).
+
+## 2026-10-07 — Публикация на GitHub, пре-релиз Alpha 0.1.0
+- Сделано: README ru/en дополнен (внешний вид, кабины, вождение, мастерская, логистика, клавиши, настройки), mcmod.info url, CHANGELOG -> 0.1.0-alpha, docs/release-0.1.0.md; репозиторий cani2223322-ux/SiliconAgeVehicles, тег v0.1.0-alpha, пре-релиз SiliconAgeVehiclesAlpha-0.1.0 с jar.
+- Осталось / next steps: отзывы из игры.
