@@ -394,7 +394,7 @@ final class SelfTestWave1SVA {
         s.autopilot = true;
         int onState = CockpitLamps.state(CockpitLamps.AUTOP, s);
         int[] jet = CockpitLamps.table(VehicleType.JET);
-        check(offState == CockpitLamps.OFF && onState == CockpitLamps.ON && jet[2] == CockpitLamps.AUTOP
+        check(offState == CockpitLamps.OFF && onState == CockpitLamps.ON && jet[1] == CockpitLamps.AUTOP
                         && CockpitLamps.colour(CockpitLamps.AUTOP) == CockpitLamps.GREEN && "autop".equals(CockpitLamps.KEYS[CockpitLamps.AUTOP]),
                 "cockpit: the jet's 'A/P' button lights green while the autopilot holds");
     }

@@ -331,6 +331,11 @@ public enum VehicleType {
         // ran through the rear row's heads (eye (1.06, 1.01, +-0.41): the skin 0.011 over the eye - 32 % of the forward
         // view a wall, 44 % looking up). Cut from the own view up to the paint2 frame at x 1.70 (the front row looks over it).
         SHIP.cabCuts = new float[][] {{0.56F, 1.68F, 0.80F, 1.13F, -0.60F, 0.60F}};
+        // drill (fix 2026-10, cockpit visibility check debug/CockpitCheckSVA): the body box (paint, y 0.53..1.53, the
+        // whole length) has its TOP under the cab - the driver sits in it to the chest (hips 1.00, eye 1.84) and its top
+        // face (y 1.53) covered the whole dash (dials, screens: 100 % hidden from the camera). Cut from the own view over
+        // the cab (x -0.10..0.78 up to the windscreen box, the cab's half z -0.72..0.02).
+        DRILL.cabCuts = new float[][] {{-0.10F, 0.78F, 1.45F, 1.62F, -0.72F, 0.02F}};
     }
 
     VehicleType(String key, String model, Tier tier, int buffer, double cruiseCost, double idleCost, double topSpeed, double accel,

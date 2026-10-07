@@ -39,8 +39,9 @@ public final class CockpitLayout {
     /** Farthest an instrument may be from the driver's eye (model units). */
     public static final float MAX_DIST = 0.95F;
     /**
-     * Smallest cosine between a piece's normal and the way to the eye: the ship's console dials face down-back (n (-0.87,
-     * -0.50, 0)) while the pilot looks at them from 0.4 above - cos 0.13; only pieces turned away are left out.
+     * Smallest cosine between a piece's normal and the way to the eye: only pieces turned away are left out. (Until the
+     * 2026-10 visibility fix the ship's console dials faced down-back, cos 0.13 - debug/CockpitCheckSVA now holds every
+     * dial and screen within 40 deg of its pilot's eye.)
      */
     public static final float MIN_FACING = 0.05F;
     /** Smallest screen side (model units). */
@@ -129,7 +130,7 @@ public final class CockpitLayout {
         if (l == null) {
             InputStream in = CockpitLayout.class.getResourceAsStream("/assets/siliconagevehicles/models/" + t.model + ".obj");
             try {
-                l = in == null ? new CockpitLayout() : parse(in, eye(t));
+                l = in == null ? new CockpitLayout() : parse(in, eye(t), seatEyes(t));
             } catch (Exception e) {
                 l = new CockpitLayout();
             }
@@ -138,8 +139,26 @@ public final class CockpitLayout {
         return l;
     }
 
+    /** Every seat's eye in model units (CockpitView.eye). */
+    static float[][] seatEyes(VehicleType t) {
+        float[][] e = new float[t.seatOffsets.length][];
+        for (int i = 0; i < e.length; i++) {
+            double[] d = CockpitView.eye(t, i);
+            e[i] = new float[] {(float) d[0], (float) d[1], (float) d[2]};
+        }
+        return e;
+    }
+
     /** Reads an OBJ (closes the stream) and finds its instruments as seen from `eye`. */
     public static CockpitLayout parse(InputStream in, float[] eye) throws java.io.IOException {
+        return parse(in, eye, null);
+    }
+
+    /**
+     * As above; a piece BEHIND the driver's eye (a passengers' panel - the Singular Ship's wall screens by the front row)
+     * faces the nearest of `seatEyes` (null: the driver's only) - its normal, "up" and facing test go by that rider's eye.
+     */
+    public static CockpitLayout parse(InputStream in, float[] eye, float[][] seatEyes) throws java.io.IOException {
         List<float[]> v = new ArrayList<float[]>();
         Map<String, List<int[]>> faces = new HashMap<String, List<int[]>>();
         java.util.Set<String> wanted = new java.util.HashSet<String>(java.util.Arrays.asList(MATS));
@@ -193,13 +212,30 @@ public final class CockpitLayout {
             List<int[]> f = faces.get(m);
             if (f != null) {
                 for (List<float[]> pts : components(v, f)) {
-                    comps.add(new Comp(m, pts, eye));
+                    comps.add(new Comp(m, pts, ownEye(centroid(pts), eye, seatEyes)));
                 }
             }
         }
         CockpitLayout l = build(comps, eye);
         l.floor = floor;
         return l;
+    }
+
+    /** The eye a piece at c is read from: the driver's, or for a piece behind him the nearest seat's. */
+    static float[] ownEye(float[] c, float[] eye, float[][] seatEyes) {
+        if (seatEyes == null || c[0] >= eye[0]) {
+            return eye;
+        }
+        float[] best = eye;
+        float bd = len(sub(c, eye));
+        for (float[] e : seatEyes) {
+            float d = len(sub(c, e));
+            if (d < bd) {
+                bd = d;
+                best = e;
+            }
+        }
+        return best;
     }
 
     /**
@@ -263,11 +299,14 @@ public final class CockpitLayout {
         final String mat;
         final List<float[]> pts;
         final float[] c, n, up, right;
+        /** The eye the piece faces (the driver's; a passengers' panel's nearest rider's). */
+        final float[] eye;
         float a0 = Float.MAX_VALUE, a1 = -Float.MAX_VALUE, b0 = Float.MAX_VALUE, b1 = -Float.MAX_VALUE, d0 = Float.MAX_VALUE, d1 = -Float.MAX_VALUE;
 
         Comp(String mat, List<float[]> pts, float[] eye) {
             this.mat = mat;
             this.pts = pts;
+            this.eye = eye;
             c = centroid(pts);
             float[] nn = leastAxis(pts, c);
             if (dot(nn, sub(eye, c)) < 0) {
@@ -354,7 +393,8 @@ public final class CockpitLayout {
             if (dist > MAX_DIST) {
                 continue;
             }
-            float facing = dot(k.n, toEye) / Math.max(1e-6F, dist);
+            float[] own = sub(k.eye, k.c);
+            float facing = dot(k.n, own) / Math.max(1e-6F, len(own));
             if ("gauge".equals(k.mat)) {
                 float r = facing >= MIN_FACING ? roundRadius(k.pts, k.c, k.up, k.right) : 0;
                 if (r >= DIAL_MIN_R) {

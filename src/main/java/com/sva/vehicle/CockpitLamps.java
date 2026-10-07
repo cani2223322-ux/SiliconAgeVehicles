@@ -10,9 +10,14 @@ package com.sva.vehicle;
  * type's table has exactly one role per lamp of its model (self-test). Measured from the OBJs (2026-10): buggy / truck
  * the row of 6 under the cluster + the red stop button on the centre console; drill the 3 mode lamps on the drill console
  * (a row above) + the row of 6; heli the co-pilot cluster's small lamp, the 8 annunciators, the stop button; jet the
- * small lamp over the glass panels, the big disc left of it (mirror of the throttle dial), two buttons; tilt / ship the
- * two small lamps by the side screens + the stop button; shuttle 5 overhead buttons + the two small lamps; the plane has
- * no 'warn' lamps - its three green 'ok' gear lamps are CockpitLayout.okLamps (gear()); the hoverbike has none.
+ * small lamp over the glass panels, two buttons, the big disc under the left side screen (mirror of the throttle dial);
+ * ship the two stick tops + the stop button; tilt the left stick top, the stop button, the right stick top (one row);
+ * shuttle 5 overhead buttons + the two stick tops; the plane has no 'warn' lamps - its three green 'ok' gear lamps are
+ * CockpitLayout.okLamps (gear()); the hoverbike has none.
+ * <p>
+ * Cockpit visibility fix (2026-10): the jet's side screens turned to the pilot lifted their buttons over the big disc,
+ * which went under the left screen (it sat behind it, unseen) - the disc (STALL) is now last; the tilt's sticks got
+ * shorter (they stood in front of the pods), their tops are now level with the stop button - one row, left -> right.
  */
 public final class CockpitLamps {
 
@@ -67,9 +72,9 @@ public final class CockpitLamps {
             case HELI:
                 return new int[] {MASTER, AUTOROT, OVERHEAT, LOW_CHARGE, GEN, NAV, VORTEX, CARGO, DOOR, DECOR};
             case JET:
-                return new int[] {MASTER, STALL, AUTOP, DECOR};
+                return new int[] {MASTER, AUTOP, DECOR, STALL};
             case TILT:
-                return new int[] {MASTER, OVERHEAT, DECOR};
+                return new int[] {MASTER, DECOR, OVERHEAT};
             case SHUTTLE:
                 return new int[] {DECOR, DECOR, DECOR, DECOR, DECOR, LOW_CHARGE, OVERHEAT};
             case SHIP:

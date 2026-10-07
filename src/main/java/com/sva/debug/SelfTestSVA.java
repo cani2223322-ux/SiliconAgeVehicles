@@ -108,6 +108,8 @@ public final class SelfTestSVA {
             glyphsAndCargoKey();
             riderFit();
             ownView();
+            cockpitVisibility();
+            langKeys();
             cockpitWindows();
             cargoV2();
             skins();
@@ -1601,6 +1603,133 @@ public final class SelfTestSVA {
             check(bad.length() == 0, "own view: " + t.key + " - " + t.seatOffsets.length + " seats x 7 looks: walls in front of the face at most "
                     + pct(worst) + ", glows / halos at most " + pct(worstO) + " of the screen (limit 5 %)" + bad);
         }
+    }
+
+    /**
+     * Fix 2026-10 (the user's first-person screenshots: the heli's glare shield over the pilot's upper dial row, the
+     * Singular Ship's dials lying face-up under the console hoods and its upper screen tilted away, the buggy's wheel in
+     * the scuttle panel with its hub over the cluster): debug/CockpitCheckSVA on every type - each dial and screen
+     * CockpitLayout finds is read from its pilot's camera (vanilla's, looking 20 deg down; the co-pilot's own panel from
+     * his seat, a passengers' panel from the nearest rider): at most 10 % of the samples over its face hidden by other
+     * geometry, the face within 40 deg of the way to the eye, all of it on the screen looking 20..25 deg down; every
+     * moving control (AnimParts CONTROL) swept over its inputs cuts no other triangle off its mount. Plus the detector's
+     * maths: a crossing edge is a cut, touching / coplanar faces are not, the turn is right-handed.
+     */
+    private static void cockpitVisibility() throws java.io.IOException {
+        float[] a = {0, 0, 0, 1, 0, 0, 0, 1, 0};                            // in the plane z = 0
+        float[] b = {0.2F, 0.2F, -1, 0.2F, 0.2F, 1, 0.3F, 0.25F, 0};         // its first edge goes through a at (0.2, 0.2, 0)
+        float[] c = {0, 0, 0, 1, 0, 0, 0, 0, 1};                            // shares a's first edge, at right angles
+        float[] d = {0.1F, 0.1F, 0, 0.5F, 0.1F, 0, 0.1F, 0.5F, 0};          // lies on a
+        double[] hit = new double[3];
+        boolean pierce = CockpitCheckSVA.pierce(b, 0, a, hit) && near(hit[0], 0.2, 1e-6) && near(hit[2], 0, 1e-6);
+        boolean touch = true;
+        for (int e = 0; e < 3; e++) {
+            touch &= !CockpitCheckSVA.pierce(a, e, c, hit) && !CockpitCheckSVA.pierce(c, e, a, hit) && !CockpitCheckSVA.pierce(a, e, d, hit)
+                    && !CockpitCheckSVA.pierce(d, e, a, hit);
+        }
+        double[] r = CockpitCheckSVA.rot(new double[] {1, 0, 0}, new float[] {0, 0, 1}, 90);
+        check(pierce && touch && near(r[0], 0, 1e-9) && near(r[1], 1, 1e-9),
+                "cockpit view: a crossing edge is a cut, a shared edge / coplanar contact is not; turns are right-handed");
+        int nInst = 0, nCtl = 0;
+        for (VehicleType t : VehicleType.values()) {
+            ViewCheckSVA.Mesh m = ViewCheckSVA.load(t.model);
+            if (m == null) {
+                check(false, "cockpit view: " + t.key + " - models/" + t.model + ".obj not found");
+                continue;
+            }
+            StringBuilder bad = new StringBuilder();
+            double hid = 0, ang = 0, down = 0, side = 0;
+            java.util.List<CockpitCheckSVA.Inst> in = CockpitCheckSVA.instruments(t, m);
+            for (CockpitCheckSVA.Inst i : in) {
+                hid = Math.max(hid, i.blocked);
+                ang = Math.max(ang, i.angle);
+                down = Math.max(down, i.down);
+                side = Math.max(side, i.side);
+                if (!i.ok()) {
+                    bad.append(' ').append(i).append(';');
+                }
+            }
+            java.util.List<CockpitCheckSVA.Ctl> cl = CockpitCheckSVA.controls(t, m);
+            int poses = 0;
+            for (CockpitCheckSVA.Ctl k : cl) {
+                poses += k.poses;
+                if (!k.ok()) {
+                    bad.append(' ').append(k).append(';');
+                }
+            }
+            nInst += in.size();
+            nCtl += cl.size();
+            check(bad.length() == 0, String.format(java.util.Locale.ROOT,
+                    "cockpit view: %s - %d dials / screens readable (hidden at most %.0f %%, facing within %.0f deg, %.0f deg down / %.0f aside"
+                            + " at most), %d controls clear in %d poses", t.key, Integer.valueOf(in.size()), Double.valueOf(hid * 100),
+                    Double.valueOf(ang), Double.valueOf(down), Double.valueOf(side), Integer.valueOf(cl.size()), Integer.valueOf(poses)) + bad);
+        }
+        check(nInst >= 45 && nCtl == 11, "cockpit view: " + nInst + " instruments and " + nCtl + " moving controls checked (45+ / 11)");
+        // the seats the instruments are read from: the heli co-pilot's cluster from his seat, the ship's wall screens
+        // from the front-row passengers
+        int copilot = 0, passenger = 0;
+        ViewCheckSVA.Mesh hm = ViewCheckSVA.load(VehicleType.HELI.model), sm = ViewCheckSVA.load(VehicleType.SHIP.model);
+        if (hm != null && sm != null) {
+            for (CockpitCheckSVA.Inst i : CockpitCheckSVA.instruments(VehicleType.HELI, hm)) {
+                copilot += i.seat == 1 ? 1 : 0;
+            }
+            for (CockpitCheckSVA.Inst i : CockpitCheckSVA.instruments(VehicleType.SHIP, sm)) {
+                passenger += i.seat >= 2 ? 1 : 0;
+            }
+        }
+        check(copilot == 3 && passenger == 2, "cockpit view: the heli co-pilot reads his own 2 dials + screen (" + copilot
+                + "), the ship's 2 wall screens face the front-row passengers (" + passenger + ")");
+        check(VehicleType.DRILL.cabCuts != null && VehicleType.DRILL.ownViewCuts().length <= com.sva.vehicle.CockpitView.MAX_WINDOWS,
+                "cockpit view: the drill cuts its body's top over the cab from the own view (2 windows + 1 cut, 3 clip planes)");
+    }
+
+    /**
+     * Fix 2026-10 (the user's screenshot: the raw key sva.hud.jump.why.1 in the ship's HUD): every key the code asks for
+     * is in both lang files - the literal ones read from the mod's class files (LangKeysSVA), the families built at run
+     * time with their ranges: the jump check's codes (SpaceMath; the HUD's status line and the chat message), the cockpit
+     * dials, units and lamps.
+     */
+    private static void langKeys() throws java.io.IOException {
+        java.util.Set<String> ru = LangKeysSVA.keys(LangKeysSVA.RU), en = LangKeysSVA.keys(LangKeysSVA.EN);
+        if (ru == null || en == null) {
+            check(false, "lang keys: ru_RU / en_US missing");
+            return;
+        }
+        java.util.Set<String> lit = LangKeysSVA.literalKeys();
+        if (lit == null) {
+            check(false, "lang keys: the mod's classes could not be read");
+        } else {
+            java.util.List<String> mr = LangKeysSVA.missing(lit, ru), me = LangKeysSVA.missing(lit, en);
+            check(lit.size() > 300 && mr.isEmpty() && me.isEmpty(), "lang keys: all " + lit.size() + " literal keys of the code in ru_RU and en_US"
+                    + (mr.isEmpty() ? "" : " ru missing " + mr) + (me.isEmpty() ? "" : " en missing " + me));
+        }
+        check(LangKeysSVA.keyLike("sva.hud.jump.why.1") && !LangKeysSVA.keyLike("sva.hud.jump.why.") && !LangKeysSVA.keyLike("sva.a b")
+                && !LangKeysSVA.keyLike("tile.x"), "lang keys: a key is sva. + letters / digits / dots, not a prefix ending with a dot");
+        StringBuilder miss = new StringBuilder();
+        for (int code = com.sva.vehicle.SpaceMath.OK; code <= com.sva.vehicle.SpaceMath.CHUNK; code++) {
+            if (code == com.sva.vehicle.SpaceMath.OK || code == com.sva.vehicle.SpaceMath.COOLDOWN) {
+                continue;                                                  // the HUD has own lines for these (ready / cooldown)
+            }
+            for (String k : new String[] {"sva.hud.jump.why." + code, "sva.msg.jump.no." + code}) {
+                if (!ru.contains(k) || !en.contains(k)) {
+                    miss.append(' ').append(k);
+                }
+            }
+        }
+        for (String k : com.sva.vehicle.CockpitDials.KEYS) {
+            for (String f : new String[] {"sva.cockpit.dial." + k, "sva.cockpit.unit." + k}) {
+                if (!ru.contains(f) || !en.contains(f)) {
+                    miss.append(' ').append(f);
+                }
+            }
+        }
+        for (String k : com.sva.vehicle.CockpitLamps.KEYS) {
+            if (k.length() > 0 && (!ru.contains("sva.cockpit.lamp." + k) || !en.contains("sva.cockpit.lamp." + k))) {
+                miss.append(" sva.cockpit.lamp.").append(k);
+            }
+        }
+        check(miss.length() == 0, "lang keys: the HUD's jump status for every jump check code (1..11 but the cooldown), its chat messages,"
+                + " every dial label / unit and lamp label in ru_RU and en_US" + miss);
     }
 
     private static String pct(double f) {

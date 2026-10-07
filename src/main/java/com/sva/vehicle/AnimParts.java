@@ -261,17 +261,25 @@ public final class AnimParts {
         // fore / aft and sideways about its foot, the collective (black grip, steel lever) rises 10 deg, the pedals slide
         // 0.028 (0.45 concept units) against each other; the plane's yoke turns 30 deg with the roll and slides 0.037 back
         // when pulled, its throttle lever swings +-28 deg about the quadrant top with the throttle.
-        control("buggy", "steering", new String[] {"accent", "leather", "steel"}, new float[] {-0.100F, 0.849F, -0.432F}, new float[] {0.062F, 1.139F, -0.118F}, new float[] {-0.019F, 0.994F, -0.275F}).turn(STEER, new float[] {0.906F, -0.423F, 0.000F}, 90.0F);
-        control("truck", "steering", new String[] {"accent", "leather", "steel"}, new float[] {2.350F, 1.020F, -0.479F}, new float[] {2.575F, 1.323F, -0.121F}, new float[] {2.462F, 1.171F, -0.300F}).turn(STEER, new float[] {0.819F, -0.574F, 0.000F}, 90.0F);
-        control("drill", "steering", new String[] {"accent", "leather", "steel"}, new float[] {0.502F, 1.142F, -0.463F}, new float[] {0.673F, 1.421F, -0.155F}, new float[] {0.588F, 1.281F, -0.309F}).turn(STEER, new float[] {0.883F, -0.469F, 0.000F}, 90.0F);
+        // Cockpit visibility fix (2026-10, the user's screenshots; debug/CockpitCheckSVA sweeps every row over its inputs
+        // and checks the faces of the instruments from the pilot's camera): the car wheels sit higher and nearer the
+        // driver, smaller (buggy r 0.097 / tilt 50 deg, truck 0.119 / 48, drill 0.113 / 50 - the rim cleared the scuttle
+        // deck by the full turn, the cluster is read over the rim, the hub below the line of sight); the heli's cyclic is
+        // 0.044 shorter and its pedals 0.025 lower / 0.012 further back (they cut the panel's foot); the plane's yoke has
+        // short horns on a fixed column rising out of the panel's foot - it turns about the column (0.80, -0.60, 0) and
+        // slides 0.037 back ALONG it when pulled (a level shaft between the rows lay over the lower centre dial); the
+        // plane's pedals 0.019 back, the left one 0.013 inboard (pushed fully it went into the narrowing nose).
+        control("buggy", "steering", new String[] {"accent", "leather", "steel"}, new float[] {-0.248F, 0.940F, -0.386F}, new float[] {-0.077F, 1.136F, -0.146F}, new float[] {-0.162F, 1.038F, -0.266F}).turn(STEER, new float[] {0.766F, -0.643F, 0.000F}, 90.0F);
+        control("truck", "steering", new String[] {"accent", "leather", "steel"}, new float[] {2.235F, 1.116F, -0.442F}, new float[] {2.440F, 1.340F, -0.158F}, new float[] {2.337F, 1.228F, -0.300F}).turn(STEER, new float[] {0.743F, -0.669F, 0.000F}, 90.0F);
+        control("drill", "steering", new String[] {"accent", "leather", "steel"}, new float[] {0.417F, 1.209F, -0.445F}, new float[] {0.608F, 1.429F, -0.174F}, new float[] {0.512F, 1.319F, -0.309F}).turn(STEER, new float[] {0.766F, -0.643F, 0.000F}, 90.0F);
         control("heli", "collective", new String[] {"black", "steel"}, new float[] {0.752F, 0.660F, 0.002F}, new float[] {1.030F, 0.752F, 0.055F}, new float[] {0.758F, 0.669F, 0.028F}).turn(LIFT, new float[] {0.000F, 0.000F, 1.000F}, 10.0F);
-        control("heli", "cyclic", new String[] {"dark", "red"}, new float[] {1.075F, 0.464F, 0.215F}, new float[] {1.154F, 0.784F, 0.285F}, new float[] {1.139F, 0.475F, 0.250F}).turn(PITCH, new float[] {0.000F, 0.000F, 1.000F}, 12.0F).turn2(ROLL, new float[] {1.000F, 0.000F, 0.000F}, 12.0F);
-        control("heli", "pedalL", new String[] {"steel"}, new float[] {1.204F, 0.453F, 0.109F}, new float[] {1.237F, 0.597F, 0.204F}, new float[] {1.220F, 0.456F, 0.156F}).move(YAW, new float[] {-0.028F, 0.000F, 0.000F});
-        control("heli", "pedalR", new String[] {"steel"}, new float[] {1.204F, 0.453F, 0.296F}, new float[] {1.237F, 0.597F, 0.391F}, new float[] {1.220F, 0.456F, 0.344F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
-        control("plane", "pedalL", new String[] {"steel"}, new float[] {1.249F, 0.465F, -0.254F}, new float[] {1.282F, 0.610F, -0.159F}, new float[] {1.266F, 0.469F, -0.206F}).move(YAW, new float[] {-0.028F, 0.000F, 0.000F});
-        control("plane", "pedalR", new String[] {"steel"}, new float[] {1.249F, 0.465F, -0.066F}, new float[] {1.282F, 0.610F, 0.029F}, new float[] {1.266F, 0.469F, -0.019F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
+        control("heli", "cyclic", new String[] {"dark", "red"}, new float[] {1.075F, 0.463F, 0.215F}, new float[] {1.154F, 0.740F, 0.285F}, new float[] {1.139F, 0.475F, 0.250F}).turn(PITCH, new float[] {0.000F, 0.000F, 1.000F}, 12.0F).turn2(ROLL, new float[] {1.000F, 0.000F, 0.000F}, 12.0F);
+        control("heli", "pedalL", new String[] {"steel"}, new float[] {1.191F, 0.453F, 0.109F}, new float[] {1.224F, 0.572F, 0.204F}, new float[] {1.208F, 0.456F, 0.156F}).move(YAW, new float[] {-0.028F, 0.000F, 0.000F});
+        control("heli", "pedalR", new String[] {"steel"}, new float[] {1.191F, 0.453F, 0.296F}, new float[] {1.224F, 0.572F, 0.391F}, new float[] {1.208F, 0.456F, 0.344F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
+        control("plane", "pedalL", new String[] {"steel"}, new float[] {1.230F, 0.465F, -0.241F}, new float[] {1.263F, 0.610F, -0.146F}, new float[] {1.247F, 0.469F, -0.194F}).move(YAW, new float[] {-0.028F, 0.000F, 0.000F});
+        control("plane", "pedalR", new String[] {"steel"}, new float[] {1.230F, 0.465F, -0.066F}, new float[] {1.263F, 0.610F, 0.029F}, new float[] {1.247F, 0.469F, -0.019F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
         control("plane", "throttle", new String[] {"black", "steel"}, new float[] {1.178F, 0.652F, 0.100F}, new float[] {1.228F, 0.801F, 0.150F}, new float[] {1.203F, 0.656F, 0.125F}).turn(THROTTLE, new float[] {0.000F, 0.000F, 1.000F}, -28.0F);
-        control("plane", "yoke", new String[] {"accent", "dark", "steel"}, new float[] {1.124F, 0.640F, -0.245F}, new float[] {1.320F, 0.810F, 0.054F}, new float[] {1.150F, 0.684F, -0.096F}).turn(ROLL, new float[] {1.000F, 0.000F, 0.000F}, 30.0F).move(PITCH, new float[] {-0.037F, 0.000F, 0.000F});
+        control("plane", "yoke", new String[] {"accent", "dark", "steel"}, new float[] {1.096F, 0.622F, -0.245F}, new float[] {1.204F, 0.726F, 0.054F}, new float[] {1.128F, 0.684F, -0.096F}).turn(ROLL, new float[] {0.800F, -0.600F, 0.000F}, 30.0F).move(PITCH, new float[] {-0.030F, 0.022F, -0.000F});
         for (List<Def> l : TABLE.values()) {
             ALL.addAll(l);
         }
