@@ -7,13 +7,17 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;
 
-/** GUI ids: CARGO (x = the vehicle's entity id), WORKBENCH, CHARGER (x, y, z = the block). */
+/** GUI ids: CARGO (x = the vehicle's entity id), WORKBENCH, CHARGER, GARAGE (x, y, z = the block). */
 public class GuiHandlerSVA implements IGuiHandler {
 
-    public static final int CARGO = 0, WORKBENCH = 1, CHARGER = 2;
+    public static final int CARGO = 0, WORKBENCH = 1, CHARGER = 2, GARAGE = 3;
 
     @Override
     public Object getServerGuiElement(int id, EntityPlayer p, World w, int x, int y, int z) {
+        if (id == GARAGE) {
+            net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
+            return te instanceof com.sva.block.TileEntityGarageSVA ? new ContainerGarageSVA(p.inventory, (com.sva.block.TileEntityGarageSVA) te) : null;
+        }
         if (id == CHARGER) {
             net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
             return te instanceof com.sva.block.TileEntityChargerSVA ? new ContainerChargerSVA(p.inventory, (com.sva.block.TileEntityChargerSVA) te) : null;
@@ -28,6 +32,10 @@ public class GuiHandlerSVA implements IGuiHandler {
 
     @Override
     public Object getClientGuiElement(int id, EntityPlayer p, World w, int x, int y, int z) {
+        if (id == GARAGE) {
+            net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
+            return te instanceof com.sva.block.TileEntityGarageSVA ? new com.sva.client.GuiGarageSVA(p.inventory, (com.sva.block.TileEntityGarageSVA) te) : null;
+        }
         if (id == CHARGER) {
             net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
             return te instanceof com.sva.block.TileEntityChargerSVA ? new com.sva.client.GuiChargerSVA(p.inventory, (com.sva.block.TileEntityChargerSVA) te) : null;

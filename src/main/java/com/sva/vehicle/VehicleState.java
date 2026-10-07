@@ -26,7 +26,9 @@ public class VehicleState {
             // stage E: long-range mode switched on; the ship's jump target «дом», its cooldown (ticks), anchor, invisibility
             K_LONG_RANGE = "LongRange", K_JUMP_HOME = "JumpHome", K_JUMP_CD = "JumpCooldown", K_ANCHOR = "Anchor", K_INVIS = "Invisible",
             // cargo screen v2: torches the drill has put down
-            K_TORCHES = "Torches";
+            K_TORCHES = "Torches",
+            // wave 2: the tuning slots (TuningMath kinds, -1 empty) and the access list / lock (AccessMath)
+            K_TUNING = "Tuning", K_ACCESS = "Access";
 
     public VehicleType type;
     public double energy;
@@ -61,6 +63,10 @@ public class VehicleState {
     /** Singular Ship: jump «домой» (else to the Coordinator in the cargo), the jump's cooldown (ticks), anchor, invisibility. */
     public boolean jumpHome, anchor, invisible;
     public int jumpCooldown;
+    /** Wave 2 (★8): the installed upgrades, MAX_SLOTS kinds (-1 = empty slot); changed only in the garage. */
+    public int[] tuning = TuningMath.empty();
+    /** Wave 2 (★10): who may drive / ride / open the cargo / repair, the lock mode and its version (key cards). */
+    public final AccessMath.Access access = new AccessMath.Access();
 
     public VehicleState(VehicleType type) {
         this.type = type;
@@ -86,7 +92,25 @@ public class VehicleState {
     }
 
     public double maxEnergy() {
-        return type.buffer;
+        return type.buffer * (com.sva.ConfigSVA.tuning ? TuningMath.bufferMul(tuning) : 1);
+    }
+
+    /** Max hull HP (the type's; «Лёгкий корпус» -20 %). */
+    public float maxHp() {
+        return (float) (type.maxHp * (com.sva.ConfigSVA.tuning ? TuningMath.hpMul(tuning) : 1));
+    }
+
+    /**
+     * Wave 2: new upgrades in (already checked by TuningMath.canInstall / sanitize); the charge, hull and gases are cut
+     * to the new limits (taking out «Аккумулятор+» or «Доп. бак» loses what no longer fits).
+     */
+    public void setTuning(int[] slots) {
+        tuning = TuningMath.sanitize(type, slots);
+        energy = Math.min(energy, maxEnergy());
+        hp = Math.min(hp, maxHp());
+        for (Gas g : Gas.values()) {
+            gas[g.ordinal()] = Math.min(gas[g.ordinal()], gasCapacity(g));
+        }
     }
 
     /** @return EU taken */
@@ -100,7 +124,8 @@ public class VehicleState {
     // ------------------------------------------------------------------ gas tanks
 
     public int gasCapacity(Gas g) {
-        return type.gases.capacity(g);
+        int c = type.gases.capacity(g);
+        return com.sva.ConfigSVA.tuning ? (int) Math.round(c * TuningMath.gasMul(tuning)) : c;
     }
 
     public int gas(Gas g) {
@@ -237,6 +262,10 @@ public class VehicleState {
         t.setInteger(K_JUMP_CD, jumpCooldown);
         t.setBoolean(K_ANCHOR, anchor);
         t.setBoolean(K_INVIS, invisible);
+        t.setIntArray(K_TUNING, tuning);
+        NBTTagCompound a = new NBTTagCompound();
+        access.write(a);
+        t.setTag(K_ACCESS, a);
     }
 
     /** Tiltrotor nacelles 0 (vertical) .. 1 (airplane). */
@@ -249,8 +278,15 @@ public class VehicleState {
         if (t.hasKey(K_TYPE)) {
             type = VehicleType.byOrdinal(t.getInteger(K_TYPE));
         }
+        // wave 2: the upgrades first - they set the limits the charge / hull / gases are clamped to below
+        tuning = TuningMath.sanitize(type, t.hasKey(K_TUNING) ? t.getIntArray(K_TUNING) : tuning);
+        if (t.hasKey(K_ACCESS)) {
+            access.read(t.getCompoundTag(K_ACCESS));
+        } else if (t.hasKey(K_ID)) {
+            access.legacy();                                    // saved before wave 2: keep the old rules
+        }
         energy = clampNum(t.hasKey(K_ENERGY) ? t.getDouble(K_ENERGY) : energy, 0, maxEnergy());
-        hp = (float) clampNum(t.hasKey(K_HP) ? t.getFloat(K_HP) : hp, 0, type.maxHp);
+        hp = (float) clampNum(t.hasKey(K_HP) ? t.getFloat(K_HP) : hp, 0, maxHp());
         heat = clampNum(t.hasKey(K_HEAT) ? t.getDouble(K_HEAT) : heat, 0, VehicleMath.HEAT_STOP);
         heatStop = t.getBoolean(K_HEAT_STOP);
         trailer = t.getBoolean(K_TRAILER) && type.trailerSlots > 0;

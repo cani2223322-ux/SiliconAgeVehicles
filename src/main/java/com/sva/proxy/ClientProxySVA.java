@@ -33,6 +33,8 @@ public class ClientProxySVA extends CommonProxySVA {
         RenderingRegistry.registerEntityRenderingHandler(EntitySeatSVA.class, new RenderSeatSVA());
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityWorkbenchSVA.class,
                 new com.sva.client.RenderWorkbenchSVA());
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityGarageSVA.class,
+                new com.sva.client.RenderGarageSVA());                  // wave 2, ★7: the repair hologram
         // ★11: road signs, traffic light, guard rail - boxes in the chunk mesh
         com.sva.block.RoadsSVA.renderId = RenderingRegistry.getNextAvailableRenderId();
         RenderingRegistry.registerBlockHandler(new com.sva.client.RenderRoadSVA(com.sva.block.RoadsSVA.renderId));
@@ -200,6 +202,14 @@ public class ClientProxySVA extends CommonProxySVA {
         stationOwner = owner;                                       // applied on the client thread
     }
 
+    /** ★10: the last access list from the server, opened on the client thread. */
+    private volatile NetSVA.AccessInfo accessPending;
+
+    @Override
+    public void accessInfo(NetSVA.AccessInfo m) {
+        accessPending = m;
+    }
+
     @Override
     public void queueCorrection(NetSVA.Correct m) {
         if (corrections.size() < 16) {
@@ -327,6 +337,11 @@ public class ClientProxySVA extends CommonProxySVA {
             if (pl != null && pl.openContainer instanceof com.sva.inventory.ContainerChargerSVA) {
                 ((com.sva.inventory.ContainerChargerSVA) pl.openContainer).vehicleOwner = owner;
             }
+        }
+        NetSVA.AccessInfo ai = accessPending;
+        if (ai != null) {
+            accessPending = null;
+            com.sva.client.GuiAccessSVA.show(ai);                   // ★10: open, or refresh the open one
         }
         drillKeys();
         Minecraft mcc = Minecraft.getMinecraft();

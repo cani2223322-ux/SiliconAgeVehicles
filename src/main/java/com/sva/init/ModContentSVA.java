@@ -44,6 +44,11 @@ public final class ModContentSVA {
     public static com.sva.block.BlockRoadSignSVA roadSign, roadSignArrow;
     public static com.sva.block.BlockTrafficLightSVA trafficLight;
     public static com.sva.block.BlockGuardRailSVA guardRail;
+    // wave 2: ★7 the repair garage and its floor, ★8 tuning upgrades, ★10 the key card
+    public static com.sva.block.BlockGarageSVA garage;
+    public static com.sva.block.BlockGaragePlateSVA garagePlate;
+    public static com.sva.item.ItemTuningSVA tuning;
+    public static com.sva.item.ItemKeyCardSVA keyCard;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -105,6 +110,20 @@ public final class ModContentSVA {
         guardRail = new com.sva.block.BlockGuardRailSVA();
         guardRail.setCreativeTab(TAB);
         GameRegistry.registerBlock(guardRail, com.sva.block.ItemBlockRoadPartSVA.class, "guardRail");
+        // wave 2 (Engineering Workbench recipes - WorkbenchRecipesSVA)
+        garage = new com.sva.block.BlockGarageSVA();
+        garage.setCreativeTab(TAB);
+        GameRegistry.registerBlock(garage, com.sva.block.ItemBlockGarageSVA.class, "garage");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityGarageSVA.class, ReferenceSVA.MODID + ":garage");
+        garagePlate = new com.sva.block.BlockGaragePlateSVA();
+        garagePlate.setCreativeTab(TAB);
+        GameRegistry.registerBlock(garagePlate, com.sva.block.ItemBlockGaragePlateSVA.class, "garagePlate");
+        tuning = new com.sva.item.ItemTuningSVA();
+        tuning.setCreativeTab(TAB);
+        GameRegistry.registerItem(tuning, "tuning");
+        keyCard = new com.sva.item.ItemKeyCardSVA();
+        keyCard.setCreativeTab(TAB);
+        GameRegistry.registerItem(keyCard, "keyCard");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);
@@ -141,7 +160,14 @@ public final class ModContentSVA {
         return new ItemStack(i);
     }
 
-    /** The core's steel ingot (temporary repair item). */
+    /** n of the core's steel ingots (the garage world test). */
+    public static ItemStack steelStack(int n) {
+        ItemStack s = ModItems.ingot.stackOf(Material.STEEL).copy();
+        s.stackSize = n;
+        return s;
+    }
+
+    /** The core's steel ingot (field repair, the garage's metal). */
     public static boolean isSteelIngot(ItemStack s) {
         if (s == null || ModItems.ingot == null) {
             return false;

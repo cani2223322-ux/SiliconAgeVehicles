@@ -48,6 +48,10 @@ public class CommonProxySVA {
     public void stationInfo(String owner) {
     }
 
+    /** Wave 2, ★10: a vehicle's access list arrived - open / refresh the access screen (client). */
+    public void accessInfo(NetSVA.AccessInfo m) {
+    }
+
     /** A server correction for the local driver (applied on the client thread). */
     public void queueCorrection(NetSVA.Correct m) {
     }

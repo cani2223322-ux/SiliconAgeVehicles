@@ -106,7 +106,7 @@ public final class DrillLogicSVA {
             return;
         }
         boolean wide = wide(st);
-        double per = DrillMath.perTick(k.blocksPerSecond);
+        double per = DrillMath.perTick(k.blocksPerSecond) * (com.sva.ConfigSVA.tuning ? com.sva.vehicle.TuningMath.digMul(st.tuning) : 1);   // ★8 «Усиленный бур»
         v.digBudget = Math.min(v.digBudget + per, per * 2 + 1);
         int y0 = MathHelper.floor_double(v.posY + 0.01);
         net.minecraftforge.common.util.FakePlayer fake = owner(v);

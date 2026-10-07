@@ -58,6 +58,16 @@ public final class ConfigSVA {
     public static boolean cruise = true;
     /** ★4: the aircraft autopilot (plane, jet, tiltrotor in airplane mode) - holds heading and height. */
     public static boolean autopilot = true;
+    /** Wave 2 (★8): installed tuning upgrades change the vehicle (speed, buffer, armour...); off = upgrades do nothing. */
+    public static boolean tuning = true;
+    /** Client (★8): installed upgrades are drawn on the model (armour plates, light bar, battery box, extra tank, big wheels). */
+    public static boolean tuningVisuals = true;
+    /** Client (★7): the garage's hologram ring over a vehicle being repaired. */
+    public static boolean garageHologram = true;
+    /** Wave 2 (★10): access rights and lock modes (key cards); off = the old rules (owner drives, anyone rides). */
+    public static boolean locks = true;
+    /** ★10: server operators pass any vehicle lock. */
+    public static boolean lockOpBypass = true;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -136,6 +146,21 @@ public final class ConfigSVA {
             autopilot = c.getBoolean("autopilot", v, true,
                     "Autopilot for the plane, jet and tiltrotor (airplane mode): holds heading and height / "
                             + "Автопилот самолёта, реактивного и конвертоплана (режим самолёта): держит курс и высоту");
+            tuning = c.getBoolean("tuning", v, true,
+                    "Tuning upgrades installed in the repair garage change the vehicle (speed, buffer, armour, step, lights, drill, gas) / "
+                            + "Улучшения тюнинга, поставленные в ремонтном гараже, меняют машину (скорость, заряд, броня, колёса, фары, бур, газ)");
+            tuningVisuals = c.getBoolean("tuningVisuals", v, true,
+                    "Client: installed upgrades are drawn on the vehicle model (armour plates, light bar, battery box, extra tank, big wheels) / "
+                            + "Клиент: установленные улучшения видны на модели (бронелисты, люстра фар, доп. аккумулятор, бак, большие колёса)");
+            garageHologram = c.getBoolean("garageHologram", v, true,
+                    "Client: the repair garage shows a hologram ring over the vehicle while it repairs / "
+                            + "Клиент: во время ремонта над машиной в гараже - кольцо-голограмма");
+            locks = c.getBoolean("locks", v, true,
+                    "Vehicle locks and key cards: access rights (drive / passenger / cargo / repair) and lock modes; false = old rules "
+                            + "(owner drives, anyone rides as a passenger) / Замки техники и ключ-карты: права доступа и режимы замка; "
+                            + "false - старые правила (водит владелец, пассажиром - любой)");
+            lockOpBypass = c.getBoolean("lockOpBypass", v, true,
+                    "Server operators pass any vehicle lock / Операторы сервера открывают любую машину");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));

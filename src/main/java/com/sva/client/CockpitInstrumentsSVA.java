@@ -247,7 +247,7 @@ public final class CockpitInstrumentsSVA {
             case CockpitDials.VSPEED:
                 return s.vy * 20F;
             case CockpitDials.CHARGE:
-                return v.getEnergy() * 100F / Math.max(1, t.buffer);
+                return v.getEnergy() * 100F / Math.max(1F, (float) v.getMaxEnergy());
             case CockpitDials.RPM:
                 // full = the powered spin: helicopter 42 deg/t, propellers 18 + 50 at full throttle (EntityVehicleSVA)
                 return Math.abs(v.rotorRate()) * 100F / (t.movement == Movement.HELI ? 42F : 68F);
@@ -258,11 +258,11 @@ public final class CockpitInstrumentsSVA {
             case CockpitDials.CORE:
                 return gasPct(v, t, Gas.SINGULAR_MATTER);
             case CockpitDials.SHIELD:
-                return t.gases.fieldGas != null ? gasPct(v, t, t.gases.fieldGas) : v.getHp() * 100F / t.maxHp;
+                return t.gases.fieldGas != null ? gasPct(v, t, t.gases.fieldGas) : v.getHp() * 100F / v.getMaxHp();
             case CockpitDials.HEAT:
                 return v.getHeat();
             case CockpitDials.HULL:
-                return v.getHp() * 100F / t.maxHp;
+                return v.getHp() * 100F / v.getMaxHp();
             case CockpitDials.THROTTLE:
                 return (float) v.getThrottle() * 100F;
             case CockpitDials.TURN:
@@ -288,7 +288,7 @@ public final class CockpitInstrumentsSVA {
     }
 
     private static float gasPct(EntityVehicleSVA v, VehicleType t, Gas g) {
-        int cap = t.gases.capacity(g);
+        int cap = v.getGasCapacity(g);
         return cap <= 0 ? 0F : v.getGas(g) * 100F / cap;
     }
 
@@ -310,10 +310,10 @@ public final class CockpitInstrumentsSVA {
     private static void snapshot(EntityVehicleSVA v, VehicleType t, State s, float pt) {
         CockpitLamps.Snapshot n = SNAP;
         n.powered = v.powered();
-        n.charge = v.getEnergy() / (float) Math.max(1, t.buffer);
+        n.charge = v.getEnergy() / (float) Math.max(1F, (float) v.getMaxEnergy());
         n.heat = v.getHeat();
         n.heatStopped = v.isHeatStopped();
-        n.hull = v.wearOn() ? v.getHp() / t.maxHp : 1F;
+        n.hull = v.wearOn() ? v.getHp() / v.getMaxHp() : 1F;
         n.steer = AnimMath.lerp(v.anim.prevSteer, v.anim.steer, pt);
         n.speed = s.speed;
         n.vy = s.vy;
@@ -490,7 +490,7 @@ public final class CockpitInstrumentsSVA {
         if (SNAP.cargoFull) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.cargoFull"), BLUE, -1F, null));
         }
-        float e = v.getEnergy() / (float) Math.max(1, t.buffer);
+        float e = v.getEnergy() / (float) Math.max(1F, (float) v.getMaxEnergy());
         out.add(new Line(Lang.tr("sva.cockpit.charge", pct(e * 100)), e < 0.1F ? WARN : TEXT, e, e < 0.1F ? new float[] {1F, 0.3F, 0.25F}
                 : new float[] {0.3F, 0.9F, 0.55F}));
         float cruise = v.getCruiseCost();
@@ -506,7 +506,7 @@ public final class CockpitInstrumentsSVA {
             out.add(new Line(Lang.tr(s.gearDown ? "sva.cockpit.gear.down" : "sva.cockpit.gear.up"), s.gearDown ? GREEN : AMBER, -1F, null));
         }
         if (v.wearOn()) {
-            float hp = v.getHp() / t.maxHp;
+            float hp = v.getHp() / v.getMaxHp();
             out.add(new Line(Lang.tr("sva.cockpit.hull", pct(hp * 100)), hp < 0.25F ? AMBER : TEXT, hp, hp < 0.25F ? new float[] {1F, 0.76F, 0.23F}
                     : new float[] {0.75F, 0.78F, 0.82F}));
         }

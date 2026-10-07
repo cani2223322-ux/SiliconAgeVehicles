@@ -211,6 +211,51 @@ public final class ObjModelSVA {
     private int drawKey = Integer.MIN_VALUE;
     private static final float[] WHITE = {1F, 1F, 1F};
 
+    /** Wave 2 (★8): the OBJ's bounding box in model units (x forward, y up, z right) - where tuning parts go. */
+    public final float[] bbMin = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE}, bbMax = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+
+    /**
+     * Wave 2 (★8): the roof line - the highest triangle over each of ROOF_BINS slices along x, counting only triangles that
+     * reach into the middle of the width (|z| <= 55 % of the widest point: a flat roof's corners are at the sides, but its
+     * triangles cross the middle; an antenna or mirror at the side doesn't lift it); the light bar sits on it.
+     */
+    public static final int ROOF_BINS = 48;
+    private final float[] roof = new float[ROOF_BINS];
+    /** The highest point of that middle strip (the body's height without side masts). */
+    public float coreTop = -Float.MAX_VALUE;
+
+    private void roofProfile() {
+        java.util.Arrays.fill(roof, -Float.MAX_VALUE);
+        float zMax = Math.max(Math.abs(bbMin[2]), Math.abs(bbMax[2])) * 0.55F, span = Math.max(1e-3F, bbMax[0] - bbMin[0]);
+        for (List<float[]> tris : pending.values()) {
+            for (int i = 0; i + 2 < tris.size(); i += 3) {
+                float[] a = tris.get(i), b = tris.get(i + 1), c = tris.get(i + 2);
+                if (Math.min(a[2], Math.min(b[2], c[2])) > zMax || Math.max(a[2], Math.max(b[2], c[2])) < -zMax) {
+                    continue;
+                }
+                float top = Math.max(a[1], Math.max(b[1], c[1]));
+                int b0 = bin(Math.min(a[0], Math.min(b[0], c[0])), span), b1 = bin(Math.max(a[0], Math.max(b[0], c[0])), span);
+                for (int k = b0; k <= b1; k++) {
+                    roof[k] = Math.max(roof[k], top);
+                }
+                coreTop = Math.max(coreTop, top);
+            }
+        }
+        if (coreTop == -Float.MAX_VALUE) {
+            coreTop = bbMax[1];
+        }
+    }
+
+    private int bin(float x, float span) {
+        return Math.max(0, Math.min(ROOF_BINS - 1, (int) ((x - bbMin[0]) / span * ROOF_BINS)));
+    }
+
+    /** The roof height (model units) at model x (the middle strip; the body's top where a slice is empty). */
+    public float roofAt(float x) {
+        int b = bin(x, Math.max(1e-3F, bbMax[0] - bbMin[0]));
+        return roof[b] == -Float.MAX_VALUE ? coreTop : roof[b];
+    }
+
     private ObjModelSVA(String name) {
         this.name = name;
     }
@@ -268,7 +313,12 @@ public final class ObjModelSVA {
                 String line;
                 while ((line = r.readLine()) != null) {
                     if (line.startsWith("v ")) {
-                        v.add(floats(line));
+                        float[] q = floats(line);
+                        v.add(q);
+                        for (int k = 0; k < 3; k++) {
+                            bbMin[k] = Math.min(bbMin[k], q[k]);         // wave 2: the bounding box (tuning parts)
+                            bbMax[k] = Math.max(bbMax[k], q[k]);
+                        }
                     } else if (line.startsWith("vn ")) {
                         vn.add(floats(line));
                     } else if (line.startsWith("g ") || line.startsWith("o ") || line.startsWith("usemtl ")) {
@@ -337,6 +387,7 @@ public final class ObjModelSVA {
             } finally {
                 r.close();
             }
+            roofProfile();
         } catch (Exception e) {
             cpw.mods.fml.common.FMLLog.warning("[SVA] model %s failed to load: %s", name, e);
             failed = true;

@@ -109,6 +109,11 @@ public class RenderVehicleSVA extends Render {
         } else {
             m.render(shade, ObjModelSVA.COCKPIT_GLASS_ALPHA, 1F, vt.cabWindows);
         }
+        // wave 2, ★8: installed upgrades as extra parts (not in the own cockpit view)
+        if (!ownView) {
+            TuningPartsSVA.render(v, vt, m, shade, VehicleLightsSVA.headlightsOn(v));
+        }
+        boolean bigWheels = ConfigSVA.tuningVisuals && com.sva.vehicle.TuningMath.has(v.getTuning(), com.sva.vehicle.TuningMath.BIG_WHEELS);
         // *14: live cockpit instruments over the model's dials / screens (own vehicle only)
         CockpitInstrumentsSVA.render(v, m, pt);
         float gear = animate ? AnimMath.lerp(an.prevGear, an.gear, pt) : 0F;
@@ -135,6 +140,13 @@ public class RenderVehicleSVA extends Render {
                         GL11.glTranslatef(d.pivot[0], d.pivot[1], d.pivot[2]);
                         GL11.glRotatef(-steer, 0F, 1F, 0F);
                         GL11.glTranslatef(-d.pivot[0], -d.pivot[1], -d.pivot[2]);
+                    }
+                    if (bigWheels && !d.trailer) {
+                        // ★8 «Большие колёса»: bigger, grown up from where the tyre meets the ground
+                        float gy = d.pivot[1] - d.radius;
+                        GL11.glTranslatef(d.pivot[0], gy, d.pivot[2]);
+                        GL11.glScalef(TuningPartsSVA.BIG_WHEEL_SCALE, TuningPartsSVA.BIG_WHEEL_SCALE, TuningPartsSVA.BIG_WHEEL_SCALE);
+                        GL11.glTranslatef(-d.pivot[0], -gy, -d.pivot[2]);
                     }
                     m.renderPart(p, AnimMath.wheelAngle(rolled, d.radius), shade);
                     GL11.glPopMatrix();

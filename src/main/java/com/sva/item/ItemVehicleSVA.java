@@ -127,10 +127,10 @@ public class ItemVehicleSVA extends Item {
         VehicleState st = stateOf(s);
         VehicleType t = st.type;
         int pct = (int) Math.floor(st.energy * 100 / st.maxEnergy());
-        list.add(Lang.tr("sva.tooltip.charge", fmt((long) st.energy), fmt(t.buffer), Integer.valueOf(pct)));
+        list.add(Lang.tr("sva.tooltip.charge", fmt((long) st.energy), fmt((long) st.maxEnergy()), Integer.valueOf(pct)));
         if (ConfigSVA.wear) {
             list.add(st.hp <= 0 ? Lang.tr("sva.tooltip.wrecked")
-                    : Lang.tr("sva.tooltip.hp", Integer.valueOf(Math.round(st.hp * 100 / t.maxHp))));
+                    : Lang.tr("sva.tooltip.hp", Integer.valueOf(Math.round(st.hp * 100 / st.maxHp()))));
         }
         for (com.sc.util.ArmorGasSC.Gas g : t.gases.gases()) {
             list.add(Lang.tr("sva.tooltip.gas", Lang.tr("sva.gas." + g.key()), fmt(st.gas(g)), fmt(st.gasCapacity(g))));
@@ -145,6 +145,15 @@ public class ItemVehicleSVA extends Item {
         }
         if (st.ownerName != null && st.ownerName.length() > 0) {
             list.add(Lang.tr("sva.tooltip.owner", st.ownerName));
+        }
+        if (com.sva.vehicle.TuningMath.count(st.tuning) > 0) {
+            StringBuilder tb = new StringBuilder();
+            for (int k : st.tuning) {
+                if (com.sva.vehicle.TuningMath.valid(k)) {
+                    tb.append(tb.length() > 0 ? ", " : "").append(Lang.tr("item.siliconagevehicles.tuning." + com.sva.vehicle.TuningMath.KEYS[k] + ".name"));
+                }
+            }
+            list.add(Lang.tr("sva.tooltip.tuningList", tb.toString()));        // wave 2, ★8
         }
         boolean ground = t.movement == com.sva.vehicle.Movement.GROUND, flies = t.movement.flies,
                 crawler = t.movement == com.sva.vehicle.Movement.CRAWLER;

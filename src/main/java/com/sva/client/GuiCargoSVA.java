@@ -513,7 +513,7 @@ public class GuiCargoSVA extends GuiContainer {
         // argon field
         Gas fg = type.gases.fieldGas;
         if (fg != null) {
-            int cap = type.gases.capacity(fg);
+            int cap = vehicle.getGasCapacity(fg);
             bar(x + 48, y + 141, 60, 6, cap <= 0 ? 0 : vehicle.getGas(fg) / (double) cap, fg.color);
         }
     }
@@ -524,16 +524,16 @@ public class GuiCargoSVA extends GuiContainer {
         long e = vehicle.getEnergy();
         float cruise = vehicle.getCruiseCost();
         String range = cruise > 0 ? FormatSVA.group((long) (e / cruise * type.topSpeed)) : "--";
-        rows.add(new Object[] {Lang.tr("sva.hud.eu"), Double.valueOf(e / (double) Math.max(1, type.buffer)), Integer.valueOf(0xE04848),
-                Lang.tr("sva.gui.veh.eu", FormatSVA.eu(e), FormatSVA.eu(type.buffer), range)});
+        rows.add(new Object[] {Lang.tr("sva.hud.eu"), Double.valueOf(e / Math.max(1.0, vehicle.getMaxEnergy())), Integer.valueOf(0xE04848),
+                Lang.tr("sva.gui.veh.eu", FormatSVA.eu(e), FormatSVA.eu((long) vehicle.getMaxEnergy()), range)});
         double heat = vehicle.getHeat();
         rows.add(new Object[] {Lang.tr("sva.hud.heat"), Double.valueOf(heat / 100.0), Integer.valueOf(vehicle.isHeatStopped() ? 0xFF4040 : 0xF0A040),
                 (int) heat + "%"});
         float hp = vehicle.getHp();
-        rows.add(new Object[] {Lang.tr("sva.hud.hull"), Double.valueOf(hp / Math.max(1F, type.maxHp)), Integer.valueOf(vehicle.isWrecked() ? 0xFF4040 : 0x62E06A),
-                FormatSVA.group(Math.round(hp)) + " / " + FormatSVA.group(Math.round(type.maxHp))});
+        rows.add(new Object[] {Lang.tr("sva.hud.hull"), Double.valueOf(hp / Math.max(1F, vehicle.getMaxHp())), Integer.valueOf(vehicle.isWrecked() ? 0xFF4040 : 0x62E06A),
+                FormatSVA.group(Math.round(hp)) + " / " + FormatSVA.group(Math.round(vehicle.getMaxHp()))});
         for (Gas g : type.gases.gases()) {
-            int cap = type.gases.capacity(g), mb = vehicle.getGas(g);
+            int cap = vehicle.getGasCapacity(g), mb = vehicle.getGas(g);
             rows.add(new Object[] {Lang.tr("sva.gas." + g.key()), Double.valueOf(cap <= 0 ? 0 : mb / (double) cap), Integer.valueOf(g.color),
                     Lang.tr("sva.gui.veh.mb", FormatSVA.group(mb))});
         }

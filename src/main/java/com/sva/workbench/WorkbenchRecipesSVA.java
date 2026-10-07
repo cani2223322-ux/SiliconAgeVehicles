@@ -291,5 +291,39 @@ public final class WorkbenchRecipesSVA {
                 'S', steel, 'A', Blocks.anvil, 'I', iron, 'C', controller, 'X', casing);
         module("moduleAccess", mod.stackOf(com.sva.item.ItemStationModuleSVA.ACCESS), Tier.MV, "PMP", "GCG", "PRP",
                 'P', Items.paper, 'M', memory, 'G', Items.gold_ingot, 'C', controller, 'R', Items.redstone);
+
+        // ---- wave 2 (appended: the list index is the sync id)
+        // ★7 the repair garage: an anvil over the controller between copper coils, steel casings, HV energy cell and steel
+        block("garage", new ItemStack(ModContentSVA.garage), Tier.HV, "XAX", "KCK", "SES",
+                'X', casing, 'A', Blocks.anvil, 'K', coil, 'C', controller, 'S', steel, 'E', cellHV);
+        // the floor: steel round a piston (the lift) with yellow dye and coal (the hazard stripes) -> 8 lift pads
+        ItemStack pad = new ItemStack(ModContentSVA.garagePlate, 1, com.sva.block.BlockGaragePlateSVA.PAD);
+        block("garagePad", new ItemStack(ModContentSVA.garagePlate, 8, com.sva.block.BlockGaragePlateSVA.PAD), Tier.HV,
+                "SYS", "CPC", "SYS", 'S', steel, 'Y', new ItemStack(Items.dye, 1, 11), 'C', Items.coal, 'P', Blocks.piston);
+        block("garageLamp", new ItemStack(ModContentSVA.garagePlate, 2, com.sva.block.BlockGaragePlateSVA.LAMP), Tier.HV,
+                "PGP", 'P', pad, 'G', Blocks.glowstone);
+        // ★8 tuning upgrades (category «Модули»)
+        com.sva.item.ItemTuningSVA tu = ModContentSVA.tuning;
+        module("tuningMotor1", tu.stackOf(com.sva.vehicle.TuningMath.MOTOR_I), Tier.MV, "KNK", "CMC", "KNK",
+                'K', coil, 'N', nd, 'C', controller, 'M', part(ComponentType.MOTOR_I));
+        module("tuningMotor2", tu.stackOf(com.sva.vehicle.TuningMath.MOTOR_II), Tier.HV, " C ", "NUN", " M ",
+                'C', controller, 'N', nbCoil, 'U', tu.stackOf(com.sva.vehicle.TuningMath.MOTOR_I), 'M', part(ComponentType.MOTOR_II));
+        module("tuningBattery", tu.stackOf(com.sva.vehicle.TuningMath.BATTERY), Tier.HV, "XBX", "CEC", "XBX",
+                'X', casing, 'B', battery(2), 'C', cellHV, 'E', part(ComponentType.ENERGY_BLOCK_MV));
+        module("tuningArmor", tu.stackOf(com.sva.vehicle.TuningMath.ARMOR), Tier.HV, "TST", "SXS", "TST",
+                'T', tiPlate, 'S', steel, 'X', casing);
+        module("tuningLightHull", tu.stackOf(com.sva.vehicle.TuningMath.LIGHT_HULL), Tier.HV, "AIA", "IPI", "AIA",
+                'A', alFrame, 'I', al, 'P', polymer);
+        module("tuningBigWheels", tu.stackOf(com.sva.vehicle.TuningMath.BIG_WHEELS), Tier.MV, "WRW", "RSR", "WRW",
+                'W', part(ComponentType.WHEEL), 'R', rubber, 'S', steel);
+        module("tuningLightBar", tu.stackOf(com.sva.vehicle.TuningMath.LIGHT_BAR), Tier.MV, "GGG", "SRS",
+                'G', Blocks.glowstone, 'S', steel, 'R', Items.redstone);
+        module("tuningDrillPlus", tu.stackOf(com.sva.vehicle.TuningMath.DRILL_PLUS), Tier.EV, "KHK", "XCX",
+                'K', coil, 'H', drillHead(com.sc.item.ItemDrillHeadSC.Kind.DIAMOND), 'X', tiCasing, 'C', controller);
+        module("tuningExtraTank", tu.stackOf(com.sva.vehicle.TuningMath.EXTRA_TANK), Tier.HV, "FGF", "GXG", "FGF",
+                'F', alFoil, 'G', part(ComponentType.GAS_TANK), 'X', casing);
+        // ★10 the key card: paper round a memory chip, gold and redstone -> 2 blank cards
+        module("keyCard", new ItemStack(ModContentSVA.keyCard, 2), Tier.MV, "PGP", "RMR", "PGP",
+                'P', Items.paper, 'G', Items.gold_nugget, 'R', Items.redstone, 'M', memory);
     }
 }

@@ -25,6 +25,9 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * StationInfo (S->C): the station screen's served vehicle owner name (sent when the vehicle changes).
  * Action (C->S): a vehicle action - the drill keys (its driver) or a cargo screen button (owner / op): the sender must
  * sit in it or stand within 8 blocks; the vehicle throttles repeats (EntityVehicleSVA.serverAction).
+ * Wave 2: Garage (C->S) - a repair garage screen button (repair all / hull only), checked against the open container;
+ * AccessInfo (S->C) - a vehicle's access list for the ★10 access screen (sent when it opens and after each edit);
+ * AccessEdit (C->S) - an access screen change (owner / op, within 8 blocks: EntityVehicleSVA.accessEdit).
  */
 public final class NetSVA {
 
@@ -42,6 +45,9 @@ public final class NetSVA {
         CHANNEL.registerMessage(StationHandler.class, Station.class, 5, Side.SERVER);
         CHANNEL.registerMessage(StationInfoHandler.class, StationInfo.class, 6, Side.CLIENT);
         CHANNEL.registerMessage(ActionHandler.class, Action.class, 7, Side.SERVER);
+        CHANNEL.registerMessage(GarageHandler.class, Garage.class, 8, Side.SERVER);
+        CHANNEL.registerMessage(AccessInfoHandler.class, AccessInfo.class, 9, Side.CLIENT);
+        CHANNEL.registerMessage(AccessEditHandler.class, AccessEdit.class, 10, Side.SERVER);
     }
 
     // ---------------------------------------------------------------- input
@@ -444,6 +450,179 @@ public final class NetSVA {
                     EntityVehicleSVA v = (EntityVehicleSVA) e;
                     if (v.carries(p) || p.getDistanceSqToEntity(v) < 64) {
                         v.serverAction(p, m.action);
+                    }
+                }
+            });
+            return null;
+        }
+    }
+
+    // ---------------------------------------------------------------- wave 2: the repair garage's buttons
+
+    public static class Garage implements IMessage {
+        public int x, y, z, mode;
+
+        public Garage() {
+        }
+
+        public Garage(int x, int y, int z, int mode) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.mode = mode;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            x = buf.readInt();
+            y = buf.readInt();
+            z = buf.readInt();
+            mode = buf.readByte();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(x);
+            buf.writeInt(y);
+            buf.writeInt(z);
+            buf.writeByte(mode);
+        }
+    }
+
+    public static class GarageHandler implements IMessageHandler<Garage, IMessage> {
+        @Override
+        public IMessage onMessage(final Garage m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    com.sva.inventory.ContainerGarageSVA c = p.openContainer instanceof com.sva.inventory.ContainerGarageSVA
+                            ? (com.sva.inventory.ContainerGarageSVA) p.openContainer : null;
+                    if (c == null || !c.isAt(m.x, m.y, m.z) || !c.canInteractWith(p)) {
+                        return;
+                    }
+                    c.getTile().startRepair(p, m.mode);
+                    c.detectAndSendChanges();
+                }
+            });
+            return null;
+        }
+    }
+
+    // ---------------------------------------------------------------- wave 2, ★10: the access screen
+
+    public static class AccessInfo implements IMessage {
+        public int entity, type, board, mode, others, lock;
+        public String owner = "";
+        public final java.util.List<String> names = new java.util.ArrayList<String>();
+        public final java.util.List<Integer> rights = new java.util.ArrayList<Integer>();
+
+        public AccessInfo() {
+        }
+
+        public AccessInfo(EntityVehicleSVA v) {
+            entity = v.getEntityId();
+            type = v.state.type.ordinal();
+            board = v.getBoardNumber();
+            owner = v.state.ownerName == null ? "" : v.state.ownerName;
+            com.sva.vehicle.AccessMath.Access a = v.state.access;
+            mode = a.mode;
+            others = a.others;
+            lock = a.lockVersion;
+            names.addAll(a.names);
+            rights.addAll(a.rights);
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+            type = buf.readByte();
+            board = buf.readByte();
+            mode = buf.readByte();
+            others = buf.readByte();
+            lock = buf.readInt();
+            owner = cut(cpw.mods.fml.common.network.ByteBufUtils.readUTF8String(buf), 64);
+            int n = Math.min(com.sva.vehicle.AccessMath.MAX_FRIENDS, buf.readByte());
+            for (int i = 0; i < n; i++) {
+                names.add(cut(cpw.mods.fml.common.network.ByteBufUtils.readUTF8String(buf), 16));
+                rights.add(Integer.valueOf(buf.readByte()));
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+            buf.writeByte(type);
+            buf.writeByte(board);
+            buf.writeByte(mode);
+            buf.writeByte(others);
+            buf.writeInt(lock);
+            cpw.mods.fml.common.network.ByteBufUtils.writeUTF8String(buf, owner);
+            int n = Math.min(com.sva.vehicle.AccessMath.MAX_FRIENDS, names.size());
+            buf.writeByte(n);
+            for (int i = 0; i < n; i++) {
+                cpw.mods.fml.common.network.ByteBufUtils.writeUTF8String(buf, names.get(i));
+                buf.writeByte(rights.get(i).intValue());
+            }
+        }
+    }
+
+    static String cut(String s, int max) {
+        return s == null ? "" : s.length() > max ? s.substring(0, max) : s;
+    }
+
+    public static class AccessInfoHandler implements IMessageHandler<AccessInfo, IMessage> {
+        @Override
+        public IMessage onMessage(AccessInfo m, MessageContext ctx) {
+            SVAMod.proxy.accessInfo(m);                             // opened / refreshed on the client thread
+            return null;
+        }
+    }
+
+    public static class AccessEdit implements IMessage {
+        public int entity, op, value;
+        public String name = "";
+
+        public AccessEdit() {
+        }
+
+        public AccessEdit(int entity, int op, String name, int value) {
+            this.entity = entity;
+            this.op = op;
+            this.name = name == null ? "" : name;
+            this.value = value;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+            op = buf.readByte();
+            value = buf.readByte();
+            name = cut(cpw.mods.fml.common.network.ByteBufUtils.readUTF8String(buf), 16);
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+            buf.writeByte(op);
+            buf.writeByte(value);
+            cpw.mods.fml.common.network.ByteBufUtils.writeUTF8String(buf, cut(name, 16));
+        }
+    }
+
+    public static class AccessEditHandler implements IMessageHandler<AccessEdit, IMessage> {
+        @Override
+        public IMessage onMessage(final AccessEdit m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    if (p.worldObj == null) {
+                        return;
+                    }
+                    Entity e = p.worldObj.getEntityByID(m.entity);
+                    if (e instanceof EntityVehicleSVA && !e.isDead) {
+                        ((EntityVehicleSVA) e).accessEdit(p, m.op, m.name, m.value);
                     }
                 }
             });

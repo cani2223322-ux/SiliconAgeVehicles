@@ -236,18 +236,18 @@ public class GuiChargerSVA extends GuiContainer {
         }
         VehicleType t = veh.getVehicleType();
         int ry = y + 43;
-        bar(x + 150, ry, veh.getEnergy() / (double) t.buffer, 0xFFE05454);
+        bar(x + 150, ry, veh.getEnergy() / veh.getMaxEnergy(), 0xFFE05454);
         ry += 16;
         int g = 0;
         for (Gas gas : t.gases.gases()) {
             if (g++ >= 2) {
                 break;
             }
-            bar(x + 150, ry, veh.getGas(gas) / (double) Math.max(1, t.gases.capacity(gas)), 0xFF000000 | gas.color);
+            bar(x + 150, ry, veh.getGas(gas) / (double) Math.max(1, veh.getGasCapacity(gas)), 0xFF000000 | gas.color);
             ry += 16;
         }
         if (veh.wearOn() && ry <= y + 91) {
-            double hp = veh.getHp() / t.maxHp;
+            double hp = veh.getHp() / veh.getMaxHp();
             bar(x + 150, ry, hp, hp < 0.25 ? 0xFFFF4040 : 0xFF3CCB6E);
         }
     }
@@ -336,7 +336,7 @@ public class GuiChargerSVA extends GuiContainer {
         int ry = 42;
         int euT = v(ContainerChargerSVA.V_EU_T);
         fontRendererObj.drawString(Lang.tr("sva.hud.eu"), 119, ry, TEXT);
-        String eu = Lang.tr("sva.st.card.eu", FormatSVA.eu(veh.getEnergy()), FormatSVA.eu(t.buffer)) + (euT > 0 ? " · +" + num(euT) + " EU/t" : "");
+        String eu = Lang.tr("sva.st.card.eu", FormatSVA.eu(veh.getEnergy()), FormatSVA.eu((long) veh.getMaxEnergy())) + (euT > 0 ? " · +" + num(euT) + " EU/t" : "");
         TextFitSC.draw(fontRendererObj, eu, 150, ry + 8, 99, MUTED, guiLeft, guiTop);
         ry += 16;
         int gasRate = v(ContainerChargerSVA.V_GAS);
@@ -345,7 +345,7 @@ public class GuiChargerSVA extends GuiContainer {
             if (g++ >= 2) {
                 break;
             }
-            int mb = veh.getGas(gas), cap = t.gases.capacity(gas);
+            int mb = veh.getGas(gas), cap = veh.getGasCapacity(gas);
             fontRendererObj.drawString(Lang.tr("sva.gas." + gas.key()), 119, ry, TEXT);
             String line = Lang.tr("sva.st.card.gas", num(mb), num(cap)) + (gasRate > 0 && mb < cap ? " · +" + num(gasRate) + " " + Lang.tr("sva.st.mbs") : "");
             TextFitSC.draw(fontRendererObj, line, 150, ry + 8, 99, MUTED, guiLeft, guiTop);
@@ -353,12 +353,12 @@ public class GuiChargerSVA extends GuiContainer {
         }
         if (veh.wearOn() && ry <= 90) {
             fontRendererObj.drawString(Lang.tr("sva.hud.hull"), 119, ry, TEXT);
-            String line = pct(veh.getHp() / t.maxHp) + (set(ContainerChargerSVA.M_REPAIR) ? " · " + Lang.tr("sva.st.card.repair") : "");
+            String line = pct(veh.getHp() / veh.getMaxHp()) + (set(ContainerChargerSVA.M_REPAIR) ? " · " + Lang.tr("sva.st.card.repair") : "");
             TextFitSC.draw(fontRendererObj, line, 150, ry + 8, 99, MUTED, guiLeft, guiTop);
             ry += 16;
         }
         if (ry <= 106) {
-            double room = t.buffer - veh.getEnergy();
+            double room = veh.getMaxEnergy() - veh.getEnergy();
             String eta = room < 1 ? Lang.tr("sva.st.card.full") : Lang.tr("sva.st.card.eta", time(PlatformMath.etaSeconds(room, euT)));
             TextFitSC.draw(fontRendererObj, eta, 119, 109, 130, room < 1 ? GREEN : CYAN, guiLeft, guiTop);
         }
@@ -435,10 +435,10 @@ public class GuiChargerSVA extends GuiContainer {
             if (st(TileEntityChargerSVA.S_REFUEL)) {
                 parts.add(Lang.tr("sva.st.s.refuel"));
             }
-            if (st(TileEntityChargerSVA.S_REPAIR) || set(ContainerChargerSVA.M_REPAIR) && veh.wearOn() && veh.getHp() < veh.getVehicleType().maxHp
+            if (st(TileEntityChargerSVA.S_REPAIR) || set(ContainerChargerSVA.M_REPAIR) && veh.wearOn() && veh.getHp() < veh.getMaxHp()
                     && v(ContainerChargerSVA.V_STEEL) > 0) {
                 parts.add(Lang.tr("sva.st.s.repair"));
-            } else if (set(ContainerChargerSVA.M_REPAIR) && veh.wearOn() && veh.getHp() < veh.getVehicleType().maxHp) {
+            } else if (set(ContainerChargerSVA.M_REPAIR) && veh.wearOn() && veh.getHp() < veh.getMaxHp()) {
                 parts.add(Lang.tr("sva.st.s.noSteel"));
                 c = YELLOW;
             }

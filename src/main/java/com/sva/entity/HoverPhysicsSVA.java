@@ -52,7 +52,7 @@ public final class HoverPhysicsSVA {
                 high = (in & EntityVehicleSVA.IN_BRAKE) != 0, boostKey = (in & (EntityVehicleSVA.IN_BOOST | EntityVehicleSVA.IN_AFTER)) != 0;
         boolean lift = v.hasLift() && v.canThrust();
         boolean boost = lift && boostKey && fwd;
-        double top = HoverMath.maxSpeed(t, lift, boost);
+        double top = HoverMath.maxSpeed(t, lift, boost) * v.tuneSpeed();       // wave 2, ★8 tuning
         double speed = v.speed;
         if (!fwd && v.cruiseActive(in)) {
             // ★4 cruise: toward the set speed (no boost - the boost needs W)

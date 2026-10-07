@@ -99,9 +99,9 @@ public final class CruiseClientSVA {
 
     private static double top(EntityVehicleSVA v, VehicleType t) {
         if (t.movement == Movement.HOVER) {
-            return HoverMath.maxSpeed(t, true, false);
+            return HoverMath.maxSpeed(t, true, false) * v.tuneSpeed();
         }
-        return VehicleMath.maxSpeed(t, v.getEnergy()) * v.roadSpeedMul(t);
+        return VehicleMath.maxSpeed(t, v.getEnergy()) * v.roadSpeedMul(t) * v.tuneSpeed();
     }
 
     private static void off(int reason) {

@@ -466,7 +466,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
     }
 
     private boolean needsRepair(EntityVehicleSVA v) {
-        return hasModule(ItemStationModuleSVA.REPAIR) && ConfigSVA.wear && v.state.hp < v.state.type.maxHp;
+        return hasModule(ItemStationModuleSVA.REPAIR) && ConfigSVA.wear && v.state.hp < v.state.maxHp();
     }
 
     private boolean needs(EntityVehicleSVA v, TileEntityGasColumnSVA col) {
@@ -623,7 +623,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
             }
             repairPaid += PlatformMath.STEPS_PER_INGOT;
         }
-        float max = target.state.type.maxHp;
+        float max = target.state.maxHp();
         target.repairHull(PlatformMath.repairStep(target.state.hp, max) - target.state.hp);
         repairPaid--;
         markDirty();

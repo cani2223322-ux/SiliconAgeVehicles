@@ -71,9 +71,9 @@ public class HudVehicleSVA {
 
         boolean wear = v.wearOn();
         int energy = v.getEnergy();
-        double ePct = energy / (double) t.buffer;
+        double ePct = energy / v.getMaxEnergy();
         double heat = v.getHeat();
-        double hpPct = v.getHp() / t.maxHp;
+        double hpPct = v.getHp() / v.getMaxHp();
         String warn = null;
         int warnColor = WARN;
         if (v.isWrecked()) {
@@ -140,7 +140,7 @@ public class HudVehicleSVA {
         fr.drawString(Lang.tr("sva.hud.range", range), x + 6, ry, DIM);
         ry += 10;
         if (charging) {
-            double sec = com.sva.platform.PlatformMath.etaSeconds(t.buffer - energy, rateEma);
+            double sec = com.sva.platform.PlatformMath.etaSeconds(v.getMaxEnergy() - energy, rateEma);
             String pctS = (int) Math.floor(ePct * 100) + "%";
             String line = Double.isInfinite(sec) || sec <= 0 ? Lang.tr("sva.hud.charging", pctS)
                     : Lang.tr("sva.hud.chargingEta", pctS, String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60)));
@@ -471,7 +471,7 @@ public class HudVehicleSVA {
         double sec = cost > 0 ? energy / (double) cost / 20.0 : Double.POSITIVE_INFINITY;
         String left = Double.isInfinite(sec) ? "--" : sec >= 3600 ? String.format("%d:%02d:%02d", Long.valueOf((long) sec / 3600),
                 Long.valueOf((long) sec / 60 % 60), Long.valueOf((long) sec % 60)) : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
-        fr.drawString(Lang.tr("sva.hud.flightTime", Integer.valueOf((int) Math.floor(energy * 100.0 / t.buffer)), left), px + 6, ry, TEXT);
+        fr.drawString(Lang.tr("sva.hud.flightTime", Integer.valueOf((int) Math.floor(energy * 100.0 / v.getMaxEnergy())), left), px + 6, ry, TEXT);
         return py;
     }
 

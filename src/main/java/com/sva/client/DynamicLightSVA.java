@@ -157,7 +157,8 @@ public final class DynamicLightSVA {
         double ox = v.posX + fx * (front - t.modelOffsetX) * t.modelScale, oz = v.posZ + fz * (front - t.modelOffsetX) * t.modelScale;
         double oy = v.posY + hy * t.modelScale;
         double dx = fx * Math.cos(p), dy = -Math.sin(p), dz = fz * Math.cos(p);
-        for (int d = 1; d <= REACH; d++) {
+        int reach = (int) Math.round(REACH * v.tuneLight());             // ★8 «Люстра фар»: x2
+        for (int d = 1; d <= reach; d++) {
             int bx = MathHelper.floor_double(ox + dx * d), by = MathHelper.floor_double(oy + dy * d), bz = MathHelper.floor_double(oz + dz * d);
             if (by < 1 || by > 254 || !w.blockExists(bx, by, bz)) {
                 return;
@@ -166,7 +167,7 @@ public final class DynamicLightSVA {
             if (b.isOpaqueCube()) {
                 return;                                             // the beam hits the ground / a wall here
             }
-            int level = 15 - (int) (d * 0.6F);
+            int level = 15 - (int) (d * 0.6F / (float) v.tuneLight());
             put(w, want, bx, by, bz, level);
             for (int side = -1; side <= 1; side += 2) {
                 put(w, want, MathHelper.floor_double(ox + dx * d + sx * side), by, MathHelper.floor_double(oz + dz * d + sz * side), level - 2);

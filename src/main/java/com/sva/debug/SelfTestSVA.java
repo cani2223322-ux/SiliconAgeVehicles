@@ -117,6 +117,7 @@ public final class SelfTestSVA {
             lightTable();
             cockpitStage2();
             SelfTestWave1SVA.run();                         // wave 1: sounds, camera, cruise / autopilot, roads
+            SelfTestWave2SVA.run();                         // wave 2: garage, tuning, key cards / access
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);

@@ -21,6 +21,8 @@ import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.RoadMath;
 import com.sva.vehicle.SpaceMath;
 import com.sva.vehicle.TiltMath;
+import com.sva.vehicle.TuningMath;
+import com.sva.vehicle.AccessMath;
 import com.sva.vehicle.VehicleGases;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleRegistrySVA;
@@ -74,7 +76,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             // cargo screen v2: the owner's name («Машина» tab), torches the drill has put down («Бур» tab)
             DW_OWNER = 13, DW_TORCHES = 12,
             // skins: the board number on the side decal (SkinMath.boardNumber of the vehicle's id)
-            DW_BOARD = 11;
+            DW_BOARD = 11,
+            // wave 2 (★8): the tuning slots, TuningMath.pack + TUNE_ON (the server's vehicles.tuning)
+            DW_TUNE = 10;
+    private static final int TUNE_ON = 1 << 20;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
             X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15,
             // stage D: the tiltrotor's wanted mode (airplane) and its nacelle step (0..40, 6 bits)
@@ -252,6 +257,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.addObject(DW_OWNER, "");
         dataWatcher.addObject(DW_TORCHES, Integer.valueOf(0));
         dataWatcher.addObject(DW_BOARD, Integer.valueOf(0));
+        dataWatcher.addObject(DW_TUNE, Integer.valueOf(0));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -382,6 +388,53 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     /** The owner's name ("" - nobody's), synced. */
     public String getOwnerName() {
         return worldObj.isRemote ? dataWatcher.getWatchableObjectString(DW_OWNER) : state.ownerName == null ? "" : state.ownerName;
+    }
+
+    // ---- wave 2 views (clients: synced)
+
+    /** ★8: the installed upgrades (TuningMath kinds, -1 empty), synced. */
+    public int[] getTuning() {
+        return worldObj != null && worldObj.isRemote ? TuningMath.unpack(dataWatcher.getWatchableObjectInt(DW_TUNE)) : state.tuning;
+    }
+
+    /** ★8: the upgrades work (the server's vehicles.tuning; clients: synced). */
+    public boolean tuningOn() {
+        return worldObj != null && worldObj.isRemote ? (dataWatcher.getWatchableObjectInt(DW_TUNE) & TUNE_ON) != 0 : ConfigSVA.tuning;
+    }
+
+    /** ★8: top speed x this (Мотор+, Лёгкий корпус, Броня - wheels, tracks, the hoverbike). */
+    public double tuneSpeed() {
+        return tuningOn() ? TuningMath.speedMul(getVehicleType(), getTuning()) : 1;
+    }
+
+    /** ★8: headlight reach x this («Люстра фар»). */
+    public double tuneLight() {
+        return tuningOn() ? TuningMath.lightMul(getTuning()) : 1;
+    }
+
+    /** Max hull HP with the upgrades («Лёгкий корпус»), both sides. */
+    public float getMaxHp() {
+        if (worldObj == null || !worldObj.isRemote) {
+            return state.maxHp();
+        }
+        return (float) (getVehicleType().maxHp * (tuningOn() ? TuningMath.hpMul(getTuning()) : 1));
+    }
+
+    /** EU buffer with the upgrades («Аккумулятор+»), both sides. */
+    public double getMaxEnergy() {
+        if (worldObj == null || !worldObj.isRemote) {
+            return state.maxEnergy();
+        }
+        return getVehicleType().buffer * (tuningOn() ? TuningMath.bufferMul(getTuning()) : 1);
+    }
+
+    /** A gas tank's size with the upgrades («Доп. бак»), both sides. */
+    public int getGasCapacity(Gas g) {
+        if (worldObj == null || !worldObj.isRemote) {
+            return state.gasCapacity(g);
+        }
+        int c = getVehicleType().gases.capacity(g);
+        return tuningOn() ? (int) Math.round(c * TuningMath.gasMul(getTuning())) : c;
     }
 
     /** Torches the drill has put down, synced. */
@@ -569,7 +622,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return thrust ? 0 : CruiseMath.OFF_THRUST;
         }
         boolean keys = (in & (IN_FWD | IN_BACK | IN_LEFT | IN_RIGHT)) != 0;
-        double charge = getEnergy() / (double) Math.max(1, t.buffer);
+        double charge = getEnergy() / Math.max(1.0, getMaxEnergy());
         return CruiseMath.autopilotCancel(keys, charge, PlaneMath.stalled(t.plane, Math.max(0, speed)), !onGround,
                 hasLift() && canThrust());
     }
@@ -645,7 +698,23 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (!(amount > 0)) {
             return;
         }
-        state.hp = Math.min(state.type.maxHp, state.hp + amount);
+        state.hp = Math.min(state.maxHp(), state.hp + amount);
+        syncWatcher();
+    }
+
+    /** Wave 2, ★8 (the garage): new upgrades (sanitised), limits re-applied, synced to everyone. */
+    public void setTuning(int[] slots) {
+        state.setTuning(slots);
+        syncWatcher();
+    }
+
+    /** Wave 2, ★7 (the garage finished a job): the hull whole, and for «Чинить всё» the engine cooled down. */
+    public void garageRepaired(boolean all) {
+        state.hp = state.maxHp();
+        if (all) {
+            state.heat = 0;
+            state.heatStop = false;
+        }
         syncWatcher();
     }
 
@@ -735,6 +804,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_OWNER, state.ownerName == null ? "" : state.ownerName);
         dataWatcher.updateObject(DW_TORCHES, Integer.valueOf(state.torches));
         dataWatcher.updateObject(DW_BOARD, Integer.valueOf(com.sva.vehicle.SkinMath.boardNumber(state.vehId)));
+        dataWatcher.updateObject(DW_TUNE, Integer.valueOf(TuningMath.pack(state.tuning) | (ConfigSVA.tuning ? TUNE_ON : 0)));
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
             dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
@@ -828,6 +898,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public void onUpdate() {
         super.onUpdate();
         VehicleType t = getVehicleType();
+        stepHeight = tuningOn() ? TuningMath.stepHeight(t, getTuning()) : t.stepHeight;     // ★8 «Большие колёса»
         if (worldObj.isRemote) {
             clientUpdate(t);
         } else {
@@ -896,7 +967,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             hitCooldown--;
         }
         if (ConfigSVA.wear && hitCooldown == 0 && prevMoved > VehicleMath.HIT_SAFE && moved < prevMoved * 0.4 && blockedToward(lastDx, lastDz)) {
-            float dmg = VehicleMath.hitDamage(Math.min(prevMoved, t.topSpeed * roadSpeedMul(t)) - moved);   // capped: bunched packets aren't speed
+            float dmg = VehicleMath.hitDamage(Math.min(prevMoved, t.topSpeed * roadSpeedMul(t) * tuneSpeed()) - moved);   // capped: bunched packets aren't speed
             dmg *= (float) RoadMath.wearMul(roadSurface(), t.movement);                         // ★11: a road halves the wear
             if (railToward(lastDx, lastDz)) {
                 dmg *= (float) com.sva.block.BlockGuardRailSVA.RAIL_WEAR;                        // ★11: the guard rail gives
@@ -944,7 +1015,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         // energy and heat
         double fill = state.cargoFill();
-        double v = Math.min(speedEma, t.topSpeed * (boosting ? t.gases.boostMul : 1) * 1.2);
+        double v = Math.min(speedEma, t.topSpeed * tuneSpeed() * (boosting ? t.gases.boostMul : 1) * 1.2);
         boolean working = motorOn && state.energy > 0 && (!t.movement.lifts || lifting);
         double cost, load;
         if (t.movement.flies) {
@@ -1144,7 +1215,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean fwd = (in & IN_FWD) != 0, back = (in & IN_BACK) != 0, left = (in & IN_LEFT) != 0,
                 right = (in & IN_RIGHT) != 0, brake = (in & IN_BRAKE) != 0;
         boolean thrust = canThrust();
-        double top = VehicleMath.maxSpeed(t, getEnergy()) * roadSpeedMul(t);    // ★11: asphalt / concrete
+        double top = VehicleMath.maxSpeed(t, getEnergy()) * roadSpeedMul(t) * tuneSpeed();    // ★11: asphalt / concrete; ★8 tuning
         boolean water = isInWater();
         boolean crawler = t.movement == Movement.CRAWLER;
         if (water) {
@@ -1226,7 +1297,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     /** ★4 targets, sanitised (the server's packet path and the world test). */
     public void setCruiseTargets(double cruise, double yaw, double alt) {
         VehicleType t = state.type;
-        cruiseSpeed = finite(cruise) ? VehicleMath.clamp(cruise, 0, t.topSpeed * RoadMath.ASPHALT_SPEED) : 0;
+        cruiseSpeed = finite(cruise) ? VehicleMath.clamp(cruise, 0, t.topSpeed * RoadMath.ASPHALT_SPEED * tuneSpeed()) : 0;
         apYaw = finite(yaw) ? CruiseMath.wrap(yaw) : rotationYaw;
         apAlt = finite(alt) ? VehicleMath.clamp(alt, 1, FlightMath.CEILING) : posY;
     }
@@ -1259,12 +1330,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean hover = t.movement.lifts && !flies;
         boolean lift = t.movement.lifts && hasLift() && canThrust();
         double coast = Math.max(speedEma * 1.1, 0.02);
-        double limit = hover ? (lift ? HoverMath.maxSpeed(t, true, (input & (IN_BOOST | IN_AFTER)) != 0) : coast)
-                : canThrust() ? VehicleMath.maxSpeed(t, state.energy) * Math.max(roadSpeedMul(t),
+        double limit = hover ? (lift ? HoverMath.maxSpeed(t, true, (input & (IN_BOOST | IN_AFTER)) != 0) * tuneSpeed() : coast)
+                : canThrust() ? VehicleMath.maxSpeed(t, state.energy) * tuneSpeed() * Math.max(roadSpeedMul(t),
                 RoadMath.speedMul(com.sva.block.BlockRoadSVA.surfaceAt(worldObj, x, y, z), t.movement)) : coast;   // coasting only; ★11 roads
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
         boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), h, dy, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
-                : moveAllowed(h, dy, dt, limit, CrawlerMath.climbLimit(t.stepHeight));
+                : moveAllowed(h, dy, dt, limit, CrawlerMath.climbLimit(stepHeight));             // ★8: big wheels step 1.5
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
             AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx, dy, dz).contract(0.05, 0.05, 0.05);
             if (!worldObj.getCollidingBoundingBoxes(this, box).isEmpty()) {
@@ -1772,9 +1843,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             }
             return true;
         }
-        if (held != null && ModContentSVA.isSteelIngot(held) && ConfigSVA.wear && state.hp < state.type.maxHp) {
-            // TEMPORARY (stage 1): a steel ingot repairs 10 % - the Garage takes this over in stage 2
-            state.hp = VehicleMath.repair(state.hp, state.type.maxHp);
+        if (held != null && ModContentSVA.isSteelIngot(held) && ConfigSVA.wear && state.hp < state.maxHp()) {
+            // field repair: a steel ingot mends 10 % (the repair garage does the whole job - wave 2, ★7)
+            state.hp = VehicleMath.repair(state.hp, state.maxHp());
             if (!p.capabilities.isCreativeMode) {
                 held.stackSize--;
                 if (held.stackSize <= 0) {
@@ -1782,9 +1853,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                 }
             }
             worldObj.playSoundAtEntity(this, "random.anvil_use", 0.6F, 1.2F);
-            msg(p, "sva.msg.repaired", Integer.valueOf(Math.round(state.hp * 100 / state.type.maxHp)));
+            msg(p, "sva.msg.repaired", Integer.valueOf(Math.round(state.hp * 100 / state.maxHp())));
             syncWatcher();
             return true;
+        }
+        if (com.sva.item.ItemKeyCardSVA.isCard(held) && keyCard(p, held)) {
+            return true;                                            // ★10: bind / the access screen
         }
         if (held != null && held.getItem() instanceof com.sva.item.ItemTrailerSVA && state.type.trailerSlots > 0) {
             if (attachTrailer(p, held) == CrawlerMath.OK) {
@@ -1805,21 +1879,26 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return true;
         }
         if (p.isSneaking()) {
-            if (canManage(p)) {
+            if (canOpenCargo(p)) {
                 p.openGui(SVAMod.instance, GuiHandlerSVA.CARGO, worldObj, getEntityId(), 0, 0);
                 oneShot("cargo", 0.5F, 1F);
             } else {
-                msg(p, "sva.msg.notOwner");
+                lockedMsg(p);
             }
             return true;
         }
-        boolean driver = canDrive(p);
+        int rights = rightsOf(p);
+        boolean driver = (rights & AccessMath.DRIVE) != 0;
         if (driver && riddenByEntity == null) {
             p.mountEntity(this);
             oneShot("door", 0.6F, 1F);       // ★1
             if (isWrecked()) {
                 msg(p, "sva.msg.wrecked");
             }
+            return true;
+        }
+        if ((rights & AccessMath.PASSENGER) == 0) {
+            lockedMsg(p);                                           // ★10: locked for this player
             return true;
         }
         EntitySeatSVA s = freeSeat();
@@ -1844,9 +1923,167 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                 && net.minecraft.server.MinecraftServer.getServer().getConfigurationManager().func_152596_g(((EntityPlayerMP) p).getGameProfile());
     }
 
-    /** Driver's seat: the owner only (a key card widens this in stage 2). */
+    /** Driver's seat: the owner, or (★10) whoever the access list / a key card lets drive. */
     public boolean canDrive(EntityPlayer p) {
-        return state.ownerId == null || state.ownerId.length() == 0 || state.isOwner(p.getUniqueID());
+        return (rightsOf(p) & AccessMath.DRIVE) != 0;
+    }
+
+    // ------------------------------------------------------------------ wave 2, ★10: access rights and key cards
+
+    /** The owner (or a vehicle nobody owns). */
+    public boolean isOwnedBy(EntityPlayer p) {
+        return state.ownerId == null || state.ownerId.length() == 0 || p != null && state.isOwner(p.getUniqueID());
+    }
+
+    /** A server op with vehicles.lockOpBypass. */
+    public static boolean opBypass(EntityPlayer p) {
+        if (!ConfigSVA.lockOpBypass || !(p instanceof EntityPlayerMP)) {
+            return false;
+        }
+        net.minecraft.server.MinecraftServer s = net.minecraft.server.MinecraftServer.getServer();
+        return s != null && s.getConfigurationManager() != null
+                && s.getConfigurationManager().func_152596_g(((EntityPlayerMP) p).getGameProfile());
+    }
+
+    /** The rights (AccessMath bits) a valid key card in p's inventory gives here, -1 without one. */
+    public int cardRights(EntityPlayer p) {
+        int best = -1;
+        if (p == null || p.inventory == null) {
+            return best;
+        }
+        for (ItemStack s : p.inventory.mainInventory) {
+            int r = com.sva.item.ItemKeyCardSVA.rightsFor(s, state.vehId, state.access.lockVersion);
+            if (r >= 0) {
+                best = best < 0 ? r : best | r;
+            }
+        }
+        return best;
+    }
+
+    /** ★10: what p may do with this vehicle (AccessMath bits; server). With vehicles.locks off: the old rules. */
+    public int rightsOf(EntityPlayer p) {
+        if (p == null) {
+            return 0;
+        }
+        AccessMath.Access a = state.access;
+        return AccessMath.rights(ConfigSVA.locks, isOwnedBy(p), opBypass(p), a.mode, a.listed(p.getCommandSenderName()), a.others,
+                ConfigSVA.locks ? cardRights(p) : -1);
+    }
+
+    public boolean hasRight(EntityPlayer p, int right) {
+        return (rightsOf(p) & right) != 0;
+    }
+
+    /** The cargo screen: the owner / an op in creative (as before), or ★10 the «Багажник» right. */
+    public boolean canOpenCargo(EntityPlayer p) {
+        return canManage(p) || ConfigSVA.locks && hasRight(p, AccessMath.CARGO);
+    }
+
+    /** «Машина заперта (владелец: NAME)». */
+    public void lockedMsg(EntityPlayer p) {
+        msg(p, ConfigSVA.locks ? "sva.msg.locked" : "sva.msg.notOwner", state.ownerName == null ? "" : state.ownerName);
+    }
+
+    /**
+     * A key card in the hand (server): a blank one binds to the owner's vehicle (the owner's card: every right);
+     * Shift+RMB with this vehicle's card opens the access screen (owner / op). @return handled (else: on to the
+     * normal boarding - the card's rights count there)
+     */
+    private boolean keyCard(EntityPlayer p, ItemStack held) {
+        if (!ConfigSVA.locks) {
+            return false;
+        }
+        if (!com.sva.item.ItemKeyCardSVA.isBound(held)) {
+            if (!canManage(p) || state.ownerId == null || state.ownerId.length() == 0) {
+                msg(p, "sva.msg.notOwner");
+                return true;
+            }
+            ItemStack card = com.sva.item.ItemKeyCardSVA.write(held, state.vehId, getBoardNumber(), state.type, state.ownerName,
+                    state.ownerName, state.access.lockVersion, AccessMath.ALL);
+            held.stackSize--;
+            if (held.stackSize <= 0) {
+                p.inventory.setInventorySlotContents(p.inventory.currentItem, card);
+            } else if (!p.inventory.addItemStackToInventory(card)) {
+                p.dropPlayerItemWithRandomChoice(card, false);
+            }
+            p.inventoryContainer.detectAndSendChanges();
+            msg(p, "sva.msg.card.bound", Integer.valueOf(getBoardNumber()));
+            oneShot("ding", 0.5F, 1.4F);
+            return true;
+        }
+        boolean ours = state.vehId.equals(com.sva.item.ItemKeyCardSVA.vehicleOf(held));
+        if (!p.isSneaking()) {
+            return false;
+        }
+        if (!ours) {
+            msg(p, "sva.msg.card.other");
+            return true;
+        }
+        if (!canManage(p)) {
+            msg(p, "sva.msg.notOwner");
+            return true;
+        }
+        if (p instanceof EntityPlayerMP && ((EntityPlayerMP) p).playerNetServerHandler != null) {
+            NetSVA.CHANNEL.sendTo(new NetSVA.AccessInfo(this), (EntityPlayerMP) p);
+        }
+        return true;
+    }
+
+    /** Access screen edits (AccessEdit packet, server; the sender is the owner / an op, near). */
+    public static final int AE_ADD = 0, AE_REMOVE = 1, AE_SET = 2, AE_OTHERS = 3, AE_MODE = 4, AE_RELOCK = 5, AE_ISSUE = 6;
+
+    public void accessEdit(EntityPlayerMP p, int op, String name, int value) {
+        if (!ConfigSVA.locks || !canManage(p) || !(carries(p) || p.getDistanceSqToEntity(this) < 64)) {
+            return;
+        }
+        AccessMath.Access a = state.access;
+        if (op == AE_ADD) {
+            if (!a.add(name)) {
+                msg(p, AccessMath.validName(name) ? "sva.msg.access.full" : "sva.msg.access.badName", Integer.valueOf(AccessMath.MAX_FRIENDS));
+            }
+        } else if (op == AE_REMOVE) {
+            a.remove(name);
+        } else if (op == AE_SET) {
+            a.set(name, value);
+        } else if (op == AE_OTHERS) {
+            a.others = AccessMath.norm(value);
+        } else if (op == AE_MODE) {
+            a.mode = Math.max(0, Math.min(AccessMath.MODES - 1, value));
+        } else if (op == AE_RELOCK) {
+            a.lockVersion++;
+            com.sva.item.ItemKeyCardSVA.relock(p.getCurrentEquippedItem(), a.lockVersion);    // the owner's own card follows
+            p.inventoryContainer.detectAndSendChanges();
+            msg(p, "sva.msg.access.relocked");
+        } else if (op == AE_ISSUE) {
+            issueCard(p, name);
+        }
+        if (p.playerNetServerHandler != null) {
+            NetSVA.CHANNEL.sendTo(new NetSVA.AccessInfo(this), p);
+        }
+    }
+
+    /** «Выдать ключ-карту»: a blank card from p's inventory becomes a card for `name` with that player's rights. */
+    private void issueCard(EntityPlayerMP p, String name) {
+        int r = state.access.listed(name);
+        if (r < 0) {
+            msg(p, "sva.msg.access.notListed", name);
+            return;
+        }
+        for (int i = 0; i < p.inventory.mainInventory.length; i++) {
+            ItemStack s = p.inventory.mainInventory[i];
+            if (com.sva.item.ItemKeyCardSVA.isCard(s) && !com.sva.item.ItemKeyCardSVA.isBound(s)) {
+                ItemStack card = com.sva.item.ItemKeyCardSVA.write(s, state.vehId, getBoardNumber(), state.type, state.ownerName, name,
+                        state.access.lockVersion, r);
+                p.inventory.decrStackSize(i, 1);
+                if (!p.inventory.addItemStackToInventory(card)) {
+                    p.dropPlayerItemWithRandomChoice(card, false);
+                }
+                p.inventoryContainer.detectAndSendChanges();
+                msg(p, "sva.msg.card.issued", name);
+                return;
+            }
+        }
+        msg(p, "sva.msg.card.noBlank");
     }
 
     public ItemStack toItemStack() {
@@ -1968,10 +2205,14 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return;
         }
         amount = DrillMath.fieldDamage(amount, fieldNow, state.type.gases.fieldReduction);   // the argon field
+        if (ConfigSVA.tuning) {
+            amount *= (float) TuningMath.damageMul(state.tuning);                             // ★8 «Броня»: -40 %
+        }
         boolean was = VehicleMath.wrecked(state.hp);
-        boolean worn = state.hp < state.type.maxHp * com.sva.vehicle.CockpitLamps.WORN_HP;
+        float max = state.maxHp();
+        boolean worn = state.hp < max * com.sva.vehicle.CockpitLamps.WORN_HP;
         state.hp = VehicleMath.damage(state.hp, amount);
-        if (!worn && state.hp < state.type.maxHp * com.sva.vehicle.CockpitLamps.WORN_HP && state.hp > 0) {
+        if (!worn && state.hp < max * com.sva.vehicle.CockpitLamps.WORN_HP && state.hp > 0) {
             oneShot("alarm", 0.8F, 1F);      // ★1: the hull is worn - the wear lamp lights
         }
         if (!was && VehicleMath.wrecked(state.hp)) {
@@ -2118,6 +2359,14 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return manage;
     }
 
+    /** ★10: the same, with the «Багажник» right: it opens the cargo screen and sorts / throws out junk like the owner. */
+    public static boolean actionAllowed(int action, boolean manage, boolean driver, boolean cargo) {
+        if (action == A_CARGO || action == A_SORT || action == A_JUNK) {
+            return manage || cargo;
+        }
+        return actionAllowed(action, manage, driver);
+    }
+
     /** The Action packet (server thread; the sender is near or seated): a cargo screen button or a drill key. */
     public void serverAction(EntityPlayerMP p, int a) {
         long now = worldObj.getTotalWorldTime();
@@ -2125,8 +2374,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return;                                                 // one press, not a flood
         }
         lastActionTick = now;
-        if (!actionAllowed(a, canManage(p), riddenByEntity == p)) {
-            msg(p, "sva.msg.notOwner");
+        if (!actionAllowed(a, canManage(p), riddenByEntity == p, canOpenCargo(p))) {
+            lockedMsg(p);
             return;
         }
         VehicleType t = state.type;

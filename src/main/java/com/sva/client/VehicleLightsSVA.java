@@ -62,8 +62,12 @@ public final class VehicleLightsSVA {
                 && darkness(v) > 0.05F;
     }
 
+    /** ★8: the beam length of the vehicle being drawn x this («Люстра фар»: 2). */
+    private static float lenMul = 1F;
+
     public static void render(EntityVehicleSVA v, VehicleType t, float pt, float gear) {
         boolean heads = ConfigSVA.headlights, navs = ConfigSVA.navLights;
+        lenMul = (float) v.tuneLight();
         if (!heads && !navs || !v.powered()) {
             return;
         }
@@ -164,7 +168,7 @@ public final class VehicleLightsSVA {
         double p = Math.toRadians(l.pitch);
         float dx = (float) Math.cos(p), dy = (float) -Math.sin(p);
         float ux = (float) Math.sin(p), uy = (float) Math.cos(p);       // up, across the beam (in the x-y plane)
-        float len = BEAM_LEN / s;
+        float len = BEAM_LEN * lenMul / s;                           // ★8 «Люстра фар»: x2
         for (int layer = 0; layer < 2; layer++) {
             float r1 = (layer == 0 ? BEAM_R : BEAM_R * 0.45F) / s, r0 = BEAM_R0 / s;
             float a0 = BEAM_ALPHA * dark * (layer == 0 ? 0.6F : 0.8F);
