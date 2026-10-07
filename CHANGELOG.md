@@ -6,6 +6,7 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
+- Исправлено: при наклоне вертолёта, самолёта и конвертоплана (нос вниз на скорости, крен в повороте) пилот вылезал через крышу — седоки теперь наклоняются вместе с корпусом.
 - Новый вид техники: текстуры материалов 16x16 (краска-металлик, хром, сталь, протектор, рифлёный пол, решётки, обивка, стекло, полосы), швы панелей и заклёпки; ливреи по уровню машины (I рабочая с чёрно-жёлтой полосой, II гражданская, III кремниевая со светящимися голубыми линиями, Сингулярная — фиолетовыми); на бортах эмблема SA, бортовой номер (у каждой машины свой) и лючок зарядки. Настройки `vehicles.textures`, `vehicles.liveries`.
 - Свет: лучи фар в темноте и подсветка блоков перед машиной (только на клиенте), стоп-сигналы при торможении; бортовые огни авиации (красный слева, зелёный справа, белый строб, красный маячок), оранжевые маячки на вездеходе и буровой, габариты. Настройки `vehicles.headlights`, `vehicles.dynamicLight`, `vehicles.navLights`.
 - Анимации: колёса крутятся, передние колёса багги поворачиваются, катки гусениц и протектор двигаются; элероны, руль высоты и направления у самолётов; шасси убираются в полёте; наклон диска винта вертолёта; покачивание ховербайка; плавный поворот гондол конвертоплана; искры из бура; подпрыгивание на кочках. Настройка `vehicles.animations`.
@@ -63,6 +64,7 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Сингулярный корабль: мостик выше — верхняя палуба поднята, над пилотами каплевидный фонарь с золотой окантовкой (потолок над пилотами ~2,5 блока, над рядами ~2,7); все шесть человек снова сидят в своих креслах (раньше пилоты сидели за креслами). Модель ship.obj переэкспортирована, превью docs/mockups/veh_ship_bridge_v2.png.
 
 ### English
+- Fixed: when an aircraft pitched or banked the pilot poked through the roof - riders now tilt with the body.
 - New look: 16x16 material textures (metallic paint, chrome, steel, tread, checker plate, grilles, upholstery, glass, stripes), panel seams and rivets; liveries by tier (I work with a black-yellow band, II civil, III silicon with glowing blue lines, Singular with purple ones); an SA emblem, a per-vehicle board number and a charge hatch on the sides. Config `vehicles.textures`, `vehicles.liveries`.
 - Lights: headlight beams in the dark and client-side block light ahead, brake lights; aircraft navigation lights (red left, green right, white strobe, red beacon), amber beacons on the truck and drill, side markers. Config `vehicles.headlights`, `vehicles.dynamicLight`, `vehicles.navLights`.
 - Animations: spinning wheels, steering buggy front wheels, moving road wheels and tread; ailerons, elevator and rudder; retracting landing gear; heli rotor disc tilt; hover bike bob and lean; smooth tiltrotor nacelles; drill sparks; bump bounce. Config `vehicles.animations`.

@@ -24,11 +24,11 @@ public class RenderVehicleSVA extends Render {
 
     private static final ResourceLocation NONE = new ResourceLocation("textures/blocks/iron_block.png");
     /** Aircraft pitch / bank about this model height (model units). */
-    private static final float ATTITUDE_Y = 0.7F;
+    static final float ATTITUDE_Y = 0.7F;
     /** ★10: the heli's rotor disc tilts this share of the body's attitude more than the body, at most ROTOR_TILT_MAX deg. */
     private static final float ROTOR_TILT = 0.5F, ROTOR_TILT_MAX = 6F;
     /** ★10: the hover bike's idle bob (blocks) and its rate (rad/tick). */
-    private static final float HOVER_BOB = 0.035F, HOVER_BOB_RATE = 0.15F;
+    static final float HOVER_BOB = 0.035F, HOVER_BOB_RATE = 0.15F;
     /** ★6: the red tail lamps while not braking (1 while braking). */
     private static final float TAIL_DIM = 0.55F;
 
