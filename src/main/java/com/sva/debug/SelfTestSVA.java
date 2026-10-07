@@ -105,6 +105,7 @@ public final class SelfTestSVA {
             stageEContent();
             glyphsAndCargoKey();
             riderFit();
+            cargoV2();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -1529,5 +1530,114 @@ public final class SelfTestSVA {
             check(bad.length() == 0, "rider fit: " + t.key + " (model x" + t.modelScale + ", seatY " + t.seatY + ") - every rider's chest and head inside the hull"
                     + bad);
         }
+    }
+
+    /**
+     * Cargo screen v2: «Сорт.» merges equal stacks (item + meta + NBT) and orders them by id / meta, «Мусор» takes the
+     * configured throwaway blocks (the drill keeps a stack of cobblestone), the search matcher, the Shift+click
+     * priority (head -> head slot, Bore Widener -> module slot, vehicles nowhere), the new actions' permissions.
+     */
+    private static void cargoV2() {
+        net.minecraft.item.Item cob = net.minecraft.item.Item.getItemFromBlock(Blocks.cobblestone);
+        net.minecraft.item.Item dirt = net.minecraft.item.Item.getItemFromBlock(Blocks.dirt);
+        ItemStack[] c = new ItemStack[10];
+        c[0] = new ItemStack(Items.diamond, 5);
+        c[2] = new ItemStack(cob, 40);
+        c[3] = new ItemStack(Items.coal, 1, 1);                 // charcoal
+        c[4] = new ItemStack(cob, 40);
+        c[5] = new ItemStack(Items.coal, 10, 0);
+        c[7] = new ItemStack(Items.diamond, 3);
+        ItemStack named = new ItemStack(Items.diamond, 2);
+        named.setStackDisplayName("Special");
+        c[9] = named;
+        int n = com.sva.inventory.CargoToolsSVA.sortRange(c, 0, c.length, 64);
+        int idCob = net.minecraft.item.Item.getIdFromItem(cob), idCoal = net.minecraft.item.Item.getIdFromItem(Items.coal),
+                idDia = net.minecraft.item.Item.getIdFromItem(Items.diamond);
+        boolean ordered = true;
+        for (int i = 0; i + 1 < n; i++) {
+            ordered &= com.sva.inventory.CargoToolsSVA.ORDER.compare(c[i], c[i + 1]) <= 0;
+        }
+        int cobTotal = 0, cobStacks = 0;
+        for (ItemStack s : c) {
+            if (s != null && s.getItem() == cob) {
+                cobTotal += s.stackSize;
+                cobStacks++;
+            }
+        }
+        check(n == 6 && ordered && cobTotal == 80 && cobStacks == 2 && c[n] == null && c[c.length - 1] == null && idCob < idCoal && idCoal < idDia
+                && c[0].getItem() == cob && c[0].stackSize == 64,
+                "cargo sort: 80 cobblestone -> 64 + 16, diamonds merged, the renamed one apart, coal / charcoal apart; ordered by id / meta, gaps at the end ("
+                        + n + " stacks)");
+        boolean diaMerged = false, namedApart = false;
+        for (ItemStack s : c) {
+            if (s != null && s.getItem() == Items.diamond && !s.hasDisplayName() && s.stackSize == 8) {
+                diaMerged = true;
+            }
+            if (s != null && s.getItem() == Items.diamond && s.hasDisplayName() && s.stackSize == 2) {
+                namedApart = true;
+            }
+        }
+        check(diaMerged && namedApart, "cargo sort: 5 + 3 diamonds -> 8, a renamed diamond keeps its own stack (NBT)");
+        ItemStack[] one = new ItemStack[3];
+        one[1] = new ItemStack(Items.ender_pearl, 15);
+        one[2] = new ItemStack(Items.ender_pearl, 15);
+        com.sva.inventory.CargoToolsSVA.sortRange(one, 0, 3, 64);
+        check(one[0] != null && one[0].stackSize == 16 && one[1] != null && one[1].stackSize == 14 && one[2] == null,
+                "cargo sort: the item's own stack limit (ender pearls 16) is kept");
+        // junk
+        java.util.Set<String> junk = com.sva.inventory.CargoToolsSVA.parseJunk(ConfigSVA.JUNK_DEFAULT);
+        check(junk.size() == 5 && com.sva.inventory.CargoToolsSVA.isJunk("minecraft:cobblestone", 0, junk)
+                && com.sva.inventory.CargoToolsSVA.isJunk("Minecraft:Dirt", 2, junk) && com.sva.inventory.CargoToolsSVA.isJunk("minecraft:netherrack", 0, junk)
+                && !com.sva.inventory.CargoToolsSVA.isJunk("minecraft:diamond", 0, junk) && !com.sva.inventory.CargoToolsSVA.isJunk(null, 0, junk),
+                "junk: the default list - cobblestone, dirt (any meta), gravel, netherrack, stone; diamonds are not junk");
+        java.util.Set<String> meta = com.sva.inventory.CargoToolsSVA.parseJunk(new String[] {" minecraft:wool@14 ", "", null});
+        check(meta.size() == 1 && com.sva.inventory.CargoToolsSVA.isJunk("minecraft:wool", 14, meta) && !com.sva.inventory.CargoToolsSVA.isJunk("minecraft:wool", 0, meta),
+                "junk: \"modid:name@meta\" entries match that meta only, blanks ignored");
+        check("minecraft:cobblestone".equals(com.sva.inventory.CargoToolsSVA.registryName(new ItemStack(cob))),
+                "junk: an item's registry name is \"minecraft:cobblestone\"");
+        ItemStack[] j = {new ItemStack(cob, 64), new ItemStack(dirt, 20), new ItemStack(Items.iron_ingot, 7), new ItemStack(cob, 30),
+                new ItemStack(Blocks.gravel, 5)};
+        java.util.List<ItemStack> out = com.sva.inventory.CargoToolsSVA.takeJunk(j, 0, j.length, junk, "minecraft:cobblestone", 70);
+        int outN = 0;
+        for (ItemStack s : out) {
+            outN += s.stackSize;
+        }
+        check(outN == 20 + 24 + 5 && j[0] != null && j[0].stackSize == 64 && j[3] != null && j[3].stackSize == 6 && j[1] == null && j[4] == null
+                && j[2] != null && j[2].stackSize == 7,
+                "junk: dirt / gravel out, 70 of 94 cobblestone kept (the drill's lava stock), iron stays (" + outN + " out)");
+        java.util.List<ItemStack> all = com.sva.inventory.CargoToolsSVA.takeJunk(new ItemStack[] {new ItemStack(cob, 10)}, 0, 1, junk, null, 64);
+        check(all.size() == 1 && all.get(0).stackSize == 10, "junk: without a keep rule (not the drill) all the cobblestone goes");
+        // search
+        check(com.sva.inventory.CargoToolsSVA.matches("", "Железная руда") && com.sva.inventory.CargoToolsSVA.matches("руда", "Железная руда", "minecraft:iron_ore")
+                && com.sva.inventory.CargoToolsSVA.matches("IRON", "Железная руда", "minecraft:iron_ore")
+                && com.sva.inventory.CargoToolsSVA.matches("ore iron", "x", "oreIron") && !com.sva.inventory.CargoToolsSVA.matches("руда", "Булыжник", "minecraft:cobblestone")
+                && !com.sva.inventory.CargoToolsSVA.matches("железная медь", "Железная руда") && com.sva.inventory.CargoToolsSVA.matches("  ", (String) null),
+                "search: case-insensitive part of the name / registry name / ore name, every word must match, blank matches all");
+        // Shift+click priority
+        int h = com.sva.inventory.CargoToolsSVA.transferTarget(true, true, false, true, true, false);
+        int hBusy = com.sva.inventory.CargoToolsSVA.transferTarget(true, true, false, false, true, false);
+        int m = com.sva.inventory.CargoToolsSVA.transferTarget(true, false, true, true, true, false);
+        int mBusy = com.sva.inventory.CargoToolsSVA.transferTarget(true, false, true, true, false, false);
+        int noDrill = com.sva.inventory.CargoToolsSVA.transferTarget(false, true, false, true, true, false);
+        int veh = com.sva.inventory.CargoToolsSVA.transferTarget(true, false, false, true, true, true);
+        check(h == com.sva.inventory.CargoToolsSVA.TO_HEAD && hBusy == com.sva.inventory.CargoToolsSVA.TO_CARGO && m == com.sva.inventory.CargoToolsSVA.TO_MODULE
+                && mBusy == com.sva.inventory.CargoToolsSVA.TO_CARGO && noDrill == com.sva.inventory.CargoToolsSVA.TO_CARGO
+                && veh == com.sva.inventory.CargoToolsSVA.TO_NONE,
+                "shift+click: head -> head slot (taken: cargo), Bore Widener -> module slot, other vehicles -> cargo, vehicle items nowhere");
+        // actions
+        check(EntityVehicleSVA.A_SORT == 12 && EntityVehicleSVA.A_JUNK == 13 && EntityVehicleSVA.A_MODE_SET == 14
+                && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_SORT, true, false) && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_SORT, false, true)
+                && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_JUNK, false, true)
+                && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_MODE_SET + DrillMath.MODE_LEVEL, false, true)
+                && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_MODE_SET + 1, false, false)
+                && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_MODE_SET + DrillMath.MODES, false, true),
+                "cargo actions: sort / junk owner or op only; the drill mode buttons owner or driver (as the B / N keys)");
+        VehicleState st = new VehicleState(VehicleType.DRILL);
+        st.torches = 23;
+        NBTTagCompound tag = new NBTTagCompound();
+        st.writeNBT(tag);
+        VehicleState back = new VehicleState(VehicleType.DRILL);
+        back.readNBT(tag);
+        check(back.torches == 23, "drill: torches put down are saved (the cargo screen's drill tab counter)");
     }
 }

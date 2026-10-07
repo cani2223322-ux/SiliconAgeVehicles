@@ -124,12 +124,13 @@ public enum VehicleType {
     // low - cushions top 0.57 (floor 0.43) under a ceiling of 1.10; at x2 the cushion top is 1.14 and the ceiling 1.06 over
     // it; the ship is 14.5 long, 14.1 across its rings, 6.2 high (the jet-sized P7x7 platform class). Seats: the two pilots (cushion centre x 2.33, z +-0.22)
     // and the four of the two rows behind (x 1.49 / 1.05, z +-0.40), x2 (+0.05 forward for the pilots), seatY 0.89.
-    // Rider fit: ship.obj's bridge is too low for a seated player (the pilots' cushions sit under a roof 0.45 over them,
-    // the nose: their heads stood out at any scale) - the six seats moved to where the hull covers the rider: pilots
-    // x 2.80, z +-0.44 (behind the pilot chairs), then x 2.10 and 1.30 at z +-0.81; seatY 0.89. NEEDS a taller bridge in
-    // the model to put the pilots back on their chairs.
+    // Rider fit: the old ship.obj bridge was too low (the riders had to sit behind the chairs). Bridge v2 (2026-10, mock-up
+    // docs/mockups/veh_ship_bridge_v2.png): the upper deck rises to 1.44 (was 1.22) and a bubble canopy covers the pilots
+    // (top 1.34, was 0.875), inner ceiling ~1.23 over the pilots / ~1.33 over the rows (was 1.10); same size, scale x2.0.
+    // All six riders sit ON their chairs again - the measured cushion centres x 2.374 / 1.499 / 1.061, z +-0.219 / +-0.406
+    // (model) x2; cushion top 0.575 x 2 = 1.15, seatY 0.90; head tops 2.275, 0.18 under the canopy / 0.39 under the roof.
     SHIP("ship", "ship", Tier.SV, 256000000, 400, 20, 1.68, 0.04, 2.5, 6, 54, 800, 3.0F, 2.0F,
-            new double[][] {{2.80, 0.44}, {2.80, -0.44}, {2.10, 0.81}, {2.10, -0.81}, {1.30, 0.81}, {1.30, -0.81}}, 2.0F, 0.89, Movement.HELI,
+            new double[][] {{4.75, 0.44}, {4.75, -0.44}, {3.00, 0.81}, {3.00, -0.81}, {2.12, 0.81}, {2.12, -0.81}}, 2.0F, 0.90, Movement.HELI,
             VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(4000), Gas.HELIUM, Integer.valueOf(4000), Gas.OXYGEN, Integer.valueOf(4000),
                     Gas.ARGON, Integer.valueOf(2000), Gas.DEUTERIUM, Integer.valueOf(4000), Gas.SINGULAR_MATTER, Integer.valueOf(4000))
                     .afterburner(Gas.HYDROGEN, 4, 1.4).field(Gas.ARGON, 1, 0.4));

@@ -1322,6 +1322,7 @@ public class WorldTestSVA {
         }
         // ---- trailer: hitch, cargo round trip through the pick-up, unhitch
         trailerRoundTrip(w);
+        cargoV2World(w);
         // ---- drill: a 13 x 7 x 5 stone hill with ores, a lava pocket, bedrock + a chest at depth 11
         int dx0 = cx0, dz0 = cz0 + 18;
         cvBox(w, dx0 - 6, dz0 - 5, dx0 + 22, dz0 + 5, true);
@@ -2539,5 +2540,127 @@ public class WorldTestSVA {
         check(reg.count(OWNER_E) == 0, "stage E cleanup: no test vehicles left in the registry");
         eDone = true;
         maybeSummary();
+    }
+
+    /**
+     * Cargo screen v2 in the world: a drill vehicle with a messy bunker is sorted (merged, ordered), its junk thrown out
+     * next to it (dropped item count, the cobblestone stock kept), a drill head put in by right-clicking it (owner: into
+     * the head slot, the old head into the hand; a stranger: refused; sneaking: opens the screen instead - not tested).
+     */
+    private void cargoV2World(World w) {
+        net.minecraftforge.common.util.FakePlayer owner = net.minecraftforge.common.util.FakePlayerFactory.get((net.minecraft.world.WorldServer) w,
+                new com.mojang.authlib.GameProfile(java.util.UUID.fromString(OWNER), "WorldTest"));
+        net.minecraftforge.common.util.FakePlayer other = net.minecraftforge.common.util.FakePlayerFactory.get((net.minecraft.world.WorldServer) w,
+                new com.mojang.authlib.GameProfile(java.util.UUID.fromString("00000000-5bad-4e57-0000-0000000000ff"), "Stranger"));
+        EntityVehicleSVA d = cvSpawn(w, VehicleType.DRILL, cx0 + 12.5, cz0 - 9.0);
+        if (d == null) {
+            check(false, "cargo v2: a drill vehicle placed");
+            return;
+        }
+        try {
+            net.minecraft.item.Item cob = net.minecraft.item.Item.getItemFromBlock(Blocks.cobblestone);
+            d.setInventorySlotContents(0, new ItemStack(cob, 50));
+            d.setInventorySlotContents(5, new ItemStack(Items.diamond, 3));
+            d.setInventorySlotContents(9, new ItemStack(cob, 50));
+            d.setInventorySlotContents(30, new ItemStack(Blocks.dirt, 40));
+            d.setInventorySlotContents(60, new ItemStack(Items.diamond, 4));
+            d.setInventorySlotContents(70, new ItemStack(cob, 50));
+            d.setInventorySlotContents(100, new ItemStack(Blocks.gravel, 12));
+            d.setInventorySlotContents(107, new ItemStack(Items.coal, 7));
+            int stacks = d.sortCargo();
+            ItemStack s0 = d.getStackInSlot(0), s1 = d.getStackInSlot(1), s2 = d.getStackInSlot(2), s3 = d.getStackInSlot(3);
+            int used = d.state.cargoUsed();
+            boolean packed = true;
+            for (int i = used; i < d.state.cargo.length; i++) {
+                packed &= d.state.cargo[i] == null;
+            }
+            int dia = 0;
+            for (ItemStack s : d.state.cargo) {
+                if (s != null && s.getItem() == Items.diamond) {
+                    dia += s.stackSize;
+                    packed &= s.stackSize == 7;
+                }
+            }
+            check(stacks == 7 && used == 7 && packed && dia == 7 && s0 != null && s0.getItem() == net.minecraft.item.Item.getItemFromBlock(Blocks.dirt)
+                    && s1 != null && s1.getItem() == cob && s1.stackSize == 64 && s2 != null && s2.getItem() == cob && s2.stackSize == 64 && s3 != null
+                    && s3.getItem() == cob && s3.stackSize == 22,
+                    "cargo v2: a messy bunker (8 stacks over both pages) sorted - dirt (id 3) first, 150 cobblestone 64/64/22, 3 + 4 diamonds -> 7, no gaps (" + stacks + " stacks)");
+            java.util.List<?> before = w.getEntitiesWithinAABB(net.minecraft.entity.item.EntityItem.class, d.boundingBox.expand(5, 3, 5));
+            int dropped = d.dumpJunk();
+            java.util.List<?> after = w.getEntitiesWithinAABB(net.minecraft.entity.item.EntityItem.class, d.boundingBox.expand(5, 3, 5));
+            int onGround = 0;
+            for (Object o : after) {
+                if (!before.contains(o)) {
+                    onGround += ((net.minecraft.entity.item.EntityItem) o).getEntityItem().stackSize;
+                }
+            }
+            int cobLeft = 0, junkLeft = 0;
+            for (ItemStack s : d.state.cargo) {
+                if (s != null && s.getItem() == cob) {
+                    cobLeft += s.stackSize;
+                } else if (s != null && (s.getItem() == net.minecraft.item.Item.getItemFromBlock(Blocks.dirt)
+                        || s.getItem() == net.minecraft.item.Item.getItemFromBlock(Blocks.gravel))) {
+                    junkLeft += s.stackSize;
+                }
+            }
+            check(dropped == 86 + 40 + 12 && onGround == dropped && cobLeft == EntityVehicleSVA.JUNK_KEEP_COBBLE && junkLeft == 0,
+                    "cargo v2: junk dropped next to the drill - " + dropped + " items on the ground (" + onGround + "), 64 cobblestone kept for lava");
+            for (Object o : after) {
+                if (!before.contains(o)) {
+                    ((net.minecraft.entity.Entity) o).setDead();
+                }
+            }
+            // a drill head by right click
+            ItemStack steel = new ItemStack(com.sc.init.ModItems.DRILL_HEADS.get(0));
+            ItemStack diamondHead = new ItemStack(com.sc.init.ModItems.DRILL_HEADS.get(Math.min(2, com.sc.init.ModItems.DRILL_HEADS.size() - 1)));
+            other.setSneaking(false);
+            other.inventory.currentItem = 0;
+            other.inventory.setInventorySlotContents(0, steel.copy());
+            d.interactFirst(other);
+            check(d.getStackInSlot(d.headSlot()) == null && other.inventory.getStackInSlot(0) != null,
+                    "cargo v2: a stranger's right click with a head does not install it");
+            other.inventory.setInventorySlotContents(0, null);
+            owner.setSneaking(false);
+            owner.inventory.currentItem = 0;
+            owner.inventory.setInventorySlotContents(0, steel.copy());
+            d.interactFirst(owner);
+            ItemStack in = d.getStackInSlot(d.headSlot());
+            check(in != null && in.getItem() == steel.getItem() && owner.inventory.getStackInSlot(0) == null && d.ridersNow() == 0,
+                    "cargo v2: the owner's right click with a steel head installs it (hand empty, nobody seated)");
+            owner.inventory.setInventorySlotContents(0, diamondHead.copy());
+            d.interactFirst(owner);
+            in = d.getStackInSlot(d.headSlot());
+            ItemStack hand = owner.inventory.getStackInSlot(0);
+            check(in != null && in.getItem() == diamondHead.getItem() && hand != null && hand.getItem() == steel.getItem(),
+                    "cargo v2: a second head swaps - the diamond head in the slot, the steel one back in the hand");
+            owner.inventory.setInventorySlotContents(0, null);
+            // Shift+click from the player's inventory: a head into a free head slot
+            d.setInventorySlotContents(d.headSlot(), null);
+            ContainerCargoProbe probe = new ContainerCargoProbe(owner, d);
+            check(probe.headByShiftClick(steel.copy()), "cargo v2: shift+click a head in the player's inventory -> the head slot");
+            owner.inventory.clearInventory(null, -1);
+        } finally {
+            d.setDead();
+        }
+    }
+
+    /** Drives ContainerCargoSVA.transferStackInSlot with a real container (server side). */
+    private static final class ContainerCargoProbe {
+        private final net.minecraft.entity.player.EntityPlayer p;
+        private final EntityVehicleSVA v;
+
+        ContainerCargoProbe(net.minecraft.entity.player.EntityPlayer p, EntityVehicleSVA v) {
+            this.p = p;
+            this.v = v;
+        }
+
+        boolean headByShiftClick(ItemStack head) {
+            p.inventory.setInventorySlotContents(9, head);                 // first main-inventory slot
+            com.sva.inventory.ContainerCargoSVA c = new com.sva.inventory.ContainerCargoSVA(p.inventory, v);
+            int own = v.getSizeInventory();
+            c.transferStackInSlot(p, own);                                  // that slot's index in the container
+            ItemStack in = v.getStackInSlot(v.headSlot());
+            return in != null && in.getItem() == head.getItem() && p.inventory.getStackInSlot(9) == null;
+        }
     }
 }

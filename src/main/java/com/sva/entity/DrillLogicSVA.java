@@ -220,6 +220,7 @@ public final class DrillLogicSVA {
                 return;
             }
             w.setBlock(x, y0, z, Blocks.torch, 5, 3);
+            v.state.torches++;
             v.torchDist = 0;
             return;
         }

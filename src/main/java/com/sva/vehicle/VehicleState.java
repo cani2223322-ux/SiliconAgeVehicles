@@ -24,7 +24,9 @@ public class VehicleState {
             // stage D: the tiltrotor's wanted mode (airplane) and its nacelles (0 vertical .. TiltMath.TRANSITION_TICKS airplane)
             K_TILT_PLANE = "TiltPlane", K_TILT_STEP = "TiltStep",
             // stage E: long-range mode switched on; the ship's jump target «дом», its cooldown (ticks), anchor, invisibility
-            K_LONG_RANGE = "LongRange", K_JUMP_HOME = "JumpHome", K_JUMP_CD = "JumpCooldown", K_ANCHOR = "Anchor", K_INVIS = "Invisible";
+            K_LONG_RANGE = "LongRange", K_JUMP_HOME = "JumpHome", K_JUMP_CD = "JumpCooldown", K_ANCHOR = "Anchor", K_INVIS = "Invisible",
+            // cargo screen v2: torches the drill has put down
+            K_TORCHES = "Torches";
 
     public VehicleType type;
     public double energy;
@@ -45,6 +47,8 @@ public class VehicleState {
     /** Drill vehicle: DrillMath.MODE_*; blocks dug so far. */
     public int drillMode;
     public long dug;
+    /** Drill vehicle: torches it has put down (the cargo screen's «Бур» tab). */
+    public int torches;
     /** Auto-delivery (the crawler): points A / B as {x, y, z, dim} or null; the next coordinator click sets B; on / state. */
     public int[] routeA, routeB;
     public boolean routeNextB, autoOn;
@@ -216,6 +220,7 @@ public class VehicleState {
         }
         t.setInteger(K_DRILL_MODE, drillMode);
         t.setLong(K_DUG, dug);
+        t.setInteger(K_TORCHES, torches);
         if (routeA != null) {
             t.setIntArray(K_ROUTE_A, routeA);
         }
@@ -278,6 +283,7 @@ public class VehicleState {
         drillModule = t.hasKey(K_MODULE) ? ItemStack.loadItemStackFromNBT(t.getCompoundTag(K_MODULE)) : null;
         drillMode = Math.max(0, Math.min(DrillMath.MODES - 1, t.getInteger(K_DRILL_MODE)));
         dug = Math.max(0, t.getLong(K_DUG));
+        torches = Math.max(0, t.getInteger(K_TORCHES));
         routeA = point(t.getIntArray(K_ROUTE_A));
         routeB = point(t.getIntArray(K_ROUTE_B));
         routeNextB = t.getBoolean(K_ROUTE_NEXT);

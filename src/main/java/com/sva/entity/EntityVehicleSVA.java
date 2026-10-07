@@ -68,7 +68,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             // stage C: packed bits (trailer, drill, auto-delivery - X_*), blocks dug, head life left / max, auto distance, route text
             DW_EXTRA = 31, DW_DUG = 19, DW_HEAD = 18, DW_HEAD_MAX = 17, DW_AUTO_DIST = 16, DW_ROUTE = 15,
             // stage E: the space panel's line (SpaceLogicSVA.hudString)
-            DW_SPACE = 14;
+            DW_SPACE = 14,
+            // cargo screen v2: the owner's name («Машина» tab), torches the drill has put down («Бур» tab)
+            DW_OWNER = 13, DW_TORCHES = 12;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
             X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15,
             // stage D: the tiltrotor's wanted mode (airplane) and its nacelle step (0..40, 6 bits)
@@ -84,7 +86,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             /** Stage E (the pilot): «Режим» on the shuttle / ship - long-range mode; «Прыжок»; the jump target; anchor; invisibility. */
             A_LONG_RANGE = 6, A_JUMP = 7, A_JUMP_TARGET = 8, A_ANCHOR = 9, A_INVIS = 10,
             /** The «Багажник» key (L): the cargo / bunker screen from a seat (owner / op only, as Shift+RMB). */
-            A_CARGO = 11;
+            A_CARGO = 11,
+            /** Cargo screen v2 (owner / op): «Сорт.» - merge and sort the cargo; «Мусор» - throw the junk out next to the vehicle. */
+            A_SORT = 12, A_JUNK = 13,
+            /** Cargo screen v2, «Бур» tab: the mode buttons - A_MODE_SET + DrillMath.MODE_* (14..16). */
+            A_MODE_SET = 14;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -211,6 +217,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.addObject(DW_AUTO_DIST, Integer.valueOf(0));
         dataWatcher.addObject(DW_ROUTE, "");
         dataWatcher.addObject(DW_SPACE, "");
+        dataWatcher.addObject(DW_OWNER, "");
+        dataWatcher.addObject(DW_TORCHES, Integer.valueOf(0));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -324,6 +332,30 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     public int getDug() {
         return worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_DUG) : (int) Math.min(Integer.MAX_VALUE, state.dug);
+    }
+
+    /** The owner's name ("" - nobody's), synced. */
+    public String getOwnerName() {
+        return worldObj.isRemote ? dataWatcher.getWatchableObjectString(DW_OWNER) : state.ownerName == null ? "" : state.ownerName;
+    }
+
+    /** Torches the drill has put down, synced. */
+    public int getTorches() {
+        return worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_TORCHES) : state.torches;
+    }
+
+    /** Riders now (driver + passenger seats; clients: the seats that found this body). */
+    public int ridersNow() {
+        if (worldObj == null || !worldObj.isRemote) {
+            return riders().size();
+        }
+        int n = riddenByEntity != null ? 1 : 0;
+        for (EntitySeatSVA s : clientSeats) {
+            if (s != null && !s.isDead && s.riddenByEntity != null) {
+                n++;
+            }
+        }
+        return n;
     }
 
     public boolean isAutoOn() {
@@ -579,6 +611,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_HEAD_MAX, Integer.valueOf(state.drillHead == null ? 0 : state.drillHead.getMaxDamage()));
         dataWatcher.updateObject(DW_AUTO_DIST, Integer.valueOf(autoDist));
         dataWatcher.updateObject(DW_ROUTE, routeText());
+        dataWatcher.updateObject(DW_OWNER, state.ownerName == null ? "" : state.ownerName);
+        dataWatcher.updateObject(DW_TORCHES, Integer.valueOf(state.torches));
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
             dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
@@ -1515,6 +1549,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             }
             return true;
         }
+        if (held != null && state.type.hasDrill && DrillLogicSVA.isHead(held) && !p.isSneaking()) {
+            installHead(p, held);
+            return true;
+        }
         if (p.isSneaking()) {
             if (canManage(p)) {
                 p.openGui(SVAMod.instance, GuiHandlerSVA.CARGO, worldObj, getEntityId(), 0, 0);
@@ -1813,7 +1851,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** Pure: may player act on this vehicle (owner / op, or its driver for the drill keys)? */
     public static boolean actionAllowed(int action, boolean manage, boolean driver) {
-        if (action == A_DRILL_TOGGLE || action == A_DRILL_MODE) {
+        if (action == A_DRILL_TOGGLE || action == A_DRILL_MODE || action >= A_MODE_SET && action < A_MODE_SET + DrillMath.MODES) {
             return manage || driver;
         }
         if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS) {
@@ -1834,6 +1872,16 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return;
         }
         VehicleType t = state.type;
+        if (a == A_SORT) {
+            msg(p, "sva.msg.cargo.sorted", Integer.valueOf(sortCargo()));
+            return;
+        }
+        if (a == A_JUNK) {
+            int n = dumpJunk();
+            msg(p, n > 0 ? (t.hasDrill ? "sva.msg.cargo.junkDrill" : "sva.msg.cargo.junk") : "sva.msg.cargo.noJunk", Integer.valueOf(n),
+                    Integer.valueOf(JUNK_KEEP_COBBLE));
+            return;
+        }
         if (a == A_CARGO) {
             if (carries(p)) {                                       // the key works from a seat only
                 p.openGui(SVAMod.instance, GuiHandlerSVA.CARGO, worldObj, getEntityId(), 0, 0);
@@ -1846,6 +1894,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             } else {
                 drillOn = !drillOn;
                 msg(p, drillOn ? "sva.msg.drill.on" : "sva.msg.drill.off");
+            }
+        } else if (a >= A_MODE_SET && a < A_MODE_SET + DrillMath.MODES && t.hasDrill) {
+            if (state.drillMode != a - A_MODE_SET) {
+                state.drillMode = a - A_MODE_SET;
+                p.addChatComponentMessage(new ChatComponentTranslation("sva.msg.drill.mode", new ChatComponentTranslation("sva.drill.mode." + state.drillMode)));
             }
         } else if (a == A_DRILL_MODE && t.hasDrill) {
             state.drillMode = DrillMath.nextMode(state.drillMode);
@@ -1982,6 +2035,79 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     }
 
     // ------------------------------------------------------------------ cargo helpers (drill drops, auto-delivery)
+
+    /** The drill keeps this much cobblestone when the junk goes out (it walls up lava / water with it). */
+    public static final int JUNK_KEEP_COBBLE = 64;
+
+    /**
+     * «Сорт.» (server): equal stacks merged, then ordered by item id / meta / name (CargoToolsSVA). The crawler sorts
+     * its body and its trailer apart (the trailer's slots leave with it). @return stacks in the cargo after
+     */
+    public int sortCargo() {
+        ItemStack[] c = state.cargo;
+        int page = state.type.trailerSlots > 0 ? CrawlerMath.PAGE : c.length;
+        int n = 0;
+        for (int from = 0; from < c.length; from += Math.max(1, page)) {
+            n += com.sva.inventory.CargoToolsSVA.sortRange(c, from, Math.min(c.length, from + page), getInventoryStackLimit());
+        }
+        markDirty();
+        return n;
+    }
+
+    /**
+     * «Мусор» (server): the ConfigSVA.junk items are dropped as items on the vehicle's right side (1 block out of the
+     * hull), the drill keeps JUNK_KEEP_COBBLE cobblestone. Merged first, so it is few item entities. @return items dropped
+     */
+    public int dumpJunk() {
+        sortCargo();
+        java.util.List<ItemStack> out = com.sva.inventory.CargoToolsSVA.takeJunk(state.cargo, 0, state.cargo.length, ConfigSVA.junk,
+                state.type.hasDrill ? "minecraft:cobblestone" : null, JUNK_KEEP_COBBLE);
+        int n = 0;
+        double[] o = toWorld(0, state.type.width / 2.0 + 1.0);
+        for (ItemStack s : out) {
+            n += s.stackSize;
+            net.minecraft.entity.item.EntityItem e = new net.minecraft.entity.item.EntityItem(worldObj, posX + o[0], posY + 0.5, posZ + o[1], s);
+            e.motionX = e.motionY = e.motionZ = 0;
+            e.delayBeforeCanPickup = 20;
+            worldObj.spawnEntityInWorld(e);
+        }
+        if (n > 0) {
+            sortCargo();
+        }
+        markDirty();
+        return n;
+    }
+
+    /**
+     * RMB on the drill vehicle with a quarry drill head in hand (outside, not sneaking; owner / op): it goes into the
+     * head slot, the old one into the hand. @return true when it was installed
+     */
+    public boolean installHead(EntityPlayer p, ItemStack held) {
+        if (!state.type.hasDrill || !DrillLogicSVA.isHead(held)) {
+            return false;
+        }
+        if (!canManage(p)) {
+            msg(p, "sva.msg.notOwner");
+            return false;
+        }
+        ItemStack old = state.drillHead;
+        ItemStack put = held.splitStack(1);
+        state.drillHead = put;
+        if (held.stackSize <= 0) {
+            p.inventory.setInventorySlotContents(p.inventory.currentItem, old);
+        } else if (old != null && !p.inventory.addItemStackToInventory(old)) {
+            p.dropPlayerItemWithRandomChoice(old, false);
+        }
+        p.inventoryContainer.detectAndSendChanges();
+        markDirty();
+        worldObj.playSoundAtEntity(this, "random.anvil_use", 0.5F, 1.4F);
+        if (old != null) {
+            p.addChatComponentMessage(new ChatComponentTranslation("sva.msg.drill.headSwapped", put.func_151000_E(), old.func_151000_E()));
+        } else {
+            p.addChatComponentMessage(new ChatComponentTranslation("sva.msg.drill.headInstalled", put.func_151000_E()));
+        }
+        return true;
+    }
 
     /** Puts `s` into the cargo, merging first; `s.stackSize` is left with what did not fit. @return that */
     public int storeCargo(ItemStack s) {

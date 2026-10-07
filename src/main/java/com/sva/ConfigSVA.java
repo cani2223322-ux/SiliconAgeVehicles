@@ -15,6 +15,10 @@ public final class ConfigSVA {
     public static float chargerRate = 1F;
     /** Vehicles' EU use x this. */
     public static float consumption = 1F;
+    /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
+    public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
+            "minecraft:stone"};
+    public static java.util.Set<String> junk = com.sva.inventory.CargoToolsSVA.parseJunk(JUNK_DEFAULT);
 
     private ConfigSVA() {
     }
@@ -32,6 +36,9 @@ public final class ConfigSVA {
                     "Charging station speed: input voltage x this / Скорость зарядной станции: напряжение входа x это");
             consumption = num(c, "consumption", v, 1F, 0F, 100F,
                     "Vehicles' EU use x this / Расход EU техникой x это");
+            junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
+                    "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
+                            + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));
         } finally {
             if (c.hasChanged()) {
                 c.save();
