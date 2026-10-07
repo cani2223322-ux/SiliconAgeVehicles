@@ -155,13 +155,34 @@ public final class VehicleKeyBindsSVA {
      * tap shorter than a tick (50 ms) is over before tick() polls Keyboard.isKeyDown - the latch still counts it.
      */
     private static final java.util.Set<Integer> TAPPED = new java.util.HashSet<Integer>();
+    private static final org.apache.logging.log4j.Logger KEYLOG = org.apache.logging.log4j.LogManager.getLogger("SiliconAgeVehicles");
+    /** Diagnostic lines written so far this session (riding presses are logged only up to a limit). */
+    private static int LOGGED;
 
     /** FML bus: every key / mouse button press while no screen is open (vanilla posts these only then). */
     public static final class Taps {
         @cpw.mods.fml.common.eventhandler.SubscribeEvent
         public void onKey(cpw.mods.fml.common.gameevent.InputEvent.KeyInputEvent e) {
-            if (Keyboard.getEventKeyState() && Keyboard.getEventKey() != 0) {
-                TAPPED.add(Integer.valueOf(Keyboard.getEventKey()));
+            int k = Keyboard.getEventKey();
+            if (!Keyboard.getEventKeyState() || k == 0) {
+                return;
+            }
+            TAPPED.add(Integer.valueOf(k));
+            Minecraft mc = Minecraft.getMinecraft();
+            int menu = KEY_MENU.getKeyCode();
+            boolean riding = mc.thePlayer != null && HudVehicleSVA.vehicleOf(mc.thePlayer) != null;
+            if (k == menu || riding && LOGGED < 40) {
+                // diagnostics for "the menu does not open": the code this keyboard sends, the menu key, the state
+                LOGGED++;
+                KEYLOG.info("[SVA-KEYS] key " + k + " '" + Keyboard.getEventCharacter() + "' menuKey " + menu + " riding "
+                        + riding + " screen " + (mc.currentScreen == null ? "-" : mc.currentScreen.getClass().getName()));
+            }
+            if (k == menu && mc.thePlayer != null && mc.currentScreen == null) {
+                // open right on the press (vanilla's event loop), not a tick later - nothing in between can lose it
+                MENU_EDGE.hold(true);
+                mc.displayGuiScreen(new GuiVehicleSVA());
+                KEYLOG.info("[SVA-KEYS] menu opened, screen now "
+                        + (mc.currentScreen == null ? "-" : mc.currentScreen.getClass().getName()));
             }
         }
 
