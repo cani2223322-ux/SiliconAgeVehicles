@@ -121,6 +121,26 @@ public class ItemVehicleSVA extends Item {
         return v;
     }
 
+    /**
+     * ★15: places the vehicle an item holds as the SAME vehicle (the platform trailer's unloading): its id, owner and
+     * whole state are kept - its board number and key cards stay valid. @return null when there is no room
+     */
+    public static EntityVehicleSVA spawnKept(World w, ItemStack stack, double x, double y, double z, float yaw) {
+        VehicleState st = stateOf(stack);
+        EntityVehicleSVA v = new EntityVehicleSVA(w, st.type);
+        v.state = st;
+        v.setLocationAndAngles(x, y, z, yaw, 0);
+        if (!w.getCollidingBoundingBoxes(v, v.boundingBox.contract(0.02, 0.02, 0.02)).isEmpty() || w.isAnyLiquid(v.boundingBox)) {
+            return null;
+        }
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        if (reg != null) {
+            reg.add(st.vehId, st.ownerId);
+        }
+        w.spawnEntityInWorld(v);
+        return v;
+    }
+
     @Override
     @SideOnly(Side.CLIENT)
     public void addInformation(ItemStack s, EntityPlayer player, List list, boolean adv) {
@@ -137,7 +157,8 @@ public class ItemVehicleSVA extends Item {
         }
         list.add(Lang.tr("sva.tooltip.cargo", Integer.valueOf(st.cargoUsed()), Integer.valueOf(st.cargoSize())));
         if (st.trailer) {
-            list.add(Lang.tr("sva.tooltip.trailerOn"));
+            list.add(st.trailerType == com.sva.vehicle.TrailerMath.CARGO ? Lang.tr("sva.tooltip.trailerOn")
+                    : Lang.tr("sva.tooltip.trailerKindOn", Lang.tr("item.siliconagevehicles.trailer_" + com.sva.vehicle.TrailerMath.KEYS[st.trailerType] + ".name")));
         }
         if (t.hasDrill) {
             list.add(st.drillHead == null ? Lang.tr("sva.tooltip.drill.noHead")

@@ -156,6 +156,20 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // wave 3 (trailers, the vehicle registry / map) runs alongside too, in its own area with its own owner
+        if (ticks >= WorldTestWave3SVA.START && !wave3.done) {
+            try {
+                wave3.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL wave 3 exception " + t);
+                t.printStackTrace(System.out);
+                wave3.abort(w);
+            }
+            if (wave3.done) {
+                maybeSummary();
+            }
+        }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
         if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
             try {
@@ -1947,6 +1961,7 @@ public class WorldTestSVA {
     private boolean dDone, eDone;
     private final WorldTestWave1SVA wave1 = new WorldTestWave1SVA(this);
     private final WorldTestWave2SVA wave2 = new WorldTestWave2SVA(this);
+    private final WorldTestWave3SVA wave3 = new WorldTestWave3SVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
     private String seId;
@@ -1959,9 +1974,9 @@ public class WorldTestSVA {
     private static final com.sc.util.ArmorGasSC.Gas D2 = com.sc.util.ArmorGasSC.Gas.DEUTERIUM, O2 = com.sc.util.ArmorGasSC.Gas.OXYGEN,
             SM = com.sc.util.ArmorGasSC.Gas.SINGULAR_MATTER;
 
-    /** Prints the SUMMARY once stage D, stage E, wave 1 and wave 2 are all done. */
+    /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

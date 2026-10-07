@@ -26,6 +26,7 @@ import com.sva.vehicle.AutoDelivery;
 import com.sva.vehicle.CrawlerMath;
 import com.sva.vehicle.DrillMath;
 import com.sva.vehicle.Movement;
+import com.sva.vehicle.TrailerMath;
 import com.sva.vehicle.VehicleType;
 
 import net.minecraft.client.Minecraft;
@@ -61,7 +62,9 @@ public class GuiCargoSVA extends GuiContainer {
 
     private static final int W = ContainerCargoSVA.W, H = ContainerCargoSVA.H, X0 = 30, CW = 162;
     private static final int BTN_PICK_SMALL = 0, BTN_PREV = 1, BTN_NEXT = 2, BTN_AUTO = 3, BTN_ROUTE_CLEAR = 4, BTN_DETACH = 5,
-            BTN_DRILL = 6, BTN_MODE = 7, BTN_SORT = 10, BTN_JUNK = 11, BTN_PICK = 12, BTN_TAB = 20;
+            BTN_DRILL = 6, BTN_MODE = 7, BTN_SORT = 10, BTN_JUNK = 11, BTN_PICK = 12, BTN_TAB = 20,
+            /** ★15 the «Прицеп» tab. */
+            BTN_REFUEL = 30, BTN_DUMP = 31, BTN_LOAD = 32, BTN_UNLOAD = 33, BTN_TDETACH = 34;
     private static final int BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, PANEL = 0xFF232833, PANEL_HI = 0xFF2E3542, SLOT = 0xFF2B313C,
             SLOT_DARK = 0xFF0D1015, LINE = 0xFF3A4150, CYAN = 0x5EC8F0, TEXT = 0xD8DCE4, MUTED = 0x8A93A3, GREEN = 0x62E06A,
             RED = 0xF06060, YELLOW = 0xF0D060;
@@ -77,6 +80,8 @@ public class GuiCargoSVA extends GuiContainer {
     private final List<Dark> tabButtons = new ArrayList<Dark>();
     private final List<int[]> tabsShown = new ArrayList<int[]>();
     private Dark pickSmall, prev, next, sort, junk, auto, routeClear, detach, drill, pick;
+    /** ★15 the «Прицеп» tab's buttons. */
+    private Dark refuel, dump, load, unload, tDetach;
     private final Dark[] modes = new Dark[DrillMath.MODES];
 
     public GuiCargoSVA(InventoryPlayer inv, EntityVehicleSVA v) {
@@ -92,6 +97,11 @@ public class GuiCargoSVA extends GuiContainer {
         return type.hasDrill || type.autoDelivery;
     }
 
+    /** ★15: a tanker / platform / charger is hitched - the «Прицеп» tab. */
+    private boolean hasTrailerTab() {
+        return type.trailerSlots > 0 && vehicle.hasTrailer() && vehicle.trailerKind() != TrailerMath.CARGO;
+    }
+
     // ------------------------------------------------------------------ setup
 
     @Override
@@ -101,8 +111,19 @@ public class GuiCargoSVA extends GuiContainer {
         buttonList.clear();
         tabButtons.clear();
         int x = guiLeft, y = guiTop;
-        int[] tabs = hasSpecial() ? new int[] {ContainerCargoSVA.TAB_CARGO, ContainerCargoSVA.TAB_SPECIAL, ContainerCargoSVA.TAB_VEHICLE}
-                : new int[] {ContainerCargoSVA.TAB_CARGO, ContainerCargoSVA.TAB_VEHICLE};
+        List<Integer> tl = new ArrayList<Integer>();
+        tl.add(Integer.valueOf(ContainerCargoSVA.TAB_CARGO));
+        if (hasSpecial()) {
+            tl.add(Integer.valueOf(ContainerCargoSVA.TAB_SPECIAL));
+        }
+        if (hasTrailerTab()) {
+            tl.add(Integer.valueOf(ContainerCargoSVA.TAB_TRAILER));      // ★15
+        }
+        tl.add(Integer.valueOf(ContainerCargoSVA.TAB_VEHICLE));
+        int[] tabs = new int[tl.size()];
+        for (int i = 0; i < tabs.length; i++) {
+            tabs[i] = tl.get(i).intValue();
+        }
         for (int i = 0; i < tabs.length; i++) {
             Dark tb = new Dark(BTN_TAB + tabs[i], x + 3, y + 19 + i * 24, 22, 22, "", tip("tab." + tabName(tabs[i])));
             tb.icon = tabIcon(tabs[i]);
@@ -135,9 +156,18 @@ public class GuiCargoSVA extends GuiContainer {
             routeClear = add(new Dark(BTN_ROUTE_CLEAR, x + X0 + 82, y + 62, 80, 13, Lang.tr("sva.gui.route.clear"), tip("routeClear")));
             detach = add(new Dark(BTN_DETACH, x + X0 + 110, y + 126, 52, 13, Lang.tr("sva.gui.trailer.detachShort"), tip("detach")));
         }
+        // ★15 the trailer tab
+        refuel = add(new Dark(BTN_REFUEL, x + X0, y + 114, 126, 13, Lang.tr("sva.gui.tank.refuel"),
+                tip("tankRefuel", Integer.valueOf((int) TrailerMath.REFUEL_RADIUS))));
+        dump = add(new Dark(BTN_DUMP, x + X0 + 128, y + 114, 34, 13, Lang.tr("sva.gui.tank.dump"), tip("tankDump")));
+        load = add(new Dark(BTN_LOAD, x + X0, y + 86, 80, 13, Lang.tr("sva.gui.platform.load"),
+                tip("platformLoad", Integer.valueOf((int) TrailerMath.LOAD_RADIUS))));
+        unload = add(new Dark(BTN_UNLOAD, x + X0 + 82, y + 86, 80, 13, Lang.tr("sva.gui.platform.unload"), tip("platformUnload")));
+        tDetach = add(new Dark(BTN_TDETACH, x + X0 + 110, y + 132, 52, 13, Lang.tr("sva.gui.trailer.detachShort"), tip("detach")));
         // vehicle tab
         pick = add(new Dark(BTN_PICK, x + X0, y + 127, 104, 13, Lang.tr("sva.gui.pickUp"), tip("pick")));
-        int t = lastTab == ContainerCargoSVA.TAB_SPECIAL && !hasSpecial() ? ContainerCargoSVA.TAB_CARGO : lastTab;
+        int t = lastTab == ContainerCargoSVA.TAB_SPECIAL && !hasSpecial() || lastTab == ContainerCargoSVA.TAB_TRAILER && !hasTrailerTab()
+                ? ContainerCargoSVA.TAB_CARGO : lastTab;
         box.setView(t, box.page());
         refresh();
     }
@@ -148,7 +178,8 @@ public class GuiCargoSVA extends GuiContainer {
     }
 
     private static String tabName(int tab) {
-        return tab == ContainerCargoSVA.TAB_CARGO ? "cargo" : tab == ContainerCargoSVA.TAB_VEHICLE ? "vehicle" : "special";
+        return tab == ContainerCargoSVA.TAB_CARGO ? "cargo" : tab == ContainerCargoSVA.TAB_VEHICLE ? "vehicle"
+                : tab == ContainerCargoSVA.TAB_TRAILER ? "trailer" : "special";
     }
 
     private String tip(String k, Object... args) {
@@ -164,6 +195,9 @@ public class GuiCargoSVA extends GuiContainer {
         }
         if (tab == ContainerCargoSVA.TAB_VEHICLE) {
             return new ItemStack(ModContentSVA.vehicle, 1, type.ordinal());
+        }
+        if (tab == ContainerCargoSVA.TAB_TRAILER) {
+            return new ItemStack(ModContentSVA.trailer, 1, vehicle.trailerKind());
         }
         if (type.hasDrill) {
             return com.sc.init.ModItems.DRILL_HEADS.isEmpty() ? new ItemStack(net.minecraft.init.Items.diamond_pickaxe)
@@ -198,6 +232,15 @@ public class GuiCargoSVA extends GuiContainer {
         next.enabled = box.page() < box.pages() - 1;
         sort.visible = junk.visible = cargo;
         pick.visible = veh;
+        boolean tr = tab == ContainerCargoSVA.TAB_TRAILER && hasTrailerTab();
+        int kind = vehicle.trailerKind();
+        refuel.visible = dump.visible = tr && kind == TrailerMath.TANK;
+        refuel.enabled = dump.enabled = vehicle.tankAmount() > 0;
+        load.visible = unload.visible = tr && kind == TrailerMath.PLATFORM;
+        boolean carrying = vehicle.carried()[0] >= 0;
+        load.enabled = !carrying;
+        unload.enabled = carrying;
+        tDetach.visible = tr;
         if (drill != null) {
             drill.visible = special;
             boolean on = vehicle.isDrillOn();
@@ -261,7 +304,23 @@ public class GuiCargoSVA extends GuiContainer {
                 action = EntityVehicleSVA.A_ROUTE_CLEAR;
                 break;
             case BTN_DETACH:
+            case BTN_TDETACH:
                 action = EntityVehicleSVA.A_TRAILER_DETACH;
+                break;
+            case BTN_REFUEL:
+                action = EntityVehicleSVA.A_TANK_REFUEL;
+                break;
+            case BTN_DUMP:
+                if (!isShiftKeyDown()) {
+                    return;                                         // «Вылить» only with Shift (its tooltip says so)
+                }
+                action = EntityVehicleSVA.A_TANK_DUMP;
+                break;
+            case BTN_LOAD:
+                action = EntityVehicleSVA.A_PLATFORM_LOAD;
+                break;
+            case BTN_UNLOAD:
+                action = EntityVehicleSVA.A_PLATFORM_UNLOAD;
                 break;
             case BTN_DRILL:
                 action = EntityVehicleSVA.A_DRILL_TOGGLE;
@@ -470,8 +529,115 @@ public class GuiCargoSVA extends GuiContainer {
         } else if (tab == ContainerCargoSVA.TAB_SPECIAL) {
             frame(x + X0, y + 29, 22, 22, CYAN | 0xFF000000, PANEL);
             item(tabIcon(ContainerCargoSVA.TAB_SPECIAL), x + X0 + 3, y + 32);
+        } else if (tab == ContainerCargoSVA.TAB_TRAILER) {
+            trailerBackground(x, y);
         } else {
             vehicleBackground(x, y);
+        }
+    }
+
+    // ------------------------------------------------------------------ ★15 the «Прицеп» tab
+
+    private void trailerBackground(int x, int y) {
+        if (!hasTrailerTab()) {
+            return;
+        }
+        int kind = vehicle.trailerKind();
+        if (kind == TrailerMath.TANK) {
+            int amount = vehicle.tankAmount();
+            frame(x + X0, y + 30, 26, 78, LINE, 0xFF0E1116);
+            int h = (int) Math.round(76 * TrailerMath.tankFill(amount));
+            rect(x + X0 + 1, y + 30 + 77 - h, 24, h, 0xFF000000 | RenderVehicleSVA.fluidColour(vehicle.tankFluid(), amount));
+            rect(x + X0 + 1, y + 30 + 39, 24, 1, 0x80FFFFFF);       // half full: the speed mark
+            frame(x + ContainerCargoSVA.TANK_IN_X - 1, y + ContainerCargoSVA.TANK_Y - 1, 18, 18, SLOT_DARK, SLOT);
+            frame(x + ContainerCargoSVA.TANK_OUT_X - 1, y + ContainerCargoSVA.TANK_Y - 1, 18, 18, SLOT_DARK, SLOT);
+            if (vehicle.getStackInSlot(vehicle.headSlot()) == null) {
+                ghost(new ItemStack(net.minecraft.init.Items.water_bucket), x + ContainerCargoSVA.TANK_IN_X, y + ContainerCargoSVA.TANK_Y);
+            }
+            if (vehicle.getStackInSlot(vehicle.headSlot() + 1) == null) {
+                ghost(new ItemStack(net.minecraft.init.Items.bucket), x + ContainerCargoSVA.TANK_OUT_X, y + ContainerCargoSVA.TANK_Y);
+            }
+        } else if (kind == TrailerMath.PLATFORM) {
+            int[] c = vehicle.carried();
+            frame(x + X0, y + 30, CW, 50, c[0] >= 0 ? 0xFF5EC8F0 : LINE, PANEL);
+            if (c[0] >= 0) {
+                item(new ItemStack(ModContentSVA.vehicle, 1, c[0]), x + X0 + 4, y + 35);
+                bar(x + X0 + 26, y + 47, CW - 30, 6, c[2] / 100.0, c[2] < 20 ? RED : GREEN);
+            }
+        } else if (kind == TrailerMath.CHARGER) {
+            bar(x + X0, y + 31, CW, 7, vehicle.chargerEnergy() / TrailerMath.CHARGER_BUFFER, 0x5EC8F0);
+            List<int[]> served = vehicle.chargerServed();
+            for (int i = 0; i < served.size() && i < 4; i++) {
+                item(new ItemStack(ModContentSVA.vehicle, 1, served.get(i)[0]), x + X0, y + 82 + i * 11);
+            }
+        }
+    }
+
+    private void trailerText(int ox, int oy) {
+        if (!hasTrailerTab()) {
+            return;
+        }
+        int kind = vehicle.trailerKind();
+        String name = new ItemStack(ModContentSVA.trailer, 1, kind).getDisplayName();
+        TextFitSC.draw(fontRendererObj, name, X0, 19, CW, CYAN, ox, oy);
+        if (kind == TrailerMath.TANK) {
+            int amount = vehicle.tankAmount();
+            String fluid = amount > 0 ? com.sva.item.ItemTrailerSVA.fluidName(vehicle.tankFluid()) : Lang.tr("sva.gui.tank.empty");
+            TextFitSC.draw(fontRendererObj, fluid, 62, 31, 130, amount > 0 ? TEXT : MUTED, ox, oy);
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.tank.amount", fmt(amount), fmt(TrailerMath.TANK_CAP)), 62, 41, 130, MUTED, ox, oy);
+            boolean slow = TrailerMath.speedMul(kind, amount, false) < 1;
+            TextFitSC.draw(fontRendererObj, Lang.tr(slow ? "sva.gui.trailer.slow" : "sva.gui.trailer.fast",
+                    Integer.valueOf((int) Math.round((1 - TrailerMath.TANK_SPEED) * 100))), 62, 51, 130, slow ? YELLOW : MUTED, ox, oy);
+            TextFitSC.drawCentered(fontRendererObj, Lang.tr("sva.gui.tank.in"), ContainerCargoSVA.TANK_IN_X - 14, 64, 44, MUTED, false, ox, oy);
+            TextFitSC.drawCentered(fontRendererObj, Lang.tr("sva.gui.tank.out"), ContainerCargoSVA.TANK_OUT_X - 14, 64, 44, MUTED, false, ox, oy);
+            boolean gas = Gas.of(net.minecraftforge.fluids.FluidRegistry.getFluid(vehicle.tankFluid())) != null;
+            TextFitSC.draw(fontRendererObj, Lang.tr(gas || amount <= 0 ? "sva.gui.tank.hintGas" : "sva.gui.tank.hintFluid",
+                    Integer.valueOf((int) TrailerMath.REFUEL_RADIUS)), 62, 96, 130, MUTED, ox, oy);
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.tank.hintSlots"), X0, 135, 106, MUTED, ox, oy);
+        } else if (kind == TrailerMath.PLATFORM) {
+            int[] c = vehicle.carried();
+            if (c[0] >= 0) {
+                VehicleType ct = VehicleType.byOrdinal(c[0]);
+                String vn = new ItemStack(ModContentSVA.vehicle, 1, c[0]).getDisplayName();
+                TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.platform.carried", vn, com.sva.vehicle.SkinMath.boardText(c[1])), 56, 35, 134,
+                        TEXT, ox, oy);
+                TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.platform.charge", Integer.valueOf(c[2])), 56, 57, 134, MUTED, ox, oy);
+                TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.platform.tier", ct.tier.name()), 56, 67, 134, MUTED, ox, oy);
+            } else {
+                int yy = 35;
+                for (Object l : fontRendererObj.listFormattedStringToWidth(Lang.tr("sva.gui.platform.empty"), CW - 8)) {
+                    if (yy > 70) {
+                        break;
+                    }
+                    fontRendererObj.drawString((String) l, X0 + 4, yy, MUTED);
+                    yy += 9;
+                }
+            }
+            boolean slow = c[0] >= 0;
+            TextFitSC.draw(fontRendererObj, Lang.tr(slow ? "sva.gui.trailer.slow" : "sva.gui.trailer.fast",
+                    Integer.valueOf((int) Math.round((1 - TrailerMath.PLATFORM_SPEED) * 100))), X0, 104, CW, slow ? YELLOW : MUTED, ox, oy);
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.platform.fits"), X0, 114, CW, MUTED, ox, oy);
+        } else if (kind == TrailerMath.CHARGER) {
+            double e = vehicle.chargerEnergy();
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.charger.buffer", FormatSVA.eu((long) e), FormatSVA.eu(TrailerMath.CHARGER_BUFFER)),
+                    X0, 41, CW, TEXT, ox, oy);
+            boolean sun = vehicle.chargerSolar();
+            TextFitSC.draw(fontRendererObj, sun ? Lang.tr("sva.gui.charger.sun", Integer.valueOf(TrailerMath.SOLAR_EU)) : Lang.tr("sva.gui.charger.noSun"),
+                    X0, 52, CW, sun ? GREEN : MUTED, ox, oy);
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.charger.feed", Integer.valueOf(TrailerMath.FEED_EU),
+                    Integer.valueOf((int) Math.round(TrailerMath.FEED_FLOOR * 100))), X0, 62, CW, MUTED, ox, oy);
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.charger.serving", Integer.valueOf((int) TrailerMath.CHARGE_RADIUS)), X0, 72, CW,
+                    CYAN, ox, oy);
+            List<int[]> served = vehicle.chargerServed();
+            if (served.isEmpty()) {
+                TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.charger.nobody"), X0, 84, CW, MUTED, ox, oy);
+            }
+            for (int i = 0; i < served.size() && i < 4; i++) {
+                int[] v = served.get(i);
+                String vn = new ItemStack(ModContentSVA.vehicle, 1, v[0]).getDisplayName();
+                TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.platform.carried", vn, com.sva.vehicle.SkinMath.boardText(v[1])), X0 + 18,
+                        86 + i * 11, CW - 18, TEXT, ox, oy);
+            }
         }
     }
 
@@ -569,6 +735,8 @@ public class GuiCargoSVA extends GuiContainer {
             drillText(ox, oy);
         } else if (tab == ContainerCargoSVA.TAB_SPECIAL) {
             deliveryText(ox, oy);
+        } else if (tab == ContainerCargoSVA.TAB_TRAILER) {
+            trailerText(ox, oy);
         } else {
             vehicleText(ox, oy);
         }
@@ -685,8 +853,10 @@ public class GuiCargoSVA extends GuiContainer {
         }
         fontRendererObj.drawString(Lang.tr("sva.gui.trailer"), X0, 117, CYAN);
         boolean tr = vehicle.hasTrailer();
-        TextFitSC.draw(fontRendererObj, tr ? Lang.tr("sva.gui.trailer.on", Integer.valueOf(type.trailerSlots)) : Lang.tr("sva.gui.trailer.off"),
-                X0, 129, tr ? 106 : CW, tr ? TEXT : MUTED, ox, oy);
+        int kind = vehicle.trailerKind();
+        String line = !tr ? Lang.tr("sva.gui.trailer.off") : kind == TrailerMath.CARGO ? Lang.tr("sva.gui.trailer.on", Integer.valueOf(type.trailerSlots))
+                : Lang.tr("sva.gui.trailer.onKind", new ItemStack(ModContentSVA.trailer, 1, kind).getDisplayName());     // ★15
+        TextFitSC.draw(fontRendererObj, line, X0, 129, tr ? 106 : CW, tr ? TEXT : MUTED, ox, oy);
     }
 
     /** Blocks from A to B (straight, x/z), -1 when a point is missing. */

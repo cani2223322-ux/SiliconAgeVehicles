@@ -58,6 +58,17 @@ public class RenderItemVehicleSVA implements IItemRenderer {
         return trailer ? VehicleType.TRUCK : ItemVehicleSVA.typeOf(s);
     }
 
+    /** ★15: the trailer kind of a trailer item (CARGO for a vehicle item). */
+    private int kind(ItemStack s) {
+        return trailer ? com.sva.item.ItemTrailerSVA.kindOf(s) : com.sva.vehicle.TrailerMath.CARGO;
+    }
+
+    /** The model drawn: the vehicle's, truck.obj for the cargo trailer, ★15 a trailer kind's own model. */
+    private String modelOf(ItemStack s) {
+        int k = kind(s);
+        return k != com.sva.vehicle.TrailerMath.CARGO ? com.sva.vehicle.TrailerMath.MODELS[k] : type(s).model;
+    }
+
     @Override
     public boolean handleRenderType(ItemStack item, ItemRenderType type) {
         if (!ConfigSVA.icons3d || item == null) {
@@ -65,7 +76,7 @@ public class RenderItemVehicleSVA implements IItemRenderer {
         }
         boolean ok = type == ItemRenderType.INVENTORY || type == ItemRenderType.ENTITY || type == ItemRenderType.EQUIPPED
                 || type == ItemRenderType.EQUIPPED_FIRST_PERSON;
-        return ok && ObjModelSVA.get(type(item).model) != null && bounds(type(item)) != null;
+        return ok && ObjModelSVA.get(modelOf(item)) != null && bounds(item) != null;
     }
 
     @Override
@@ -83,9 +94,9 @@ public class RenderItemVehicleSVA implements IItemRenderer {
 
     @Override
     public void renderItem(ItemRenderType type, ItemStack item, Object... data) {
-        VehicleType t = type(item);
-        ObjModelSVA m = ObjModelSVA.get(t.model);
-        float[] b = bounds(t);
+        ObjModelSVA m = ObjModelSVA.get(modelOf(item));
+        float[] b = bounds(item);
+        boolean kindModel = kind(item) != com.sva.vehicle.TrailerMath.CARGO;
         if (m == null || b == null) {
             return;
         }
@@ -136,16 +147,16 @@ public class RenderItemVehicleSVA implements IItemRenderer {
             GL11.glShadeModel(GL11.GL_SMOOTH);
             GL11.glDisable(GL11.GL_BLEND);
             GL11.glEnable(GL11.GL_ALPHA_TEST);
-            if (trailer) {
+            if (trailer && !kindModel) {
                 for (ObjModelSVA.Part p : m.parts()) {
-                    if (p.kind == ObjModelSVA.Part.TRAILER) {
-                        m.renderPart(p, 0F, 1F);
+                    if (p.kind == ObjModelSVA.Part.TRAILER || p.def != null && p.def.trailer) {
+                        m.renderPart(p, 0F, 1F);                   // the cargo trailer and its two wheels
                     }
                 }
             } else {
                 m.render(1F, ObjModelSVA.GLASS_ALPHA, 1F, null);
                 for (ObjModelSVA.Part p : m.parts()) {
-                    if (p.kind == ObjModelSVA.Part.TRAILER) {
+                    if (p.kind == ObjModelSVA.Part.TRAILER || p.def != null && p.def.trailer) {
                         continue;                                  // a crawler item comes without its trailer
                     }
                     if (p.kind == ObjModelSVA.Part.NACELLE) {
@@ -195,13 +206,19 @@ public class RenderItemVehicleSVA implements IItemRenderer {
         return mx >= x && mx < x + 16 && my >= y && my < y + 16;
     }
 
-    /** The bounding box to fit: the vehicle (the truck without its trailer) or the trailer alone; null if unreadable. */
-    private float[] bounds(VehicleType t) {
-        String key = trailer ? t.model + "#trailer" : t.model;
+    /**
+     * The bounding box to fit: the vehicle (the truck without its trailer), the cargo trailer alone or (★15) a trailer
+     * kind's whole model; null if unreadable.
+     */
+    private float[] bounds(ItemStack item) {
+        VehicleType t = type(item);
+        boolean kindModel = kind(item) != com.sva.vehicle.TrailerMath.CARGO;
+        String model = modelOf(item);
+        String key = trailer && !kindModel ? t.model + "#trailer" : model;
         if (!BOUNDS.containsKey(key)) {
             float[] b = null;
             try {
-                b = readBounds(t.model, trailer ? 1 : t.trailerSlots > 0 ? -1 : 0);
+                b = readBounds(model, kindModel ? 0 : trailer ? 1 : t.trailerSlots > 0 ? -1 : 0);
             } catch (Exception e) {
                 b = null;
             }

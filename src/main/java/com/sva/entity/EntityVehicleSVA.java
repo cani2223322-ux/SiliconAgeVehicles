@@ -21,6 +21,7 @@ import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.RoadMath;
 import com.sva.vehicle.SpaceMath;
 import com.sva.vehicle.TiltMath;
+import com.sva.vehicle.TrailerMath;
 import com.sva.vehicle.TuningMath;
 import com.sva.vehicle.AccessMath;
 import com.sva.vehicle.VehicleGases;
@@ -78,7 +79,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             // skins: the board number on the side decal (SkinMath.boardNumber of the vehicle's id)
             DW_BOARD = 11,
             // wave 2 (★8): the tuning slots, TuningMath.pack + TUNE_ON (the server's vehicles.tuning)
-            DW_TUNE = 10;
+            DW_TUNE = 10,
+            // wave 3 (★15): the hitched trailer's kind and contents (trailerString - parsed on clients)
+            DW_TRAILER = 9;
     private static final int TUNE_ON = 1 << 20;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
             X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15,
@@ -101,7 +104,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             /** Cargo screen v2 (owner / op): «Сорт.» - merge and sort the cargo; «Мусор» - throw the junk out next to the vehicle. */
             A_SORT = 12, A_JUNK = 13,
             /** Cargo screen v2, «Бур» tab: the mode buttons - A_MODE_SET + DrillMath.MODE_* (14..16). */
-            A_MODE_SET = 14;
+            A_MODE_SET = 14,
+            /**
+             * Wave 3 (★15), the cargo screen's «Прицеп» tab (owner / the «Багажник» right): the tanker's «Заправить технику
+             * рядом» and «Вылить» (Shift); the platform's «Погрузить ближайшую» and «Выгрузить».
+             */
+            A_TANK_REFUEL = 20, A_TANK_DUMP = 21, A_PLATFORM_LOAD = 22, A_PLATFORM_UNLOAD = 23;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -258,6 +266,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.addObject(DW_TORCHES, Integer.valueOf(0));
         dataWatcher.addObject(DW_BOARD, Integer.valueOf(0));
         dataWatcher.addObject(DW_TUNE, Integer.valueOf(0));
+        dataWatcher.addObject(DW_TRAILER, "");
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -334,9 +343,177 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return worldObj != null && worldObj.isRemote ? (extra() & X_TRAILER) != 0 : state.trailer;
     }
 
-    /** Cargo slots now (a hitched trailer adds 54). */
+    /** Cargo slots now (a hitched cargo trailer adds 54; ★15 the other kinds none). */
     public int cargoCapacity() {
-        return getVehicleType().cargoSlots(hasTrailer());
+        return getVehicleType().cargoSlots(hasTrailer() && TrailerMath.addsCargo(trailerKind()));
+    }
+
+    // ---- wave 3, ★15: the trailer kinds (clients: the synced DW_TRAILER line, parsed once per change)
+
+    private String trailerSeen;
+    /** Client: {kind, amount, carried type (-1 none), carried board, carried charge %, charger EU, solar 0/1}. */
+    private final int[] trailerShown = {0, 0, -1, 0, 0, 0, 0};
+    private String trailerFluidShown = "";
+    private final List<int[]> chargerServedShown = new ArrayList<int[]>();
+    /** Server: the charger's vehicles (scanned every 20 ticks), the round robin, the carried vehicle's card. */
+    private final List<EntityVehicleSVA> chargerServed = new ArrayList<EntityVehicleSVA>();
+    private int chargerRr, chargerScan;
+    private boolean solarNow;
+    private int[] carriedCard;
+
+    /** "kind|fluid|mB|carried type|board|charge %|charger EU|solar|type:board,type:board" (clients parse it). */
+    private String trailerString() {
+        if (!state.trailer) {
+            return "";
+        }
+        int[] c = carriedCard();
+        StringBuilder b = new StringBuilder();
+        b.append(state.trailerType).append('|').append(state.tankFluid == null ? "" : state.tankFluid).append('|').append(state.tankAmount)
+                .append('|').append(c[0]).append('|').append(c[1]).append('|').append(c[2]).append('|')
+                .append((long) Math.floor(state.chargerEnergy / 100) * 100).append('|').append(solarNow ? 1 : 0).append('|');
+        for (int i = 0; i < chargerServed.size() && i < 4; i++) {
+            EntityVehicleSVA v = chargerServed.get(i);
+            b.append(i > 0 ? "," : "").append(v.state.type.ordinal()).append(':').append(v.getBoardNumber());
+        }
+        return b.toString();
+    }
+
+    private void parseTrailer() {
+        String s = dataWatcher.getWatchableObjectString(DW_TRAILER);
+        if (s.equals(trailerSeen)) {
+            return;
+        }
+        trailerSeen = s;
+        trailerShown[0] = 0;
+        trailerShown[1] = 0;
+        trailerShown[2] = -1;
+        trailerFluidShown = "";
+        chargerServedShown.clear();
+        String[] p = s.split("\\|", -1);
+        if (p.length < 9) {
+            return;
+        }
+        try {
+            trailerShown[0] = TrailerMath.valid(Integer.parseInt(p[0]));
+            trailerFluidShown = p[1];
+            trailerShown[1] = Integer.parseInt(p[2]);
+            trailerShown[2] = Integer.parseInt(p[3]);
+            trailerShown[3] = Integer.parseInt(p[4]);
+            trailerShown[4] = Integer.parseInt(p[5]);
+            trailerShown[5] = (int) Math.min(Integer.MAX_VALUE, Long.parseLong(p[6]));
+            trailerShown[6] = Integer.parseInt(p[7]);
+            for (String e : p[8].split(",")) {
+                String[] q = e.split(":");
+                if (q.length == 2) {
+                    chargerServedShown.add(new int[] {Integer.parseInt(q[0]), Integer.parseInt(q[1])});
+                }
+            }
+        } catch (NumberFormatException e) {
+            // a garbled line shows an empty trailer
+        }
+    }
+
+    /** ★15: the hitched trailer's kind (TrailerMath; CARGO when none). */
+    public int trailerKind() {
+        if (worldObj != null && worldObj.isRemote) {
+            parseTrailer();
+            return hasTrailer() ? trailerShown[0] : TrailerMath.CARGO;
+        }
+        return state.trailer ? state.trailerType : TrailerMath.CARGO;
+    }
+
+    /** ★15: a trailer of this kind is hitched (both sides). */
+    public boolean hasTrailerKind(int kind) {
+        return hasTrailer() && trailerKind() == kind;
+    }
+
+    /** ★15 tanker: the fluid's registry name ("" empty) and its mB (both sides). */
+    public String tankFluid() {
+        if (worldObj != null && worldObj.isRemote) {
+            parseTrailer();
+            return trailerFluidShown;
+        }
+        return state.tankFluid == null ? "" : state.tankFluid;
+    }
+
+    public int tankAmount() {
+        if (worldObj != null && worldObj.isRemote) {
+            parseTrailer();
+            return trailerShown[1];
+        }
+        return state.tankAmount;
+    }
+
+    /** ★15 platform: {type ordinal (-1 none), board number, charge %} of the carried vehicle (both sides). */
+    public int[] carried() {
+        if (worldObj != null && worldObj.isRemote) {
+            parseTrailer();
+            return new int[] {trailerShown[2], trailerShown[3], trailerShown[4]};
+        }
+        return carriedCard();
+    }
+
+    /** ★15 mobile charger: EU in its buffer (clients: in hundreds) and the sun working (both sides). */
+    public double chargerEnergy() {
+        if (worldObj != null && worldObj.isRemote) {
+            parseTrailer();
+            return trailerShown[5];
+        }
+        return state.chargerEnergy;
+    }
+
+    public boolean chargerSolar() {
+        if (worldObj != null && worldObj.isRemote) {
+            parseTrailer();
+            return trailerShown[6] != 0;
+        }
+        return solarNow;
+    }
+
+    /** ★15 mobile charger: the vehicles it charges now, {type ordinal, board} (clients: the synced first four). */
+    public List<int[]> chargerServed() {
+        if (worldObj != null && worldObj.isRemote) {
+            parseTrailer();
+            return chargerServedShown;
+        }
+        List<int[]> out = new ArrayList<int[]>();
+        for (EntityVehicleSVA v : chargerServed) {
+            out.add(new int[] {v.state.type.ordinal(), v.getBoardNumber()});
+        }
+        return out;
+    }
+
+    /** ★15: the crawler's top speed x this with its trailer (a full tank / a loaded platform - both sides). */
+    public double trailerSpeedMul() {
+        if (!hasTrailer()) {
+            return 1;
+        }
+        int k = trailerKind();
+        return TrailerMath.speedMul(k, k == TrailerMath.TANK ? tankAmount() : 0, k == TrailerMath.PLATFORM && carried()[0] >= 0);
+    }
+
+    /** Server: the carried vehicle's {type, board, charge %} (cached; -1 type when the platform is empty). */
+    private int[] carriedCard() {
+        if (state.carried == null) {
+            carriedCard = null;
+            return new int[] {-1, 0, 0};
+        }
+        if (carriedCard == null) {
+            ItemStack it = ItemStack.loadItemStackFromNBT(state.carried);
+            if (it == null || !(it.getItem() instanceof com.sva.item.ItemVehicleSVA)) {
+                return new int[] {-1, 0, 0};
+            }
+            VehicleState st = com.sva.item.ItemVehicleSVA.stateOf(it);
+            carriedCard = new int[] {st.type.ordinal(), com.sva.vehicle.SkinMath.boardNumber(st.vehId),
+                    (int) Math.floor(st.energy * 100 / Math.max(1, st.maxEnergy()))};
+        }
+        return carriedCard;
+    }
+
+    /** ★15: where the trailer stands (world x, z) - TrailerMath.TRAILER_BACK behind the crawler. */
+    public double[] trailerPos() {
+        double[] o = toWorld(-TrailerMath.TRAILER_BACK, 0);
+        return new double[] {posX + o[0], posZ + o[1]};
     }
 
     public boolean isDrillOn() {
@@ -805,6 +982,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_TORCHES, Integer.valueOf(state.torches));
         dataWatcher.updateObject(DW_BOARD, Integer.valueOf(com.sva.vehicle.SkinMath.boardNumber(state.vehId)));
         dataWatcher.updateObject(DW_TUNE, Integer.valueOf(TuningMath.pack(state.tuning) | (ConfigSVA.tuning ? TUNE_ON : 0)));
+        dataWatcher.updateObject(DW_TRAILER, trailerString());
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
             dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
@@ -909,11 +1087,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     private void serverUpdate(VehicleType t) {
         long now = worldObj.getTotalWorldTime();
-        if (!registered) {
-            VehicleRegistrySVA r = VehicleRegistrySVA.get(worldObj);
-            if (r != null) {
-                r.add(state.vehId, state.ownerId);
-            }
+        if (!registered || ticksExisted % com.sva.vehicle.MapMath.UPDATE_EVERY == 0) {
+            updateRegistry();                                       // ★19: the map's card (and the per-player count)
             registered = true;
         }
         maintainSeats(t);
@@ -983,6 +1158,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             lastDz = dz;
         }
         prevMoved = moved;
+        if (state.trailer && state.trailerType != TrailerMath.CARGO) {
+            trailerTick(motorOn);                                   // ★15: the tank's slots, the charger, the carried vehicle
+        }
         // the argon hull field (drill vehicle): 1 mB/s while the motor runs, hull damage -40 % (damageHull)
         Gas fg = t.gases.fieldGas;
         fieldNow = fg != null && motorOn && !isWrecked() && state.gas(fg) > 0;
@@ -1215,7 +1393,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         boolean fwd = (in & IN_FWD) != 0, back = (in & IN_BACK) != 0, left = (in & IN_LEFT) != 0,
                 right = (in & IN_RIGHT) != 0, brake = (in & IN_BRAKE) != 0;
         boolean thrust = canThrust();
-        double top = VehicleMath.maxSpeed(t, getEnergy()) * roadSpeedMul(t) * tuneSpeed();    // ★11: asphalt / concrete; ★8 tuning
+        double top = VehicleMath.maxSpeed(t, getEnergy()) * roadSpeedMul(t) * tuneSpeed()      // ★11: asphalt / concrete; ★8 tuning
+                * trailerSpeedMul();                                                       // ★15: a full tank / a loaded platform
         boolean water = isInWater();
         boolean crawler = t.movement == Movement.CRAWLER;
         if (water) {
@@ -1860,6 +2039,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (com.sva.item.ItemKeyCardSVA.isCard(held) && keyCard(p, held)) {
             return true;                                            // ★10: bind / the access screen
         }
+        if (held != null && held.getItem() instanceof com.sva.item.ItemVehicleSVA && state.hasTrailer(TrailerMath.PLATFORM)) {
+            loadItem(p, held);                                      // ★15: the platform takes a small vehicle item
+            return true;
+        }
         if (held != null && held.getItem() instanceof com.sva.item.ItemTrailerSVA && state.type.trailerSlots > 0) {
             if (attachTrailer(p, held) == CrawlerMath.OK) {
                 p.inventory.setInventorySlotContents(p.inventory.currentItem, null);      // its cargo is in the crawler now
@@ -2234,35 +2417,406 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     // ------------------------------------------------------------------ stage C: trailer, route, drill, actions
 
-    /** Hitches a trailer item (its cargo goes into the slots after the body's). @return CrawlerMath.OK / why not */
+    /**
+     * Hitches a trailer item (its cargo goes into the slots after the body's; ★15 the other kinds bring their tank /
+     * carried vehicle / charge). @return CrawlerMath.OK / why not
+     */
     public int attachTrailer(EntityPlayer p, ItemStack item) {
         int r = CrawlerMath.attachCheck(state.type.trailerSlots, state.trailer, canManage(p));
         if (r != CrawlerMath.OK) {
             msg(p, r == CrawlerMath.NOT_OWNER ? "sva.msg.notOwner" : "sva.msg.trailer.already");
             return r;
         }
-        ItemStack[] c = com.sva.item.ItemTrailerSVA.cargoOf(item);
-        int base = state.type.cargoSlots;
-        state.setTrailer(true);
-        for (int i = 0; i < c.length && base + i < state.cargo.length; i++) {
-            state.cargo[base + i] = c[i];
+        int kind = com.sva.item.ItemTrailerSVA.kindOf(item);
+        if (kind != TrailerMath.CARGO && !ConfigSVA.trailerKinds) {
+            msg(p, "sva.msg.trailer.disabled");
+            return CrawlerMath.NO_HITCH;
         }
+        state.setTrailer(true, kind);
+        if (kind == TrailerMath.CARGO) {
+            ItemStack[] c = com.sva.item.ItemTrailerSVA.cargoOf(item);
+            int base = state.type.cargoSlots;
+            for (int i = 0; i < c.length && base + i < state.cargo.length; i++) {
+                state.cargo[base + i] = c[i];
+            }
+        } else {
+            state.readTrailerData(com.sva.item.ItemTrailerSVA.dataOf(item));
+        }
+        carriedCard = null;
+        chargerServed.clear();
         worldObj.playSoundAtEntity(this, "random.anvil_land", 0.4F, 1.6F);
-        msg(p, "sva.msg.trailer.attached", Integer.valueOf(state.cargoSize()));
+        if (kind == TrailerMath.CARGO) {
+            msg(p, "sva.msg.trailer.attached", Integer.valueOf(state.cargoSize()));
+        } else {
+            msg(p, "sva.msg.trailer.attachedKind", new ChatComponentTranslation("item.siliconagevehicles.trailer_" + TrailerMath.KEYS[kind] + ".name"));
+        }
         syncWatcher();
         return r;
     }
 
-    /** Unhitches the trailer (no checks): @return the trailer item holding its cargo. */
+    /** Unhitches the trailer (no checks): @return the trailer item holding its cargo (★15: or its contents). */
     public ItemStack detachTrailer() {
-        int base = state.type.cargoSlots;
-        ItemStack[] c = new ItemStack[state.type.trailerSlots];
-        for (int i = 0; i < c.length && base + i < state.cargo.length; i++) {
-            c[i] = state.cargo[base + i];
+        int kind = state.trailer ? state.trailerType : TrailerMath.CARGO;
+        ItemStack out;
+        if (kind == TrailerMath.CARGO) {
+            int base = state.type.cargoSlots;
+            ItemStack[] c = new ItemStack[state.type.trailerSlots];
+            for (int i = 0; i < c.length && base + i < state.cargo.length; i++) {
+                c[i] = state.cargo[base + i];
+            }
+            out = com.sva.item.ItemTrailerSVA.withCargo(new ItemStack(ModContentSVA.trailer), c);
+        } else {
+            out = com.sva.item.ItemTrailerSVA.withData(new ItemStack(ModContentSVA.trailer, 1, kind), state.writeTrailerData());
         }
         state.setTrailer(false);
+        carriedCard = null;
+        chargerServed.clear();
         syncWatcher();
-        return com.sva.item.ItemTrailerSVA.withCargo(new ItemStack(ModContentSVA.trailer), c);
+        return out;
+    }
+
+    // ------------------------------------------------------------------ wave 3, ★15: the trailer kinds at work
+
+    /** Server, every tick with a tank / platform / charger hitched. */
+    private void trailerTick(boolean motorOn) {
+        int k = state.trailerType;
+        if (k == TrailerMath.TANK) {
+            if (ticksExisted % 5 == 0) {
+                tankSlots();
+            }
+        } else if (k == TrailerMath.PLATFORM) {
+            if (state.carried != null && ticksExisted % 20 == 0) {
+                chargeCarried();
+            }
+        } else if (k == TrailerMath.CHARGER) {
+            chargerTick(motorOn);
+        }
+    }
+
+    /** ★15 tanker: the «in» slot pours a full container in, the «out» slot fills an empty one (whole containers). */
+    private void tankSlots() {
+        ItemStack in = state.tankIn;
+        if (in != null && in.stackSize == 1) {
+            FluidStack f = FluidContainerRegistry.getFluidForFilledItem(in);
+            if (f != null && f.getFluid() != null && f.amount > 0) {
+                String name = f.getFluid().getName();
+                if (TrailerMath.tankRoom(state.tankFluid, state.tankAmount, name, f.amount) == f.amount) {
+                    tankAdd(name, f.amount);
+                    state.tankIn = FluidContainerRegistry.drainFluidContainer(in);
+                }
+            } else if (in.getItem() instanceof IFluidContainerItem) {
+                IFluidContainerItem c = (IFluidContainerItem) in.getItem();
+                FluidStack cf = c.getFluid(in);
+                if (cf != null && cf.getFluid() != null && cf.amount > 0) {
+                    int room = TrailerMath.tankRoom(state.tankFluid, state.tankAmount, cf.getFluid().getName(), cf.amount);
+                    FluidStack d = room > 0 ? c.drain(in, room, true) : null;
+                    if (d != null && d.amount > 0) {
+                        tankAdd(cf.getFluid().getName(), d.amount);
+                    }
+                }
+            }
+        }
+        ItemStack out = state.tankOut;
+        Fluid fl = state.tankAmount > 0 ? net.minecraftforge.fluids.FluidRegistry.getFluid(state.tankFluid) : null;
+        if (out != null && out.stackSize == 1 && fl != null) {
+            if (FluidContainerRegistry.isEmptyContainer(out)) {
+                ItemStack filled = FluidContainerRegistry.fillFluidContainer(new FluidStack(fl, state.tankAmount), out);
+                FluidStack got = filled == null ? null : FluidContainerRegistry.getFluidForFilledItem(filled);
+                if (got != null && got.amount > 0 && got.amount <= state.tankAmount) {
+                    tankTake(got.amount);
+                    state.tankOut = filled;
+                }
+            } else if (out.getItem() instanceof IFluidContainerItem) {
+                int put = ((IFluidContainerItem) out.getItem()).fill(out, new FluidStack(fl, state.tankAmount), true);
+                if (put > 0) {
+                    tankTake(Math.min(put, state.tankAmount));
+                }
+            }
+        }
+    }
+
+    /** ★15 tanker: mB of `fluid` in (the caller checked the room). */
+    public void tankAdd(String fluid, int mb) {
+        if (mb <= 0) {
+            return;
+        }
+        if (state.tankAmount <= 0) {
+            state.tankFluid = fluid;
+        }
+        state.tankAmount = Math.min(TrailerMath.TANK_CAP, state.tankAmount + mb);
+        syncWatcher();
+    }
+
+    private void tankTake(int mb) {
+        state.tankAmount = Math.max(0, state.tankAmount - mb);
+        if (state.tankAmount == 0) {
+            state.tankFluid = "";
+        }
+        syncWatcher();
+    }
+
+    /**
+     * ★15 «Заправить технику рядом»: a gas in the tank goes into every vehicle within TrailerMath.REFUEL_RADIUS blocks of
+     * the trailer that has a tank for it (this crawler too), as much as each takes. @return mB moved
+     */
+    public int refuelNearby(EntityPlayer p) {
+        Fluid fl = state.tankAmount > 0 ? net.minecraftforge.fluids.FluidRegistry.getFluid(state.tankFluid) : null;
+        Gas g = Gas.of(fl);
+        if (g == null) {
+            if (p != null) {
+                msg(p, state.tankAmount > 0 ? "sva.msg.tank.notGas" : "sva.msg.tank.empty");
+            }
+            return 0;
+        }
+        double[] tp = trailerPos();
+        double r = TrailerMath.REFUEL_RADIUS;
+        AxisAlignedBB box = AxisAlignedBB.getBoundingBox(tp[0] - r, posY - 4, tp[1] - r, tp[0] + r, posY + 6, tp[1] + r);
+        int total = 0, served = 0;
+        for (Object o : worldObj.getEntitiesWithinAABB(EntityVehicleSVA.class, box)) {
+            EntityVehicleSVA v = (EntityVehicleSVA) o;
+            if (v.isDead || state.tankAmount <= 0) {
+                continue;
+            }
+            double dx = v.posX - tp[0], dz = v.posZ - tp[1];
+            if (dx * dx + dz * dz > r * r && v != this) {
+                continue;
+            }
+            int put = v.addGas(g, Math.min(state.tankAmount, v.gasRoom(g)));
+            if (put > 0) {
+                tankTake(put);
+                total += put;
+                served++;
+                v.markCharging();
+                if (p != null) {
+                    msg(p, "sva.msg.tank.refuelled", new ChatComponentTranslation("item.siliconagevehicles.vehicle." + v.state.type.key + ".name"),
+                            com.sva.vehicle.SkinMath.boardText(v.getBoardNumber()), com.sva.FormatSVA.group(put), new ChatComponentTranslation("sva.gas." + g.key()));
+                }
+            }
+        }
+        if (p != null && served == 0) {
+            msg(p, "sva.msg.tank.noTarget", Integer.valueOf((int) r), new ChatComponentTranslation("sva.gas." + g.key()));
+        }
+        if (total > 0) {
+            oneShot("ding", 0.5F, 1.2F);
+        }
+        return total;
+    }
+
+    /** ★15: may the platform take this vehicle (the world one: empty, the player's to manage, near the deck)? */
+    private boolean loadable(EntityVehicleSVA v, EntityPlayer p, double[] tp) {
+        if (v == this || v.isDead || !TrailerMath.platformFits(v.state.type) || v.occupied() || p != null && !v.canManage(p)) {
+            return false;
+        }
+        double dx = v.posX - tp[0], dz = v.posZ - tp[1];
+        return dx * dx + dz * dz <= TrailerMath.LOAD_RADIUS * TrailerMath.LOAD_RADIUS && Math.abs(v.posY - posY) < 4;
+    }
+
+    /** ★15 «Погрузить ближайшую»: the nearest empty small vehicle of the player's goes onto the platform. @return loaded */
+    public boolean loadNearest(EntityPlayer p) {
+        if (!state.hasTrailer(TrailerMath.PLATFORM)) {
+            return false;
+        }
+        if (state.carried != null) {
+            msg(p, "sva.msg.platform.full");
+            return false;
+        }
+        double[] tp = trailerPos();
+        double r = TrailerMath.LOAD_RADIUS;
+        EntityVehicleSVA best = null;
+        double bestD = Double.MAX_VALUE;
+        for (Object o : worldObj.getEntitiesWithinAABB(EntityVehicleSVA.class,
+                AxisAlignedBB.getBoundingBox(tp[0] - r, posY - 4, tp[1] - r, tp[0] + r, posY + 4, tp[1] + r))) {
+            EntityVehicleSVA v = (EntityVehicleSVA) o;
+            double d = (v.posX - tp[0]) * (v.posX - tp[0]) + (v.posZ - tp[1]) * (v.posZ - tp[1]);
+            if (loadable(v, p, tp) && d < bestD) {
+                best = v;
+                bestD = d;
+            }
+        }
+        if (best == null) {
+            msg(p, "sva.msg.platform.none", Integer.valueOf((int) r));
+            return false;
+        }
+        loadVehicle(best);
+        msg(p, "sva.msg.platform.loaded", new ChatComponentTranslation("item.siliconagevehicles.vehicle." + best.state.type.key + ".name"),
+                com.sva.vehicle.SkinMath.boardText(best.getBoardNumber()));
+        return true;
+    }
+
+    /** ★15 (server; the world test): the vehicle leaves the world and rides the platform as its item (everything kept). */
+    public void loadVehicle(EntityVehicleSVA v) {
+        ItemStack it = v.toItemStack();
+        v.dismountAll();
+        v.setDead();
+        state.carried = it.writeToNBT(new NBTTagCompound());
+        carriedCard = null;
+        worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 1.2F);
+        syncWatcher();
+    }
+
+    /** ★15: RMB on the crawler with a vehicle item - it goes onto the platform (a small one, the platform empty). */
+    private void loadItem(EntityPlayer p, ItemStack held) {
+        if (!canOpenCargo(p)) {
+            lockedMsg(p);
+            return;
+        }
+        VehicleType vt = com.sva.item.ItemVehicleSVA.typeOf(held);
+        if (state.carried != null) {
+            msg(p, "sva.msg.platform.full");
+            return;
+        }
+        if (!TrailerMath.platformFits(vt)) {
+            msg(p, "sva.msg.platform.tooBig", new ChatComponentTranslation("item.siliconagevehicles.vehicle." + vt.key + ".name"));
+            return;
+        }
+        ItemStack one = held.splitStack(1);
+        if (held.stackSize <= 0) {
+            p.inventory.setInventorySlotContents(p.inventory.currentItem, null);
+        }
+        p.inventoryContainer.detectAndSendChanges();
+        state.carried = one.writeToNBT(new NBTTagCompound());
+        carriedCard = null;
+        worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 1.2F);
+        msg(p, "sva.msg.platform.loadedItem", new ChatComponentTranslation("item.siliconagevehicles.vehicle." + vt.key + ".name"));
+        syncWatcher();
+    }
+
+    /**
+     * ★15 «Выгрузить»: the carried vehicle is placed beside the crawler (behind the trailer, left, right, in front - the
+     * first free spot) with its whole state and id (its key cards stay valid). @return the placed vehicle, or null
+     */
+    public EntityVehicleSVA unloadCarried(EntityPlayer p) {
+        if (state.carried == null) {
+            if (p != null) {
+                msg(p, "sva.msg.platform.empty");
+            }
+            return null;
+        }
+        ItemStack it = ItemStack.loadItemStackFromNBT(state.carried);
+        if (it == null || !(it.getItem() instanceof com.sva.item.ItemVehicleSVA)) {
+            state.carried = null;
+            carriedCard = null;
+            syncWatcher();
+            return null;
+        }
+        VehicleState st = com.sva.item.ItemVehicleSVA.stateOf(it);
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(worldObj);
+        if (reg != null && st.ownerId.length() > 0 && !VehicleMath.limitAllows(reg.count(st.ownerId), ConfigSVA.maxPerPlayer)) {
+            if (p != null) {
+                msg(p, "sva.msg.limit", Integer.valueOf(ConfigSVA.maxPerPlayer));
+            }
+            return null;
+        }
+        VehicleType t = state.type;
+        double side = t.width / 2.0 + st.type.width / 2.0 + 0.6;
+        double back = TrailerMath.TRAILER_BACK + 2.4 + st.type.halfLength;
+        double[][] spots = {{-back, 0}, {-TrailerMath.TRAILER_BACK, -side}, {-TrailerMath.TRAILER_BACK, side}, {0, -side}, {0, side},
+                {t.halfLength + st.type.halfLength + 0.8, 0}};
+        for (double[] o : spots) {
+            double[] w = toWorld(o[0], o[1]);
+            for (int up = 0; up <= 2; up++) {
+                EntityVehicleSVA v = com.sva.item.ItemVehicleSVA.spawnKept(worldObj, it, posX + w[0], Math.floor(posY) + up, posZ + w[1],
+                        rotationYaw);
+                if (v != null) {
+                    state.carried = null;
+                    carriedCard = null;
+                    worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 1.0F);
+                    if (p != null) {
+                        msg(p, "sva.msg.platform.unloaded", new ChatComponentTranslation("item.siliconagevehicles.vehicle." + st.type.key + ".name"),
+                                com.sva.vehicle.SkinMath.boardText(v.getBoardNumber()));
+                    }
+                    syncWatcher();
+                    return v;
+                }
+            }
+        }
+        if (p != null) {
+            msg(p, "sva.msg.platform.noSpace");
+        }
+        return null;
+    }
+
+    /** ★15: the carried vehicle charges from the crawler, TrailerMath.CARRY_EU a tick (a second at once), not under 20 %. */
+    private void chargeCarried() {
+        ItemStack it = ItemStack.loadItemStackFromNBT(state.carried);
+        if (it == null || !(it.getItem() instanceof com.sva.item.ItemVehicleSVA)) {
+            return;
+        }
+        VehicleState st = com.sva.item.ItemVehicleSVA.stateOf(it);
+        double room = st.maxEnergy() - st.energy;
+        int eu = TrailerMath.carryCharge(state.energy, state.maxEnergy(), room / 20.0) * 20;
+        if (eu <= 0) {
+            return;
+        }
+        eu = (int) Math.min(eu, Math.max(0, state.energy - state.maxEnergy() * TrailerMath.FEED_FLOOR));
+        if (eu <= 0) {
+            return;
+        }
+        st.energy += eu;
+        state.energy -= eu;
+        state.carried = com.sva.item.ItemVehicleSVA.withState(it, st).writeToNBT(new NBTTagCompound());
+        carriedCard = null;
+    }
+
+    /**
+     * ★15 mobile charger: the sun (day, open sky over the trailer, no rain), the crawler's feed while driving (not under
+     * 20 % of its own charge), and one vehicle within TrailerMath.CHARGE_RADIUS blocks charged at the HV station rate
+     * (round robin, rescanned every second; never the crawler itself).
+     */
+    private void chargerTick(boolean motorOn) {
+        double[] tp = trailerPos();
+        int bx = MathHelper.floor_double(tp[0]), bz = MathHelper.floor_double(tp[1]), by = MathHelper.floor_double(posY) + 2;
+        double room = TrailerMath.CHARGER_BUFFER - state.chargerEnergy;
+        int sun = TrailerMath.solar(worldObj.isDaytime(), worldObj.canBlockSeeTheSky(bx, by, bz), worldObj.isRaining(), room);
+        solarNow = sun > 0;
+        state.chargerEnergy += sun;
+        room -= sun;
+        int fed = TrailerMath.feed(motorOn && speedEma > 0.02, state.energy, state.maxEnergy(), room, TrailerMath.FEED_EU);
+        if (fed > 0) {
+            state.chargerEnergy += fed;
+            state.energy -= fed;
+        }
+        if (--chargerScan <= 0) {
+            chargerScan = 20;
+            chargerServed.clear();
+            double r = TrailerMath.CHARGE_RADIUS;
+            for (Object o : worldObj.getEntitiesWithinAABB(EntityVehicleSVA.class,
+                    AxisAlignedBB.getBoundingBox(tp[0] - r, posY - 3, tp[1] - r, tp[0] + r, posY + 5, tp[1] + r))) {
+                EntityVehicleSVA v = (EntityVehicleSVA) o;
+                double dx = v.posX - tp[0], dz = v.posZ - tp[1];
+                if (v != this && !v.isDead && dx * dx + dz * dz <= r * r) {
+                    chargerServed.add(v);
+                }
+            }
+        }
+        int n = chargerServed.size();
+        int rate = com.sva.platform.PlatformMath.rate(com.sc.energy.Tier.HV, 0, 0, ConfigSVA.chargerRate);
+        for (int i = 0; i < n; i++) {
+            int idx = com.sva.platform.PlatformMath.nextIndex(chargerRr + i, n);
+            EntityVehicleSVA v = chargerServed.get(idx);
+            if (v.isDead || v.energyRoom() < 1) {
+                continue;
+            }
+            int moved = VehicleMath.chargeTransfer((int) Math.min(Integer.MAX_VALUE, state.chargerEnergy), rate, v.energyRoom());
+            if (moved > 0) {
+                state.chargerEnergy -= moved;
+                v.addEnergy(moved);
+                v.markCharging();
+                chargerRr = idx;
+            }
+            break;
+        }
+    }
+
+    /** ★19 (server): this vehicle's card in the registry - where it is, charge, hull, who may see it. */
+    private void updateRegistry() {
+        VehicleRegistrySVA r = VehicleRegistrySVA.get(worldObj);
+        if (r == null) {
+            return;
+        }
+        r.update(state.vehId, state.ownerId, state.ownerName, state.type.ordinal(), getBoardNumber(), posX, posY, posZ,
+                worldObj.provider.dimensionId, (float) (state.energy / Math.max(1.0, state.maxEnergy())),
+                (float) (state.hp / Math.max(1F, state.maxHp())), worldObj.getTotalWorldTime(), state.access);
     }
 
     /** A Coordinator's point becomes route point A, the next one B, then A again (same dimension only). */
@@ -2361,7 +2915,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** ★10: the same, with the «Багажник» right: it opens the cargo screen and sorts / throws out junk like the owner. */
     public static boolean actionAllowed(int action, boolean manage, boolean driver, boolean cargo) {
-        if (action == A_CARGO || action == A_SORT || action == A_JUNK) {
+        if (action == A_CARGO || action == A_SORT || action == A_JUNK || action >= A_TANK_REFUEL && action <= A_PLATFORM_UNLOAD) {
             return manage || cargo;
         }
         return actionAllowed(action, manage, driver);
@@ -2387,6 +2941,24 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             int n = dumpJunk();
             msg(p, n > 0 ? (t.hasDrill ? "sva.msg.cargo.junkDrill" : "sva.msg.cargo.junk") : "sva.msg.cargo.noJunk", Integer.valueOf(n),
                     Integer.valueOf(JUNK_KEEP_COBBLE));
+            return;
+        }
+        if (a == A_TANK_REFUEL && state.hasTrailer(TrailerMath.TANK)) {
+            refuelNearby(p);
+            return;
+        }
+        if (a == A_TANK_DUMP && state.hasTrailer(TrailerMath.TANK)) {
+            int was = state.tankAmount;
+            tankTake(was);
+            msg(p, "sva.msg.tank.dumped", com.sva.FormatSVA.group(was));
+            return;
+        }
+        if (a == A_PLATFORM_LOAD && state.hasTrailer(TrailerMath.PLATFORM)) {
+            loadNearest(p);
+            return;
+        }
+        if (a == A_PLATFORM_UNLOAD && state.hasTrailer(TrailerMath.PLATFORM)) {
+            unloadCarried(p);
             return;
         }
         if (a == A_CARGO) {
@@ -2797,9 +3369,14 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     // ------------------------------------------------------------------ IInventory (cargo)
 
-    /** The drill vehicle's head and module slots come after the cargo. */
-    private int extraSlots() {
-        return getVehicleType().hasDrill ? 2 : 0;
+    /** The drill vehicle's head and module slots come after the cargo; ★15 the tanker's «in» / «out» container slots too. */
+    public int extraSlots() {
+        return getVehicleType().hasDrill || tankSlotsOn() ? 2 : 0;
+    }
+
+    /** ★15: the tanker's two container slots exist (a tank trailer is hitched). */
+    public boolean tankSlotsOn() {
+        return worldObj != null && worldObj.isRemote ? hasTrailerKind(TrailerMath.TANK) : state.hasTrailer(TrailerMath.TANK);
     }
 
     /** Index of the drill head slot (the module slot is the next one). */
@@ -2808,14 +3385,15 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         return state.cargo.length;
     }
 
-    /** Client: the local state follows the synced type and trailer (the cargo screen's slots). */
+    /** Client: the local state follows the synced type and trailer (the cargo screen's slots; ★15 the trailer's kind). */
     private void clientState() {
         if (worldObj != null && worldObj.isRemote) {
             VehicleType t = getVehicleType();
             boolean tr = hasTrailer();
-            if (state.type != t || state.trailer != tr) {
+            int kind = trailerKind();
+            if (state.type != t || state.trailer != tr || tr && state.trailerType != kind) {
                 VehicleState n = new VehicleState(t);
-                n.setTrailer(tr);
+                n.setTrailer(tr, kind);
                 state = n;
             }
         }
@@ -2834,11 +3412,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (i >= 0 && i < n) {
             return state.cargo[i];
         }
+        boolean tank = tankSlotsOn();
         if (extraSlots() > 0 && i == n) {
-            return state.drillHead;
+            return tank ? state.tankIn : state.drillHead;
         }
         if (extraSlots() > 0 && i == n + 1) {
-            return state.drillModule;
+            return tank ? state.tankOut : state.drillModule;
         }
         return null;
     }
@@ -2872,6 +3451,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         }
         if (i >= 0 && i < n) {
             state.cargo[i] = s;
+        } else if (tankSlotsOn() && i == n) {
+            state.tankIn = s;                                       // ★15 the tanker's slots
+        } else if (tankSlotsOn() && i == n + 1) {
+            state.tankOut = s;
         } else if (extraSlots() > 0 && i == n) {
             state.drillHead = s;
             if (s == null && worldObj != null && !worldObj.isRemote) {
@@ -2926,6 +3509,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     @Override
     public boolean isItemValidForSlot(int i, ItemStack s) {
         int n = state.cargo.length;
+        if (tankSlotsOn() && (i == n || i == n + 1)) {
+            return s == null || com.sc.util.FluidHandSC.isContainer(s);       // ★15 buckets, cells, tanks-in-an-item
+        }
         if (extraSlots() > 0 && i == n) {
             return s == null || DrillLogicSVA.isHead(s);
         }

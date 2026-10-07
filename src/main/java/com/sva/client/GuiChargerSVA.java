@@ -103,6 +103,25 @@ public class GuiChargerSVA extends GuiContainer {
 
     // ------------------------------------------------------------------ input
 
+    /** Wave 3, ★19: «Техника» in the inventory panel's header opens «Моя техника» round this station. */
+    private static final int B_MAP = 0;
+
+    @Override
+    public void initGui() {
+        super.initGui();
+        buttonList.clear();
+        if (com.sva.ConfigSVA.vehicleMap) {
+            buttonList.add(new GuiCargoSVA.Dark(B_MAP, guiLeft + 300, guiTop + 140, 52, 11, Lang.tr("sva.st.map"), Lang.tr("sva.st.tip.map")));
+        }
+    }
+
+    @Override
+    protected void actionPerformed(net.minecraft.client.gui.GuiButton b) {
+        if (b.id == B_MAP) {
+            GuiMapSVA.openAtStation(mc, tile.xCoord, tile.zCoord);
+        }
+    }
+
     @Override
     protected void mouseClicked(int mx, int my, int button) {
         super.mouseClicked(mx, my, button);
@@ -121,6 +140,12 @@ public class GuiChargerSVA extends GuiContainer {
     public void drawScreen(int mx, int my, float pt) {
         TextFitSC.beginFrame();
         super.drawScreen(mx, my, pt);
+        for (Object o : buttonList) {
+            if (o instanceof GuiCargoSVA.Dark && ((GuiCargoSVA.Dark) o).visible) {
+                GuiCargoSVA.Dark d = (GuiCargoSVA.Dark) o;
+                TextFitSC.hover(d.xPosition, d.yPosition, d.width, d.height, d.tip);
+            }
+        }
         List<String> tip = TextFitSC.hoverAt(mx, my);
         if (tip != null && !tip.isEmpty()) {
             drawHoveringText(tip, mx, my, fontRendererObj);

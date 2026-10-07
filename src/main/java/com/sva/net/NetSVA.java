@@ -28,6 +28,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * Wave 2: Garage (C->S) - a repair garage screen button (repair all / hull only), checked against the open container;
  * AccessInfo (S->C) - a vehicle's access list for the ★10 access screen (sent when it opens and after each edit);
  * AccessEdit (C->S) - an access screen change (owner / op, within 8 blocks: EntityVehicleSVA.accessEdit).
+ * Wave 3, ★19: MapRequest (C->S) - the «Моя техника» screen asks (on open and every MapMath.REFRESH_EVERY ticks);
+ * MapInfo (S->C) - the vehicles the sender may see (MapMath.visible: his own, or listed / a key card), nearest first.
  */
 public final class NetSVA {
 
@@ -48,6 +50,8 @@ public final class NetSVA {
         CHANNEL.registerMessage(GarageHandler.class, Garage.class, 8, Side.SERVER);
         CHANNEL.registerMessage(AccessInfoHandler.class, AccessInfo.class, 9, Side.CLIENT);
         CHANNEL.registerMessage(AccessEditHandler.class, AccessEdit.class, 10, Side.SERVER);
+        CHANNEL.registerMessage(MapRequestHandler.class, MapRequest.class, 11, Side.SERVER);
+        CHANNEL.registerMessage(MapInfoHandler.class, MapInfo.class, 12, Side.CLIENT);
     }
 
     // ---------------------------------------------------------------- input
@@ -626,6 +630,159 @@ public final class NetSVA {
                     }
                 }
             });
+            return null;
+        }
+    }
+
+    // ---------------------------------------------------------------- wave 3, ★19: «Моя техника»
+
+    public static class MapRequest implements IMessage {
+        public MapRequest() {
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+        }
+    }
+
+    public static class MapRequestHandler implements IMessageHandler<MapRequest, IMessage> {
+        @Override
+        public IMessage onMessage(MapRequest m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    if (p.worldObj != null && p.playerNetServerHandler != null) {
+                        CHANNEL.sendTo(MapInfo.build(p), p);
+                    }
+                }
+            });
+            return null;
+        }
+    }
+
+    /** One player's map: whether the map is on, the world time, and the rows. */
+    public static class MapInfo implements IMessage {
+        /** One vehicle: type, board, block position, dimension, charge / hull %, seconds since seen, owner, own, position known. */
+        public static final class Row {
+            public int type, board, x, y, z, dim, charge, hull, age;
+            public String owner = "";
+            public boolean own, placed;
+        }
+
+        public boolean enabled;
+        public final java.util.List<Row> rows = new java.util.ArrayList<Row>();
+
+        public MapInfo() {
+        }
+
+        /** Server: the rows `p` may see, his dimension first, nearest first, at most MapMath.MAX_LIST. */
+        public static MapInfo build(EntityPlayerMP p) {
+            MapInfo m = new MapInfo();
+            m.enabled = com.sva.ConfigSVA.vehicleMap;
+            com.sva.vehicle.VehicleRegistrySVA reg = com.sva.vehicle.VehicleRegistrySVA.get(p.worldObj);
+            if (!m.enabled || reg == null) {
+                return m;
+            }
+            String id = p.getUniqueID().toString(), name = p.getCommandSenderName();
+            long now = p.worldObj.getTotalWorldTime();
+            final int dim = p.worldObj.provider.dimensionId;
+            final double px = p.posX, pz = p.posZ;
+            java.util.List<com.sva.vehicle.VehicleRegistrySVA.Entry> list = reg.all();
+            java.util.Collections.sort(list, new java.util.Comparator<com.sva.vehicle.VehicleRegistrySVA.Entry>() {
+                @Override
+                public int compare(com.sva.vehicle.VehicleRegistrySVA.Entry a, com.sva.vehicle.VehicleRegistrySVA.Entry b) {
+                    double da = (a.dim == dim ? 0 : 1e12) + (a.x - px) * (a.x - px) + (a.z - pz) * (a.z - pz);
+                    double db = (b.dim == dim ? 0 : 1e12) + (b.x - px) * (b.x - px) + (b.z - pz) * (b.z - pz);
+                    return Double.compare(da, db);
+                }
+            });
+            for (com.sva.vehicle.VehicleRegistrySVA.Entry e : list) {
+                boolean own = e.owner.equals(id);
+                int card = -1;
+                for (net.minecraft.item.ItemStack s : p.inventory.mainInventory) {
+                    int r = com.sva.item.ItemKeyCardSVA.rightsFor(s, e.id, e.access.lockVersion);
+                    if (r >= 0) {
+                        card = card < 0 ? r : card | r;
+                    }
+                }
+                if (!com.sva.vehicle.MapMath.visible(own, com.sva.ConfigSVA.locks, e.access.mode, e.access.listed(name), card)) {
+                    continue;
+                }
+                Row r = new Row();
+                r.type = e.type;
+                r.board = e.board;
+                r.x = net.minecraft.util.MathHelper.floor_double(e.x);
+                r.y = net.minecraft.util.MathHelper.floor_double(e.y);
+                r.z = net.minecraft.util.MathHelper.floor_double(e.z);
+                r.dim = e.dim;
+                r.charge = Math.round(e.charge * 100);
+                r.hull = Math.round(e.hull * 100);
+                r.age = com.sva.vehicle.MapMath.ageSeconds(now, e.seen);
+                r.owner = e.ownerName;
+                r.own = own;
+                r.placed = e.placed;
+                m.rows.add(r);
+                if (m.rows.size() >= com.sva.vehicle.MapMath.MAX_LIST) {
+                    break;
+                }
+            }
+            return m;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            enabled = buf.readBoolean();
+            int n = Math.min(com.sva.vehicle.MapMath.MAX_LIST, buf.readUnsignedByte());
+            for (int i = 0; i < n; i++) {
+                Row r = new Row();
+                r.type = buf.readUnsignedByte();
+                r.board = buf.readUnsignedByte();
+                r.x = buf.readInt();
+                r.y = buf.readShort();
+                r.z = buf.readInt();
+                r.dim = buf.readInt();
+                r.charge = buf.readUnsignedByte();
+                r.hull = buf.readUnsignedByte();
+                r.age = buf.readInt();
+                int f = buf.readUnsignedByte();
+                r.own = (f & 1) != 0;
+                r.placed = (f & 2) != 0;
+                r.owner = cut(cpw.mods.fml.common.network.ByteBufUtils.readUTF8String(buf), 32);
+                rows.add(r);
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeBoolean(enabled);
+            int n = Math.min(com.sva.vehicle.MapMath.MAX_LIST, rows.size());
+            buf.writeByte(n);
+            for (int i = 0; i < n; i++) {
+                Row r = rows.get(i);
+                buf.writeByte(r.type);
+                buf.writeByte(r.board);
+                buf.writeInt(r.x);
+                buf.writeShort(Math.max(-32768, Math.min(32767, r.y)));
+                buf.writeInt(r.z);
+                buf.writeInt(r.dim);
+                buf.writeByte(Math.max(0, Math.min(100, r.charge)));
+                buf.writeByte(Math.max(0, Math.min(100, r.hull)));
+                buf.writeInt(r.age);
+                buf.writeByte((r.own ? 1 : 0) | (r.placed ? 2 : 0));
+                cpw.mods.fml.common.network.ByteBufUtils.writeUTF8String(buf, cut(r.owner, 32));
+            }
+        }
+    }
+
+    public static class MapInfoHandler implements IMessageHandler<MapInfo, IMessage> {
+        @Override
+        public IMessage onMessage(MapInfo m, MessageContext ctx) {
+            SVAMod.proxy.mapInfo(m);                                // shown on the client thread
             return null;
         }
     }

@@ -154,6 +154,17 @@ public final class AnimParts {
             wheel("truck", "trailerWheel" + (s > 0 ? "R" : "L"), TYRE, -2.256F, 0.39F, s * 0.781F, 0.45F, 0.41F, 0.62F, 0.95F, s, 0.39F)
                     .trailer = true;
         }
+        // ---- wave 3 (★15) the trailer models (vehicles/w3/veh_trailers.py, truck.obj's model space): tandem axles of the
+        // braked tyre (rubber + chrome rims + disc + dark bolts + accent hub; the calipers stay). trailer_tank / _charger:
+        // r 0.344 at x -2.819 / -2.069, y 0.359, z +-0.656 (tank) / +-0.787 (charger); trailer_platform: smaller wheels
+        // outboard of the deck, r 0.287 at x -2.881 / -2.194, y 0.303, z +-0.988. Boxes: +-0.384 / +-0.326 round the axle,
+        // |z| over the tyre's width + 0.04 (the tank's bumper and the deck stay out: other materials or |z| inside).
+        float[][] tw = {{-2.819F, 0.359F, 0.656F, 0.344F, 0.384F, 0.513F, 0.800F}, {-2.069F, 0.359F, 0.656F, 0.344F, 0.384F, 0.513F, 0.800F}};
+        float[][] pw = {{-2.881F, 0.303F, 0.988F, 0.287F, 0.326F, 0.856F, 1.119F}, {-2.194F, 0.303F, 0.988F, 0.287F, 0.326F, 0.856F, 1.119F}};
+        float[][] cw = {{-2.819F, 0.359F, 0.787F, 0.344F, 0.384F, 0.644F, 0.931F}, {-2.069F, 0.359F, 0.787F, 0.344F, 0.384F, 0.644F, 0.931F}};
+        trailerWheels("trailer_tank", tw);
+        trailerWheels("trailer_platform", pw);
+        trailerWheels("trailer_charger", cw);
         // ---- drill.obj: five road wheels per side (steel, r 0.194) at x -2.375, -1.656, -0.938, -0.219, 0.5, y 0.281,
         // z +-1.006 (the tread runs at |z| 0.85..1.15 around them)
         float[] droad = {-2.375F, -1.656F, -0.938F, -0.219F, 0.5F};
@@ -278,6 +289,16 @@ public final class AnimParts {
     /** Every Def (self-test). */
     public static List<Def> all() {
         return ALL;
+    }
+
+    /** ★15: a trailer model's wheels, rows {x, y, |z|, radius, box half-size, |z| in, |z| out}, both sides. */
+    private static void trailerWheels(String model, float[][] rows) {
+        for (int i = 0; i < rows.length; i++) {
+            float[] r = rows[i];
+            for (int s = -1; s <= 1; s += 2) {
+                wheel(model, "wheel" + i + (s > 0 ? "R" : "L"), TYRE, r[0], r[1], s * r[2], r[4], r[4], r[5], r[6], s, r[3]);
+            }
+        }
     }
 
     /** A wheel: centre (x, y, z); box x +-dxFront/back, y centre +-dy..., |z| zIn..zOut on side s (0: centred +-zOut). */

@@ -213,6 +213,9 @@ public final class WorkbenchRecipeSVA {
         if (have == null || have.getItem() == null || want == null) {
             return false;
         }
+        if (have.getItem() instanceof com.sva.item.ItemTrailerSVA && com.sva.item.ItemTrailerSVA.hasContents(have)) {
+            return false;                                   // ★15: a trailer with cargo / contents is never an ingredient
+        }
         if (want instanceof ItemStack) {
             return OreDictionary.itemMatches((ItemStack) want, have, false);
         }

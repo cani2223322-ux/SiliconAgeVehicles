@@ -28,7 +28,11 @@ public class VehicleState {
             // cargo screen v2: torches the drill has put down
             K_TORCHES = "Torches",
             // wave 2: the tuning slots (TuningMath kinds, -1 empty) and the access list / lock (AccessMath)
-            K_TUNING = "Tuning", K_ACCESS = "Access";
+            K_TUNING = "Tuning", K_ACCESS = "Access",
+            // wave 3 (★15): the hitched trailer's kind (TrailerMath) and its contents (the tank, the carried vehicle, the charger)
+            K_TRAILER_TYPE = "TrailerType", K_TRAILER_DATA = "TrailerData";
+    /** Keys inside K_TRAILER_DATA (also the trailer item's own NBT, ItemTrailerSVA). */
+    public static final String T_FLUID = "Fluid", T_AMOUNT = "Amount", T_IN = "In", T_OUT = "Out", T_CARRIED = "Carried", T_ENERGY = "Energy";
 
     public VehicleType type;
     public double energy;
@@ -67,6 +71,16 @@ public class VehicleState {
     public int[] tuning = TuningMath.empty();
     /** Wave 2 (★10): who may drive / ride / open the cargo / repair, the lock mode and its version (key cards). */
     public final AccessMath.Access access = new AccessMath.Access();
+    /** Wave 3 (★15): the hitched trailer's kind (TrailerMath.CARGO .. CHARGER; meaningful while `trailer`). */
+    public int trailerType;
+    /** ★15 tanker: the fluid's registry name ("" empty) and its mB; the two container slots of its screen (in / out). */
+    public String tankFluid = "";
+    public int tankAmount;
+    public ItemStack tankIn, tankOut;
+    /** ★15 platform: the carried vehicle as its item stack's NBT (ItemStack.writeToNBT), null when empty. */
+    public NBTTagCompound carried;
+    /** ★15 mobile charger: EU in its buffer. */
+    public double chargerEnergy;
 
     public VehicleState(VehicleType type) {
         this.type = type;
@@ -75,9 +89,19 @@ public class VehicleState {
         this.vehId = UUID.randomUUID().toString();
     }
 
-    /** Cargo slots now (a hitched trailer adds its own). */
+    /** Cargo slots now (a hitched cargo trailer adds its own; ★15 the other kinds add none). */
     public int cargoSize() {
-        return type.cargoSlots(trailer);
+        return type.cargoSlots(cargoTrailer());
+    }
+
+    /** The old cargo trailer is hitched (its 54 slots count). */
+    public boolean cargoTrailer() {
+        return trailer && TrailerMath.addsCargo(trailerType);
+    }
+
+    /** A trailer of this kind is hitched. */
+    public boolean hasTrailer(int kind) {
+        return trailer && trailerType == kind;
     }
 
     /**
@@ -85,10 +109,71 @@ public class VehicleState {
      * the caller takes the trailer's items out first (they are dropped from the array here).
      */
     public void setTrailer(boolean on) {
+        setTrailer(on, TrailerMath.CARGO);
+    }
+
+    /** ★15: hitches a trailer of a kind (its contents empty until readTrailerData) / unhitches (contents cleared). */
+    public void setTrailer(boolean on, int kind) {
         trailer = on && type.trailerSlots > 0;
+        trailerType = trailer ? TrailerMath.valid(kind) : TrailerMath.CARGO;
+        clearTrailerData();
         ItemStack[] n = new ItemStack[cargoSize()];
         System.arraycopy(cargo, 0, n, 0, Math.min(cargo.length, n.length));
         cargo = n;
+    }
+
+    /** ★15: no fluid, no carried vehicle, an empty charger. */
+    public void clearTrailerData() {
+        tankFluid = "";
+        tankAmount = 0;
+        tankIn = tankOut = null;
+        carried = null;
+        chargerEnergy = 0;
+    }
+
+    /** ★15: the trailer's contents (only what its kind uses; an empty compound for the cargo trailer). */
+    public NBTTagCompound writeTrailerData() {
+        NBTTagCompound d = new NBTTagCompound();
+        if (trailerType == TrailerMath.TANK) {
+            if (tankAmount > 0 && tankFluid != null && tankFluid.length() > 0) {
+                d.setString(T_FLUID, tankFluid);
+                d.setInteger(T_AMOUNT, tankAmount);
+            }
+            if (tankIn != null) {
+                d.setTag(T_IN, tankIn.writeToNBT(new NBTTagCompound()));
+            }
+            if (tankOut != null) {
+                d.setTag(T_OUT, tankOut.writeToNBT(new NBTTagCompound()));
+            }
+        } else if (trailerType == TrailerMath.PLATFORM && carried != null) {
+            d.setTag(T_CARRIED, carried.copy());
+        } else if (trailerType == TrailerMath.CHARGER && chargerEnergy > 0) {
+            d.setDouble(T_ENERGY, chargerEnergy);
+        }
+        return d;
+    }
+
+    /** ★15: reads the contents for the current kind (clamped: the tank to TANK_CAP, the charger to its buffer). */
+    public void readTrailerData(NBTTagCompound d) {
+        clearTrailerData();
+        if (d == null) {
+            return;
+        }
+        if (trailerType == TrailerMath.TANK) {
+            String f = d.getString(T_FLUID);
+            int a = Math.max(0, Math.min(TrailerMath.TANK_CAP, d.getInteger(T_AMOUNT)));
+            if (f.length() > 0 && a > 0) {
+                tankFluid = f;
+                tankAmount = a;
+            }
+            tankIn = d.hasKey(T_IN) ? ItemStack.loadItemStackFromNBT(d.getCompoundTag(T_IN)) : null;
+            tankOut = d.hasKey(T_OUT) ? ItemStack.loadItemStackFromNBT(d.getCompoundTag(T_OUT)) : null;
+        } else if (trailerType == TrailerMath.PLATFORM && d.hasKey(T_CARRIED)) {
+            NBTTagCompound c = d.getCompoundTag(T_CARRIED);
+            carried = ItemStack.loadItemStackFromNBT(c) != null ? (NBTTagCompound) c.copy() : null;
+        } else if (trailerType == TrailerMath.CHARGER) {
+            chargerEnergy = clampNum(d.getDouble(T_ENERGY), 0, TrailerMath.CHARGER_BUFFER);
+        }
     }
 
     public double maxEnergy() {
@@ -237,6 +322,10 @@ public class VehicleState {
         }
         t.setTag(K_GASES, gt);
         t.setBoolean(K_TRAILER, trailer);
+        if (trailer) {
+            t.setInteger(K_TRAILER_TYPE, trailerType);           // ★15
+            t.setTag(K_TRAILER_DATA, writeTrailerData());
+        }
         if (drillHead != null) {
             t.setTag(K_HEAD, drillHead.writeToNBT(new NBTTagCompound()));
         }
@@ -290,6 +379,8 @@ public class VehicleState {
         heat = clampNum(t.hasKey(K_HEAT) ? t.getDouble(K_HEAT) : heat, 0, VehicleMath.HEAT_STOP);
         heatStop = t.getBoolean(K_HEAT_STOP);
         trailer = t.getBoolean(K_TRAILER) && type.trailerSlots > 0;
+        trailerType = trailer ? TrailerMath.valid(t.getInteger(K_TRAILER_TYPE)) : TrailerMath.CARGO;     // ★15 (old saves: 0)
+        readTrailerData(trailer && t.hasKey(K_TRAILER_DATA) ? t.getCompoundTag(K_TRAILER_DATA) : null);
         cargo = new ItemStack[cargoSize()];
         NBTTagList list = t.getTagList(K_CARGO, 10);
         for (int i = 0; i < list.tagCount(); i++) {

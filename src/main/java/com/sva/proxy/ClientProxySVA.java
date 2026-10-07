@@ -85,6 +85,13 @@ public class ClientProxySVA extends CommonProxySVA {
     public static final net.minecraft.client.settings.KeyBinding KEY_CARGO =
             new net.minecraft.client.settings.KeyBinding("key.sva.cargo", org.lwjgl.input.Keyboard.KEY_L, "key.categories.sva");
 
+    /**
+     * Wave 3, ★19 «Моя техника»: the vehicle map (on foot or riding, no screen open). Default M - free in vanilla 1.7.10,
+     * the core (K, R, P, H, J, G) and this addon (F, X, B, N, V, Y, Z, C, L, O). Rebindable.
+     */
+    public static final net.minecraft.client.settings.KeyBinding KEY_MAP =
+            new net.minecraft.client.settings.KeyBinding("key.sva.map", org.lwjgl.input.Keyboard.KEY_M, "key.categories.sva");
+
     /** The current key of «Багажник» as shown to the player (HUD / tooltips). */
     public static String cargoKeyName() {
         int c = KEY_CARGO.getKeyCode();
@@ -103,6 +110,7 @@ public class ClientProxySVA extends CommonProxySVA {
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_ANCHOR);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CLOAK);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CARGO);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_MAP);              // ★19
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(com.sva.client.CruiseClientSVA.KEY_CRUISE);   // ★4
         // ★16: vehicle / trailer items as 3D models (each type declines itself with vehicles.icons3d = false)
         net.minecraftforge.client.MinecraftForgeClient.registerItemRenderer(com.sva.init.ModContentSVA.vehicle,
@@ -208,6 +216,14 @@ public class ClientProxySVA extends CommonProxySVA {
     @Override
     public void accessInfo(NetSVA.AccessInfo m) {
         accessPending = m;
+    }
+
+    /** ★19: the last map rows from the server, handed to the open map on the client thread. */
+    private volatile NetSVA.MapInfo mapPending;
+
+    @Override
+    public void mapInfo(NetSVA.MapInfo m) {
+        mapPending = m;
     }
 
     @Override
@@ -342,6 +358,15 @@ public class ClientProxySVA extends CommonProxySVA {
         if (ai != null) {
             accessPending = null;
             com.sva.client.GuiAccessSVA.show(ai);                   // ★10: open, or refresh the open one
+        }
+        NetSVA.MapInfo mi = mapPending;
+        if (mi != null) {
+            mapPending = null;
+            com.sva.client.GuiMapSVA.receive(mi);                   // ★19
+        }
+        Minecraft mk = Minecraft.getMinecraft();
+        if (KEY_MAP.isPressed() && mk.thePlayer != null && mk.currentScreen == null) {
+            com.sva.client.GuiMapSVA.openAtPlayer(mk);              // ★19 «Моя техника»
         }
         drillKeys();
         Minecraft mcc = Minecraft.getMinecraft();

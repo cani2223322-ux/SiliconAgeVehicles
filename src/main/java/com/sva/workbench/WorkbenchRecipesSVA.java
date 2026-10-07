@@ -325,5 +325,21 @@ public final class WorkbenchRecipesSVA {
         // ★10 the key card: paper round a memory chip, gold and redstone -> 2 blank cards
         module("keyCard", new ItemStack(ModContentSVA.keyCard, 2), Tier.MV, "PGP", "RMR", "PGP",
                 'P', Items.paper, 'G', Items.gold_nugget, 'R', Items.redstone, 'M', memory);
+
+        // ---- wave 3 (appended: the list index is the sync id), ★15 the trailer kinds - made from an EMPTY cargo trailer
+        // (WorkbenchRecipeSVA.matches refuses a trailer with cargo / contents, so nothing in it is ever lost)
+        ItemStack trailer = new ItemStack(ModContentSVA.trailer, 1, com.sva.vehicle.TrailerMath.CARGO);
+        // the tanker: four gas tanks round the trailer, steel casings for the cradle, quartz chambers for the valves
+        add(new WorkbenchRecipeSVA("trailerTank", Category.VEHICLES, new ItemStack(ModContentSVA.trailer, 1, com.sva.vehicle.TrailerMath.TANK),
+                Tier.HV, 150000L, 400, new Object[] {"GXG", "GTG", "QSQ", 'G', gasTank, 'X', casing, 'T', trailer, 'Q', quartzChamber, 'S', steel}));
+        // the car platform: a steel-casing deck, hazard stripes (yellow dye), the winch (copper coil), a second axle
+        add(new WorkbenchRecipeSVA("trailerPlatform", Category.VEHICLES, new ItemStack(ModContentSVA.trailer, 1, com.sva.vehicle.TrailerMath.PLATFORM),
+                Tier.HV, 120000L, 300, new Object[] {"XXX", "YTY", "WKW", 'X', casing, 'Y', new ItemStack(Items.dye, 1, 11), 'T', trailer,
+                        'W', part(ComponentType.WHEEL), 'K', coil}));
+        // the mobile charger: four of the core's silicon solar panels (8 EU/t each = its 32 EU/t), two HV energy blocks
+        // (2M EU each = its 4M buffer), copper coils for the cable
+        ItemStack solar = com.sc.init.ModBlocks.generatorStack(com.sc.energy.GeneratorType.SOLAR_SI, 1);
+        add(new WorkbenchRecipeSVA("trailerCharger", Category.VEHICLES, new ItemStack(ModContentSVA.trailer, 1, com.sva.vehicle.TrailerMath.CHARGER),
+                Tier.HV, 400000L, 600, new Object[] {"PEP", "KTK", "PEP", 'P', solar, 'E', ebHV, 'K', coil, 'T', trailer}));
     }
 }

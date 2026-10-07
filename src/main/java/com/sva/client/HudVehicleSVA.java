@@ -117,7 +117,8 @@ public class HudVehicleSVA {
             rateEnergy = energy;
         }
         boolean autoLine = t.autoDelivery && (v.isAutoOn() || v.getAutoState() == com.sva.vehicle.AutoDelivery.STOPPED);
-        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0) + (charging ? 1 : 0) + (autoLine ? 1 : 0);
+        String trailerLine = trailerLine(v);                        // ★15: the tanker's fluid / the carried vehicle / the charger
+        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0) + (charging ? 1 : 0) + (autoLine ? 1 : 0) + (trailerLine != null ? 1 : 0);
         int h = 24 + (rows - 1) * 10 + 4;
         int x = 4, y = e.resolution.getScaledHeight() - h - 4;
 
@@ -167,6 +168,10 @@ public class HudVehicleSVA {
         }
         fr.drawString(Lang.tr("sva.hud.cargo", Integer.valueOf(v.getCargoUsed()), Integer.valueOf(v.cargoCapacity())), x + 6, ry, TEXT);
         ry += 10;
+        if (trailerLine != null) {
+            fr.drawString(trailerLine, x + 6, ry, BLUE);
+            ry += 10;
+        }
         if (autoLine) {
             boolean stop = v.getAutoState() == com.sva.vehicle.AutoDelivery.STOPPED;
             fr.drawString(GuiCargoSVA.autoStatus(v), x + 6, ry, stop ? WARN : BLUE);
@@ -553,6 +558,32 @@ public class HudVehicleSVA {
 
     /** "Low" when the lift gas lasts under this many seconds. */
     private static final int LOW_SECONDS = 120;
+
+    /**
+     * ★15: one HUD / cockpit line for a hitched tanker («Цистерна: Водород 45%»), car platform («Платформа: Багги N 07»
+     * / «пусто») or mobile charger («Зарядка: 62%, заряжает 1»); null without one (or with the cargo trailer).
+     */
+    public static String trailerLine(EntityVehicleSVA v) {
+        if (!v.hasTrailer()) {
+            return null;
+        }
+        int k = v.trailerKind();
+        if (k == com.sva.vehicle.TrailerMath.TANK) {
+            int a = v.tankAmount();
+            return a <= 0 ? Lang.tr("sva.hud.trailer.tankEmpty") : Lang.tr("sva.hud.trailer.tank", com.sva.item.ItemTrailerSVA.fluidName(v.tankFluid()),
+                    Integer.valueOf((int) Math.floor(com.sva.vehicle.TrailerMath.tankFill(a) * 100)));
+        }
+        if (k == com.sva.vehicle.TrailerMath.PLATFORM) {
+            int[] c = v.carried();
+            return c[0] < 0 ? Lang.tr("sva.hud.trailer.platformEmpty") : Lang.tr("sva.hud.trailer.platform",
+                    Lang.tr("item.siliconagevehicles.vehicle." + VehicleType.byOrdinal(c[0]).key + ".name"), com.sva.vehicle.SkinMath.boardText(c[1]));
+        }
+        if (k == com.sva.vehicle.TrailerMath.CHARGER) {
+            return Lang.tr("sva.hud.trailer.charger", Integer.valueOf((int) Math.floor(v.chargerEnergy() * 100 / com.sva.vehicle.TrailerMath.CHARGER_BUFFER)),
+                    Integer.valueOf(v.chargerServed().size()));
+        }
+        return null;
+    }
 
     private static void bar(FontRenderer fr, int x, int y, String label, double frac, int color, String value) {
         fr.drawString(label, x + 6, y, DIM);

@@ -52,6 +52,10 @@ public class CommonProxySVA {
     public void accessInfo(NetSVA.AccessInfo m) {
     }
 
+    /** Wave 3, ★19: the «Моя техника» rows arrived (client). */
+    public void mapInfo(NetSVA.MapInfo m) {
+    }
+
     /** A server correction for the local driver (applied on the client thread). */
     public void queueCorrection(NetSVA.Correct m) {
     }

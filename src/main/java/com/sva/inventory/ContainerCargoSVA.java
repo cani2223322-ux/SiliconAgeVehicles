@@ -22,8 +22,10 @@ public class ContainerCargoSVA extends Container {
     /** Window size and where things are (px from its top left). */
     public static final int W = 214, H = 236, GRID_X = 30, GRID_Y = 46, INV_Y = 157, HOTBAR_Y = 215, HEAD_X = 35, HEAD_Y = 23,
             MODULE_X = 35, MODULE_Y = 57;
-    /** Tabs: the cargo, the drill / auto-delivery, the vehicle. */
-    public static final int TAB_CARGO = 0, TAB_SPECIAL = 1, TAB_VEHICLE = 2;
+    /** Tabs: the cargo, the drill / auto-delivery, the vehicle; ★15 the trailer (tanker / platform / charger). */
+    public static final int TAB_CARGO = 0, TAB_SPECIAL = 1, TAB_VEHICLE = 2, TAB_TRAILER = 3;
+    /** ★15: the tanker's «in» / «out» container slots on the «Прицеп» tab. */
+    public static final int TANK_IN_X = 66, TANK_OUT_X = 112, TANK_Y = 74;
     private static final int OFF = -10000;
     private final EntityVehicleSVA vehicle;
     private final int cargo, extra;
@@ -32,15 +34,15 @@ public class ContainerCargoSVA extends Container {
     public ContainerCargoSVA(InventoryPlayer inv, EntityVehicleSVA v) {
         this.vehicle = v;
         int size = v.getSizeInventory();
-        this.extra = v.getVehicleType().hasDrill ? 2 : 0;
+        this.extra = v.extraSlots();                              // the drill's head / module, ★15 the tanker's in / out
         this.cargo = size - extra;
         for (int i = 0; i < cargo; i++) {
             int k = i % CrawlerMath.PAGE;
             addSlotToContainer(new Cargo(v, i, GRID_X + (k % 9) * 18, GRID_Y + (k / 9) * 18));
         }
         if (extra > 0) {
-            addSlotToContainer(new Cargo(v, cargo, HEAD_X, HEAD_Y));         // drill head
-            addSlotToContainer(new Cargo(v, cargo + 1, MODULE_X, MODULE_Y)); // bore module
+            addSlotToContainer(new Cargo(v, cargo, HEAD_X, HEAD_Y));         // drill head / ★15 tanker «in»
+            addSlotToContainer(new Cargo(v, cargo + 1, MODULE_X, MODULE_Y)); // bore module / ★15 tanker «out»
         }
         for (int r = 0; r < 3; r++) {
             for (int c = 0; c < 9; c++) {
@@ -62,7 +64,12 @@ public class ContainerCargoSVA extends Container {
     }
 
     public boolean hasDrillSlots() {
-        return extra > 0;
+        return extra > 0 && !tank();
+    }
+
+    /** ★15: the extra slots are the tanker's (a crawler with a tank trailer). */
+    public boolean tank() {
+        return extra > 0 && !vehicle.getVehicleType().hasDrill;
     }
 
     /** Rows of the grid on a page (1..6). */
@@ -93,7 +100,14 @@ public class ContainerCargoSVA extends Container {
             s.xDisplayPosition = shown ? GRID_X + (k % 9) * 18 : OFF;
             s.yDisplayPosition = shown ? GRID_Y + (k / 9) * 18 : OFF;
         }
-        if (extra > 0) {
+        if (extra > 0 && tank()) {
+            boolean on = tab == TAB_TRAILER;
+            Slot h = (Slot) inventorySlots.get(cargo), m = (Slot) inventorySlots.get(cargo + 1);
+            h.xDisplayPosition = on ? TANK_IN_X : OFF;
+            h.yDisplayPosition = on ? TANK_Y : OFF;
+            m.xDisplayPosition = on ? TANK_OUT_X : OFF;
+            m.yDisplayPosition = on ? TANK_Y : OFF;
+        } else if (extra > 0) {
             boolean drill = tab == TAB_SPECIAL;
             Slot h = (Slot) inventorySlots.get(cargo), m = (Slot) inventorySlots.get(cargo + 1);
             h.xDisplayPosition = drill ? HEAD_X : OFF;
@@ -121,6 +135,14 @@ public class ContainerCargoSVA extends Container {
             if (!mergeItemStack(s, own, inventorySlots.size(), true)) {
                 return null;
             }
+        } else if (tank() && com.sc.util.FluidHandSC.isContainer(s)) {
+            // ★15: a full container into «in», an empty one into «out» (one at a time), else into the cargo
+            Slot to = (Slot) inventorySlots.get(fullContainer(s) ? cargo : cargo + 1);
+            if (!to.getHasStack()) {
+                to.putStack(s.splitStack(1));
+            } else if (!mergeItemStack(s, 0, cargo, false)) {
+                return null;
+            }
         } else {
             boolean headFree = extra > 0 && !((Slot) inventorySlots.get(cargo)).getHasStack();
             boolean moduleFree = extra > 0 && !((Slot) inventorySlots.get(cargo + 1)).getHasStack();
@@ -140,6 +162,18 @@ public class ContainerCargoSVA extends Container {
         return copy;
     }
 
+    /** ★15: a container that holds fluid (registry filled container, or a tank-in-an-item with some in it). */
+    static boolean fullContainer(ItemStack s) {
+        if (net.minecraftforge.fluids.FluidContainerRegistry.isFilledContainer(s)) {
+            return true;
+        }
+        if (s.getItem() instanceof net.minecraftforge.fluids.IFluidContainerItem) {
+            net.minecraftforge.fluids.FluidStack f = ((net.minecraftforge.fluids.IFluidContainerItem) s.getItem()).getFluid(s);
+            return f != null && f.amount > 0;
+        }
+        return false;
+    }
+
     /** A cargo slot that asks the vehicle what it takes (no vehicles inside vehicles; heads / modules in their slots). */
     static class Cargo extends Slot {
         Cargo(IInventory inv, int i, int x, int y) {
@@ -153,8 +187,8 @@ public class ContainerCargoSVA extends Container {
 
         @Override
         public int getSlotStackLimit() {
-            return inventory instanceof EntityVehicleSVA && ((EntityVehicleSVA) inventory).getVehicleType().hasDrill
-                    && getSlotIndex() >= ((EntityVehicleSVA) inventory).headSlot() ? 1 : super.getSlotStackLimit();
+            return inventory instanceof EntityVehicleSVA && ((EntityVehicleSVA) inventory).extraSlots() > 0
+                    && getSlotIndex() >= ((EntityVehicleSVA) inventory).headSlot() ? 1 : super.getSlotStackLimit();      // ★15 the tanker's too
         }
     }
 }

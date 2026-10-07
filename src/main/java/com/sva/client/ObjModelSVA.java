@@ -135,7 +135,8 @@ public final class ObjModelSVA {
                 new float[] {0.5F, 3.2F, 0.9F}, new float[] {-0.545F, 2.065F, 0F}, 1, 1F, 0F));
         // ★10: wheels, gear legs and control surfaces (vehicle/AnimParts) go in FRONT of the parts above - the first part
         // that takes a triangle wins, so the truck's trailer wheels are wheels and not part of the plain trailer part
-        String[] animated = {"buggy", "truck", "drill", "heli", "plane", "jet", "tilt", "shuttle"};
+        String[] animated = {"buggy", "truck", "drill", "heli", "plane", "jet", "tilt", "shuttle", "trailer_tank", "trailer_platform",
+                "trailer_charger"};
         for (String model : animated) {
             List<com.sva.vehicle.AnimParts.Def> defs = com.sva.vehicle.AnimParts.of(model);
             List<Part> l = PARTS.get(model);
@@ -574,8 +575,18 @@ public final class ObjModelSVA {
         return ConfigSVA.interiorTrim && livery >= 0 ? livery : -1;
     }
 
+    /** ★15: the tanker's 'band' in its cargo's colour for the next draws (-1: groups.txt's; reset with band(-1)). */
+    private int bandRgb = -1;
+
+    public void band(int rgb) {
+        bandRgb = rgb;
+    }
+
     /** A group's draw colour: the livery's repaint, white under tiles with their own colours, else groups.txt. */
     private float[] colourOf(int i) {
+        if (bandRgb >= 0 && "band".equals(mats.get(i))) {
+            return new float[] {(bandRgb >> 16 & 255) / 255F, (bandRgb >> 8 & 255) / 255F, (bandRgb & 255) / 255F};
+        }
         int key = ((liveried() ? livery : -1) * 2 + (ConfigSVA.textures ? 1 : 0)) * 8 + trimLivery() + 1;
         if (drawColours == null || key != drawKey) {
             drawColours = new float[groups.size()][];

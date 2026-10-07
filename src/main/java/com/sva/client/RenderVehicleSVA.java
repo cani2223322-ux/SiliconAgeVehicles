@@ -7,6 +7,7 @@ import com.sva.entity.EntityVehicleSVA;
 import com.sva.vehicle.AnimMath;
 import com.sva.vehicle.AnimParts;
 import com.sva.vehicle.Movement;
+import com.sva.vehicle.TrailerMath;
 
 import net.minecraft.client.renderer.entity.Render;
 import net.minecraft.entity.Entity;
@@ -118,6 +119,12 @@ public class RenderVehicleSVA extends Render {
         CockpitInstrumentsSVA.render(v, m, pt);
         float gear = animate ? AnimMath.lerp(an.prevGear, an.gear, pt) : 0F;
         java.util.List<ObjModelSVA.Part> parts = m.parts();
+        int trailerKind = v.hasTrailer() ? v.trailerKind() : -1;
+        boolean cargoTrailer = trailerKind == TrailerMath.CARGO;
+        if (trailerKind > TrailerMath.CARGO) {
+            // ★15: the tanker / platform / charger - its own model in truck.obj's space (hitched at the same point)
+            renderTrailerKind(v, vt, trailerKind, shade, rolled, bob, tail);
+        }
         if (!parts.isEmpty()) {
             // rotor / propeller: turned by the synced spin; a faint blur disc while it spins fast
             float a = v.rotorAngle(pt), rate = Math.abs(v.rotorRate());
@@ -129,8 +136,8 @@ public class RenderVehicleSVA extends Render {
             for (ObjModelSVA.Part p : parts) {
                 if (p.kind == ObjModelSVA.Part.WHEEL) {
                     AnimParts.Def d = p.def;
-                    if (d.trailer && !v.hasTrailer()) {
-                        continue;
+                    if (d.trailer && !cargoTrailer) {
+                        continue;                                              // the cargo trailer's wheels
                     }
                     GL11.glPushMatrix();
                     GL11.glTranslatef(0F, -bob, 0F);                           // wheels stay on the ground
@@ -180,7 +187,7 @@ public class RenderVehicleSVA extends Render {
                     m.renderPart(p, 0F, shade);
                     GL11.glPopMatrix();
                 } else if (p.kind == ObjModelSVA.Part.TRAILER) {
-                    if (v.hasTrailer()) {
+                    if (cargoTrailer) {
                         m.renderPart(p, 0F, shade);
                     }
                 } else if (p.kind == ObjModelSVA.Part.BORE) {
@@ -225,6 +232,90 @@ public class RenderVehicleSVA extends Render {
         VehicleLightsSVA.render(v, vt, pt, gear);
         GL11.glPopAttrib();
         GL11.glPopMatrix();
+    }
+
+    /**
+     * ★15: a trailer kind's model (models/trailer_*.obj, truck.obj's model space) in the crawler's livery, its wheels
+     * rolling with the crawler's (they stay on the ground like the crawler's), the tanker's band in its cargo's colour,
+     * the platform's vehicle on the deck.
+     */
+    private static void renderTrailerKind(EntityVehicleSVA v, com.sva.vehicle.VehicleType vt, int kind, float shade, double rolled,
+            float bob, float tail) {
+        ObjModelSVA tm = ObjModelSVA.get(TrailerMath.MODELS[kind]);
+        if (tm == null) {
+            return;
+        }
+        tm.style(com.sva.vehicle.SkinMath.livery(vt.tier), v.getBoardNumber());
+        tm.anim(0F, tail);
+        tm.band(kind == TrailerMath.TANK ? fluidColour(v.tankFluid(), v.tankAmount()) : -1);
+        tm.render(shade, ObjModelSVA.GLASS_ALPHA, 1F, null);
+        for (ObjModelSVA.Part p : tm.parts()) {
+            GL11.glPushMatrix();
+            if (p.kind == ObjModelSVA.Part.WHEEL) {
+                GL11.glTranslatef(0F, -bob, 0F);
+                tm.renderPart(p, AnimMath.wheelAngle(rolled, p.def.radius), shade);
+            } else {
+                tm.renderPart(p, 0F, shade);
+            }
+            GL11.glPopMatrix();
+        }
+        tm.band(-1);
+        tm.anim(0F, 1F);
+        if (kind == TrailerMath.PLATFORM) {
+            int[] c = v.carried();
+            if (c[0] >= 0) {
+                renderCarried(com.sva.vehicle.VehicleType.byOrdinal(c[0]), c[1], vt, shade);
+            }
+        }
+    }
+
+    /**
+     * ★15: the carried vehicle on the deck, its own OBJ in its livery with its board number, at its true size if that
+     * fits (its modelScale over the crawler's), else shrunk to the deck's length / width (the buggy ~x0.7).
+     */
+    static void renderCarried(com.sva.vehicle.VehicleType ct, int board, com.sva.vehicle.VehicleType truck, float shade) {
+        ObjModelSVA cm = ObjModelSVA.get(ct.model);
+        if (cm == null) {
+            return;
+        }
+        float len = cm.bbMax[0] - cm.bbMin[0], wid = cm.bbMax[2] - cm.bbMin[2];
+        float s = TrailerMath.carriedScale(ct.modelScale / truck.modelScale, len, wid);
+        float cx = (cm.bbMin[0] + cm.bbMax[0]) / 2F, cz = (cm.bbMin[2] + cm.bbMax[2]) / 2F;
+        GL11.glPushMatrix();
+        GL11.glTranslatef((TrailerMath.DECK_X0 + TrailerMath.DECK_X1) / 2F, TrailerMath.DECK_Y, 0F);
+        GL11.glScalef(s, s, s);
+        GL11.glTranslatef(-cx, -cm.bbMin[1], -cz);
+        cm.style(com.sva.vehicle.SkinMath.livery(ct.tier), board);
+        cm.anim(0F, 1F);
+        cm.render(shade, ObjModelSVA.GLASS_ALPHA, 1F, null);
+        for (ObjModelSVA.Part p : cm.parts()) {
+            if (p.kind == ObjModelSVA.Part.NACELLE) {
+                cm.renderNacelle(p, 0F, 0F, shade, 0F);
+            } else if (p.kind != ObjModelSVA.Part.TRAILER) {
+                cm.renderPart(p, 0F, shade);
+            }
+        }
+        GL11.glPopMatrix();
+    }
+
+    /** ★15: the tanker's band colour - the gas's (ArmorGasSC.Gas), water / lava their own, any other fluid its tint; grey empty. */
+    static int fluidColour(String fluid, int amount) {
+        if (amount <= 0 || fluid == null || fluid.length() == 0) {
+            return 0x6A7080;
+        }
+        net.minecraftforge.fluids.Fluid f = net.minecraftforge.fluids.FluidRegistry.getFluid(fluid);
+        com.sc.util.ArmorGasSC.Gas g = com.sc.util.ArmorGasSC.Gas.of(f);
+        if (g != null) {
+            return g.color & 0xFFFFFF;
+        }
+        if ("water".equals(fluid)) {
+            return 0x3F76E4;
+        }
+        if ("lava".equals(fluid)) {
+            return 0xE0601A;
+        }
+        int c = f == null ? 0xFFFFFF : f.getColor() & 0xFFFFFF;
+        return c == 0xFFFFFF ? 0xC8C8C8 : c;
     }
 
     /** ★10: a retracting part at gear position g (0 down .. 1 up): turned about its gear pivot, then lifted. */

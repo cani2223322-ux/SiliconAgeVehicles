@@ -502,6 +502,10 @@ public final class CockpitInstrumentsSVA {
         }
         String[] mode = mode(v, t, s);
         out.add(new Line(Lang.tr("sva.cockpit.mode", mode[0]), Integer.parseInt(mode[1]), -1F, null));
+        String trailer = HudVehicleSVA.trailerLine(v);
+        if (trailer != null) {
+            out.add(new Line(trailer, BLUE, -1F, null));             // ★15: the hitched trailer's key reading
+        }
         if (t.movement == Movement.PLANE || t.movement == Movement.TILT && v.planeNow()) {
             out.add(new Line(Lang.tr(s.gearDown ? "sva.cockpit.gear.down" : "sva.cockpit.gear.up"), s.gearDown ? GREEN : AMBER, -1F, null));
         }

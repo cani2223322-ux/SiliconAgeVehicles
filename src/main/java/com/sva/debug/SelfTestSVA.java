@@ -118,6 +118,7 @@ public final class SelfTestSVA {
             cockpitStage2();
             SelfTestWave1SVA.run();                         // wave 1: sounds, camera, cruise / autopilot, roads
             SelfTestWave2SVA.run();                         // wave 2: garage, tuning, key cards / access
+            SelfTestWave3SVA.run();                         // wave 3: trailer kinds, the vehicle registry / map
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);

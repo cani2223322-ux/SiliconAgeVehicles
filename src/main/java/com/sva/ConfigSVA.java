@@ -68,6 +68,13 @@ public final class ConfigSVA {
     public static boolean locks = true;
     /** ★10: server operators pass any vehicle lock. */
     public static boolean lockOpBypass = true;
+    /**
+     * Wave 3 (★15): the new trailer kinds (tanker, car platform, mobile charger) may be hitched; false = only the cargo
+     * trailer (the others refuse - one already hitched keeps working).
+     */
+    public static boolean trailerKinds = true;
+    /** Wave 3 (★19): «Моя техника» - the vehicle map (key, the station's button) and the server's vehicle cards. */
+    public static boolean vehicleMap = true;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -161,6 +168,12 @@ public final class ConfigSVA {
                             + "false - старые правила (водит владелец, пассажиром - любой)");
             lockOpBypass = c.getBoolean("lockOpBypass", v, true,
                     "Server operators pass any vehicle lock / Операторы сервера открывают любую машину");
+            trailerKinds = c.getBoolean("trailerKinds", v, true,
+                    "The tanker, car platform and mobile charger trailers can be hitched (false: only the cargo trailer) / "
+                            + "Прицепы цистерна, платформа и передвижная зарядка цепляются к вездеходу (false - только грузовой)");
+            vehicleMap = c.getBoolean("vehicleMap", v, true,
+                    "'My vehicles' map: where your vehicles are, their charge and hull (key, charging station button) / "
+                            + "Карта 'Моя техника': где ваши машины, заряд и износ (клавиша, кнопка на зарядной станции)");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));
