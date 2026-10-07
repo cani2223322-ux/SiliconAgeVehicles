@@ -273,6 +273,7 @@ public class ClientProxySVA extends CommonProxySVA {
             }
         }
         drillKeys();
+        com.sva.client.CockpitInstrumentsSVA.clientTick();
         NetSVA.Correct m;
         while ((m = corrections.poll()) != null) {
             Minecraft mc = Minecraft.getMinecraft();

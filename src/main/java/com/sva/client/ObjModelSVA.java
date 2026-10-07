@@ -199,6 +199,13 @@ public final class ObjModelSVA {
      * red 'tail' lamps' brightness (1 = as in groups.txt; dimmer while not braking).
      */
     private float treadShift, tailLevel = 1F;
+    /**
+     * Cockpit stage 2 (★8), set per draw by the renderer (cabin()): the 'cabin' plafonds' light 0..1 - 0 = off (drawn lit
+     * by the world like any surface, a little dimmer), > 0 = full bright in the tier's colour `cabinRgb` at that
+     * brightness; -1 = as in groups.txt (always glowing: config vehicles.nightLighting off).
+     */
+    private float cabinLevel = -1F;
+    private int cabinRgb = 0xFFFFFF;
     /** colourOf() cache, rebuilt when the livery or the config changes. */
     private float[][] drawColours;
     private int drawKey = Integer.MIN_VALUE;
@@ -501,6 +508,12 @@ public final class ObjModelSVA {
         this.tailLevel = tailLevel;
     }
 
+    /** ★8: the plafonds for the next draws (level -1 = always lit as before; reset with cabin(-1, 0)). */
+    public void cabin(float level, int rgb) {
+        this.cabinLevel = level;
+        this.cabinRgb = rgb;
+    }
+
     private boolean liveried() {
         return ConfigSVA.liveries && livery >= 0;
     }
@@ -777,7 +790,23 @@ public final class ObjModelSVA {
     /** One opaque group: lit and shaded, or (emissive, not a wreck) full bright; then its livery layers. */
     private void drawGroup(int i, float shade) {
         float[] c = colourOf(i);
-        if (emissive.get(i).booleanValue() && shade >= 1F) {
+        boolean plafond = cabinLevel >= 0F && "cabin".equals(mats.get(i));
+        if (plafond && cabinLevel <= 0.01F) {
+            // ★8: a plafond that is off - an ordinary lit surface, a little greyer than its glowing colour
+            GL11.glColor4f(c[0] * shade * 0.7F, c[1] * shade * 0.7F, c[2] * shade * 0.7F, 1F);
+            callBase(i, ConfigSVA.textures);
+        } else if (plafond && shade >= 1F) {
+            // ★8: on at night - full bright, half way to the tier's colour, as bright as the level
+            float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
+            GL11.glDisable(GL11.GL_LIGHTING);
+            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+            float k = 0.35F + 0.65F * Math.min(1F, cabinLevel);
+            float tr = (cabinRgb >> 16 & 255) / 255F, tg = (cabinRgb >> 8 & 255) / 255F, tb = (cabinRgb & 255) / 255F;
+            GL11.glColor4f((c[0] + tr) * 0.5F * k, (c[1] + tg) * 0.5F * k, (c[2] + tb) * 0.5F * k, 1F);
+            callBase(i, ConfigSVA.textures);
+            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
+            GL11.glEnable(GL11.GL_LIGHTING);
+        } else if (emissive.get(i).booleanValue() && shade >= 1F) {
             float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
             GL11.glDisable(GL11.GL_LIGHTING);
             OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);

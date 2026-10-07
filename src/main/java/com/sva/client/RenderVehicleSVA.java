@@ -95,6 +95,13 @@ public class RenderVehicleSVA extends Render {
         // ★10 the tread runs with the distance rolled; ★6 the red tail lamps light up fully while braking
         float tail = ConfigSVA.headlights && v.powered() ? (an.braking() ? 1F : TAIL_DIM) : 1F;
         m.anim((float) (rolled % 1.0), tail);
+        // ★8: the plafonds glow only at night with charge, in the tier's colour (vehicles.nightLighting off: always, as before)
+        if (ConfigSVA.nightLighting) {
+            float night = com.sva.vehicle.CockpitLamps.night(VehicleLightsSVA.darkness(v), v.powered(), ConfigSVA.cabinLightLevel);
+            m.cabin(night, com.sva.vehicle.CockpitLamps.tierGlow(com.sva.vehicle.SkinMath.livery(vt.tier)));
+        } else {
+            m.cabin(-1F, 0);
+        }
         if (!ownView) {
             m.render(shade, ObjModelSVA.GLASS_ALPHA, 1F, null);
         } else if (ConfigSVA.seeThroughHull) {
@@ -196,6 +203,7 @@ public class RenderVehicleSVA extends Render {
             }
         }
         m.anim(0F, 1F);
+        m.cabin(-1F, 0);
         if (v.isBoosting() && vt.gases.boostGas != null && vt.movement == Movement.PLANE && shade >= 1F) {
             // the jet's afterburner: a flickering flame cone out of the nozzle (EntityVehicleSVA adds flame particles)
             float flicker = 0.85F + 0.15F * (float) Math.sin((v.ticksExisted + pt) * 2.3F);

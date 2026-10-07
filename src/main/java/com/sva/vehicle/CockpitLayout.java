@@ -96,7 +96,20 @@ public final class CockpitLayout {
     public final List<Dial> dials = new ArrayList<Dial>();
     /** Screens, the largest first. */
     public final List<Screen> screens = new ArrayList<Screen>();
+    /** Warning lamps in rows top -> bottom, each row left -> right (sortLamps; CockpitLamps.table follows this order). */
     public final List<Lamp> lamps = new ArrayList<Lamp>();
+    /**
+     * Cockpit stage 2: small green 'ok' lamps (at most OK_MAX across - the round 0.037 buttons and the heli's overhead
+     * panel stay out): the plane's three landing-gear lamps; left -> right.
+     */
+    public final List<Lamp> okLamps = new ArrayList<Lamp>();
+    /** Cockpit stage 2 (★8): the cabin floor's ('carpet') box {x0, x1, y0, y1, z0, z1}, null without one - the floor light strip. */
+    public float[] floor;
+
+    /** Largest 'ok' piece that is a lamp (the gear lamps are 0.021..0.027 across, the buttons 0.037). */
+    public static final float OK_MAX = 0.032F;
+    /** Lamps whose heights differ by no more than this are one row (model units; the rows are 0.04+ apart). */
+    public static final float ROW_DY = 0.02F;
 
     private static final Map<String, CockpitLayout> CACHE = new HashMap<String, CockpitLayout>();
 
@@ -131,6 +144,8 @@ public final class CockpitLayout {
         Map<String, List<int[]>> faces = new HashMap<String, List<int[]>>();
         java.util.Set<String> wanted = new java.util.HashSet<String>(java.util.Arrays.asList(MATS));
         List<int[]> cur = null;
+        boolean carpet = false;
+        float[] floor = null;
         BufferedReader r = new BufferedReader(new InputStreamReader(in, "UTF-8"), 1 << 16);
         try {
             String line;
@@ -140,6 +155,7 @@ public final class CockpitLayout {
                     v.add(new float[] {Float.parseFloat(p[1]), Float.parseFloat(p[2]), Float.parseFloat(p[3])});
                 } else if (line.startsWith("g ") || line.startsWith("o ") || line.startsWith("usemtl ")) {
                     String g = line.substring(line.indexOf(' ') + 1).trim();
+                    carpet = "carpet".equals(g);
                     if (wanted.contains(g)) {
                         cur = faces.get(g);
                         if (cur == null) {
@@ -148,6 +164,17 @@ public final class CockpitLayout {
                         }
                     } else {
                         cur = null;
+                    }
+                } else if (carpet && line.startsWith("f ")) {
+                    for (String q : line.substring(2).trim().split("\\s+")) {
+                        float[] p = v.get(Integer.parseInt(q.split("/")[0]) - 1);
+                        if (floor == null) {
+                            floor = new float[] {p[0], p[0], p[1], p[1], p[2], p[2]};
+                        }
+                        for (int i = 0; i < 3; i++) {
+                            floor[2 * i] = Math.min(floor[2 * i], p[i]);
+                            floor[2 * i + 1] = Math.max(floor[2 * i + 1], p[i]);
+                        }
                     }
                 } else if (cur != null && line.startsWith("f ")) {
                     String[] p = line.substring(2).trim().split("\\s+");
@@ -170,7 +197,9 @@ public final class CockpitLayout {
                 }
             }
         }
-        return build(comps, eye);
+        CockpitLayout l = build(comps, eye);
+        l.floor = floor;
+        return l;
     }
 
     /**
@@ -344,8 +373,15 @@ public final class CockpitLayout {
                 if (size <= 0.08F) {
                     l.lamps.add(new Lamp(k.c, size / 2));
                 }
+            } else if ("ok".equals(k.mat) && k.c[0] - eye[0] > 0.05F) {
+                float size = Math.max(k.width(), Math.max(k.height(), k.d1 - k.d0));
+                if (size <= OK_MAX) {
+                    l.okLamps.add(new Lamp(k.c, size / 2));
+                }
             }
         }
+        sortLamps(l.lamps);
+        sortLamps(l.okLamps);
         dropHidden(l.dials);
         Collections.sort(l.dials, new Comparator<Dial>() {
             @Override
@@ -363,6 +399,59 @@ public final class CockpitLayout {
             }
         });
         return l;
+    }
+
+    /**
+     * Cockpit stage 2: lamps in rows, top -> bottom (heights within ROW_DY of the row's top lamp), each row left -> right
+     * (z up) - the order the per-type role tables (CockpitLamps.table) are written in.
+     */
+    public static void sortLamps(List<Lamp> lamps) {
+        List<Lamp> byY = new ArrayList<Lamp>(lamps);
+        Collections.sort(byY, new Comparator<Lamp>() {
+            @Override
+            public int compare(Lamp a, Lamp b) {
+                return Float.compare(b.c[1], a.c[1]);
+            }
+        });
+        lamps.clear();
+        int i = 0;
+        while (i < byY.size()) {
+            float top = byY.get(i).c[1];
+            int j = i;
+            while (j < byY.size() && top - byY.get(j).c[1] <= ROW_DY) {
+                j++;
+            }
+            List<Lamp> row = new ArrayList<Lamp>(byY.subList(i, j));
+            Collections.sort(row, new Comparator<Lamp>() {
+                @Override
+                public int compare(Lamp a, Lamp b) {
+                    return Float.compare(a.c[2], b.c[2]);
+                }
+            });
+            lamps.addAll(row);
+            i = j;
+        }
+    }
+
+    /**
+     * Cockpit stage 2: a frame at c facing `eye` - {n (toward the eye), up (the model's up laid into that plane), right} -
+     * for the lamps' labels and glow sprites.
+     */
+    public static float[][] faceFrame(float[] c, float[] eye) {
+        float[] n = norm(sub(eye, c));
+        float[] up = upIn(n, c, eye);
+        return new float[][] {n, up, cross(up, n)};
+    }
+
+    /** Lamp i's label room: the distance to the nearest other lamp of the list (model units; 1 when it is alone). */
+    public static float labelRoom(List<Lamp> lamps, int i) {
+        float best = 1F;
+        for (int j = 0; j < lamps.size(); j++) {
+            if (j != i) {
+                best = Math.min(best, len(sub(lamps.get(j).c, lamps.get(i).c)));
+            }
+        }
+        return best;
     }
 
     /**

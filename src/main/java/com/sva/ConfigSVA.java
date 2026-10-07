@@ -38,6 +38,14 @@ public final class ConfigSVA {
     public static boolean animations = true;
     /** Client (★7): the cabin trim follows the vehicle's tier - seats, floor, inserts, roof lining (SkinMath.trimTile). */
     public static boolean interiorTrim = true;
+    /** Client (cockpit stage 2, ★8): at night instruments and lamps glow in the tier's colour, plafonds and the floor strip light up. */
+    public static boolean nightLighting = true;
+    /** Client (★8): the night glow's brightness 0..1. */
+    public static float cabinLightLevel = 0.8F;
+    /** Client (★11): the boarding sequence - lamp test, SA logo on the screens, needle sweep. */
+    public static boolean cockpitStartup = true;
+    /** Client (★11): cockpit warning sounds for the vehicle's own riders - overheating beep, stall siren. */
+    public static boolean cockpitSounds = true;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -89,6 +97,18 @@ public final class ConfigSVA {
             interiorTrim = c.getBoolean("interiorTrim", v, true,
                     "Client: cabin trim by the vehicle's tier - fabric / leather + wood / alcantara + carbon / velvet + dark glass / "
                             + "Клиент: отделка салона по уровню машины - ткань / кожа и дерево / алькантара и карбон / бархат и тёмное стекло");
+            nightLighting = c.getBoolean("nightLighting", v, true,
+                    "Client: at night (powered) the cockpit instruments and lamps glow in the tier's colour, the ceiling lights and a floor strip light up; "
+                            + "false = plafonds always lit, no tint / "
+                            + "Клиент: ночью (с зарядом) приборы и лампы в кабине светятся цветом уровня машины, горят плафоны и полоса у пола");
+            cabinLightLevel = num(c, "cabinLightLevel", v, 0.8F, 0F, 1F,
+                    "Client: brightness of the night cabin lighting 0..1 / Клиент: яркость ночной подсветки салона 0..1");
+            cockpitStartup = c.getBoolean("cockpitStartup", v, true,
+                    "Client: boarding as the driver starts the cockpit - lamp test, SA logo on the screens, needles sweep / "
+                            + "Клиент: при посадке водителем кабина запускается - тест ламп, логотип SA на экранах, пробег стрелок");
+            cockpitSounds = c.getBoolean("cockpitSounds", v, true,
+                    "Client: quiet cockpit warning sounds for the riders - overheating beep once a second, stall siren / "
+                            + "Клиент: тихие звуки предупреждений в кабине - писк перегрева раз в секунду, сирена сваливания");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));

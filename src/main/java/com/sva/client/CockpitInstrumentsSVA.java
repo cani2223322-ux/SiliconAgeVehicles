@@ -12,17 +12,22 @@ import com.sc.manual.Lang;
 import com.sc.util.ArmorGasSC.Gas;
 import com.sva.ConfigSVA;
 import com.sva.entity.EntityVehicleSVA;
+import com.sva.vehicle.AnimMath;
 import com.sva.vehicle.CockpitDials;
+import com.sva.vehicle.CockpitLamps;
 import com.sva.vehicle.CockpitLayout;
+import com.sva.vehicle.SkinMath;
 import com.sva.vehicle.Movement;
 import com.sva.vehicle.VehicleType;
 
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.audio.PositionedSoundRecord;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.ResourceLocation;
 
 /**
  * ★14 live cockpit instruments (mock-up veh_design_6_gauges.png): over the model's emissive dial / screen / lamp pieces
@@ -30,6 +35,13 @@ import net.minecraft.util.MathHelper;
  * dials get a dark face, tick marks, scale numbers and a needle that follows its value smoothly; screens get text lines
  * with small bars (charge, hull, gases, mode, landing gear), one big reading, a vertical bar or - aircraft - an attitude
  * indicator; the warning lamps stay dim and blink red on a stall / autorotation / overheating / an empty or low buffer.
+ * Cockpit stage 2 (★11, vehicle/CockpitLamps): every lamp has a role, colour and a tiny label (turn signals, headlights,
+ * handbrake, overheating, wear; the heli's annunciators; the drill's mode lamps; the plane's gear lamps), the main screen
+ * shows the events (afterburner, «ДАЙ ОСТЫТЬ», autopilot, a full hold, the range blinking on low charge), the plane's
+ * attitude screen a stall flag, the drill's console the «ДОБЫЧА» page; a quiet beep / siren for the riders (config
+ * vehicles.cockpitSounds); boarding as the driver runs the startup sequence (vehicles.cockpitStartup). ★8: at night the
+ * dial marks, texts and screen edges take the tier's colour with a soft glow round dials, screens and lit lamps, and a
+ * light strip runs along the floor (vehicles.nightLighting, vehicles.cabinLightLevel).
  * Drawn right after the model in the same matrix (model space; RenderVehicleSVA), a hair in front of each piece
  * (glPolygonOffset + a small lift along its normal), full bright, no lighting. Only for the vehicle the local player
  * rides (driver or passenger), never for a wreck. Config vehicles.liveInstruments.
@@ -49,10 +61,56 @@ public final class CockpitInstrumentsSVA {
         float speed, vy, pitch, roll, turn;
         long lastNs;
         int gearTick = Integer.MIN_VALUE;
-        boolean gearDown = true;
+        boolean gearDown = true, air;
+        int airTick = Integer.MIN_VALUE;
+        /** Stage 2: the startup sequence's start (nanoTime, 0 = none), the dug count when the local player got in. */
+        long startNs;
+        int dugAtStart;
+        /** Stage 2: the next overheating beep / siren note (ms) and the siren's step. */
+        long nextBeep, nextSiren;
+        int sirenStep;
     }
 
+    /** Stage 2, this frame: the night glow 0..1 and the tier's colour (★8); the startup phase (★11). */
+    private static float night;
+    private static int glowRgb;
+    private static int phase = CockpitLamps.PH_NORMAL;
+    private static final CockpitLamps.Snapshot SNAP = new CockpitLamps.Snapshot();
+    /** Stage 2, clientTick: the vehicle the local player rode / drove last tick and whether it had power. */
+    private static EntityVehicleSVA lastRidden, lastDriven;
+    private static boolean lastPowered;
+
     private CockpitInstrumentsSVA() {
+    }
+
+    private static State state(EntityVehicleSVA v) {
+        State s = STATES.get(v);
+        if (s == null) {
+            s = new State();
+            STATES.put(v, s);
+        }
+        return s;
+    }
+
+    /**
+     * Stage 2, every client tick (ClientProxySVA): getting into a vehicle notes its dug count (the drill's «за рейс»);
+     * taking the wheel of a powered vehicle - or its power coming back while at the wheel - starts the startup sequence
+     * (config vehicles.cockpitStartup). Other players' vehicles are never touched.
+     */
+    public static void clientTick() {
+        Minecraft mc = Minecraft.getMinecraft();
+        EntityVehicleSVA rid = mc.thePlayer == null ? null : HudVehicleSVA.vehicleOf(mc.thePlayer);
+        EntityVehicleSVA drv = rid != null && rid.riddenByEntity == mc.thePlayer ? rid : null;
+        boolean pw = drv != null && drv.powered();
+        if (rid != null && rid != lastRidden) {
+            state(rid).dugAtStart = rid.getDug();
+        }
+        if (ConfigSVA.cockpitStartup && ConfigSVA.liveInstruments && pw && (drv != lastDriven || !lastPowered)) {
+            state(drv).startNs = System.nanoTime();
+        }
+        lastRidden = rid;
+        lastDriven = drv;
+        lastPowered = pw;
     }
 
     /**
@@ -72,14 +130,21 @@ public final class CockpitInstrumentsSVA {
         if (l.dials.isEmpty() && l.screens.isEmpty() && l.lamps.isEmpty()) {
             return;
         }
-        State s = STATES.get(v);
-        if (s == null) {
-            s = new State();
-            STATES.put(v, s);
-        }
+        State s = state(v);
         long now = System.nanoTime();
         float dt = s.lastNs == 0 ? -1F : (now - s.lastNs) / 1e9F;
         s.lastNs = now;
+        // ★11 startup (started by clientTick when the local player takes the wheel or the power comes back)
+        boolean powered = v.powered();
+        float sec = s.startNs == 0 ? -1F : (now - s.startNs) / 1e9F;
+        phase = powered ? CockpitLamps.phase(sec) : CockpitLamps.PH_NORMAL;
+        if (phase == CockpitLamps.PH_NORMAL) {
+            s.startNs = 0;
+        }
+        // ★8 night glow
+        float dark = VehicleLightsSVA.darkness(v);
+        night = ConfigSVA.nightLighting ? CockpitLamps.night(dark, powered, ConfigSVA.cabinLightLevel) : 0F;
+        glowRgb = CockpitLamps.tierGlow(SkinMath.livery(t.tier));
         double dx = v.posX - v.prevPosX, dz = v.posZ - v.prevPosZ;
         s.speed = CockpitDials.follow(dt < 0 ? Float.NaN : s.speed, (float) Math.sqrt(dx * dx + dz * dz), dt);
         s.vy = CockpitDials.follow(dt < 0 ? Float.NaN : s.vy, (float) (v.posY - v.prevPosY), dt);
@@ -92,6 +157,8 @@ public final class CockpitInstrumentsSVA {
                 s.gearDown = !v.airborneAt(v.posX, v.posY, v.posZ) || v.heightAboveGround(5) < 5;
             }
         }
+        snapshot(v, t, s, pt);
+        sounds(mc, v, t, s);
 
         float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_CURRENT_BIT | GL11.GL_LIGHTING_BIT | GL11.GL_COLOR_BUFFER_BIT
@@ -114,23 +181,35 @@ public final class CockpitInstrumentsSVA {
                 s.shown = new float[l.dials.size()];
                 java.util.Arrays.fill(s.shown, Float.NaN);
             }
+            float sweep = CockpitLamps.sweep(sec);
             for (int i = 0; i < l.dials.size(); i++) {
                 int kind = table[i % table.length];
                 float min = CockpitDials.min(kind, t), max = CockpitDials.max(kind, t, v.cargoCapacity());
-                s.shown[i] = CockpitDials.follow(s.shown[i], value(kind, v, t, s, pt), dt);
+                if (phase == CockpitLamps.PH_NORMAL) {
+                    s.shown[i] = CockpitDials.follow(s.shown[i], value(kind, v, t, s, pt), dt);
+                } else {
+                    s.shown[i] = min + (max - min) * sweep;          // ★11: at rest, then 0 -> max -> 0
+                }
                 drawDial(fr, l.dials.get(i), kind, s.shown[i], min, max);
             }
-            int[] roles = CockpitDials.screenRoles(l.screens, t.movement.flies);
+            int[] roles = CockpitDials.screenRoles(l.screens, t.movement.flies, t.hasDrill);
             int[] small = CockpitDials.smallTable(t);
             int smallN = 0;
             for (int i = 0; i < l.screens.size(); i++) {
                 CockpitLayout.Screen sc = l.screens.get(i);
+                if (phase != CockpitLamps.PH_NORMAL && phase != CockpitLamps.PH_SWEEP) {
+                    drawStartScreen(fr, sc);
+                    continue;
+                }
                 switch (roles[i]) {
                     case CockpitDials.SCREEN_ATTITUDE:
-                        drawAttitude(sc, s.pitch, s.roll);
+                        drawAttitude(fr, sc, s.pitch, s.roll, v.isStalling() && phase == CockpitLamps.PH_NORMAL);
                         break;
                     case CockpitDials.SCREEN_MAIN:
                         drawMain(fr, sc, mainLines(v, t, s));
+                        break;
+                    case CockpitDials.SCREEN_MINING:
+                        drawMain(fr, sc, miningLines(v, s));
                         break;
                     case CockpitDials.SCREEN_BAR: {
                         int kind = small[smallN++ % small.length];
@@ -143,15 +222,9 @@ public final class CockpitInstrumentsSVA {
                     }
                 }
             }
-            boolean warn = warning(v, t);
-            boolean blink = (System.currentTimeMillis() / 250) % 2 == 0;
-            for (CockpitLayout.Lamp p : l.lamps) {
-                if (warn && blink) {
-                    GL11.glColor4f(1F, 0.16F, 0.1F, 1F);
-                } else {
-                    GL11.glColor4f(0.28F, 0.05F, 0.04F, 1F);
-                }
-                lamp(p.c, p.r * 1.12F);
+            drawLamps(fr, l, t, v, pt);
+            if (night > 0F && l.floor != null) {
+                floorStrip(l.floor);
             }
         } finally {
             GL11.glPolygonOffset(0F, 0F);
@@ -233,10 +306,73 @@ public final class CockpitInstrumentsSVA {
         return t.gases.gases().isEmpty() ? null : t.gases.gases().get(0);
     }
 
-    /** The lamps' master warning (the HUD's red / amber lines). */
-    private static boolean warning(EntityVehicleSVA v, VehicleType t) {
-        int e = v.getEnergy();
-        return v.isStalling() || v.isAutorotating() || v.isHeatStopped() || e <= 0 || e < t.buffer / 10 || v.getHeat() > 80;
+    /** ★11: what the lamps / events read this frame (CockpitLamps.Snapshot). */
+    private static void snapshot(EntityVehicleSVA v, VehicleType t, State s, float pt) {
+        CockpitLamps.Snapshot n = SNAP;
+        n.powered = v.powered();
+        n.charge = v.getEnergy() / (float) Math.max(1, t.buffer);
+        n.heat = v.getHeat();
+        n.heatStopped = v.isHeatStopped();
+        n.hull = v.wearOn() ? v.getHp() / t.maxHp : 1F;
+        n.steer = AnimMath.lerp(v.anim.prevSteer, v.anim.steer, pt);
+        n.speed = s.speed;
+        n.vy = s.vy;
+        if (s.airTick != v.ticksExisted) {                       // the ground test once a tick
+            s.airTick = v.ticksExisted;
+            s.air = v.airborneAt(v.posX, v.posY, v.posZ);
+        }
+        n.airborne = s.air;
+        n.onGround = !s.air;
+        n.braking = v.anim.braking();
+        n.headlights = VehicleLightsSVA.headlightsOn(v);
+        n.navLights = ConfigSVA.navLights;
+        n.autorotating = v.isAutorotating();
+        n.stalling = v.isStalling();
+        n.heliMode = t.movement == Movement.HELI || t.movement == Movement.TILT && !v.planeNow();
+        int cap = v.cargoCapacity();
+        n.cargoFull = cap > 0 && v.getCargoUsed() >= cap;
+        n.drillMode = v.getDrillMode();
+    }
+
+    /**
+     * ★11 sounds for this client's riders only (nothing goes over the network), quiet: overheating - a high «pling» once a
+     * second; a stall - a two-tone siren (harp notes every 0.3 s). Not while paused or during the startup.
+     */
+    private static void sounds(Minecraft mc, EntityVehicleSVA v, VehicleType t, State s) {
+        if (!ConfigSVA.cockpitSounds || mc.isGamePaused() || !SNAP.powered || phase != CockpitLamps.PH_NORMAL || mc.thePlayer == null) {
+            return;
+        }
+        long ms = System.currentTimeMillis();
+        if (CockpitLamps.overheat(SNAP)) {
+            if (ms >= s.nextBeep) {
+                play(mc, "note.pling", 0.25F, 1.9F);
+                s.nextBeep = ms + 1000;
+            }
+        } else {
+            s.nextBeep = 0;
+        }
+        if (SNAP.stalling) {
+            if (ms >= s.nextSiren) {
+                play(mc, "note.harp", 0.3F, s.sirenStep++ % 2 == 0 ? 1.5F : 1.12F);
+                s.nextSiren = ms + 300;
+            }
+        } else {
+            s.sirenStep = 0;
+        }
+    }
+
+    private static void play(Minecraft mc, String sound, float volume, float pitch) {
+        mc.getSoundHandler().playSound(new PositionedSoundRecord(new ResourceLocation(sound), volume, pitch, (float) mc.thePlayer.posX,
+                (float) mc.thePlayer.posY, (float) mc.thePlayer.posZ));
+    }
+
+    /** ★8: a neutral text / mark colour taken toward the tier's glow at night. */
+    private static int tint(int rgb) {
+        return night > 0F ? CockpitLamps.mix(rgb, glowRgb, night * 0.85F) : rgb;
+    }
+
+    private static void glColor(int rgb) {
+        GL11.glColor4f((rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F, 1F);
     }
 
     private static float[] color(int kind) {
@@ -270,11 +406,18 @@ public final class CockpitInstrumentsSVA {
     private static void drawDial(FontRenderer fr, CockpitLayout.Dial d, int kind, float shown, float min, float max) {
         float r = d.r;
         frame(d.c, d.n, d.up, d.right, d.front + LIFT_FACE);
+        if (night > 0F) {
+            glowRing(r * 0.95F, r * 1.5F, 0.4F * night, -0.0005F);   // ★8: a soft halo round the dial
+        }
         GL11.glColor4f(0.30F, 0.32F, 0.36F, 1F);                    // rim
         disc(0F, 0F, r, 0F);
         GL11.glColor4f(0.06F, 0.07F, 0.09F, 1F);                    // face
         disc(0F, 0F, r * 0.9F, 0.0002F);
-        GL11.glColor4f(0.92F, 0.93F, 0.95F, 1F);                    // ticks: 21 marks, every other one long
+        if (phase == CockpitLamps.PH_DARK) {
+            GL11.glPopMatrix();                                     // ★11: not lit yet
+            return;
+        }
+        glColor(tint(0xEBEDF2));                                      // ticks: 21 marks, every other one long
         for (int k = 0; k <= 20; k++) {
             float a = -CockpitDials.SWEEP / 2 + CockpitDials.SWEEP * k / 20F;
             boolean major = k % 2 == 0;
@@ -285,11 +428,11 @@ public final class CockpitInstrumentsSVA {
         for (int k = 0; k <= 2; k++) {
             float a = (float) Math.toRadians(-CockpitDials.SWEEP / 2 + CockpitDials.SWEEP * k / 2F);
             float val = min + (max - min) * k / 2F;
-            text(fr, num(val), (float) Math.sin(a) * r * 0.5F, (float) Math.cos(a) * r * 0.5F, th, r * 0.5F, 0xD8D8DE);
+            text(fr, num(val), (float) Math.sin(a) * r * 0.5F, (float) Math.cos(a) * r * 0.5F, th, r * 0.5F, tint(0xD8D8DE));
         }
         String key = CockpitDials.KEYS[kind];
-        text(fr, Lang.tr("sva.cockpit.dial." + key), 0F, -r * 0.36F, r * 0.15F, r * 1.3F, 0xFFFFFF);
-        text(fr, Lang.tr("sva.cockpit.unit." + key), 0F, -r * 0.56F, r * 0.11F, r * 0.9F, 0x9A9AA6);
+        text(fr, Lang.tr("sva.cockpit.dial." + key), 0F, -r * 0.36F, r * 0.15F, r * 1.3F, tint(0xFFFFFF));
+        text(fr, Lang.tr("sva.cockpit.unit." + key), 0F, -r * 0.56F, r * 0.11F, r * 0.9F, tint(0x9A9AA6));
         // the needle
         float[] c = color(kind);
         GL11.glColor4f(c[0], c[1], c[2], 1F);
@@ -321,14 +464,36 @@ public final class CockpitInstrumentsSVA {
         }
     }
 
-    private static final int TEXT = 0xE0E0E0, DIM = 0x9A9AA6, GREEN = 0x5EE07A, AMBER = 0xFFD24D, WARN = 0xFF5A4A, BLUE = 0x5EC8F0;
+    private static final int TEXT = 0xE0E0E0, DIM = 0x9A9AA6, GREEN = 0x5EE07A, AMBER = 0xFFD24D, WARN = 0xFF5A4A, BLUE = 0x5EC8F0,
+            ORANGE = 0xFF8A2A;
 
     /** The main screen's lines, the most important first (the fitting drops the last ones that don't fit). */
     private static List<Line> mainLines(EntityVehicleSVA v, VehicleType t, State s) {
         List<Line> out = new ArrayList<Line>();
+        boolean blink = (System.currentTimeMillis() / 250) % 2 == 0;
+        // ★11 events first (the fitting drops lines from the end)
+        if (CockpitLamps.overheat(SNAP)) {
+            out.add(new Line(Lang.tr("sva.cockpit.ev.cool"), blink ? WARN : 0x803030, -1F, null));
+        }
+        if (v.isBoosting()) {
+            out.add(new Line(Lang.tr("sva.cockpit.ev.boost"), ORANGE, -1F, null));
+        }
+        if (t.autoDelivery && v.isAutoOn()) {
+            out.add(new Line(Lang.tr("sva.cockpit.ev.autopilot"), GREEN, -1F, null));
+        }
+        if (SNAP.cargoFull) {
+            out.add(new Line(Lang.tr("sva.cockpit.ev.cargoFull"), BLUE, -1F, null));
+        }
         float e = v.getEnergy() / (float) Math.max(1, t.buffer);
         out.add(new Line(Lang.tr("sva.cockpit.charge", pct(e * 100)), e < 0.1F ? WARN : TEXT, e, e < 0.1F ? new float[] {1F, 0.3F, 0.25F}
                 : new float[] {0.3F, 0.9F, 0.55F}));
+        float cruise = v.getCruiseCost();
+        if (cruise > 0) {
+            // the range (the HUD's estimate); blinks amber on low charge
+            String range = String.valueOf((long) (v.getEnergy() / cruise * t.topSpeed));
+            boolean low = CockpitLamps.lowCharge(SNAP);
+            out.add(new Line(Lang.tr("sva.cockpit.range", range), low ? (blink ? AMBER : 0x806020) : DIM, -1F, null));
+        }
         String[] mode = mode(v, t, s);
         out.add(new Line(Lang.tr("sva.cockpit.mode", mode[0]), Integer.parseInt(mode[1]), -1F, null));
         if (t.movement == Movement.PLANE || t.movement == Movement.TILT && v.planeNow()) {
@@ -336,7 +501,7 @@ public final class CockpitInstrumentsSVA {
         }
         if (v.wearOn()) {
             float hp = v.getHp() / t.maxHp;
-            out.add(new Line(Lang.tr("sva.cockpit.hull", pct(hp * 100)), hp < 0.25F ? WARN : TEXT, hp, hp < 0.25F ? new float[] {1F, 0.3F, 0.25F}
+            out.add(new Line(Lang.tr("sva.cockpit.hull", pct(hp * 100)), hp < 0.25F ? AMBER : TEXT, hp, hp < 0.25F ? new float[] {1F, 0.76F, 0.23F}
                     : new float[] {0.75F, 0.78F, 0.82F}));
         }
         for (Gas g : t.gases.gases()) {
@@ -347,6 +512,29 @@ public final class CockpitInstrumentsSVA {
         }
         float heat = v.getHeat() / 100F;
         out.add(new Line(Lang.tr("sva.cockpit.heat", pct(heat * 100)), heat > 0.8F ? WARN : TEXT, heat, new float[] {1F, 0.63F, 0.25F}));
+        return out;
+    }
+
+    /** ★11 the drill console's «ДОБЫЧА» page: mode and size, dug this trip, the bunker, the bore head. */
+    private static List<Line> miningLines(EntityVehicleSVA v, State s) {
+        List<Line> out = new ArrayList<Line>();
+        out.add(new Line(Lang.tr("sva.cockpit.mining"), AMBER, -1F, null));
+        String mode = Lang.tr("sva.drill.mode." + v.getDrillMode()) + " " + (v.hasWidener() ? "5x5" : "3x3");
+        out.add(new Line(Lang.tr("sva.cockpit.mining.mode", mode), v.isDrillOn() ? GREEN : DIM, -1F, null));
+        out.add(new Line(Lang.tr("sva.cockpit.mining.trip", String.valueOf(Math.max(0, v.getDug() - s.dugAtStart))), TEXT, -1F, null));
+        int used = v.getCargoUsed(), cap = Math.max(1, v.cargoCapacity());
+        float f = used / (float) cap;
+        out.add(new Line(Lang.tr("sva.cockpit.mining.bunker", used + "/" + cap), SNAP.cargoFull ? BLUE : TEXT, f, new float[] {0.37F, 0.78F, 0.94F}));
+        int left = v.getHeadLeft(), max = v.getHeadMax();
+        if (!v.hasHead()) {
+            out.add(new Line(Lang.tr("sva.cockpit.mining.noHead"), WARN, -1F, null));
+        } else if (left < 0 || max <= 0) {
+            out.add(new Line(Lang.tr("sva.cockpit.mining.headForever"), GREEN, -1F, null));
+        } else {
+            float h = left / (float) max;
+            out.add(new Line(Lang.tr("sva.cockpit.mining.head", pct(h * 100)), h < 0.15F ? WARN : TEXT, h, h < 0.15F ? new float[] {1F, 0.3F, 0.25F}
+                    : new float[] {0.75F, 0.78F, 0.82F}));
+        }
         return out;
     }
 
@@ -443,7 +631,7 @@ public final class CockpitInstrumentsSVA {
             float x0 = -w / 2 + col * cellW;
             float yc = h / 2 - (row + 0.5F) * (h / rows);
             float tw = fr.getStringWidth(ln.text) * k;
-            textLeft(fr, ln.text, x0, yc, k * 8F, ln.color);
+            textLeft(fr, ln.text, x0, yc, k * 8F, ln.color == TEXT || ln.color == DIM ? tint(ln.color) : ln.color);
             if (ln.frac >= 0) {
                 float bx0 = x0 + tw + GAP_PX * k, bx1 = Math.min(x0 + cellW - 2 * k, bx0 + BAR_PX * k);
                 if (bx1 > bx0) {
@@ -489,8 +677,11 @@ public final class CockpitInstrumentsSVA {
      * The attitude indicator: sky over ground split by the horizon - tilted by the bank, moved down as the nose
      * comes up (the screen's height = 60 degrees of pitch) - a pitch ladder every 10 degrees and the fixed aircraft mark.
      */
-    private static void drawAttitude(CockpitLayout.Screen sc, float pitch, float roll) {
+    private static void drawAttitude(FontRenderer fr, CockpitLayout.Screen sc, float pitch, float roll, boolean stall) {
         frame(sc.c, sc.n, sc.up, sc.right, sc.front + LIFT_FACE);
+        if (night > 0F) {
+            glowRect(sc.w, sc.h, 0.35F * night);
+        }
         float hw = sc.w / 2, hh = sc.h / 2;
         float perDeg = sc.h / 60F;
         double a = Math.toRadians(roll);                      // bank right (+): the horizon's right end rises
@@ -519,6 +710,14 @@ public final class CockpitInstrumentsSVA {
         line(0F, -u * 0.6F, u, 0F, lw, lift);
         line(u, 0F, hw * 0.55F, 0F, lw, lift);
         disc(0F, 0F, lw, LIFT_HUB - LIFT_FACE);
+        if (stall && (System.currentTimeMillis() / 250) % 2 == 0) {
+            // ★11: the stall flag across the top (the plane has no text screen)
+            GL11.glColor4f(0.85F, 0.12F, 0.08F, 1F);
+            rect(-hw * 0.7F, hh * 0.5F, hw * 0.7F, hh * 0.92F, LIFT_HUB - LIFT_FACE + 0.0005F);
+            textLift = LIFT_HUB - LIFT_FACE + 0.001F;
+            text(fr, Lang.tr("sva.cockpit.lamp.stall"), 0F, hh * 0.71F, hh * 0.3F, hw * 1.3F, 0xFFFFFF);
+            textLift = LIFT_MARK - LIFT_FACE;
+        }
         GL11.glPopMatrix();
     }
 
@@ -563,6 +762,176 @@ public final class CockpitInstrumentsSVA {
         return new float[][] {{x0 + dx * t0, y0 + dy * t0}, {x0 + dx * t1, y0 + dy * t1}};
     }
 
+    // ---------------------------------------------------------------- ★11 lamps, ★11 startup screens, ★8 floor strip
+
+    /** Lamp label height (model units) at most, and the share of the room to the next lamp it may be wide. */
+    private static final float LABEL_H = 0.0095F, LABEL_ROOM = 0.92F;
+
+    /**
+     * The warning lamps by role (CockpitLamps.table: colour, lit / blinking from the snapshot; the lamp test lights them
+     * all, the dark and logo phases none) and the plane's gear lamps (CockpitLamps.gear); a lit lamp gets a halo (brighter
+     * at night), each a tiny label under it facing the driver's eye.
+     */
+    private static void drawLamps(FontRenderer fr, CockpitLayout l, VehicleType t, EntityVehicleSVA v, float pt) {
+        int[] roles = CockpitLamps.table(t);
+        float[] eye = CockpitLayout.eye(t);
+        long ms = System.currentTimeMillis();
+        for (int i = 0; i < l.lamps.size(); i++) {
+            int role = i < roles.length ? roles[i] : CockpitLamps.MASTER;
+            boolean lit = phase == CockpitLamps.PH_TEST || phase != CockpitLamps.PH_DARK && phase != CockpitLamps.PH_LOGO
+                    && CockpitLamps.lit(CockpitLamps.state(role, SNAP), ms);
+            String key = CockpitLamps.KEYS[role];
+            drawLamp(fr, l.lamps.get(i), CockpitLamps.colour(role), lit, key.length() == 0 ? null : Lang.tr("sva.cockpit.lamp." + key), eye,
+                    CockpitLayout.labelRoom(l.lamps, i));
+        }
+        if (!l.okLamps.isEmpty()) {
+            int rgb;
+            if (!SNAP.powered || phase == CockpitLamps.PH_DARK || phase == CockpitLamps.PH_LOGO) {
+                rgb = 0;
+            } else if (phase == CockpitLamps.PH_TEST) {
+                rgb = CockpitLamps.GREEN;
+            } else if (ConfigSVA.animations) {
+                rgb = CockpitLamps.gear(AnimMath.lerp(v.anim.prevGear, v.anim.gear, pt), v.anim.gearUp);
+            } else {
+                rgb = state(v).gearDown ? CockpitLamps.GREEN : 0;
+            }
+            for (int i = 0; i < l.okLamps.size(); i++) {
+                // the middle one carries the label «ШАССИ»
+                String label = i == l.okLamps.size() / 2 ? Lang.tr("sva.cockpit.lamp.gear") : null;
+                drawLamp(fr, l.okLamps.get(i), rgb == 0 ? CockpitLamps.GREEN : rgb, rgb != 0, label, eye, 0.12F);
+            }
+        }
+    }
+
+    private static void drawLamp(FontRenderer fr, CockpitLayout.Lamp p, int rgb, boolean lit, String label, float[] eye, float room) {
+        float k = lit ? 1F : SNAP.powered ? 0.2F : 0.12F;          // an unlit lamp: its dark coloured glass
+        GL11.glColor4f((rgb >> 16 & 255) / 255F * k, (rgb >> 8 & 255) / 255F * k, (rgb & 255) / 255F * k, 1F);
+        lamp(p.c, p.r * 1.12F);
+        float[][] f = CockpitLayout.faceFrame(p.c, eye);
+        float[] n = f[0], up = f[1], right = f[2];
+        if (lit) {
+            frame(p.c, n, up, right, p.r * 1.2F);
+            int keep = glowRgb;
+            glowRgb = rgb;
+            glowRing(p.r * 0.5F, p.r * 3F, 0.3F + 0.4F * night, 0F);
+            glowRgb = keep;
+            GL11.glPopMatrix();
+        }
+        if (label != null) {
+            float h = Math.min(LABEL_H, room * 0.2F);
+            float[] c = {p.c[0] - up[0] * (p.r * 1.15F + h * 0.7F), p.c[1] - up[1] * (p.r * 1.15F + h * 0.7F), p.c[2] - up[2] * (p.r * 1.15F + h * 0.7F)};
+            frame(c, n, up, right, p.r * 0.9F);
+            text(fr, label, 0F, 0F, h, room * LABEL_ROOM, lit ? rgb : tint(0xA8A8B2));
+            GL11.glPopMatrix();
+        }
+    }
+
+    /** ★11 a screen during the startup: dark, then white-ish (the lamp test), then the SA logo in the tier's colour. */
+    private static void drawStartScreen(FontRenderer fr, CockpitLayout.Screen sc) {
+        frame(sc.c, sc.n, sc.up, sc.right, sc.front + LIFT_FACE);
+        if (phase == CockpitLamps.PH_DARK) {
+            GL11.glColor4f(0.012F, 0.014F, 0.02F, 1F);
+            rect(-sc.w / 2, -sc.h / 2, sc.w / 2, sc.h / 2, 0F);
+        } else if (phase == CockpitLamps.PH_TEST) {
+            GL11.glColor4f(0.80F, 0.86F, 0.90F, 1F);
+            rect(-sc.w / 2, -sc.h / 2, sc.w / 2, sc.h / 2, 0F);
+        } else {
+            background(sc.w, sc.h);
+            text(fr, "SA", 0F, 0F, sc.h * 0.5F, sc.w * 0.8F, glowRgb);
+        }
+        GL11.glPopMatrix();
+    }
+
+    /**
+     * ★8 the floor light strip: a thin glowing line along both sides of the cabin floor ('carpet' box, model units) in the
+     * tier's colour, with a soft wider glow - a hair over the floor, both sides inset 0.02.
+     */
+    private static void floorStrip(float[] fl) {
+        float y = fl[3] + 0.002F, x0 = fl[0] + 0.02F, x1 = fl[1] - 0.02F;
+        float r = (glowRgb >> 16 & 255) / 255F, g = (glowRgb >> 8 & 255) / 255F, b = (glowRgb & 255) / 255F;
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDepthMask(false);
+        for (int side = 0; side < 2; side++) {
+            float z = side == 0 ? fl[4] + 0.02F : fl[5] - 0.02F, in = side == 0 ? 1F : -1F;
+            GL11.glColor4f(r, g, b, 0.9F * night);                  // the strip
+            quadXZ(x0, x1, z, z + in * 0.008F, y);
+            GL11.glBegin(GL11.GL_QUADS);                            // its glow onto the floor, fading inward
+            GL11.glColor4f(r, g, b, 0.35F * night);
+            GL11.glVertex3f(x0, y, z + in * 0.008F);
+            GL11.glVertex3f(x1, y, z + in * 0.008F);
+            GL11.glColor4f(r, g, b, 0F);
+            GL11.glVertex3f(x1, y, z + in * 0.09F);
+            GL11.glVertex3f(x0, y, z + in * 0.09F);
+            GL11.glEnd();
+        }
+        GL11.glPopAttrib();
+    }
+
+    private static void quadXZ(float x0, float x1, float z0, float z1, float y) {
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex3f(x0, y, z0);
+        GL11.glVertex3f(x1, y, z0);
+        GL11.glVertex3f(x1, y, z1);
+        GL11.glVertex3f(x0, y, z1);
+        GL11.glEnd();
+    }
+
+    /**
+     * ★8 a soft additive halo ring in the current frame: alpha `a` at radius r0 fading to 0 at r1, in glowRgb, no depth
+     * writes (drawn a hair behind the face at z, so the dial / lamp itself covers the middle).
+     */
+    private static void glowRing(float r0, float r1, float a, float z) {
+        float r = (glowRgb >> 16 & 255) / 255F, g = (glowRgb >> 8 & 255) / 255F, b = (glowRgb & 255) / 255F;
+        glowOn();
+        GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
+        for (int k = 0; k <= 32; k++) {
+            double ang = k * Math.PI * 2 / 32;
+            float c = (float) Math.cos(ang), sn = (float) Math.sin(ang);
+            GL11.glColor4f(r, g, b, Math.min(1F, a));
+            GL11.glVertex3f(c * r0, sn * r0, z);
+            GL11.glColor4f(r, g, b, 0F);
+            GL11.glVertex3f(c * r1, sn * r1, z);
+        }
+        GL11.glEnd();
+        glowOff();
+    }
+
+    /** ★8 the same round a w x h screen: a border 0.18 of the smaller side wide, fading outward. */
+    private static void glowRect(float w, float h, float a) {
+        float r = (glowRgb >> 16 & 255) / 255F, g = (glowRgb >> 8 & 255) / 255F, b = (glowRgb & 255) / 255F;
+        float e = Math.min(w, h) * 0.18F, x0 = -w / 2, x1 = w / 2, y0 = -h / 2, y1 = h / 2, z = -0.0005F;
+        float[][] in = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+        float[][] out = {{x0 - e, y0 - e}, {x1 + e, y0 - e}, {x1 + e, y1 + e}, {x0 - e, y1 + e}};
+        glowOn();
+        GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
+        for (int k = 0; k <= 4; k++) {
+            GL11.glColor4f(r, g, b, Math.min(1F, a));
+            GL11.glVertex3f(in[k % 4][0], in[k % 4][1], z);
+            GL11.glColor4f(r, g, b, 0F);
+            GL11.glVertex3f(out[k % 4][0], out[k % 4][1], z);
+        }
+        GL11.glEnd();
+        glowOff();
+    }
+
+    private static void glowOn() {
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDepthMask(false);
+        GL11.glShadeModel(GL11.GL_SMOOTH);
+    }
+
+    private static void glowOff() {
+        GL11.glDepthMask(true);
+        GL11.glEnable(GL11.GL_ALPHA_TEST);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+    }
+
     // ---------------------------------------------------------------- GL helpers (the current frame: x right, y up, z out)
 
     /** Pushes a matrix with origin c + n * depth and axes right, up, n (model units). */
@@ -578,7 +947,10 @@ public final class CockpitInstrumentsSVA {
     }
 
     private static void background(float w, float h) {
-        GL11.glColor4f(0.35F, 0.86F, 1F, 1F);                       // a thin lit edge
+        if (night > 0F) {
+            glowRect(w, h, 0.35F * night);                          // ★8: a soft halo round the screen
+        }
+        glColor(night > 0F ? CockpitLamps.mix(0x5ADBFF, glowRgb, night) : 0x5ADBFF);   // a thin lit edge
         rect(-w / 2, -h / 2, w / 2, h / 2, 0F);
         GL11.glColor4f(0.03F, 0.06F, 0.09F, 1F);
         float e = Math.min(w, h) * 0.04F;
@@ -679,9 +1051,12 @@ public final class CockpitInstrumentsSVA {
         drawText(fr, s, x, y, height / 8F, color);
     }
 
+    /** Text's lift over the current frame (a flag over the attitude screen raises it). */
+    private static float textLift = LIFT_MARK - LIFT_FACE;
+
     private static void drawText(FontRenderer fr, String s, float x, float y, float k, int color) {
         GL11.glPushMatrix();
-        GL11.glTranslatef(x, y, LIFT_MARK - LIFT_FACE);
+        GL11.glTranslatef(x, y, textLift);
         GL11.glScalef(k, -k, k);
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         fr.drawString(s, 0, -4, color);

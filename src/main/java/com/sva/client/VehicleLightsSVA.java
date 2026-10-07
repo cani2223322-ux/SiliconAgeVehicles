@@ -52,6 +52,16 @@ public final class VehicleLightsSVA {
         return AnimMath.clamp((11 - sky) / 8F, 0F, 1F);
     }
 
+    /**
+     * Cockpit stage 2: the headlight beams shine now (the same test as render's: config on, charge, dark at the vehicle,
+     * aircraft only near the ground, the model has a headlight) - the cockpit's «ФАРЫ» lamp.
+     */
+    public static boolean headlightsOn(EntityVehicleSVA v) {
+        VehicleType t = v.getVehicleType();
+        return ConfigSVA.headlights && v.powered() && VehicleLights.hasHead(t.model) && (!t.movement.flies || v.anim.height < LANDING_HEIGHT)
+                && darkness(v) > 0.05F;
+    }
+
     public static void render(EntityVehicleSVA v, VehicleType t, float pt, float gear) {
         boolean heads = ConfigSVA.headlights, navs = ConfigSVA.navLights;
         if (!heads && !navs || !v.powered()) {

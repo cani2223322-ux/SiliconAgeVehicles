@@ -28,6 +28,12 @@ public final class CockpitDials {
     /** Aircraft: the most square screen of at least ATT_MIN a side - the attitude indicator (pitch / bank). */
     public static final int SCREEN_ATTITUDE = 3;
     public static final float ATT_MIN = 0.07F;
+    /**
+     * Cockpit stage 2, the drill: the console right of the cluster («ДОБЫЧА», mock-up veh_cab_1_car.png): mode, blocks
+     * dug this trip, the bunker, the bore head. Given to the widest of two or more text screens (the console strip 0.200 x
+     * 0.081 beside the left computer 0.144 x 0.119).
+     */
+    public static final int SCREEN_MINING = 4;
     /** A screen of at least this area (model units^2) gets the text lines. */
     public static final float MAIN_AREA = 0.015F;
 
@@ -173,6 +179,11 @@ public final class CockpitDials {
      * the jet's centre panel 0.175 x 0.113) are text screens; the small ones (0.075 x 0.113) show one reading each.
      */
     public static int[] screenRoles(List<CockpitLayout.Screen> screens, boolean aircraft) {
+        return screenRoles(screens, aircraft, false);
+    }
+
+    /** As above; `drill`: the widest of two or more text screens becomes the SCREEN_MINING console. */
+    public static int[] screenRoles(List<CockpitLayout.Screen> screens, boolean aircraft, boolean drill) {
         int n = screens.size();
         int[] roles = new int[n];
         int att = -1;
@@ -200,6 +211,21 @@ public final class CockpitDials {
                 roles[i] = SCREEN_MAIN;
             } else {
                 roles[i] = SCREEN_SMALL;
+            }
+        }
+        if (drill) {
+            int mains = 0, widest = -1;
+            for (int i = 0; i < n; i++) {
+                if (roles[i] == SCREEN_MAIN) {
+                    mains++;
+                    CockpitLayout.Screen s = screens.get(i);
+                    if (widest < 0 || s.w / s.h > screens.get(widest).w / screens.get(widest).h) {
+                        widest = i;
+                    }
+                }
+            }
+            if (mains >= 2) {
+                roles[widest] = SCREEN_MINING;
             }
         }
         return roles;

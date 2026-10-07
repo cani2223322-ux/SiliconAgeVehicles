@@ -114,6 +114,7 @@ public final class SelfTestSVA {
             animLogic();
             cockpitStage1();
             lightTable();
+            cockpitStage2();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -2561,5 +2562,151 @@ public final class SelfTestSVA {
             }
         }
         return b;
+    }
+
+    // ---- cockpit stage 2: ★11 reactive lamps + startup, ★8 night lighting (vehicle/CockpitLamps)
+
+    private static void cockpitStage2() throws java.io.IOException {
+        // every type's lamp table has exactly one role per lamp of its model; only the plane has gear lamps
+        StringBuilder found = new StringBuilder();
+        boolean tables = true, ok = true, floors = true;
+        for (VehicleType t : VehicleType.values()) {
+            com.sva.vehicle.CockpitLayout l = com.sva.vehicle.CockpitLayout.of(t);
+            int[] roles = com.sva.vehicle.CockpitLamps.table(t);
+            found.append(t.key).append(' ').append(l.lamps.size()).append(' ');
+            tables &= roles.length == l.lamps.size();
+            for (int r : roles) {
+                tables &= r >= 0 && r < com.sva.vehicle.CockpitLamps.KEYS.length;
+            }
+            ok &= l.okLamps.size() == (t == VehicleType.PLANE ? 3 : 0);
+            floors &= (l.floor != null) == (t != VehicleType.HOVER && t != VehicleType.JET);
+        }
+        check(tables, "cockpit stage 2: every type's lamp role table covers its model's lamps exactly (" + found.toString().trim() + ")");
+        check(ok, "cockpit stage 2: the plane's three green gear lamps are found, no other model has 'ok' lamps that small");
+        check(floors, "cockpit stage 2: a cabin floor box for the floor strip in every model with a carpet (all but the hoverbike, the jet)");
+        // rows: the buggy's 6 lamps first, left -> right on one height; the drill's 3 mode lamps first (the row above)
+        java.util.List<com.sva.vehicle.CockpitLayout.Lamp> bl = com.sva.vehicle.CockpitLayout.of(VehicleType.BUGGY).lamps;
+        boolean row = bl.size() == 7;
+        for (int i = 1; row && i < 6; i++) {
+            row = Math.abs(bl.get(i).c[1] - bl.get(0).c[1]) < 0.01F && bl.get(i).c[2] > bl.get(i - 1).c[2];
+        }
+        java.util.List<com.sva.vehicle.CockpitLayout.Lamp> dl = com.sva.vehicle.CockpitLayout.of(VehicleType.DRILL).lamps;
+        check(row && dl.size() == 9 && dl.get(0).c[1] > dl.get(3).c[1] + 0.05F && dl.get(0).c[2] < dl.get(2).c[2],
+                "cockpit stage 2: lamps sorted in rows top -> bottom, left -> right (buggy row of 6, drill mode lamps first)");
+        int[] heli = com.sva.vehicle.CockpitLamps.table(VehicleType.HELI);
+        check(heli[1] == com.sva.vehicle.CockpitLamps.AUTOROT && heli[8] == com.sva.vehicle.CockpitLamps.DOOR
+                && com.sva.vehicle.CockpitLamps.table(VehicleType.BUGGY)[0] == com.sva.vehicle.CockpitLamps.TURN_L
+                && com.sva.vehicle.CockpitLamps.table(VehicleType.BUGGY)[5] == com.sva.vehicle.CockpitLamps.TURN_R
+                && com.sva.vehicle.CockpitLamps.colour(com.sva.vehicle.CockpitLamps.HEAD) == com.sva.vehicle.CockpitLamps.BLUE
+                && com.sva.vehicle.CockpitLamps.colour(com.sva.vehicle.CockpitLamps.WEAR) == com.sva.vehicle.CockpitLamps.AMBER
+                && com.sva.vehicle.CockpitLamps.colour(com.sva.vehicle.CockpitLamps.GEN) == com.sva.vehicle.CockpitLamps.GREEN,
+                "cockpit stage 2: heli annunciators AUTOROT..DOOR, car row turn L..turn R, colours (lights blue, wear amber, gen green)");
+        // the startup sequence's timing
+        check(com.sva.vehicle.CockpitLamps.phase(-1F) == com.sva.vehicle.CockpitLamps.PH_NORMAL
+                && com.sva.vehicle.CockpitLamps.phase(Float.NaN) == com.sva.vehicle.CockpitLamps.PH_NORMAL
+                && com.sva.vehicle.CockpitLamps.phase(0F) == com.sva.vehicle.CockpitLamps.PH_DARK
+                && com.sva.vehicle.CockpitLamps.phase(0.29F) == com.sva.vehicle.CockpitLamps.PH_DARK
+                && com.sva.vehicle.CockpitLamps.phase(0.3F) == com.sva.vehicle.CockpitLamps.PH_TEST
+                && com.sva.vehicle.CockpitLamps.phase(0.79F) == com.sva.vehicle.CockpitLamps.PH_TEST
+                && com.sva.vehicle.CockpitLamps.phase(0.8F) == com.sva.vehicle.CockpitLamps.PH_LOGO
+                && com.sva.vehicle.CockpitLamps.phase(1.19F) == com.sva.vehicle.CockpitLamps.PH_LOGO
+                && com.sva.vehicle.CockpitLamps.phase(1.2F) == com.sva.vehicle.CockpitLamps.PH_SWEEP
+                && com.sva.vehicle.CockpitLamps.phase(1.79F) == com.sva.vehicle.CockpitLamps.PH_SWEEP
+                && com.sva.vehicle.CockpitLamps.phase(1.8F) == com.sva.vehicle.CockpitLamps.PH_NORMAL,
+                "cockpit stage 2: startup 0-0.3 s dark, 0.3-0.8 lamp test, 0.8-1.2 SA logo, 1.2-1.8 needle sweep, then normal");
+        check(com.sva.vehicle.CockpitLamps.sweep(1.2F) == 0F && near(com.sva.vehicle.CockpitLamps.sweep(1.35F), 0.5, 1e-4)
+                && near(com.sva.vehicle.CockpitLamps.sweep(1.5F), 1, 1e-4) && near(com.sva.vehicle.CockpitLamps.sweep(1.65F), 0.5, 1e-4)
+                && com.sva.vehicle.CockpitLamps.sweep(1.8F) == 0F && com.sva.vehicle.CockpitLamps.sweep(0.5F) == 0F,
+                "cockpit stage 2: the needles sweep 0 -> max (at 1.5 s) -> 0");
+        // lamp rules
+        check(com.sva.vehicle.CockpitLamps.vortex(true, true, -0.3F, 0.1F) && !com.sva.vehicle.CockpitLamps.vortex(true, true, -0.3F, 0.2F)
+                && !com.sva.vehicle.CockpitLamps.vortex(true, true, -0.2F, 0.05F) && !com.sva.vehicle.CockpitLamps.vortex(false, true, -0.5F, 0F)
+                && !com.sva.vehicle.CockpitLamps.vortex(true, false, -0.5F, 0F),
+                "cockpit stage 2: vortex ring lamp - a rotorcraft in the air sinking > 5 b/s under 3 b/s forward");
+        com.sva.vehicle.CockpitLamps.Snapshot sn = new com.sva.vehicle.CockpitLamps.Snapshot();
+        sn.powered = true;
+        sn.charge = 0.05F;
+        int low = com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.LOW_CHARGE, sn);
+        int master = com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.MASTER, sn);
+        sn.charge = 0.5F;
+        int lowOff = com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.LOW_CHARGE, sn);
+        int gen = com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.GEN, sn);
+        sn.powered = false;
+        sn.charge = 0F;
+        int genOff = com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.GEN, sn);
+        int lowDead = com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.LOW_CHARGE, sn);
+        check(low == com.sva.vehicle.CockpitLamps.ON && master == com.sva.vehicle.CockpitLamps.BLINK && lowOff == com.sva.vehicle.CockpitLamps.OFF
+                && gen == com.sva.vehicle.CockpitLamps.ON && genOff == com.sva.vehicle.CockpitLamps.OFF && lowDead == com.sva.vehicle.CockpitLamps.OFF,
+                "cockpit stage 2: low charge under 10% (amber, master blinks), generator lamp with power, everything dark without");
+        sn = new com.sva.vehicle.CockpitLamps.Snapshot();
+        sn.powered = true;
+        sn.steer = -10F;
+        sn.heat = 85F;
+        sn.hull = 0.2F;
+        sn.drillMode = 1;
+        sn.onGround = true;
+        check(com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.TURN_L, sn) == com.sva.vehicle.CockpitLamps.BLINK
+                && com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.TURN_R, sn) == com.sva.vehicle.CockpitLamps.OFF
+                && com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.OVERHEAT, sn) == com.sva.vehicle.CockpitLamps.BLINK
+                && com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.WEAR, sn) == com.sva.vehicle.CockpitLamps.ON
+                && com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.HANDBRAKE, sn) == com.sva.vehicle.CockpitLamps.ON
+                && com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.MODE1, sn) == com.sva.vehicle.CockpitLamps.ON
+                && com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.MODE0, sn) == com.sva.vehicle.CockpitLamps.OFF
+                && com.sva.vehicle.CockpitLamps.state(com.sva.vehicle.CockpitLamps.DOOR, sn) == com.sva.vehicle.CockpitLamps.OFF
+                && com.sva.vehicle.CockpitLamps.lit(com.sva.vehicle.CockpitLamps.BLINK, 1000) && !com.sva.vehicle.CockpitLamps.lit(com.sva.vehicle.CockpitLamps.BLINK, 1300)
+                && com.sva.vehicle.CockpitLamps.lit(com.sva.vehicle.CockpitLamps.ON, 1300),
+                "cockpit stage 2: turning left blinks the left lamp, hot (>80) blinks, worn hull (>75% wear) amber, parked = handbrake, drill mode lamp");
+        check(com.sva.vehicle.CockpitLamps.gear(0F, false) == com.sva.vehicle.CockpitLamps.GREEN
+                && com.sva.vehicle.CockpitLamps.gear(0F, true) == com.sva.vehicle.CockpitLamps.RED
+                && com.sva.vehicle.CockpitLamps.gear(0.5F, true) == com.sva.vehicle.CockpitLamps.RED
+                && com.sva.vehicle.CockpitLamps.gear(1F, false) == com.sva.vehicle.CockpitLamps.RED
+                && com.sva.vehicle.CockpitLamps.gear(1F, true) == 0,
+                "cockpit stage 2: gear lamps green down, red while moving, off up");
+        // ★8 night lighting
+        check(com.sva.vehicle.CockpitLamps.tierGlow(com.sva.vehicle.SkinMath.livery(VehicleType.BUGGY.tier)) == 0xFFBE3C
+                && com.sva.vehicle.CockpitLamps.tierGlow(com.sva.vehicle.SkinMath.livery(VehicleType.HELI.tier)) == 0xFFE6AA
+                && com.sva.vehicle.CockpitLamps.tierGlow(com.sva.vehicle.SkinMath.livery(VehicleType.HOVER.tier)) == 0x5AD2FF
+                && com.sva.vehicle.CockpitLamps.tierGlow(com.sva.vehicle.SkinMath.livery(VehicleType.SHIP.tier)) == 0xC878FF,
+                "cockpit stage 2: night glow by tier - I amber, II warm white, III cyan, Singular purple");
+        check(com.sva.vehicle.CockpitLamps.night(0F, true, 0.8F) == 0F && near(com.sva.vehicle.CockpitLamps.night(1F, true, 0.8F), 0.8, 1e-5)
+                && com.sva.vehicle.CockpitLamps.night(1F, false, 0.8F) == 0F && near(com.sva.vehicle.CockpitLamps.night(0.275F, true, 1F), 0.5, 1e-4)
+                && com.sva.vehicle.CockpitLamps.night(1F, true, 0F) == 0F && com.sva.vehicle.CockpitLamps.mix(0x000000, 0xFFFFFF, 0.5F) == 0x808080,
+                "cockpit stage 2: the night glow comes on with the headlights' darkness, ramps to the configured level, off without power");
+        int[] dr = com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(VehicleType.DRILL).screens, false, true);
+        int mi = -1;
+        for (int i = 0; i < dr.length; i++) {
+            if (dr[i] == com.sva.vehicle.CockpitDials.SCREEN_MINING) {
+                mi = i;
+            }
+        }
+        check(mi >= 0 && com.sva.vehicle.CockpitLayout.of(VehicleType.DRILL).screens.get(mi).w > 0.18F
+                && !contains(com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(VehicleType.TRUCK).screens, false, false),
+                        com.sva.vehicle.CockpitDials.SCREEN_MINING),
+                "cockpit stage 2: the drill console (0.20 wide) gets the «ДОБЫЧА» page, nobody else");
+        // every label / event line in both languages
+        boolean langOk = true;
+        String[] extra = {"sva.cockpit.lamp.gear", "sva.cockpit.ev.cool", "sva.cockpit.ev.boost", "sva.cockpit.ev.autopilot", "sva.cockpit.ev.cargoFull",
+                "sva.cockpit.range", "sva.cockpit.mining", "sva.cockpit.mining.mode", "sva.cockpit.mining.trip", "sva.cockpit.mining.bunker",
+                "sva.cockpit.mining.head", "sva.cockpit.mining.headForever", "sva.cockpit.mining.noHead"};
+        for (String file : new String[] {"/assets/siliconagevehicles/lang/ru_RU.lang", "/assets/siliconagevehicles/lang/en_US.lang"}) {
+            java.util.Properties props = new java.util.Properties();
+            java.io.InputStream in = SelfTestSVA.class.getResourceAsStream(file);
+            if (in == null) {
+                langOk = false;
+                continue;
+            }
+            try {
+                props.load(new java.io.InputStreamReader(in, "UTF-8"));
+            } finally {
+                in.close();
+            }
+            for (String k : com.sva.vehicle.CockpitLamps.KEYS) {
+                langOk &= k.length() == 0 || props.containsKey("sva.cockpit.lamp." + k);
+            }
+            for (String k : extra) {
+                langOk &= props.containsKey(k);
+            }
+        }
+        check(langOk, "cockpit stage 2: every lamp label and event line is in ru_RU and en_US");
     }
 }
