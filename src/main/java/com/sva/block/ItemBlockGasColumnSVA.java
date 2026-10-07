@@ -27,6 +27,6 @@ public class ItemBlockGasColumnSVA extends ItemBlock {
     }
 
     private static String fmt(long n) {
-        return String.format("%,d", Long.valueOf(n)).replace(',', ' ');
+        return com.sva.FormatSVA.group(n);
     }
 }

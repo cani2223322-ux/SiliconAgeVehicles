@@ -92,7 +92,7 @@ public final class VehicleTransferSVA {
                 continue;
             }
             double[] p = n.seatPos(i);
-            Entity moved = BridgeTeleportSC.teleport(e, dim, p[0], y + t.seatY, p[2], yaw);
+            Entity moved = BridgeTeleportSC.teleport(e, dim, p[0], y + t.seatY + t.seatDy(i), p[2], yaw);
             if (moved != null) {
                 moved.getEntityData().setLong("scBridgeCd", now + BridgeMathSC.TELEPORT_COOLDOWN);
                 moved.fallDistance = 0;
@@ -145,10 +145,10 @@ public final class VehicleTransferSVA {
                 if (v.pendingAge < (player ? MOUNT_PLAYER : MOUNT_MOB) || mount == null) {
                     double[] p = v.seatPos(seat);
                     if (!player) {
-                        e.setPosition(p[0], v.posY + v.getMountedYOffset() + e.getYOffset(), p[2]);
+                        e.setPosition(p[0], p[1] + v.getMountedYOffset() + e.getYOffset(), p[2]);
                         e.motionX = e.motionY = e.motionZ = 0;
                     } else if (v.pendingAge == MOUNT_PLAYER / 2) {
-                        ((EntityPlayerMP) e).playerNetServerHandler.setPlayerLocation(p[0], v.posY + v.getMountedYOffset(), p[2],
+                        ((EntityPlayerMP) e).playerNetServerHandler.setPlayerLocation(p[0], p[1] + v.getMountedYOffset(), p[2],
                                 e.rotationYaw, e.rotationPitch);
                     }
                     e.fallDistance = 0;

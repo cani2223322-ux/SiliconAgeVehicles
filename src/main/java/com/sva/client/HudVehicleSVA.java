@@ -136,7 +136,7 @@ public class HudVehicleSVA {
         bar(fr, x, ry, Lang.tr("sva.hud.eu"), ePct, C_EU, (int) Math.floor(ePct * 100) + "%");
         ry += 10;
         float cruise = v.getCruiseCost();
-        String range = cruise > 0 ? fmt((long) (energy / cruise * t.topSpeed)) : "∞";
+        String range = cruise > 0 ? fmt((long) (energy / cruise * t.topSpeed)) : "--";
         fr.drawString(Lang.tr("sva.hud.range", range), x + 6, ry, DIM);
         ry += 10;
         if (charging) {
@@ -161,7 +161,7 @@ public class HudVehicleSVA {
         }
         if (lift != null) {
             double sec = HoverMath.secondsLeft(v.getGas(lift), v.isLifting() ? liftRate : gs.liftPerSecond);
-            String left = Double.isInfinite(sec) ? "∞" : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
+            String left = Double.isInfinite(sec) ? "--" : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
             fr.drawString(Lang.tr("sva.hud.gasLeft", Lang.tr("sva.gas." + lift.key()), left), x + 6, ry, v.isBoosting() ? AMBER : DIM);
             ry += 10;
         }
@@ -296,7 +296,7 @@ public class HudVehicleSVA {
 
     private static String time(double sec) {
         if (Double.isInfinite(sec)) {
-            return "∞";
+            return "--";
         }
         return sec >= 3600 ? String.format("%d:%02d:%02d", Long.valueOf((long) sec / 3600), Long.valueOf((long) sec / 60 % 60),
                 Long.valueOf((long) sec % 60)) : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
@@ -378,7 +378,7 @@ public class HudVehicleSVA {
             Gas g = t.gases.boostGas;
             int mb = v.getGas(g);
             double sec = HoverMath.secondsLeft(mb, t.gases.boostGasPerSecond);
-            String left = Double.isInfinite(sec) ? "∞" : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
+            String left = Double.isInfinite(sec) ? "--" : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
             String gas = Lang.tr("sva.gas." + g.key());
             String line;
             int col;
@@ -464,28 +464,36 @@ public class HudVehicleSVA {
         }
         int energy = v.getEnergy();
         double sec = cost > 0 ? energy / (double) cost / 20.0 : Double.POSITIVE_INFINITY;
-        String left = Double.isInfinite(sec) ? "∞" : sec >= 3600 ? String.format("%d:%02d:%02d", Long.valueOf((long) sec / 3600),
+        String left = Double.isInfinite(sec) ? "--" : sec >= 3600 ? String.format("%d:%02d:%02d", Long.valueOf((long) sec / 3600),
                 Long.valueOf((long) sec / 60 % 60), Long.valueOf((long) sec % 60)) : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
         fr.drawString(Lang.tr("sva.hud.flightTime", Integer.valueOf((int) Math.floor(energy * 100.0 / t.buffer)), left), px + 6, ry, TEXT);
     }
 
     /**
-     * The drill panel (bottom right): «БУР: ВКЛ · Туннель 3×3», the head's wear bar and blocks left («вечная» for
+     * The drill panel (bottom right): «БУР: ВКЛ · Туннель 3x3», the head's wear bar and blocks left («вечная» for
      * Exo), blocks dug, the argon field.
      */
     private void drawDrill(FontRenderer fr, int sw, int sh, EntityVehicleSVA v) {
-        int pw = 168, ph = 4 * 11 + 8;
+        int pw = 168;
+        // no head: where it goes - «Нет головки бура - L или Shift+ПКМ по машине: слот слева», wrapped to the panel
+        java.util.List<?> hint = v.hasHead() ? java.util.Collections.emptyList()
+                : fr.listFormattedStringToWidth(Lang.tr("sva.hud.drill.noHead", com.sva.proxy.ClientProxySVA.cargoKeyName()), pw - 12);
+        int ph = (3 + Math.max(1, hint.size())) * 11 + 8;
         int px = sw - pw - 4, py = sh - ph - 4;
         Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
         Gui.drawRect(px, py, px + pw, py + ph, BG);
         int ry = py + 5;
         boolean on = v.isDrillOn();
-        String mode = Lang.tr("sva.drill.mode." + v.getDrillMode()) + " " + (v.hasWidener() ? "5×5" : "3×3");
+        String mode = Lang.tr("sva.drill.mode." + v.getDrillMode()) + " " + (v.hasWidener() ? "5x5" : "3x3");
         fr.drawStringWithShadow(Lang.tr(on ? "sva.hud.drill.on" : "sva.hud.drill.off", mode), px + 6, ry, on ? GREEN : DIM);
         ry += 11;
         int left = v.getHeadLeft(), max = v.getHeadMax();
         if (!v.hasHead()) {
-            fr.drawString(Lang.tr("sva.hud.drill.noHead"), px + 6, ry, WARN);
+            for (Object line : hint) {
+                fr.drawString(String.valueOf(line), px + 6, ry, WARN);
+                ry += 11;
+            }
+            ry -= 11;
         } else if (left < 0 || max <= 0) {
             fr.drawString(Lang.tr("sva.hud.drill.headForever"), px + 6, ry, GREEN);
         } else {
@@ -550,6 +558,6 @@ public class HudVehicleSVA {
     }
 
     private static String fmt(long n) {
-        return String.format("%,d", Long.valueOf(n)).replace(',', ' ');
+        return com.sva.FormatSVA.group(n);
     }
 }

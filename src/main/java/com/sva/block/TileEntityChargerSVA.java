@@ -441,7 +441,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
             int[] s = span();
             ((EntityPlayer) v.riddenByEntity).addChatComponentMessage(new ChatComponentTranslation("sva.station.noFit",
                     v.getVehicleType().platformSize.label(), Integer.valueOf(v.getVehicleType().platformSize.minPlates()),
-                    s[0] + "×" + s[1], Integer.valueOf(plates.size())));
+                    s[0] + "x" + s[1], Integer.valueOf(plates.size())));
         }
     }
 

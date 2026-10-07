@@ -295,24 +295,59 @@ public final class ObjModelSVA {
     /** Glass alpha and how far its colour is lifted toward white (the OBJ colour is a dark tint). */
     public static final float GLASS_ALPHA = 0.28F, GLASS_LIGHTEN = 0.55F;
 
+    /**
+     * Body shell groups (the painted hull: paint, paint2, paint3, white and the shuttle's lit side windows; tiles / nb
+     * kept for future models): drawn see-through from inside the cab (render's shellAlpha). Dashboards / consoles
+     * (dark), seats, screens, steering wheels, levers and the other glowing parts stay solid.
+     */
+    public static boolean isShell(String group) {
+        return "paint".equals(group) || "paint2".equals(group) || "paint3".equals(group) || "white".equals(group)
+                || "tiles".equals(group) || "nb".equals(group) || "window".equals(group);
+    }
+
     public void render(float shade) {
-        render(shade, true);
+        render(shade, true, 1F);
+    }
+
+    public void render(float shade, boolean withGlass) {
+        render(shade, withGlass, 1F);
     }
 
     /**
      * Draws the opaque groups, then (withGlass) the glass / canopy groups translucent: blended, tinted lighter,
      * no depth writes, both faces (texture 2D must already be off). `shade` darkens everything (a wreck: no glow).
-     * withGlass false: the glass is left out (the local rider's first-person view).
+     * withGlass false: the glass is left out (the local rider's first-person view). shellAlpha < 1 (the same view):
+     * the body shell (isShell) is drawn after the opaque groups, lit, blended with that alpha and without depth writes,
+     * so the world outside shows through the cab walls while the cockpit stays solid.
      */
-    public void render(float shade, boolean withGlass) {
+    public void render(float shade, boolean withGlass, float shellAlpha) {
         if (lists < 0) {
             compile();
         }
+        boolean seeThrough = shellAlpha < 1F;
         for (int i = 0; i < groups.size(); i++) {
-            if (isGlass(groups.get(i)) || groups.get(i).startsWith("#")) {
+            String g = groups.get(i);
+            if (isGlass(g) || g.startsWith("#") || seeThrough && isShell(g)) {
                 continue;
             }
             drawGroup(i, shade);
+        }
+        if (seeThrough) {
+            GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            GL11.glDepthMask(false);
+            GL11.glDisable(GL11.GL_CULL_FACE);
+            for (int i = 0; i < groups.size(); i++) {
+                if (!isShell(groups.get(i))) {
+                    continue;
+                }
+                float[] c = colors.get(i);
+                GL11.glColor4f(c[0] * shade, c[1] * shade, c[2] * shade, shellAlpha);
+                GL11.glCallList(lists + i);
+            }
+            GL11.glDepthMask(true);
+            GL11.glPopAttrib();
         }
         if (withGlass) {
             GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);

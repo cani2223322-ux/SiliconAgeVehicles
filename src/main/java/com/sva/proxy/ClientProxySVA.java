@@ -72,6 +72,20 @@ public class ClientProxySVA extends CommonProxySVA {
     public static final net.minecraft.client.settings.KeyBinding KEY_CLOAK =
             new net.minecraft.client.settings.KeyBinding("key.sva.cloak", org.lwjgl.input.Keyboard.KEY_C, "key.categories.sva");
 
+    /**
+     * «Багажник»: opens the cargo / bunker screen of the vehicle the player sits in (driver or a seat) - Shift (the
+     * vanilla «get out») can't be used for Shift+RMB while seated. Default L: free in vanilla 1.7.10, the core
+     * (K, R, P, H, J, G) and this addon (F, X, B, N, V, Y, Z, C).
+     */
+    public static final net.minecraft.client.settings.KeyBinding KEY_CARGO =
+            new net.minecraft.client.settings.KeyBinding("key.sva.cargo", org.lwjgl.input.Keyboard.KEY_L, "key.categories.sva");
+
+    /** The current key of «Багажник» as shown to the player (HUD / tooltips). */
+    public static String cargoKeyName() {
+        int c = KEY_CARGO.getKeyCode();
+        return c == 0 ? "-" : net.minecraft.client.settings.GameSettings.getKeyDisplayString(c);
+    }
+
     @Override
     public void init(FMLInitializationEvent e) {
         super.init(e);
@@ -83,6 +97,7 @@ public class ClientProxySVA extends CommonProxySVA {
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_TARGET);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_ANCHOR);
         cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CLOAK);
+        cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding(KEY_CARGO);
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
         FMLCommonHandler.instance().bus().register(this);
@@ -202,6 +217,12 @@ public class ClientProxySVA extends CommonProxySVA {
     /** The drill keys while driving the drill vehicle: one Action packet a press. */
     private static void drillKeys() {
         Minecraft mc = Minecraft.getMinecraft();
+        if (KEY_CARGO.isPressed() && mc.thePlayer != null && mc.currentScreen == null) {
+            EntityVehicleSVA cv = ridden(mc.thePlayer);                 // driver or a passenger seat
+            if (cv != null && !cv.isDead) {
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(cv.getEntityId(), EntityVehicleSVA.A_CARGO));
+            }
+        }
         boolean toggle = KEY_DRILL.isPressed(), mode = KEY_DRILL_MODE.isPressed();
         boolean jump = KEY_JUMP.isPressed(), target = KEY_TARGET.isPressed(), anchor = KEY_ANCHOR.isPressed(), cloak = KEY_CLOAK.isPressed();
         if (mc.thePlayer == null || mc.currentScreen != null || !(toggle || mode || jump || target || anchor || cloak)) {

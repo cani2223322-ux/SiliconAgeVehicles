@@ -483,7 +483,7 @@ public class GuiWorkbenchSVA extends GuiContainer {
             itemRender.renderItemAndEffectIntoGUI(fontRendererObj, mc.getTextureManager(), r.display(), rx + 2, ry + 1);
             RenderHelper.disableStandardItemLighting();
             GL11.glDisable(GL11.GL_LIGHTING);
-            String nm = name(r) + (r.display().stackSize > 1 ? " ×" + r.display().stackSize : "");
+            String nm = name(r) + (r.display().stackSize > 1 ? " x" + r.display().stackSize : "");
             TextFitSC.draw(fontRendererObj, nm, rx + 20, ry + 2, 66, TEXT, guiLeft, guiTop);
             // tier chip
             String tn = r.tier.name();
@@ -536,7 +536,7 @@ public class GuiWorkbenchSVA extends GuiContainer {
     }
 
     private static String pct(double k) {
-        return "×" + String.format(Locale.ROOT, "%.2f", Double.valueOf(k)).replace('.', Lang.tr("sva.num.point").charAt(0));
+        return "x" + String.format(Locale.ROOT, "%.2f", Double.valueOf(k)).replace('.', Lang.tr("sva.num.point").charAt(0));
     }
 
     private void drawProgressText() {
@@ -611,7 +611,7 @@ public class GuiWorkbenchSVA extends GuiContainer {
             if (b.length() > 0) {
                 b.append(", ");
             }
-            b.append(needName(n.ingredient)).append(" ×").append(n.need - n.have);
+            b.append(needName(n.ingredient)).append(" x").append(n.need - n.have);
         }
         return b.toString();
     }

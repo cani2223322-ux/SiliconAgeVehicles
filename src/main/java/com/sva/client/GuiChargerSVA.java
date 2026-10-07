@@ -82,7 +82,7 @@ public class GuiChargerSVA extends GuiContainer {
     }
 
     private static String num(long n) {
-        return String.format("%,d", Long.valueOf(n)).replace(',', ' ').replace(' ', ' ');
+        return com.sva.FormatSVA.group(n);
     }
 
     private static String pct(double f) {
@@ -277,7 +277,7 @@ public class GuiChargerSVA extends GuiContainer {
         fontRendererObj.drawString(Lang.tr("tile.siliconagevehicles.charger.name"), 7, 5, GOLD);
         int plates = v(ContainerChargerSVA.V_PLATES), sx = v(ContainerChargerSVA.V_SX), sz = v(ContainerChargerSVA.V_SZ);
         Tier in = Tier.byOrdinal(v(ContainerChargerSVA.V_TIER));
-        String head = plates > 0 ? Lang.tr("sva.st.head", in.name(), num(v(ContainerChargerSVA.V_RATE)), sx + "×" + sz, Integer.valueOf(plates))
+        String head = plates > 0 ? Lang.tr("sva.st.head", in.name(), num(v(ContainerChargerSVA.V_RATE)), sx + "x" + sz, Integer.valueOf(plates))
                 : Lang.tr("sva.st.head.lone", in.name(), num(v(ContainerChargerSVA.V_RATE)));
         int hw = Math.min(200, fontRendererObj.getStringWidth(head));
         TextFitSC.draw(fontRendererObj, head, W - 6 - hw, 5, 200, MUTED, ox, oy);

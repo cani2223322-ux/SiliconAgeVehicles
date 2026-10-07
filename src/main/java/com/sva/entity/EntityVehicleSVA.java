@@ -82,7 +82,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             /** Stage D: the tiltrotor's «Режим» key - vertical <-> airplane (its driver). */
             A_FLIGHT_MODE = 5,
             /** Stage E (the pilot): «Режим» on the shuttle / ship - long-range mode; «Прыжок»; the jump target; anchor; invisibility. */
-            A_LONG_RANGE = 6, A_JUMP = 7, A_JUMP_TARGET = 8, A_ANCHOR = 9, A_INVIS = 10;
+            A_LONG_RANGE = 6, A_JUMP = 7, A_JUMP_TARGET = 8, A_ANCHOR = 9, A_INVIS = 10,
+            /** The «Багажник» key (L): the cargo / bunker screen from a seat (owner / op only, as Shift+RMB). */
+            A_CARGO = 11;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -605,7 +607,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         VehicleType t = getVehicleType();
         double[] o = t.seatOffsets[Math.min(seat, t.seatOffsets.length - 1)];
         double[] w = toWorld(o[0], o[1]);
-        return new double[] {posX + w[0], posY, posZ + w[1]};
+        return new double[] {posX + w[0], posY + t.seatDy(seat), posZ + w[1]};     // y: + the seat's own height change
     }
 
     @Override
@@ -1832,6 +1834,12 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return;
         }
         VehicleType t = state.type;
+        if (a == A_CARGO) {
+            if (carries(p)) {                                       // the key works from a seat only
+                p.openGui(SVAMod.instance, GuiHandlerSVA.CARGO, worldObj, getEntityId(), 0, 0);
+            }
+            return;
+        }
         if (a == A_DRILL_TOGGLE && t.hasDrill) {
             if (!drillOn && !DrillLogicSVA.isHead(state.drillHead)) {
                 msg(p, "sva.msg.drill.noHead");

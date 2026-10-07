@@ -26,6 +26,14 @@ public final class FormatSVA {
         return Lang.tr("sva.num.m", m.replace('.', Lang.tr("sva.num.point").charAt(0)));
     }
 
+    /**
+     * A whole number with its thousands split by a plain space ("11 195"). Locale.ROOT on purpose: the Russian locale
+     * groups with U+00A0, which the vanilla 1.7.10 font draws as a box. Safe on the server (no Lang).
+     */
+    public static String group(long n) {
+        return String.format(java.util.Locale.ROOT, "%,d", Long.valueOf(n)).replace(',', ' ');
+    }
+
     /** Seconds from ticks, rounded up. */
     public static int seconds(int ticks) {
         return (ticks + 19) / 20;

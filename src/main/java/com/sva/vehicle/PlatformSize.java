@@ -21,6 +21,6 @@ public enum PlatformSize {
     }
 
     public String label() {
-        return w + "×" + h;
+        return w + "x" + h;
     }
 }

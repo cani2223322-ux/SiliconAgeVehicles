@@ -9,6 +9,14 @@ import com.sc.util.ArmorGasSC.Gas;
  */
 public enum VehicleType {
 
+    // RIDER FIT (fix pass 2026-10, the user's screenshots): the 1.7.10 player model sits with the hip (leg pivot) at
+    // seatY + 0.203, the head top at seatY + 1.375 (x0.9375 model: torso 0.703, head 0.469). Every closed type was
+    // checked against its OBJ hull (shell + glass, debug/RiderFitSVA, the self-test "rider fit"): the rider's chest and
+    // head must stay inside. The older numbers assumed ~1.0 block of headroom over the cushion and let the heads of the
+    // helicopter, plane, jet, tiltrotor / shuttle pilots and the ship's front rows stick out. Fixed by scaling (heli
+    // 1.5 -> 1.7, plane 2.3 -> 2.9, jet 2.5 -> 2.8), moving seats back / inward and an optional per-seat height change
+    // (third number of a seatOffsets row, VehicleType.seatDy). Numbers per type below.
+
     // name, model, tier, buffer, EU/t at top speed, idle EU/t, top speed, accel, turn deg/t, seats, cargo, hull HP, width, height
     // model scale 1.45: the concept was drawn too small for a 1.8-block player - at x1.45 the seats are
     // shoulder-wide and the roll cage clears a sitting player's head (seat cushion top 1.05 above the ground)
@@ -29,16 +37,22 @@ public enum VehicleType {
     // skids and the cabin roof 1.09 over it; the rotor is 6.8 blocks across, the body 7.5 long. Seats: the two front
     // (pilot) seats - the driver right, the co-pilot left; x = cushion centre 0.91 x 1.5 + 0.05, seatY = 0.99 - 0.25.
     // The rear bench of the model stays decorative (plan: 2 seats).
+    // Rider fit: at x1.5 the heads went through the roof where the nose curves down (0.23 deep) - now x1.7 (rotor 7.7
+    // blocks, body 8.5 long), seats 0.2 back from the scaled cushion centre and 0.1 inward (x 1.41, z +-0.32), seatY
+    // 0.704 (hip 0.08 into the 0.99-high seat surface); eyes 1.82, the roof 0.34 over them.
     HELI("heli", "heli", Tier.HV, 3000000, 90, 3, 0.70, 0.02, 3.0, 2, 9, 250, 3.0F, 1.7F,
-            new double[][] {{1.42, 0.375}, {1.42, -0.375}}, 1.5F, 0.74, Movement.HELI,
+            new double[][] {{1.41, 0.32}, {1.41, -0.32}}, 1.7F, 0.704, Movement.HELI,
             VehicleGases.of(Gas.HELIUM, Integer.valueOf(1000))),
     // Light Plane (plan §2, HV): 4M EU, 50 EU/t cruising (40 at Y >= 100) / 120 on the take-off run and climbing
     // (peakCost) / 2 idling, x4 sprint (1.12 b/t), 3 seats (the model's pilot + 2 passengers, staggered), 9 cargo,
     // helium cooling (1000 mB). Model scale 2.3: plane.obj's cockpit is tiny (cushion top 0.64, canopy top 1.07) - at
     // x2.3 the cushion top is 1.47 and the canopy 1.0 over it; wingspan 11.5, length 10.7 blocks. Seats (cushion
     // centres x 0.84 / 0.34 / -0.16, z -0.09 / +0.13 / -0.09) x 2.3 (+0.05 forward), seatY = 1.47 - 0.25.
+    // Rider fit: at x2.3 the fuselage tube is only ~1.12 blocks high inside - the heads stood out over it. Now x2.9
+    // (13.5 long, 14.5 across the wings): pilot x 2.50, passengers x 1.06 / -0.39 (z +-0.28), seatY 1.26 (hips 0.12-0.14
+    // into the seat surface at 1.60); eyes 2.38, the roof 0.34-0.36 over them.
     PLANE("plane", "plane", Tier.HV, 4000000, 50, 2, 1.12, PlaneMath.THRUST, 1.8, 3, 9, 250, 3.0F, 2.0F,
-            new double[][] {{1.98, -0.22}, {0.84, 0.30}, {-0.31, -0.22}}, 2.3F, 1.22, Movement.PLANE,
+            new double[][] {{2.50, -0.28}, {1.06, 0.28}, {-0.39, -0.28}}, 2.9F, 1.26, Movement.PLANE,
             VehicleGases.of(Gas.HELIUM, Integer.valueOf(1000))),
     // Cargo Crawler (plan §2, HV): 2M EU, 60 EU/t at speed / 2 idle, x1.4 sprint (0.392 b/t), 2 seats, 54 cargo + the
     // trailer's 54 (trailerSlots), helium under load (one gas tank: 2000 mB), tracks (Movement.CRAWLER: turns on the
@@ -67,8 +81,10 @@ public enum VehicleType {
     // 0.99 over it (the light plane's 1.0); the jet is then 14.9 long, 10.8 across the wings, 3.9 to the fin tip.
     // ONE seat (the plan says 2): behind the pilot the fuselage holds the H2 / He tanks and is lower than the cushion -
     // a second rider would sit outside on the spine. Seat x = 1.16 x 2.5 + 0.05, seatY = 1.60 - 0.25.
+    // Rider fit: under the x2.5 canopy the head stuck 0.18 out - now x2.8 (16.8 long, 12.1 across the wings), seat x 3.40
+    // (0.1 forward, under the canopy's top), seatY 1.45 (hip 0.14 into the 1.79 seat surface); eyes 2.57.
     JET("jet", "jet", Tier.QV, 16000000, 90, 3, 1.68, PlaneParams.JET.thrust, 2.5, 1, 9, 350, 3.0F, 2.0F,
-            new double[][] {{2.95, 0}}, 2.5F, 1.35, Movement.PLANE,
+            new double[][] {{3.40, 0}}, 2.8F, 1.45, Movement.PLANE,
             VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(4000), Gas.HELIUM, Integer.valueOf(2000)).afterburner(Gas.HYDROGEN, 4, 1.5)),
     // Tiltrotor (plan §2, XV): 32M EU, two modes (Movement.TILT, key «Режим» N): VERTICAL - a helicopter (vtolTop 0.6 b/t,
     // hovering 150 EU/t / 120 forward) and AIRPLANE - x5 sprint (1.4 b/t), 110 EU/t cruising / 160 climbing; a 2 s
@@ -78,8 +94,10 @@ public enum VehicleType {
     // rotor tips, 4.3 high. SIX seats (the plan says 4; the model has 2 pilot + 8 fold-down troop seats): the two pilots
     // (driver right) and the front four troop seats (back to back along the centre line, rows at x 0.41 / -0.03);
     // the rear four stay decorative. Seats x2.2 (+0.05 forward for the pilots), seatY = 1.17 - 0.25.
+    // Rider fit: the pilots' heads went through the nose roof - pilots now x 3.46, z +-0.25 and 0.22 lower (seatDy), the
+    // rear troop row 0.05 lower; the front troop row as before. Eyes: pilots 1.82, troops 2.04 / 1.99.
     TILT("tilt", "tilt", Tier.XV, 32000000, 110, 3, 1.4, PlaneParams.TILT.thrust, 2.0, 6, 27, 400, 3.0F, 2.0F,
-            new double[][] {{3.66, 0.30}, {3.66, -0.30}, {0.89, 0.38}, {0.89, -0.38}, {-0.06, 0.38}, {-0.06, -0.38}}, 2.2F, 0.92,
+            new double[][] {{3.46, 0.25, -0.22}, {3.46, -0.25, -0.22}, {0.89, 0.38}, {0.89, -0.38}, {-0.06, 0.38, -0.05}, {-0.06, -0.38, -0.05}}, 2.2F, 0.92,
             Movement.TILT,
             VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(3000), Gas.HELIUM, Integer.valueOf(2000)).afterburner(Gas.HYDROGEN, 3, 1.25)),
     // Transport Shuttle (plan §2, XV): 32M EU, 200 EU/t in the air (hovering and flying alike - antigravity) / 8 idle, x4
@@ -91,8 +109,10 @@ public enum VehicleType {
     // ceiling 1.20 over it; the body is 8.2 long, 5.9 across the solar wings, 2.9 high. EIGHT seats (the plan says 4; the
     // model has 2 pilot + 6 passenger seats - a transport for a group): the pilots (cushion centre x 1.88, z +-0.22; driver
     // right) and three rows of two (x 0.26 / -0.30 / -0.86, z +-0.31), all x1.4 (+0.05 forward for the pilots), seatY 0.94.
+    // Rider fit: the pilots' heads went 0.13 into the cockpit roof - pilots now x 2.48, z +-0.26, 0.13 lower (seatDy;
+    // further back the eye would sit in the headrest); the passenger rows fit as they were. Eyes: pilots 1.93, others 2.06.
     SHUTTLE("shuttle", "shuttle", Tier.XV, 32000000, 200, 8, 1.12, 0.03, 3.0, 8, 27, 500, 3.0F, 2.0F,
-            new double[][] {{2.68, 0.31}, {2.68, -0.31}, {0.36, 0.43}, {0.36, -0.43}, {-0.42, 0.43}, {-0.42, -0.43}, {-1.20, 0.43},
+            new double[][] {{2.48, 0.26, -0.13}, {2.48, -0.26, -0.13}, {0.36, 0.43}, {0.36, -0.43}, {-0.42, 0.43}, {-0.42, -0.43}, {-1.20, 0.43},
                     {-1.20, -0.43}}, 1.4F, 0.94, Movement.HELI,
             VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(3000), Gas.HELIUM, Integer.valueOf(3000), Gas.OXYGEN, Integer.valueOf(2000),
                     Gas.DEUTERIUM, Integer.valueOf(4000)).afterburner(Gas.HYDROGEN, 3, 1.5)),
@@ -104,8 +124,12 @@ public enum VehicleType {
     // low - cushions top 0.57 (floor 0.43) under a ceiling of 1.10; at x2 the cushion top is 1.14 and the ceiling 1.06 over
     // it; the ship is 14.5 long, 14.1 across its rings, 6.2 high (the jet-sized P7x7 platform class). Seats: the two pilots (cushion centre x 2.33, z +-0.22)
     // and the four of the two rows behind (x 1.49 / 1.05, z +-0.40), x2 (+0.05 forward for the pilots), seatY 0.89.
+    // Rider fit: ship.obj's bridge is too low for a seated player (the pilots' cushions sit under a roof 0.45 over them,
+    // the nose: their heads stood out at any scale) - the six seats moved to where the hull covers the rider: pilots
+    // x 2.80, z +-0.44 (behind the pilot chairs), then x 2.10 and 1.30 at z +-0.81; seatY 0.89. NEEDS a taller bridge in
+    // the model to put the pilots back on their chairs.
     SHIP("ship", "ship", Tier.SV, 256000000, 400, 20, 1.68, 0.04, 2.5, 6, 54, 800, 3.0F, 2.0F,
-            new double[][] {{4.71, 0.44}, {4.71, -0.44}, {2.98, 0.81}, {2.98, -0.81}, {2.10, 0.81}, {2.10, -0.81}}, 2.0F, 0.89, Movement.HELI,
+            new double[][] {{2.80, 0.44}, {2.80, -0.44}, {2.10, 0.81}, {2.10, -0.81}, {1.30, 0.81}, {1.30, -0.81}}, 2.0F, 0.89, Movement.HELI,
             VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(4000), Gas.HELIUM, Integer.valueOf(4000), Gas.OXYGEN, Integer.valueOf(4000),
                     Gas.ARGON, Integer.valueOf(2000), Gas.DEUTERIUM, Integer.valueOf(4000), Gas.SINGULAR_MATTER, Integer.valueOf(4000))
                     .afterburner(Gas.HYDROGEN, 4, 1.4).field(Gas.ARGON, 1, 0.4));
@@ -171,9 +195,23 @@ public enum VehicleType {
     public boolean bridgeDock;
     /** Stage E: the Singular Ship's own portal «Прыжок», the gravity anchor and invisibility for mobs. */
     public boolean singular;
+    /**
+     * The local rider's first-person view: the body shell (ObjModelSVA.isShell - paint / paint2 / paint3 / white) is drawn
+     * see-through with this alpha so the world outside shows through the cab walls; the cockpit (seats, dash, wheel,
+     * screens) stays solid. 1 = opaque (the old look). Every type uses it (the user's choice, also the open buggy / bike).
+     */
+    public float cabShellAlpha = CAB_SHELL_ALPHA;
+    /**
+     * An open seat (the buggy's roll cage, the hoverbike's saddle): the rider's head is outside the body by design, so
+     * the self-test's «rider inside the hull» check (RiderFitSVA) skips it.
+     */
+    public boolean openCab;
+    /** Default see-through alpha of the shell from inside (see cabShellAlpha). */
+    public static final float CAB_SHELL_ALPHA = 0.18F;
 
     static {
         BUGGY.platformSize = PlatformSize.P3x3;
+        BUGGY.openCab = HOVER.openCab = true;
         HOVER.platformSize = PlatformSize.P3x3;
         HELI.platformSize = PlatformSize.P5x5;
         PLANE.platformSize = PlatformSize.P5x5;
@@ -252,6 +290,15 @@ public enum VehicleType {
     /** k in cost = idle + k * v^2 * (1 + cargo): top speed with empty cargo costs cruiseCost. */
     public double speedCoef() {
         return (cruiseCost - idleCost) / (topSpeed * topSpeed);
+    }
+
+    /**
+     * A seat's height change from seatY (an optional third number in its seatOffsets row, blocks; 0 without): a seat
+     * under a lower roof (a pilot in the nose) sits a little deeper so the rider's head stays inside the hull.
+     */
+    public double seatDy(int seat) {
+        double[] o = seatOffsets[Math.max(0, Math.min(seat, seatOffsets.length - 1))];
+        return o.length > 2 ? o[2] : 0;
     }
 
     /** Cargo slots with a trailer hitched (or not). */

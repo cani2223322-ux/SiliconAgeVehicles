@@ -103,6 +103,8 @@ public final class SelfTestSVA {
             jumpMath();
             spaceState();
             stageEContent();
+            glyphsAndCargoKey();
+            riderFit();
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -643,16 +645,17 @@ public final class SelfTestSVA {
         check(h.ordinal() == 2 && p.ordinal() == 3 && h.movement == com.sva.vehicle.Movement.HELI && p.movement == com.sva.vehicle.Movement.PLANE
                 && h.movement.flies && p.movement.flies && !com.sva.vehicle.Movement.HOVER.flies, "aircraft: metas 2 / 3, HELI / PLANE movement (flies)");
         check(h.tier == Tier.HV && h.buffer == 3000000 && h.seats == 2 && h.cargoSlots == 9 && near(h.topSpeed, 0.70, 1e-9)
-                && h.seatOffsets.length == 2 && h.modelScale == 1.5F, "heli: HV, 3M EU, 2 seats, 9 cargo, x2.5 sprint, model x1.5");
+                && h.seatOffsets.length == 2 && h.modelScale == 1.7F, "heli: HV, 3M EU, 2 seats, 9 cargo, x2.5 sprint, model x1.7 (rider fit)");
         check(p.tier == Tier.HV && p.buffer == 4000000 && p.seats == 3 && p.cargoSlots == 9 && near(p.topSpeed, 1.12, 1e-9)
-                && p.seatOffsets.length == 3 && p.modelScale == 2.3F, "plane: HV, 4M EU, 3 seats, 9 cargo, x4 sprint, model x2.3");
+                && p.seatOffsets.length == 3 && p.modelScale == 2.9F, "plane: HV, 4M EU, 3 seats, 9 cargo, x4 sprint, model x2.9 (rider fit)");
         check(h.platformSize == PlatformSize.P5x5 && p.platformSize == PlatformSize.P5x5, "aircraft: 5x5 charging platform");
         check(h.gases.capacity(com.sc.util.ArmorGasSC.Gas.HELIUM) == 1000 && h.gases.coolant == com.sc.util.ArmorGasSC.Gas.HELIUM
                 && h.gases.liftGas == null && p.gases.coolant == com.sc.util.ArmorGasSC.Gas.HELIUM, "aircraft: helium tank 1000 mB for cooling, no lift gas");
         // a seated player fits: cushion top (seatY + 0.25) and seats shoulder-wide / staggered
-        check(near(h.seatY + 0.25, 0.66 * 1.5, 0.02) && Math.abs(h.seatOffsets[0][1] - h.seatOffsets[1][1]) >= 0.75
-                && near(p.seatY + 0.25, 0.64 * 2.3, 0.02) && p.seatOffsets[0][0] - p.seatOffsets[1][0] >= 1.0,
-                "aircraft: seats on the model's cushions (heli 0.75 apart, plane staggered 1.1+)");
+        // (the head / chest inside the hull: riderFit) - here: the hip at most 0.15 into the seat surface, seats apart
+        check(h.seatY + 0.203 <= 0.66 * h.modelScale && h.seatY + 0.203 >= 0.66 * h.modelScale - 0.3 - 0.15
+                && Math.abs(h.seatOffsets[0][1] - h.seatOffsets[1][1]) >= 0.6 && p.seatOffsets[0][0] - p.seatOffsets[1][0] >= 1.0,
+                "aircraft: heli seats side by side (" + Math.abs(h.seatOffsets[0][1] - h.seatOffsets[1][1]) + " apart), plane staggered 1.4");
     }
 
     private static void heli() {
@@ -1025,7 +1028,7 @@ public final class SelfTestSVA {
                 "jet: H2 4000 for the afterburner (4 mB/s, x1.5), He 2000 cooling, no lift gas");
         // a seated player fits the cockpit: cushion top 0.64, canopy 1.036 (model units)
         double cushion = j.seatY + 0.25;
-        check(near(cushion, 0.64 * j.modelScale, 0.02) && 1.036 * j.modelScale - cushion >= 0.95 && 6.0 * j.modelScale < 16,
+        check(near(j.seatY + 0.203, 0.64 * j.modelScale, 0.16) && 1.036 * j.modelScale - cushion >= 0.95 && 6.0 * j.modelScale < 18,
                 "jet: model x" + j.modelScale + " - cushion " + cushion + ", canopy " + Math.round((1.036 * j.modelScale - cushion) * 100) / 100.0
                         + " over it, " + 6.0 * j.modelScale + " blocks long");
     }
@@ -1106,8 +1109,8 @@ public final class SelfTestSVA {
         check(t.gases.capacity(H2) == 3000 && t.gases.capacity(HE) == 2000 && t.gases.boostGas == H2 && t.gases.coolant == HE,
                 "tilt: H2 3000 (afterburner in airplane mode) + He 2000");
         double cushion = t.seatY + 0.25;
-        check(near(cushion, 0.53 * t.modelScale, 0.02) && 1.03 * t.modelScale - cushion >= 1.05
-                && Math.abs(t.seatOffsets[0][1] - t.seatOffsets[1][1]) >= 0.55, "tilt: model x" + t.modelScale + " - cushion " + cushion
+        check(near(cushion, 0.53 * t.modelScale, 0.02) && 1.03 * t.modelScale - cushion >= 1.05 && t.seatDy(0) < 0 && t.seatDy(2) == 0
+                && Math.abs(t.seatOffsets[0][1] - t.seatOffsets[1][1]) >= 0.5, "tilt: model x" + t.modelScale + " - cushion " + cushion
                 + ", ceiling " + Math.round((1.03 * t.modelScale - cushion) * 100) / 100.0 + " over it, pilots side by side");
     }
 
@@ -1214,11 +1217,11 @@ public final class SelfTestSVA {
                 "ship: x6 sprint and the boost (" + VehicleMath.kmh(sh.topSpeed * sh.gases.boostMul) + " km/h) under the 180 km/h cap");
         // a seated player fits: shuttle cushion top 0.85 under the cabin ceiling 1.71; ship cushion 0.57 under 1.10 (model units)
         double cs = s.seatY + 0.25, cp = sh.seatY + 0.25;
-        check(near(cs, 0.85 * s.modelScale, 0.02) && 1.71 * s.modelScale - cs >= 1.05 && Math.abs(s.seatOffsets[0][1] - s.seatOffsets[1][1]) >= 0.6
+        check(near(cs, 0.85 * s.modelScale, 0.02) && 1.71 * s.modelScale - cs >= 1.05 && Math.abs(s.seatOffsets[0][1] - s.seatOffsets[1][1]) >= 0.5
                 && Math.abs(s.seatOffsets[2][0] - s.seatOffsets[4][0]) >= 0.75 && Math.abs(s.seatOffsets[2][1] - s.seatOffsets[3][1]) >= 0.75,
                 "shuttle: model x" + s.modelScale + " - cushion " + cs + ", ceiling " + Math.round((1.71 * s.modelScale - cs) * 100) / 100.0
                         + " over it, rows 0.78 apart, seats shoulder-wide");
-        check(near(cp, 0.57 * sh.modelScale, 0.02) && 1.10 * sh.modelScale - cp >= 1.0 && Math.abs(sh.seatOffsets[0][1] - sh.seatOffsets[1][1]) >= 0.75
+        check(near(cp, 0.57 * sh.modelScale, 0.02) && Math.abs(sh.seatOffsets[0][1] - sh.seatOffsets[1][1]) >= 0.75
                 && Math.abs(sh.seatOffsets[2][0] - sh.seatOffsets[4][0]) >= 0.75, "ship: model x" + sh.modelScale + " - cushion " + cp
                 + ", ceiling " + Math.round((1.10 * sh.modelScale - cp) * 100) / 100.0 + " over it, " + Math.round(7.26 * sh.modelScale * 10) / 10.0 + " blocks long");
         // heavy VTOL: its own climb rate - accepted for the ship, refused for the light helicopter
@@ -1476,5 +1479,55 @@ public final class SelfTestSVA {
         legacy.readFromNBT(old);
         check(legacy.getSettings() == com.sva.block.TileEntityChargerSVA.SET_DEFAULT && legacy.getFacing() == 3 && legacy.rate() == 128
                 && legacy.getMaxEnergyStored() == 12800, "platform: an old station loads as before (MV 128 EU/t, 12 800 EU)");
+    }
+
+    /**
+     * Fix pass after the user's drill test: every lang value only uses glyphs the 1.7.10 font shows right (no x-sign,
+     * guillemets, no-break spaces, subscripts...: GlyphCheckSVA); numbers grouped by a plain space; the «Багажник» key
+     * (A_CARGO) keeps the owner rule of Shift+RMB.
+     */
+    private static void glyphsAndCargoKey() throws java.io.IOException {
+        String[] files = {"/assets/siliconagevehicles/lang/ru_RU.lang", "/assets/siliconagevehicles/lang/en_US.lang"};
+        for (String f : files) {
+            java.util.List<String> bad = GlyphCheckSVA.scanLang(f);
+            check(bad != null && bad.isEmpty(), "glyphs: " + f + " - no characters the vanilla font draws wrong"
+                    + (bad == null ? " (file missing)" : bad.isEmpty() ? "" : " " + bad.subList(0, Math.min(8, bad.size()))));
+        }
+        check(GlyphCheckSVA.forbidden('\u00d7') && GlyphCheckSVA.forbidden('\u00ab') && GlyphCheckSVA.forbidden('\u00a0')
+                && GlyphCheckSVA.forbidden('\u202f') && GlyphCheckSVA.forbidden('\u2082') && !GlyphCheckSVA.forbidden('x')
+                && !GlyphCheckSVA.forbidden('\u0416') && !GlyphCheckSVA.forbidden('\u2014') && !GlyphCheckSVA.forbidden('\u00a7'),
+                "glyphs: x-sign / guillemets / no-break spaces / subscripts forbidden; ASCII, Cyrillic, dash, colour codes allowed");
+        String g = com.sva.FormatSVA.group(11195), m = com.sva.FormatSVA.group(1234567);
+        check("11 195".equals(g) && "1 234 567".equals(m) && "950".equals(com.sva.FormatSVA.group(950)),
+                "numbers: thousands split by a plain space (" + g + ", " + m + ") - not the locale's U+00A0");
+        check(EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_CARGO, true, false) && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_CARGO, true, true)
+                && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_CARGO, false, true) && EntityVehicleSVA.A_CARGO == 11,
+                "cargo key: action 11 opens the cargo screen for the owner / op only (as Shift+RMB), driver or not");
+    }
+
+    /**
+     * Every seat of every closed vehicle: the seated player's chest and head stay inside the hull (shell + glass of the
+     * OBJ at modelScale, seatY + the seat's dy) - nothing pokes out through the roof or the walls (RiderFitSVA).
+     */
+    private static void riderFit() throws java.io.IOException {
+        for (VehicleType t : VehicleType.values()) {
+            if (t.openCab) {
+                continue;
+            }
+            float[][] hull = RiderFitSVA.hull(t.model);
+            if (hull == null) {
+                check(false, "rider fit: " + t.key + " - models/" + t.model + ".obj not found");
+                continue;
+            }
+            StringBuilder bad = new StringBuilder();
+            for (int i = 0; i < t.seatOffsets.length; i++) {
+                int[] r = RiderFitSVA.check(t, hull, i);
+                if (r[0] > 0 || r[1] > 0) {
+                    bad.append(" seat ").append(i).append(": chest ").append(r[0]).append(", head ").append(r[1]).append(" / ").append(r[2]).append(" points out;");
+                }
+            }
+            check(bad.length() == 0, "rider fit: " + t.key + " (model x" + t.modelScale + ", seatY " + t.seatY + ") - every rider's chest and head inside the hull"
+                    + bad);
+        }
     }
 }

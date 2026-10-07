@@ -6,6 +6,10 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
+- Обзор из кабины: от первого лица корпус машины (покраска, кузов, окна-панели) рисуется полупрозрачным — сквозь стенки видно всё вокруг, приборная панель, кресла, руль и экраны остаются видимыми; так у всех машин, включая багги и ховербайк. Стёкла для остальных игроков и от третьего лица — по-прежнему прозрачные.
+- Седоки больше не торчат из корпуса: каждое место проверено по модели (голова и туловище сидящего игрока внутри корпуса — новый самотест). Вертолёт увеличен ×1,5 → ×1,7, самолёт ×2,3 → ×2,9, реактивный самолёт ×2,5 → ×2,8; кресла сдвинуты/опущены у вертолёта, конвертоплана (пилоты), челнока (пилоты); у Сингулярного корабля места перенесены назад, под крышу (мостик модели слишком низкий — нужна перерисовка).
+- Новая клавиша "Багажник" (L, переназначается): сидя в машине — окно багажника / бункера (только владелец, как Shift+ПКМ). Панель бура без головки подсказывает: "Нет головки бура — L или Shift+ПКМ по машине: слот слева"; подсказка машины (Ctrl) называет клавишу, у буровой — куда ставить головку.
+- Исправлены символы, которых нет в шрифте игры: "×" выводился как "Ю", кавычки-ёлочки — как буквы, разделитель тысяч — квадратиком ("Запас: ~11▯195 бл."). Теперь "3x3", обычные кавычки и пробел ("11 195"); бесконечность — "--". Самотест проверяет все строки перевода.
 - Буровая: кабина перерисована выше, кресло опущено в корпус — водитель целиком в кабине, машина ниже 3 блоков и проходит в свой туннель 3×3.
 - Исправлено: тряска экрана при поворотах (камера поворачивается вместе с машиной каждый кадр, а не рывками раз в тик); игрок не помещался в багги — модель увеличена в 1,45 раза, сиденья и высота посадки подогнаны под игрока.
 - Аддон создан: план, концепты моделей и текстур.
@@ -51,6 +55,10 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Поддержка NEI (необязательно): страница «Инженерный верстак» — все рецепты верстака, по одному на странице: сетка 5×5 (маленькие рецепты по центру, как подсказка в окне верстака), результат, уровень, «200 тыс. EU · 30 с» и «Вход: HV (нужно трансформаторов: 1)» для машин, «Мгновенно, без EU» для компонентов, блоков и модулей; предметы из словаря руд перебираются. R по результату, U по детали или по самому верстаку; клик по стрелке в окне верстака открывает список рецептов; «?» — подсказка раскладки в сетке, Shift + «?» — выбрать рецепт и разложить, как кнопка «Разложить». Без NEI аддон работает как раньше.
 
 ### English
+- Cab view: in first person the vehicle's body shell (paint, panels, the lit side windows) is drawn see-through - the world shows through the walls while the dashboard, seats, wheel and screens stay solid; on every vehicle, the buggy and the hoverbike too. Glass stays see-through for other players and in third person.
+- Riders no longer stick out of the hull: every seat was checked against its model (the seated player's head and chest inside the hull - a new self-test). Light Helicopter scaled x1.5 -> x1.7, Light Plane x2.3 -> x2.9, Jet x2.5 -> x2.8; seats moved / lowered in the helicopter, the tiltrotor (pilots) and the shuttle (pilots); the Singular Ship's seats moved back under the roof (the model's bridge is too low - it needs a redraw).
+- New key "Cargo" (L, rebindable): while seated it opens the cargo / bunker screen (owner only, like Shift+right-click). The drill panel without a head says "No drill head - L or Shift+right-click the vehicle: slot on the left"; the vehicle tooltip (Ctrl) names the key, the drill's also where the head goes.
+- Fixed glyphs missing from the game font: the x sign showed as a Cyrillic letter, guillemets as letters, the thousands separator as a box ("Range: ~11[]195"). Now "3x3", plain quotes and a plain space ("11 195"); infinity is "--". A self-test checks every lang string.
 - Drilling Vehicle: a taller cab with the seat sunk into the body - the operator sits fully inside, the vehicle stays under 3 blocks and fits its own 3x3 tunnel.
 - Fixed: screen shaking in turns (the camera turns with the vehicle every frame, not once a tick); the player didn't fit into the buggy - the model is 1.45x bigger, seats and seat height fit the player.
 - Addon started: plan, model and texture concepts.
