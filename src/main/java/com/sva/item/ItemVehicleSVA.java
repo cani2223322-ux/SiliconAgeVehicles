@@ -99,21 +99,28 @@ public class ItemVehicleSVA extends Item {
     }
 
     /**
-     * Places the vehicle an item holds (server): owner = whoever places it. @return null when there is no room
-     * (blocks or liquid in the way)
+     * Places the vehicle an item holds (server): owner = whoever places it. The vehicle keeps its id (board number,
+     * key cards) when its owner places it again; a plain item, a new owner or a copy whose id is already placed gets a
+     * fresh one. @return null when there is no room (blocks or liquid in the way)
      */
     public static EntityVehicleSVA spawn(World w, ItemStack stack, double x, double y, double z, float yaw, String ownerId, String ownerName) {
         VehicleState st = stateOf(stack);
-        st.ownerId = ownerId == null ? "" : ownerId;
+        String newOwner = ownerId == null ? "" : ownerId;
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
+        boolean saved = stack.hasTagCompound() && stack.getTagCompound().hasKey(EntityVehicleSVA.NBT_ROOT);
+        boolean keepId = saved && reg != null && st.vehId != null && st.vehId.length() > 0 && newOwner.length() > 0
+                && newOwner.equals(st.ownerId) && !reg.has(st.vehId);
+        st.ownerId = newOwner;
         st.ownerName = ownerName == null ? "" : ownerName;
-        st.vehId = java.util.UUID.randomUUID().toString();    // a fresh id per placement: copied stacks never share one
+        if (!keepId) {
+            st.vehId = java.util.UUID.randomUUID().toString();    // copied stacks never share a placed id
+        }
         EntityVehicleSVA v = new EntityVehicleSVA(w, st.type);
         v.state = st;
         v.setLocationAndAngles(x, y, z, yaw, 0);
         if (!w.getCollidingBoundingBoxes(v, v.boundingBox.contract(0.02, 0.02, 0.02)).isEmpty() || w.isAnyLiquid(v.boundingBox)) {
             return null;
         }
-        VehicleRegistrySVA reg = VehicleRegistrySVA.get(w);
         if (reg != null) {
             reg.add(st.vehId, st.ownerId);
         }

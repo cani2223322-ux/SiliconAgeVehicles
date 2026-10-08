@@ -269,21 +269,27 @@ public class TileEntityWorkbenchSVA extends TileEntityEnergyBase implements ISid
         }
     }
 
-    /** «Очистить»: the grid into the player's inventory (what doesn't fit stays). Cancels an assembly. */
+    /** «Очистить»: the grid into the player's inventory (what doesn't fit stays). Cancels an assembly the grid no longer matches. */
     public void clearGrid(EntityPlayer p) {
-        boolean any = false;
+        boolean moved = false;
         for (int i = 0; i < GRID_SLOTS; i++) {
             if (slots[i] != null) {
-                any = true;
+                int before = slots[i].stackSize;
                 p.inventory.addItemStackToInventory(slots[i]);
+                if (slots[i].stackSize != before) {
+                    moved = true;
+                }
                 if (slots[i].stackSize <= 0) {
                     slots[i] = null;
                 }
             }
         }
-        if (any) {
-            cancel();
+        if (moved) {
+            if (assembling != null && assembling.match(grid()) == null) {
+                cancel();
+            }
             markDirty();
+            p.inventory.markDirty();
         }
     }
 

@@ -469,8 +469,8 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
         return hasModule(ItemStationModuleSVA.REPAIR) && ConfigSVA.wear && v.state.hp < v.state.maxHp();
     }
 
-    private boolean needs(EntityVehicleSVA v, TileEntityGasColumnSVA col) {
-        return v.energyRoom() >= 1 && getEnergyStored() > 0 || needsGas(v, col) || needsRepair(v);
+    private boolean needs(EntityVehicleSVA v, TileEntityGasColumnSVA col, boolean canRepair) {
+        return v.energyRoom() >= 1 && getEnergyStored() > 0 || needsGas(v, col) || canRepair && needsRepair(v);
     }
 
     // ------------------------------------------------------------------ tick
@@ -499,28 +499,29 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
         // round robin: the next vehicle that needs something; else the first one there (for the screen)
         current = null;
         int n = served.size();
+        // a hull with no steel to mend it doesn't hold the round robin
+        boolean canRepair = n > 0 && hasModule(ItemStationModuleSVA.REPAIR) && ConfigSVA.wear && (repairPaid > 0 || steelAvailable() > 0);
         for (int i = 0; i < n; i++) {
             int idx = PlatformMath.nextIndex(rr + i, n);
             EntityVehicleSVA v = served.get(idx);
-            if (valid(v) && needs(v, col)) {
+            if (valid(v) && needs(v, col, canRepair)) {
                 current = v;
                 rr = idx;
                 break;
             }
         }
-        boolean allFull = false;
-        if (current == null) {
-            allFull = true;
-            for (EntityVehicleSVA v : served) {
-                if (valid(v)) {
-                    if (current == null) {
-                        current = v;
-                    }
-                    allFull &= v.energyRoom() < 1;
+        // full = every vehicle there is charged, whatever else it still gets (gas, repair)
+        boolean allFull = true, any = false;
+        for (EntityVehicleSVA v : served) {
+            if (valid(v)) {
+                any = true;
+                if (current == null) {
+                    current = v;
                 }
+                allFull &= v.energyRoom() < 1;
             }
-            allFull &= current != null;
         }
+        allFull &= any;
         int moved = 0, gas = 0;
         status &= S_NO_FIT | S_NO_ACCESS;
         if (current != null) {

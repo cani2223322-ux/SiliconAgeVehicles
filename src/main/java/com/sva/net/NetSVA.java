@@ -517,6 +517,7 @@ public final class NetSVA {
 
     public static class AccessInfo implements IMessage {
         public int entity, type, board, mode, others, lock;
+        public boolean open;                                        // true = (re)open the screen, false = refresh only if open
         public String owner = "";
         public final java.util.List<String> names = new java.util.ArrayList<String>();
         public final java.util.List<Integer> rights = new java.util.ArrayList<Integer>();
@@ -524,7 +525,8 @@ public final class NetSVA {
         public AccessInfo() {
         }
 
-        public AccessInfo(EntityVehicleSVA v) {
+        public AccessInfo(EntityVehicleSVA v, boolean open) {
+            this.open = open;
             entity = v.getEntityId();
             type = v.state.type.ordinal();
             board = v.getBoardNumber();
@@ -545,6 +547,7 @@ public final class NetSVA {
             mode = buf.readByte();
             others = buf.readByte();
             lock = buf.readInt();
+            open = buf.readBoolean();
             owner = cut(cpw.mods.fml.common.network.ByteBufUtils.readUTF8String(buf), 64);
             int n = Math.min(com.sva.vehicle.AccessMath.MAX_FRIENDS, buf.readByte());
             for (int i = 0; i < n; i++) {
@@ -561,6 +564,7 @@ public final class NetSVA {
             buf.writeByte(mode);
             buf.writeByte(others);
             buf.writeInt(lock);
+            buf.writeBoolean(open);
             cpw.mods.fml.common.network.ByteBufUtils.writeUTF8String(buf, owner);
             int n = Math.min(com.sva.vehicle.AccessMath.MAX_FRIENDS, names.size());
             buf.writeByte(n);
@@ -650,6 +654,11 @@ public final class NetSVA {
     }
 
     public static class MapRequestHandler implements IMessageHandler<MapRequest, IMessage> {
+        /** Rebuild at most once per this many ticks per player; in between the last map is resent (once per tick). */
+        static final int MIN_INTERVAL = 20;
+        /** Per player: {built tick, sent tick, MapInfo}. Server thread only; cleared by ServerQueueSVA.clear(). */
+        static final java.util.Map<java.util.UUID, Object[]> CACHE = new java.util.HashMap<java.util.UUID, Object[]>();
+
         @Override
         public IMessage onMessage(MapRequest m, MessageContext ctx) {
             final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
@@ -657,7 +666,18 @@ public final class NetSVA {
                 @Override
                 public void run() {
                     if (p.worldObj != null && p.playerNetServerHandler != null) {
-                        CHANNEL.sendTo(MapInfo.build(p), p);
+                        long now = net.minecraft.server.MinecraftServer.getServer().getTickCounter();
+                        Object[] c = CACHE.get(p.getUniqueID());
+                        if (c != null && now >= (Long) c[0] && now - (Long) c[0] < MIN_INTERVAL) {
+                            if ((Long) c[1] != now) {
+                                c[1] = Long.valueOf(now);
+                                CHANNEL.sendTo((MapInfo) c[2], p);
+                            }
+                            return;
+                        }
+                        MapInfo info = MapInfo.build(p);
+                        CACHE.put(p.getUniqueID(), new Object[] {Long.valueOf(now), Long.valueOf(now), info});
+                        CHANNEL.sendTo(info, p);
                     }
                 }
             });

@@ -147,7 +147,7 @@ public class ContainerCargoSVA extends Container {
             boolean headFree = extra > 0 && !((Slot) inventorySlots.get(cargo)).getHasStack();
             boolean moduleFree = extra > 0 && !((Slot) inventorySlots.get(cargo + 1)).getHasStack();
             int to = CargoToolsSVA.transferTarget(extra > 0, DrillLogicSVA.isHead(s), DrillLogicSVA.isWidener(s), headFree, moduleFree,
-                    s.getItem() instanceof com.sva.item.ItemVehicleSVA);
+                    !EntityVehicleSVA.cargoAllows(s));                // mergeItemStack skips isItemValid: no loaded trailers etc.
             if (to == CargoToolsSVA.TO_HEAD || to == CargoToolsSVA.TO_MODULE) {
                 ((Slot) inventorySlots.get(to == CargoToolsSVA.TO_HEAD ? cargo : cargo + 1)).putStack(s.splitStack(1));   // one into its slot
             } else if (to == CargoToolsSVA.TO_NONE || !mergeItemStack(s, 0, cargo, false)) {

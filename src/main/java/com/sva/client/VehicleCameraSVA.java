@@ -97,17 +97,21 @@ public final class VehicleCameraSVA {
         set(mc.entityRenderer, (float) shown);
         changed = true;
         if (mc.gameSettings.thirdPersonView == 1) {
-            pitchApplied = CameraMath.pitchOffset(p.rotationPitch, CameraMath.PITCH_OFFSET);
+            // vanilla's mouse look clamps the raised pitch to 90: keep half the way down free so looking down isn't stuck
+            pitchApplied = Math.max(0F, Math.min(CameraMath.pitchOffset(p.rotationPitch, CameraMath.PITCH_OFFSET),
+                    (90F - p.rotationPitch) / 2F));
             p.rotationPitch += pitchApplied;
             p.prevRotationPitch += pitchApplied;
         }
     }
 
-    /** RenderTickEvent END: the look pitch back as the player has it. */
+    /** RenderTickEvent END: the look pitch back as the player has it (within vanilla's -90..90). */
     public static void frameEnd(Minecraft mc) {
         if (pitchApplied != 0 && mc.thePlayer != null) {
-            mc.thePlayer.rotationPitch -= pitchApplied;
-            mc.thePlayer.prevRotationPitch -= pitchApplied;
+            EntityPlayer p = mc.thePlayer;
+            float real = Math.max(-90F, Math.min(90F, p.rotationPitch - pitchApplied));
+            p.prevRotationPitch += real - p.rotationPitch;
+            p.rotationPitch = real;
         }
         pitchApplied = 0;
     }

@@ -41,9 +41,10 @@ public class EntitySeatSVA extends Entity {
     }
 
     public EntityVehicleSVA getParent() {
-        if (parent == null && worldObj.isRemote) {
+        if (worldObj.isRemote && (parent == null || parent.isDead)) {
+            parent = null;                  // the body left tracking: a new object comes for it when it's back
             Entity e = worldObj.getEntityByID(dataWatcher.getWatchableObjectInt(DW_PARENT));
-            if (e instanceof EntityVehicleSVA) {
+            if (e instanceof EntityVehicleSVA && !e.isDead) {
                 parent = (EntityVehicleSVA) e;
                 if (!parent.clientSeats.contains(this)) {
                     parent.clientSeats.add(this);
@@ -59,7 +60,7 @@ public class EntitySeatSVA extends Entity {
         prevPosY = posY;
         prevPosZ = posZ;
         EntityVehicleSVA p = getParent();
-        if (p == null || p.isDead) {
+        if (p == null || p.isDead || !worldObj.isRemote && worldObj.getEntityByID(p.getEntityId()) != p) {
             if (!worldObj.isRemote && ++orphanTicks > 40) {
                 if (riddenByEntity != null) {
                     riddenByEntity.mountEntity(null);

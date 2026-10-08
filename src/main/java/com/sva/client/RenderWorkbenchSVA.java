@@ -34,6 +34,10 @@ public class RenderWorkbenchSVA extends TileEntitySpecialRenderer {
         if (m == null) {
             return;
         }
+        // the model is shared: reset the skin / animation state left by the last vehicle drawn
+        m.style(com.sva.vehicle.SkinMath.livery(ItemVehicleSVA.typeOf(out).tier), 1);
+        m.anim(0F, 1F);
+        m.cabin(-1F, 0);
         long t = te.getWorldObj() == null ? 0 : te.getWorldObj().getTotalWorldTime();
         float angle = ((t % 360L) + pt) * 1.5F;
         float bob = (float) Math.sin((t + pt) * 0.08) * 0.03F;

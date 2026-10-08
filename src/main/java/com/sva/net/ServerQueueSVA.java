@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
 
@@ -58,6 +59,9 @@ public final class ServerQueueSVA {
             if (n != null) {
                 n.decrementAndGet();
             }
+            if (!online(p)) {
+                continue;                                   // logged out / dead / respawned since the packet came
+            }
             try {
                 ((Runnable) job[1]).run();
             } catch (RuntimeException ex) {
@@ -66,8 +70,24 @@ public final class ServerQueueSVA {
         }
     }
 
+    /** Fires before vanilla saves the player and removes his mount: a rider gets off beside the vehicle / seat. */
+    @SubscribeEvent
+    public void onLogout(PlayerEvent.PlayerLoggedOutEvent e) {
+        com.sva.entity.EntityVehicleSVA.riderLoggedOut(e.player);
+    }
+
+    private static boolean online(EntityPlayerMP p) {
+        if (p.isDead || p.getHealth() <= 0 || p.playerNetServerHandler == null || p.worldObj == null) {
+            return false;
+        }
+        net.minecraft.server.MinecraftServer srv = net.minecraft.server.MinecraftServer.getServer();
+        return srv != null && srv.getConfigurationManager() != null
+            && srv.getConfigurationManager().playerEntityList.contains(p);
+    }
+
     public void clear() {
         pending.clear();
         counts.clear();
+        NetSVA.MapRequestHandler.CACHE.clear();
     }
 }

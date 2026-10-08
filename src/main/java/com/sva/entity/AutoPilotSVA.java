@@ -19,7 +19,7 @@ import net.minecraft.world.World;
  * the server drives it through the same physics as a player's keys. Loaded chunks only - the chunk 4 blocks ahead
  * not loaded, or stuck for 10 s, and it stops (the owner is told if online). At A it loads from the nearest chest
  * (any IInventory within AutoDelivery.SEARCH blocks; double chests whole), at B it unloads into one. A chest in a
- * private field that refuses the owner is not touched.
+ * private field that refuses the owner, or one a claim mod won't let him open, is not touched.
  */
 public final class AutoPilotSVA {
 
@@ -106,7 +106,7 @@ public final class AutoPilotSVA {
         return null;
     }
 
-    /** The nearest inventory block within SEARCH of the hull (y -1..+2), not in a private field against the owner. */
+    /** The nearest inventory block within SEARCH of the hull (y -1..+2), not in a private field or claim against the owner. */
     static IInventory findChest(EntityVehicleSVA v) {
         World w = v.worldObj;
         int cx = MathHelper.floor_double(v.posX), cy = MathHelper.floor_double(v.posY), cz = MathHelper.floor_double(v.posZ);
@@ -131,7 +131,7 @@ public final class AutoPilotSVA {
                     if (fake == null) {
                         fake = DrillLogicSVA.owner(v);
                     }
-                    if (com.sc.ShieldEventHandler.privateFieldAgainst(w, fake, x, y, z) != null) {
+                    if (com.sc.ShieldEventHandler.privateFieldAgainst(w, fake, x, y, z) != null || !mayOpen(w, fake, x, y, z)) {
                         continue;
                     }
                     IInventory inv = (IInventory) te;
@@ -147,6 +147,14 @@ public final class AutoPilotSVA {
             }
         }
         return best;
+    }
+
+    /** Would claim mods let the owner open the block (a right click from his fake player, as by hand)? */
+    static boolean mayOpen(World w, net.minecraftforge.common.util.FakePlayer fake, int x, int y, int z) {
+        net.minecraftforge.event.entity.player.PlayerInteractEvent ev = new net.minecraftforge.event.entity.player.PlayerInteractEvent(
+                fake, net.minecraftforge.event.entity.player.PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK, x, y, z, 1, w);
+        return !net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(ev)
+                && ev.useBlock != cpw.mods.fml.common.eventhandler.Event.Result.DENY;
     }
 
     /** Chest -> cargo, up to STACKS_PER_STEP stacks. @return anything moved */

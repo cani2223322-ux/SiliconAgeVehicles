@@ -2,6 +2,7 @@ package com.sva.entity;
 
 import com.sc.bridge.BridgeMathSC;
 import com.sc.bridge.BridgeTeleportSC;
+import com.sva.net.ServerQueueSVA;
 import com.sva.vehicle.SpaceMath;
 import com.sva.vehicle.VehicleRegistrySVA;
 import com.sva.vehicle.VehicleType;
@@ -35,6 +36,9 @@ import net.minecraft.world.WorldServer;
 public final class VehicleTransferSVA {
 
     public static final int MOUNT_MOB = 3, MOUNT_PLAYER = 10, PENDING_MAX = 100, RESEND = 20;
+
+    /** A pending rider's mark: a player still to be carried over by `later`. */
+    private static final Object WAITING = new Object();
 
     private VehicleTransferSVA() {
     }
@@ -85,21 +89,64 @@ public final class VehicleTransferSVA {
             }
             return null;
         }
-        long now = to.getTotalWorldTime();
         for (int i = 0; i < riders.length; i++) {
             Entity e = riders[i];
             if (e == null || e.isDead) {
                 continue;
             }
             double[] p = n.seatPos(i);
-            Entity moved = BridgeTeleportSC.teleport(e, dim, p[0], y + t.seatY + t.seatDy(i), p[2], yaw);
-            if (moved != null) {
-                moved.getEntityData().setLong("scBridgeCd", now + BridgeMathSC.TELEPORT_COOLDOWN);
-                moved.fallDistance = 0;
-                n.addPending(moved, i);
+            double sy = y + t.seatY + t.seatDy(i);
+            if (e instanceof EntityPlayerMP && e.worldObj.provider.dimensionId != dim) {
+                later((EntityPlayerMP) e, n, i, dim, p[0], sy, p[2], yaw);
+            } else {
+                carry(e, n, i, dim, p[0], sy, p[2], yaw);
             }
         }
         return n;
+    }
+
+    /** One rider through the bridge's teleport to its seat, then waiting there for it. */
+    static void carry(Entity e, EntityVehicleSVA n, int seat, int dim, double x, double y, double z, float yaw) {
+        Entity moved = BridgeTeleportSC.teleport(e, dim, x, y, z, yaw);
+        if (moved != null) {
+            moved.getEntityData().setLong("scBridgeCd", n.worldObj.getTotalWorldTime() + BridgeMathSC.TELEPORT_COOLDOWN);
+            moved.fallDistance = 0;
+            n.addPending(moved, seat);
+        }
+    }
+
+    /**
+     * A player to another dimension: not from inside the world's entity loop (we run in the old vehicle's tick) - the
+     * server's transfer takes the player out of loadedEntityList, the index shifts and the loop then drops the wrong
+     * entity for the dead vehicle. The player goes at the start of the next server tick; meanwhile its entry (marked
+     * WAITING) already holds the new vehicle and its arrival message.
+     */
+    static void later(final EntityPlayerMP pl, final EntityVehicleSVA n, final int seat, final int dim, final double x,
+            final double y, final double z, final float yaw) {
+        final Object[] wait = new Object[] {pl, Integer.valueOf(seat), WAITING};
+        n.addPending(pl, seat);
+        n.pendingRiders.set(n.pendingRiders.size() - 1, wait);
+        // dismounted at the vortex meanwhile: the bridge must not take it through on its own
+        pl.getEntityData().setLong("scBridgeCd", pl.worldObj.getTotalWorldTime() + BridgeMathSC.TELEPORT_COOLDOWN);
+        pl.fallDistance = 0;
+        Runnable job = new Runnable() {
+            @Override
+            public void run() {
+                wait[2] = null;
+                if (pl.isDead || n.isDead) {
+                    return;
+                }
+                Entity moved = BridgeTeleportSC.teleport(pl, dim, x, y, z, yaw);
+                if (moved != null) {
+                    moved.getEntityData().setLong("scBridgeCd", n.worldObj.getTotalWorldTime() + BridgeMathSC.TELEPORT_COOLDOWN);
+                    moved.fallDistance = 0;
+                    wait[0] = moved;
+                }
+            }
+        };
+        if (!ServerQueueSVA.INSTANCE.queue(pl, job)) {
+            job.run();                                             // the player's queue is full: at once, as before
+        }
     }
 
     /** The world of `dim` (loading it), the same one for its own dimension. */
@@ -136,6 +183,9 @@ public final class VehicleTransferSVA {
                 Object[] r = v.pendingRiders.get(k);
                 Entity e = (Entity) r[0];
                 int seat = ((Integer) r[1]).intValue();
+                if (r.length > 2 && r[2] == WAITING && !e.isDead) {
+                    continue;                                      // still in the old world (later)
+                }
                 if (e.isDead || e.worldObj != v.worldObj) {
                     v.pendingRiders.remove(k);
                     continue;

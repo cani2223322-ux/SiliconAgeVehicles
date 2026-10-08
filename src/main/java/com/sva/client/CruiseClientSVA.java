@@ -163,30 +163,31 @@ public final class CruiseClientSVA {
             int ph = why.length() > 0 ? 30 : 18;
             int px = sw - pw - 4, py = bottom - ph - 6;
             frame(px, py, pw, ph);
-            fr.drawStringWithShadow(title, px + 6, py + 5, offReason == CruiseMath.OFF_CHARGE || offReason == CruiseMath.OFF_STALL ? WARN : AMBER);
+            fit(fr, title, px + 6, py + 5, pw - 12, offReason == CruiseMath.OFF_CHARGE || offReason == CruiseMath.OFF_STALL ? WARN : AMBER, true);
             if (why.length() > 0) {
-                fr.drawString(why, px + 6, py + 17, DIM);
+                fit(fr, why, px + 6, py + 17, pw - 12, DIM, false);
             }
             return;
         }
         if (kind == CruiseMath.CRUISE) {
             int ph = 62, px = sw - pw - 4, py = bottom - ph - 6;
             frame(px, py, pw, ph);
-            fr.drawStringWithShadow(Lang.tr("sva.hud.cruise.title"), px + 6, py + 5, AMBER);
+            fit(fr, Lang.tr("sva.hud.cruise.title"), px + 6, py + 5, pw - 12, AMBER, true);
             String sp = String.valueOf(VehicleMath.kmh(setSpeed));
             org.lwjgl.opengl.GL11.glPushMatrix();
             org.lwjgl.opengl.GL11.glTranslatef(px + 6, py + 16, 0);
             org.lwjgl.opengl.GL11.glScalef(2F, 2F, 1F);
             fr.drawStringWithShadow(sp, 0, 0, 0xFFFFFF);
             org.lwjgl.opengl.GL11.glPopMatrix();
-            fr.drawString(Lang.tr("sva.hud.kmh"), px + 10 + fr.getStringWidth(sp) * 2, py + 22, DIM);
-            fr.drawString(Lang.tr("sva.hud.cruise.hint1", keyName()), px + 6, py + 36, DIM);
-            fr.drawString(Lang.tr("sva.hud.cruise.hint2"), px + 6, py + 47, DIM);
+            int ux = px + 10 + fr.getStringWidth(sp) * 2;
+            fit(fr, Lang.tr("sva.hud.kmh"), ux, py + 22, Math.max(0, px + pw - 6 - ux), DIM, false);
+            fit(fr, Lang.tr("sva.hud.cruise.hint1", keyName()), px + 6, py + 36, pw - 12, DIM, false);
+            fit(fr, Lang.tr("sva.hud.cruise.hint2"), px + 6, py + 47, pw - 12, DIM, false);
             return;
         }
         int ph = 58, px = sw - pw - 4, py = bottom - ph - 6;
         frame(px, py, pw, ph);
-        fr.drawStringWithShadow(Lang.tr("sva.hud.ap.title"), px + 6, py + 5, AMBER);
+        fit(fr, Lang.tr("sva.hud.ap.title"), px + 6, py + 5, pw - 12, AMBER, true);
         String[] labels = {Lang.tr("sva.hud.ap.heading"), Lang.tr("sva.hud.ap.alt"), Lang.tr("sva.hud.ap.speed")};
         double dx = v.posX - v.prevPosX, dz = v.posZ - v.prevPosZ;
         String[] values = {String.format("%03d", Integer.valueOf(CruiseMath.heading(yaw))), String.valueOf((int) Math.round(alt)),
@@ -195,10 +196,28 @@ public final class CruiseClientSVA {
         for (int i = 0; i < 3; i++) {
             int bx = px + 6 + i * (bw + 3);
             Gui.drawRect(bx, py + 16, bx + bw, py + 26, i < 2 ? BOX_ON : BOX_OFF);
-            fr.drawString(labels[i], bx + (bw - fr.getStringWidth(labels[i])) / 2, py + 17, i < 2 ? 0x0E1A12 : DIM);
+            fit(fr, labels[i], bx + Math.max(1, (bw - fr.getStringWidth(labels[i])) / 2), py + 17, bw - 2, i < 2 ? 0x0E1A12 : DIM, false);
             fr.drawStringWithShadow(values[i], bx + (bw - fr.getStringWidth(values[i])) / 2, py + 30, i < 2 ? 0xFFFFFF : DIM);
         }
-        fr.drawString(Lang.tr("sva.hud.ap.hint"), px + 6, py + 44, DIM);
+        fit(fr, Lang.tr("sva.hud.ap.hint"), px + 6, py + 44, pw - 12, DIM, false);
+    }
+
+    /** A panel line in at most maxW px: scaled down to 3/4, then cut with "..." (no tooltips in the HUD - as HudVehicleSVA.fit). */
+    private static void fit(FontRenderer fr, String s, int x, int y, int maxW, int color, boolean shadow) {
+        int w = fr.getStringWidth(s);
+        if (w <= maxW) {
+            fr.drawString(s, x, y, color, shadow);
+            return;
+        }
+        float k = Math.max(0.75F, maxW / (float) w);
+        if (w * 3 > maxW * 4) {                                     // too wide even at 3/4 (int test: no float round-off cut)
+            s = fr.trimStringToWidth(s, Math.max(0, (int) (maxW / k) - fr.getStringWidth("..."))) + "...";
+        }
+        org.lwjgl.opengl.GL11.glPushMatrix();
+        org.lwjgl.opengl.GL11.glTranslatef(x, y + (1 - k) * fr.FONT_HEIGHT / 2F, 0);
+        org.lwjgl.opengl.GL11.glScalef(k, k, 1F);
+        fr.drawString(s, 0, 0, color, shadow);
+        org.lwjgl.opengl.GL11.glPopMatrix();
     }
 
     private static void frame(int px, int py, int pw, int ph) {

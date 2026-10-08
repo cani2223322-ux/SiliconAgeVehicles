@@ -345,7 +345,7 @@ public class GuiVehicleSVA extends GuiScreen {
             fontRendererObj.drawString(Lang.tr("sva.vmenu.noGas"), gx, gy, MUTED);
         }
         for (Gas g : gases) {
-            int cap = Math.max(1, type.gases.capacity(g));
+            int cap = Math.max(1, v.getGasCapacity(g));
             int pct = (int) Math.floor(v.getGas(g) * 100.0 / cap);
             String t = Lang.tr("sva.gas." + g.key()) + " " + pct + "%";
             int tw = fontRendererObj.getStringWidth(t);

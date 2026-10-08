@@ -116,7 +116,10 @@ public final class FlightMath {
     /** The same under `m` (the tiltrotor: PLANE rules in its airplane mode, HELI otherwise). */
     public static boolean moveAllowed(VehicleType t, Movement m, double horizontal, double dy, long dt, double yNew, boolean powered,
                                       boolean wasAirborne, boolean airborneNew, double speed) {
-        double reach = maxReach(t) * 1.3 * dt + 0.2;
+        // unpowered it only glides: the reach follows the airspeed (at least the type's glide speed - the speed
+        // measure lags), not the top speed - no free flight at full speed losing MUST_SINK a tick
+        double base = powered ? maxReach(t) : Math.min(maxReach(t), Math.max(speed, glideSpeed(t, m)) * 1.1);
+        double reach = base * 1.3 * dt + 0.2;
         if (Double.isNaN(horizontal) || Double.isNaN(dy) || horizontal >= Math.max(10, reach) || horizontal > reach) {
             return false;
         }
@@ -134,6 +137,11 @@ public final class FlightMath {
             return false;
         }
         return !(airborneNew && mustDescend(t, m, powered, speed) && dy > -MUST_SINK * dt);
+    }
+
+    /** Steady airspeed without power under `m`: a plane's glide, a helicopter's autorotation (HeliMath.AUTO_FWD). */
+    static double glideSpeed(VehicleType t, Movement m) {
+        return m == Movement.PLANE && t.plane != null ? t.plane.glideSpeed : HeliMath.AUTO_FWD;
     }
 
     /** Moves `v` toward `target` by at most `step`. */

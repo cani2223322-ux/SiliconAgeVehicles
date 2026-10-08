@@ -45,7 +45,7 @@ public class GuiAccessSVA extends GuiScreen {
         this.info = info;
     }
 
-    /** Opens the screen, or refreshes it when it is already open for that vehicle (client thread). */
+    /** Opens the screen (info.open), or refreshes it when it is already open for that vehicle (client thread). */
     public static void show(NetSVA.AccessInfo info) {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.currentScreen instanceof GuiAccessSVA && ((GuiAccessSVA) mc.currentScreen).info.entity == info.entity) {
@@ -53,6 +53,9 @@ public class GuiAccessSVA extends GuiScreen {
             g.info = info;
             g.clampScroll();
             return;
+        }
+        if (!info.open) {
+            return;                                                     // a late reply to an edit: the screen was closed
         }
         mc.displayGuiScreen(new GuiAccessSVA(info));
     }
@@ -105,9 +108,10 @@ public class GuiAccessSVA extends GuiScreen {
     public void updateScreen() {
         nameField.updateCursorCounter();
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.theWorld == null || !(mc.theWorld.getEntityByID(info.entity) instanceof EntityVehicleSVA)
-                || mc.thePlayer.getDistanceSqToEntity(mc.theWorld.getEntityByID(info.entity)) > 100) {
-            mc.displayGuiScreen(null);                                  // walked away / the vehicle is gone
+        net.minecraft.entity.Entity e = mc.theWorld == null ? null : mc.theWorld.getEntityByID(info.entity);
+        if (!(e instanceof EntityVehicleSVA)
+                || !((EntityVehicleSVA) e).carries(mc.thePlayer) && mc.thePlayer.getDistanceSqToEntity(e) >= 64) {
+            mc.displayGuiScreen(null);                                  // walked away (the server's edit range) / the vehicle is gone
             return;
         }
         for (Object o : buttonList) {

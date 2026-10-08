@@ -138,14 +138,14 @@ public class HudVehicleSVA {
         ry += 10;
         float cruise = v.getCruiseCost();
         String range = cruise > 0 ? fmt((long) (energy / cruise * t.topSpeed)) : "--";
-        fr.drawString(Lang.tr("sva.hud.range", range), x + 6, ry, DIM);
+        fit(fr, Lang.tr("sva.hud.range", range), x + 6, ry, W - 12, DIM, false);
         ry += 10;
         if (charging) {
             double sec = com.sva.platform.PlatformMath.etaSeconds(v.getMaxEnergy() - energy, rateEma);
             String pctS = (int) Math.floor(ePct * 100) + "%";
             String line = Double.isInfinite(sec) || sec <= 0 ? Lang.tr("sva.hud.charging", pctS)
                     : Lang.tr("sva.hud.chargingEta", pctS, String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60)));
-            fr.drawString(line, x + 6, ry, 0x5EC8F0);
+            fit(fr, line, x + 6, ry, W - 12, 0x5EC8F0, false);
             ry += 10;
         }
         bar(fr, x, ry, Lang.tr("sva.hud.heat"), heat / 100.0, v.isHeatStopped() ? 0xFFFF4040 : C_HEAT, (int) heat + "%");
@@ -155,7 +155,7 @@ public class HudVehicleSVA {
             ry += 10;
         }
         for (Gas g : gs.gases()) {
-            int cap = Math.max(1, gs.capacity(g));
+            int cap = Math.max(1, v.getGasCapacity(g));
             int mb = v.getGas(g);
             bar(fr, x, ry, Lang.tr("sva.gas." + g.key()), mb / (double) cap, 0xFF000000 | g.color, (int) Math.floor(mb * 100.0 / cap) + "%");
             ry += 10;
@@ -163,27 +163,27 @@ public class HudVehicleSVA {
         if (lift != null) {
             double sec = HoverMath.secondsLeft(v.getGas(lift), v.isLifting() ? liftRate : gs.liftPerSecond);
             String left = Double.isInfinite(sec) ? "--" : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
-            fr.drawString(Lang.tr("sva.hud.gasLeft", Lang.tr("sva.gas." + lift.key()), left), x + 6, ry, v.isBoosting() ? AMBER : DIM);
+            fit(fr, Lang.tr("sva.hud.gasLeft", Lang.tr("sva.gas." + lift.key()), left), x + 6, ry, W - 12, v.isBoosting() ? AMBER : DIM, false);
             ry += 10;
         }
-        fr.drawString(Lang.tr("sva.hud.cargo", Integer.valueOf(v.getCargoUsed()), Integer.valueOf(v.cargoCapacity())), x + 6, ry, TEXT);
+        fit(fr, Lang.tr("sva.hud.cargo", Integer.valueOf(v.getCargoUsed()), Integer.valueOf(v.cargoCapacity())), x + 6, ry, W - 12, TEXT, false);
         ry += 10;
         if (trailerLine != null) {
-            fr.drawString(trailerLine, x + 6, ry, BLUE);
+            fit(fr, trailerLine, x + 6, ry, W - 12, BLUE, false);
             ry += 10;
         }
         if (autoLine) {
             boolean stop = v.getAutoState() == com.sva.vehicle.AutoDelivery.STOPPED;
-            fr.drawString(GuiCargoSVA.autoStatus(v), x + 6, ry, stop ? WARN : BLUE);
+            fit(fr, GuiCargoSVA.autoStatus(v), x + 6, ry, W - 12, stop ? WARN : BLUE, false);
             ry += 10;
         }
         if (warn != null) {
             boolean blink = (mc.theWorld.getTotalWorldTime() / 10) % 2 == 0 || warnColor == AMBER;
-            fr.drawStringWithShadow(warn, x + 6, ry, blink ? warnColor : 0x803030);
+            fit(fr, warn, x + 6, ry, W - 12, blink ? warnColor : 0x803030, true);
         }
         int rightTop = e.resolution.getScaledHeight();
         if (t.movement.flies) {
-            rightTop = drawFlight(mc, fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v, t);
+            rightTop = drawFlight(mc, fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v, t, y);
         }
         if (t.hasDrill) {
             rightTop = Math.min(rightTop, drawDrill(fr, e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v));
@@ -218,10 +218,10 @@ public class HudVehicleSVA {
         // oxygen
         int o2 = v.getGas(Gas.OXYGEN);
         if (o2 <= 0) {
-            fr.drawString(Lang.tr("sva.hud.o2.empty"), px + 6, ry, WARN);
+            fit(fr, Lang.tr("sva.hud.o2.empty"), px + 6, ry, pw - 12, WARN, false);
         } else {
             double sec = com.sva.vehicle.SpaceMath.o2Seconds(o2, Math.max(1, riders));
-            fr.drawString(Lang.tr("sva.hud.o2", time(sec), Integer.valueOf(Math.max(1, riders))), px + 6, ry, o2 < 200 ? AMBER : BLUE);
+            fit(fr, Lang.tr("sva.hud.o2", time(sec), Integer.valueOf(Math.max(1, riders))), px + 6, ry, pw - 12, o2 < 200 ? AMBER : BLUE, false);
         }
         ry += 11;
         // long-range mode
@@ -231,7 +231,7 @@ public class HudVehicleSVA {
             lr = Lang.tr("sva.hud.long.active", fmt((long) com.sva.vehicle.SpaceMath.LONG_D_PER_SECOND));
             lc = GREEN;
         } else if (!v.isLongRangeOn()) {
-            lr = Lang.tr("sva.hud.long.off");
+            lr = Lang.tr("sva.hud.long.off", VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.MODE));
             lc = DIM;
         } else if (v.getGas(Gas.DEUTERIUM) <= 0) {
             lr = Lang.tr("sva.hud.long.noD");
@@ -241,10 +241,10 @@ public class HudVehicleSVA {
                     Integer.valueOf(VehicleMath.kmh(t.topSpeed * com.sva.vehicle.SpaceMath.LONG_SPEED)));
             lc = AMBER;
         }
-        fr.drawString(lr, px + 6, ry, lc);
+        fit(fr, lr, px + 6, ry, pw - 12, lc, false);
         ry += 11;
         if (dock) {
-            fr.drawStringWithShadow(Lang.tr("sva.hud.dock"), px + 6, ry, blink ? BLUE : 0x3A7CA0);
+            fit(fr, Lang.tr("sva.hud.dock"), px + 6, ry, pw - 12, blink ? BLUE : 0x3A7CA0, true);
             ry += 11;
         }
         if (!ship) {
@@ -265,9 +265,9 @@ public class HudVehicleSVA {
             tgt = Lang.tr("sva.hud.jump.coord", name.length() == 0 ? "—" : name,
                     other ? Lang.tr("sva.hud.jump.otherDim", Integer.valueOf(dim)) : fmt(dist));
         }
-        fr.drawString(tgt, px + 6, ry, code == com.sva.vehicle.SpaceMath.NO_TARGET ? DIM : TEXT);
+        fit(fr, tgt, px + 6, ry, pw - 12, code == com.sva.vehicle.SpaceMath.NO_TARGET ? DIM : TEXT, false);
         ry += 11;
-        fr.drawString(code == com.sva.vehicle.SpaceMath.NO_TARGET ? "" : Lang.tr("sva.hud.jump.cost", fmt(eu), fmt(sm)), px + 6, ry, DIM);
+        fit(fr, code == com.sva.vehicle.SpaceMath.NO_TARGET ? "" : Lang.tr("sva.hud.jump.cost", fmt(eu), fmt(sm)), px + 6, ry, pw - 12, DIM, false);
         ry += 11;
         String st;
         int sc;
@@ -284,12 +284,14 @@ public class HudVehicleSVA {
             st = Lang.tr("sva.hud.jump.why." + code, Integer.valueOf(com.sva.vehicle.SpaceMath.MIN_JUMP));
             sc = code == com.sva.vehicle.SpaceMath.NO_TARGET ? DIM : WARN;
         }
-        fr.drawStringWithShadow(st, px + 6, ry, sc);
+        fit(fr, st, px + 6, ry, pw - 12, sc, true);
         ry += 11;
         boolean anchor = v.isAnchored(), cloak = v.isInvisible();
-        fr.drawString(Lang.tr(anchor ? "sva.hud.anchor.on" : "sva.hud.anchor.off"), px + 6, ry, anchor ? BLUE : DIM);
+        fit(fr, Lang.tr(anchor ? "sva.hud.anchor.on" : "sva.hud.anchor.off", VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.ANCHOR)), px + 6, ry, pw - 12,
+                anchor ? BLUE : DIM, false);
         ry += 11;
-        fr.drawString(Lang.tr(cloak ? "sva.hud.invis.on" : "sva.hud.invis.off"), px + 6, ry, cloak ? 0xC85AFF : DIM);
+        fit(fr, Lang.tr(cloak ? "sva.hud.invis.on" : "sva.hud.invis.off", VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.CLOAK)), px + 6, ry, pw - 12,
+                cloak ? 0xC85AFF : DIM, false);
     }
 
     private static int num(String[] p, int i) {
@@ -315,7 +317,7 @@ public class HudVehicleSVA {
 
     /** The aircraft instruments: altimeter tape, status line, flight panel. */
     /** @return the flight panel's top (the cruise panel goes above it) */
-    private int drawFlight(Minecraft mc, FontRenderer fr, int sw, int sh, EntityVehicleSVA v, VehicleType t) {
+    private int drawFlight(Minecraft mc, FontRenderer fr, int sw, int sh, EntityVehicleSVA v, VehicleType t, int leftTop) {
         boolean tilt = t.movement == Movement.TILT;
         boolean heli = t.movement == Movement.HELI || tilt && !v.planeNow();
         boolean extraRow = tilt || t.gases.boostGas != null;
@@ -324,6 +326,15 @@ public class HudVehicleSVA {
         boolean blink = (now / 8) % 2 == 0;
         // ---- altimeter tape (left middle): 2 px a block, a tick every 5 blocks, a label every 10
         int aw = 48, ah = 120, ax = 4, ay = Math.max(4, sh / 2 - ah / 2 - 40);
+        if (ay + ah + 4 > leftTop) {
+            // clear of the vehicle panel below: shorter above it, else beside it
+            if (leftTop - 8 >= 80) {
+                ah = Math.min(ah, leftTop - 8);
+                ay = Math.min(ay, leftTop - 4 - ah);
+            } else {
+                ax = 4 + W + 6;
+            }
+        }
         Gui.drawRect(ax - 1, ay - 1, ax + aw + 1, ay + ah + 1, EDGE);
         Gui.drawRect(ax, ay, ax + aw, ay + ah, BG);
         fr.drawString(Lang.tr("sva.hud.alt"), ax + (aw - fr.getStringWidth(Lang.tr("sva.hud.alt"))) / 2, ay + 3, DIM);
@@ -368,7 +379,7 @@ public class HudVehicleSVA {
             fr.drawStringWithShadow(status, (sw - fr.getStringWidth(status)) / 2, 30, sc);
         }
         // ---- flight panel (bottom right)
-        int pw = 168, rows = (heli ? 3 : 4) + (extraRow ? 1 : 0), ph = rows * 11 + 8;
+        int pw = 168, rows = (heli ? 3 : 5) + (extraRow ? 1 : 0), ph = rows * 11 + 8;
         int px = sw - pw - 4, py = sh - ph - 4;
         Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
         Gui.drawRect(px, py, px + pw, py + ph, BG);
@@ -380,8 +391,8 @@ public class HudVehicleSVA {
             String m = Lang.tr(toPlane ? "sva.hud.tilt.plane" : "sva.hud.tilt.vertical");
             String line = com.sva.vehicle.TiltMath.transition(pos)
                     ? Lang.tr("sva.hud.tilt.turning", m, Integer.valueOf((int) Math.round((toPlane ? pos : 1 - pos) * 100)))
-                    : Lang.tr("sva.hud.tilt.mode", m);
-            fr.drawStringWithShadow(line, px + 6, ry, com.sva.vehicle.TiltMath.transition(pos) ? AMBER : BLUE);
+                    : Lang.tr("sva.hud.tilt.mode", m, VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.MODE));
+            fit(fr, line, px + 6, ry, pw - 12, com.sva.vehicle.TiltMath.transition(pos) ? AMBER : BLUE, true);
             ry += 11;
         } else if (t.gases.boostGas != null) {
             // «Форсаж: ВКЛ · H₂ 12:30»
@@ -399,10 +410,10 @@ public class HudVehicleSVA {
                 line = Lang.tr("sva.hud.after.empty", gas);
                 col = WARN;
             } else {
-                line = Lang.tr("sva.hud.after.ready", gas, left);
+                line = Lang.tr("sva.hud.after.ready", gas, left, VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.BOOST));
                 col = DIM;
             }
-            fr.drawStringWithShadow(line, px + 6, ry, col);
+            fit(fr, line, px + 6, ry, pw - 12, col, true);
             ry += 11;
         }
         float cost = v.getCostNow();
@@ -434,12 +445,12 @@ public class HudVehicleSVA {
                 mode = Lang.tr("sva.hud.mode.fly", eu);
                 mc2 = GREEN;
             }
-            fr.drawStringWithShadow(mode, px + 6, ry, mc2);
+            fit(fr, mode, px + 6, ry, pw - 12, mc2, true);
             ry += 11;
         } else {
             double vmax = PlaneMath.maxSpeed(t, t.gases.boostMul);
             double stallV = t.plane.stall;
-            fr.drawString(Lang.tr("sva.hud.stallMin", Integer.valueOf(VehicleMath.kmh(stallV))), px + 6, ry, DIM);
+            fit(fr, Lang.tr("sva.hud.stallMin", Integer.valueOf(VehicleMath.kmh(stallV))), px + 6, ry, pw - 12, DIM, false);
             ry += 11;
             int bx = px + 6, bw = pw - 12;
             Gui.drawRect(bx, ry + 1, bx + bw, ry + 7, C_TRACK);
@@ -469,14 +480,14 @@ public class HudVehicleSVA {
                 mode = Lang.tr("sva.hud.mode.low", eu, Integer.valueOf((int) FlightMath.CRUISE_Y));
                 mc2 = TEXT;
             }
-            fr.drawStringWithShadow(mode, px + 6, ry, mc2);
+            fit(fr, mode, px + 6, ry, pw - 12, mc2, true);
             ry += 11;
         }
         int energy = v.getEnergy();
         double sec = cost > 0 ? energy / (double) cost / 20.0 : Double.POSITIVE_INFINITY;
         String left = Double.isInfinite(sec) ? "--" : sec >= 3600 ? String.format("%d:%02d:%02d", Long.valueOf((long) sec / 3600),
                 Long.valueOf((long) sec / 60 % 60), Long.valueOf((long) sec % 60)) : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
-        fr.drawString(Lang.tr("sva.hud.flightTime", Integer.valueOf((int) Math.floor(energy * 100.0 / v.getMaxEnergy())), left), px + 6, ry, TEXT);
+        fit(fr, Lang.tr("sva.hud.flightTime", Integer.valueOf((int) Math.floor(energy * 100.0 / v.getMaxEnergy())), left), px + 6, ry, pw - 12, TEXT, false);
         return py;
     }
 
@@ -497,7 +508,7 @@ public class HudVehicleSVA {
         int ry = py + 5;
         boolean on = v.isDrillOn();
         String mode = Lang.tr("sva.drill.mode." + v.getDrillMode()) + " " + (v.hasWidener() ? "5x5" : "3x3");
-        fr.drawStringWithShadow(Lang.tr(on ? "sva.hud.drill.on" : "sva.hud.drill.off", mode), px + 6, ry, on ? GREEN : DIM);
+        fit(fr, Lang.tr(on ? "sva.hud.drill.on" : "sva.hud.drill.off", mode), px + 6, ry, pw - 12, on ? GREEN : DIM, true);
         ry += 11;
         int left = v.getHeadLeft(), max = v.getHeadMax();
         if (!v.hasHead()) {
@@ -507,16 +518,34 @@ public class HudVehicleSVA {
             }
             ry -= 11;
         } else if (left < 0 || max <= 0) {
-            fr.drawString(Lang.tr("sva.hud.drill.headForever"), px + 6, ry, GREEN);
+            fit(fr, Lang.tr("sva.hud.drill.headForever"), px + 6, ry, pw - 12, GREEN, false);
         } else {
             double frac = left / (double) max;
             wideBar(fr, px, ry, Lang.tr("sva.hud.drill.headShort"), frac, frac < 0.15 ? 0xFF4040 : 0xC0C4CC, pw);
         }
         ry += 11;
-        fr.drawString(Lang.tr("sva.hud.drill.dug", fmt(v.getDug())), px + 6, ry, TEXT);
+        fit(fr, Lang.tr("sva.hud.drill.dug", fmt(v.getDug())), px + 6, ry, pw - 12, TEXT, false);
         ry += 11;
-        fr.drawString(Lang.tr(v.isFieldOn() ? "sva.hud.field.on" : "sva.hud.field.off"), px + 6, ry, v.isFieldOn() ? 0xB27CFF : DIM);
+        fit(fr, Lang.tr(v.isFieldOn() ? "sva.hud.field.on" : "sva.hud.field.off"), px + 6, ry, pw - 12, v.isFieldOn() ? 0xB27CFF : DIM, false);
         return py;
+    }
+
+    /** A panel line in at most maxW px: scaled down to 3/4, then cut with "..." (no tooltips in the HUD). */
+    private static void fit(FontRenderer fr, String s, int x, int y, int maxW, int color, boolean shadow) {
+        int w = fr.getStringWidth(s);
+        if (w <= maxW) {
+            fr.drawString(s, x, y, color, shadow);
+            return;
+        }
+        float k = Math.max(0.75F, maxW / (float) w);
+        if (w * 3 > maxW * 4) {                                     // too wide even at 3/4 (int test: no float round-off cut)
+            s = fr.trimStringToWidth(s, Math.max(0, (int) (maxW / k) - fr.getStringWidth("..."))) + "...";
+        }
+        GL11.glPushMatrix();
+        GL11.glTranslatef(x, y + (1 - k) * fr.FONT_HEIGHT / 2F, 0);
+        GL11.glScalef(k, k, 1F);
+        fr.drawString(s, 0, 0, color, shadow);
+        GL11.glPopMatrix();
     }
 
     /** A label + a bar across the flight panel + a percentage. */
@@ -539,7 +568,7 @@ public class HudVehicleSVA {
             if (mb <= 0) {
                 return "!" + Lang.tr("sva.hud.warn.noLift." + lift.key());
             }
-            if (HoverMath.secondsLeft(mb, Math.max(liftRate, gs.liftPerSecond)) < LOW_SECONDS || mb < gs.capacity(lift) / 10) {
+            if (HoverMath.secondsLeft(mb, Math.max(liftRate, gs.liftPerSecond)) < LOW_SECONDS || mb < v.getGasCapacity(lift) / 10) {
                 return Lang.tr("sva.hud.warn.low." + lift.key());
             }
         }
@@ -549,7 +578,7 @@ public class HudVehicleSVA {
             if (mb <= 0 && v.getHeat() > VehicleMath.HE_START) {
                 return Lang.tr("sva.hud.warn.noCoolant." + c.key());
             }
-            if (mb < gs.capacity(c) / 10) {
+            if (mb < v.getGasCapacity(c) / 10) {
                 return Lang.tr("sva.hud.warn.low." + c.key());
             }
         }

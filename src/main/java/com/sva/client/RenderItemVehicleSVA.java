@@ -100,6 +100,11 @@ public class RenderItemVehicleSVA implements IItemRenderer {
         if (m == null || b == null) {
             return;
         }
+        // the model is shared: set the item's own skin, not the last drawn vehicle's (tier livery, board 1, at rest)
+        m.style(com.sva.vehicle.SkinMath.livery(type(item).tier), 1);
+        m.anim(0F, 1F);
+        m.cabin(-1F, 0);
+        m.band(-1);
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_LIGHTING_BIT | GL11.GL_CURRENT_BIT | GL11.GL_COLOR_BUFFER_BIT
                 | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_TEXTURE_BIT | GL11.GL_TRANSFORM_BIT);
         GL11.glPushMatrix();

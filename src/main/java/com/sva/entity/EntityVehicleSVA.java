@@ -35,7 +35,7 @@ import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.inventory.IInventory;
+import net.minecraft.inventory.ISidedInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.AxisAlignedBB;
@@ -64,7 +64,7 @@ import net.minecraftforge.fluids.IFluidHandler;
  *   physicsStep from the last Input itself.
  * - Other clients interpolate the tracker's positions (3 steps) and the yaw from the data watcher.
  */
-public class EntityVehicleSVA extends Entity implements IInventory {
+public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     public static final String NBT_ROOT = "SVAVehicle";
     // data watcher ids (append-only)
@@ -83,6 +83,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             // wave 3 (★15): the hitched trailer's kind and contents (trailerString - parsed on clients)
             DW_TRAILER = 9;
     private static final int TUNE_ON = 1 << 20;
+    /** DW_TUNE bits: the server's vehicles.cruise / vehicles.autopilot (★4 - the driver's client follows the server). */
+    private static final int TUNE_CRUISE = 1 << 21, TUNE_AP = 1 << 22;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
             X_REASON_SHIFT = 10, X_ROUTE_A = 1 << 13, X_ROUTE_B = 1 << 14, X_FIELD = 1 << 15,
             // stage D: the tiltrotor's wanted mode (airplane) and its nacelle step (0..40, 6 bits)
@@ -145,6 +147,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public double speed;
     private int input;
     private long lastInputTick = -1000, lastMoveTick = -1000, lastCorrectTick = -1000;
+    // server, Move packets: where it stood at this tick's first Move and the tick's reach budget (ticks) - all Moves
+    // of one tick share it; aircraft: the deepest sink of one client step this tick and the count of Moves taken
+    private double moveBaseX, moveBaseY, moveBaseZ, moveDyMin;
+    private long moveBaseDt = 1, moveBaseMs;
+    private int movesThisTick;
     // server measurement
     private double lastX, lastY, lastZ, lastDx, lastDz;
     private boolean hasLast;
@@ -188,7 +195,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public boolean drillOn;
     double digBudget, torchDist;
     int autoBlocked, autoTimer, autoReason, autoDist;
-    private long lastActionTick = -100, warnTick = -1000;
+    private long warnTick = -1000;
+    /** Server: the last allowed action of each player (the Action packet's flood throttle). */
+    private final java.util.Map<java.util.UUID, Long> actionTicks = new java.util.HashMap<java.util.UUID, Long>();
     private boolean fieldNow;
     // client: the bore's spin
     public float drillAngle, prevDrillAngle;
@@ -775,7 +784,11 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public int cruiseKind() {
         VehicleType t = getVehicleType();
         int k = CruiseMath.kind(t.movement, planeNow());
-        if (k == CruiseMath.CRUISE && !ConfigSVA.cruise || k == CruiseMath.AUTOPILOT && !ConfigSVA.autopilot) {
+        boolean remote = worldObj != null && worldObj.isRemote;
+        int tune = remote ? dataWatcher.getWatchableObjectInt(DW_TUNE) : 0;
+        boolean cOn = remote ? (tune & TUNE_CRUISE) != 0 : ConfigSVA.cruise;
+        boolean aOn = remote ? (tune & TUNE_AP) != 0 : ConfigSVA.autopilot;
+        if (k == CruiseMath.CRUISE && !cOn || k == CruiseMath.AUTOPILOT && !aOn) {
             return CruiseMath.NONE;
         }
         return k;
@@ -981,7 +994,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         dataWatcher.updateObject(DW_OWNER, state.ownerName == null ? "" : state.ownerName);
         dataWatcher.updateObject(DW_TORCHES, Integer.valueOf(state.torches));
         dataWatcher.updateObject(DW_BOARD, Integer.valueOf(com.sva.vehicle.SkinMath.boardNumber(state.vehId)));
-        dataWatcher.updateObject(DW_TUNE, Integer.valueOf(TuningMath.pack(state.tuning) | (ConfigSVA.tuning ? TUNE_ON : 0)));
+        dataWatcher.updateObject(DW_TUNE, Integer.valueOf(TuningMath.pack(state.tuning) | (ConfigSVA.tuning ? TUNE_ON : 0)
+                | (ConfigSVA.cruise ? TUNE_CRUISE : 0) | (ConfigSVA.autopilot ? TUNE_AP : 0)));
         dataWatcher.updateObject(DW_TRAILER, trailerString());
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
@@ -1232,6 +1246,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         lastX = posX;
         lastY = posY;
         lastZ = posZ;
+        movesThisTick = 0;
     }
 
     /**
@@ -1253,8 +1268,10 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                 throttle = Math.max(throttle, TiltMath.CONVERT_THROTTLE);   // as TiltPhysicsSVA does on the client
             }
         }
+        // the touch-down speed: the client's own steps when it drives (two Moves bunched into one tick are no harder hit)
+        double stepDy = clientDriven && movesThisTick > 0 ? moveDyMin : dy;
         if (wasAirborne && !air && ticksExisted > 5) {
-            double impact = Math.max(0, -Math.min(dy, lastDy));
+            double impact = Math.max(0, -Math.min(stepDy, lastDy));
             double dmg = plane ? PlaneMath.landingDamage(t.plane, t.maxHp, impact, v, lifting) : HeliMath.landingDamage(t, impact, !lifting);
             if (dmg > 0) {
                 damageHull((float) dmg);
@@ -1276,7 +1293,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             r.fallDistance = 0;                                     // seated: no fall damage; off in the air - a normal fall
         }
         wasAirborne = air;
-        lastDy = dy;
+        lastDy = stepDy;
         if (plane) {
             double thr = lifting ? Math.max(throttle, PlaneMath.throttleFloor(t, v)) : 0;
             return PlaneMath.cost(t, thr, air, dy, posY, fill, working);
@@ -1493,11 +1510,25 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (!finite(x) || !finite(y) || !finite(z) || Float.isNaN(yaw) || Float.isInfinite(yaw)) {
             return;
         }
-        long dt = Math.max(1, Math.min(MOVE_TIMEOUT, now - lastMoveTick));
-        lastMoveTick = now;
+        long ms = System.nanoTime() / 1000000L;
+        if (now != lastMoveTick) {
+            // the tick's first Move: the ticks since the last one (after a silence the server drove - one step), from here;
+            // a lagging server (TPS < 20) drains more than one client step a tick - the real time counts then
+            long ticks = now - lastMoveTick, real = (ms - moveBaseMs + 25) / 50;
+            moveBaseDt = ticks > MOVE_TIMEOUT ? 1 : Math.max(1, Math.min(MOVE_TIMEOUT, Math.max(ticks, real)));
+            moveBaseMs = ms;
+            moveBaseX = posX;
+            moveBaseY = posY;
+            moveBaseZ = posZ;
+            lastMoveTick = now;
+        }
+        long dt = moveBaseDt;
         VehicleType t = state.type;
         double dx = x - posX, dy = y - posY, dz = z - posZ;
         double h = Math.sqrt(dx * dx + dz * dz);
+        // the reach / climb rules judge the whole tick's displacement: more Moves in one tick are no more speed
+        double bx = x - moveBaseX, by = y - moveBaseY, bz = z - moveBaseZ;
+        double bh = Math.sqrt(bx * bx + bz * bz);
         if (isHeld() && (h > 0.01 || Math.abs(dy) > 0.01)) {
             if (now - lastCorrectTick >= 5 && p.playerNetServerHandler != null) {
                 lastCorrectTick = now;
@@ -1513,25 +1544,25 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                 : canThrust() ? VehicleMath.maxSpeed(t, state.energy) * tuneSpeed() * Math.max(roadSpeedMul(t),
                 RoadMath.speedMul(com.sva.block.BlockRoadSVA.surfaceAt(worldObj, x, y, z), t.movement)) : coast;   // coasting only; ★11 roads
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
-        boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), h, dy, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
-                : moveAllowed(h, dy, dt, limit, CrawlerMath.climbLimit(stepHeight));             // ★8: big wheels step 1.5
+        boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), bh, by, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
+                : moveAllowed(bh, by, dt, limit, CrawlerMath.climbLimit(stepHeight));             // ★8: big wheels step 1.5
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
             AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx, dy, dz).contract(0.05, 0.05, 0.05);
-            if (!worldObj.getCollidingBoundingBoxes(this, box).isEmpty()) {
-                ok = false;                                         // into blocks
+            if (!worldObj.getCollidingBoundingBoxes(this, box).isEmpty() || !pathClear(dx, dy, dz)) {
+                ok = false;                                         // into blocks / through a wall
             } else if (flies) {
                 ok = true;                                          // FlightMath.moveAllowed checked it
             } else if (hover) {
                 // no free flight: climbing only with lift and under the cap; in the air without lift (or far over
                 // the cap) it must be coming down
                 double hNew = HoverPhysicsSVA.heightAt(worldObj, x, y, z);
-                if (dy > 0.05 && !HoverMath.climbAllowed(lift, hNew)) {
+                if (by > 0.05 && !HoverMath.climbAllowed(lift, hNew)) {
                     ok = false;
-                } else if (HoverMath.mustDescend(lift, hNew) && dy > -0.03 * dt) {
+                } else if (HoverMath.mustDescend(lift, hNew) && by > -0.03 * dt) {
                     ok = false;
                 }
-            } else if (dy > 0.05 && worldObj.getCollidingBoundingBoxes(this, box.getOffsetBoundingBox(0, -0.6, 0)).isEmpty()
-                    && !(t.movement == Movement.CRAWLER && dy <= CrawlerMath.MAX_RISE * dt + 0.05
+            } else if (by > 0.05 && worldObj.getCollidingBoundingBoxes(this, box.getOffsetBoundingBox(0, -0.6, 0)).isEmpty()
+                    && !(t.movement == Movement.CRAWLER && by <= CrawlerMath.MAX_RISE * dt + 0.05
                     && worldObj.isMaterialInBB(box.expand(0, 0.6, 0), net.minecraft.block.material.Material.water))) {
                 ok = false;                                         // climbing with nothing under it (a crawler may float up)
             }
@@ -1539,10 +1570,61 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (ok) {
             setPosition(x, y, z);
             rotationYaw = yaw;
-            fallDistance = 0;
+            moveDyMin = movesThisTick == 0 ? dy : Math.min(moveDyMin, dy);     // aircraft: one client step's sink (flightTick)
+            movesThisTick++;
+            clientFall(dy, flies || hover);
         } else if (now - lastCorrectTick >= 5 && p.playerNetServerHandler != null) {
             lastCorrectTick = now;
             NetSVA.CHANNEL.sendTo(new NetSVA.Correct(getEntityId(), posX, posY, posZ, rotationYaw), p);
+        }
+    }
+
+    /**
+     * A Move longer than the hull (a fast aircraft, a lag burst, a forged packet) can't pass a wall between its two
+     * points: checked the way the client's moveEntity goes - up / down over the start, then across at the new height,
+     * in half-block steps. Shorter Moves: the start and end boxes overlap, the end check is enough.
+     */
+    private boolean pathClear(double dx, double dy, double dz) {
+        if (Math.abs(dx) < width * 0.9 && Math.abs(dz) < width * 0.9 && Math.abs(dy) < height * 0.9) {
+            return true;
+        }
+        int vs = (int) Math.ceil(Math.abs(dy) / 0.5), hs = (int) Math.ceil(Math.sqrt(dx * dx + dz * dz) / 0.5);
+        for (int i = 1; i <= vs; i++) {
+            if (blockedAt(0, dy * i / vs, 0)) {
+                return false;
+            }
+        }
+        for (int i = 1; i < hs; i++) {
+            if (blockedAt(dx * i / hs, dy, dz * i / hs)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean blockedAt(double ox, double oy, double oz) {
+        return !worldObj.getCollidingBoundingBoxes(this, boundingBox.getOffsetBoundingBox(ox, oy, oz).contract(0.05, 0.05, 0.05)).isEmpty();
+    }
+
+    /**
+     * Server, the driver's client moving it: the fall is summed from the accepted Moves and the hull takes the landing
+     * (fall), as the server's own physics does through moveEntity. Aircraft (flightTick), the hoverbike, water: none.
+     */
+    private void clientFall(double dy, boolean none) {
+        if (none || worldObj.isMaterialInBB(boundingBox, net.minecraft.block.material.Material.water)) {
+            fallDistance = 0;
+            return;
+        }
+        if (dy < 0) {
+            fallDistance -= (float) dy;
+        }
+        if (!airborneAt(posX, posY, posZ)) {
+            if (fallDistance > 0) {
+                fall(fallDistance);
+            }
+            fallDistance = 0;
+        } else if (dy > 0) {
+            fallDistance = 0;
         }
     }
 
@@ -1903,7 +1985,15 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return;
         }
         for (int i = 0; i < n; i++) {
-            if (seats[i] == null || seats[i].isDead) {
+            EntitySeatSVA old = seats[i];
+            if (!inWorld(old)) {
+                if (old != null && !old.isDead) {
+                    // its chunk unloaded it (not dead, but out of the world): a rider of the ghost gets off, a new seat
+                    if (old.riddenByEntity != null) {
+                        old.riddenByEntity.mountEntity(null);
+                    }
+                    old.setDead();
+                }
                 EntitySeatSVA s = new EntitySeatSVA(worldObj, this, i + 1);
                 double[] p = seatPos(i + 1);
                 s.setPosition(p[0], p[1], p[2]);
@@ -1947,12 +2037,17 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public EntitySeatSVA freeSeat() {
         if (seats != null) {
             for (EntitySeatSVA s : seats) {
-                if (s != null && !s.isDead && s.riddenByEntity == null) {
+                if (inWorld(s) && s.riddenByEntity == null) {
                     return s;
                 }
             }
         }
         return null;
+    }
+
+    /** Alive and still in the world (a chunk unload removes an entity without killing it). */
+    private boolean inWorld(Entity e) {
+        return e != null && !e.isDead && worldObj.getEntityByID(e.getEntityId()) == e;
     }
 
     /** Is `e` in this vehicle (driver or a seat)? */
@@ -1980,6 +2075,25 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                     return;
                 }
             }
+        }
+    }
+
+    /**
+     * Server, FML PlayerLoggedOutEvent (before the player is saved): a rider of a vehicle or a seat gets off beside it,
+     * so vanilla neither writes the vehicle into his playerdata («Riding») nor removes it from the world.
+     */
+    public static void riderLoggedOut(EntityPlayer p) {
+        if (p == null || p.worldObj == null || p.worldObj.isRemote) {
+            return;
+        }
+        Entity m = p.ridingEntity;
+        if (!(m instanceof EntityVehicleSVA || m instanceof EntitySeatSVA)) {
+            return;
+        }
+        EntityVehicleSVA v = m instanceof EntityVehicleSVA ? (EntityVehicleSVA) m : ((EntitySeatSVA) m).getParent();
+        p.mountEntity(null);
+        if (v != null && !v.isDead) {
+            v.placeBeside(p, -1);
         }
     }
 
@@ -2207,7 +2321,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             return true;
         }
         if (p instanceof EntityPlayerMP && ((EntityPlayerMP) p).playerNetServerHandler != null) {
-            NetSVA.CHANNEL.sendTo(new NetSVA.AccessInfo(this), (EntityPlayerMP) p);
+            NetSVA.CHANNEL.sendTo(new NetSVA.AccessInfo(this, true), (EntityPlayerMP) p);   // opens the screen
         }
         return true;
     }
@@ -2216,7 +2330,13 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public static final int AE_ADD = 0, AE_REMOVE = 1, AE_SET = 2, AE_OTHERS = 3, AE_MODE = 4, AE_RELOCK = 5, AE_ISSUE = 6;
 
     public void accessEdit(EntityPlayerMP p, int op, String name, int value) {
-        if (!ConfigSVA.locks || !canManage(p) || !(carries(p) || p.getDistanceSqToEntity(this) < 64)) {
+        if (!ConfigSVA.locks || !canManage(p)) {
+            return;
+        }
+        if (!(carries(p) || p.getDistanceSqToEntity(this) < 64)) {
+            if (p.playerNetServerHandler != null) {
+                NetSVA.CHANNEL.sendTo(new NetSVA.AccessInfo(this, false), p);   // too far: undo the client's optimistic view
+            }
             return;
         }
         AccessMath.Access a = state.access;
@@ -2234,14 +2354,36 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             a.mode = Math.max(0, Math.min(AccessMath.MODES - 1, value));
         } else if (op == AE_RELOCK) {
             a.lockVersion++;
-            com.sva.item.ItemKeyCardSVA.relock(p.getCurrentEquippedItem(), a.lockVersion);    // the owner's own card follows
+            ItemStack held = p.getCurrentEquippedItem();
+            if (state.vehId != null && state.vehId.equals(com.sva.item.ItemKeyCardSVA.vehicleOf(held))) {
+                com.sva.item.ItemKeyCardSVA.relock(held, a.lockVersion);                     // the owner's own card follows (only this vehicle's)
+            }
             p.inventoryContainer.detectAndSendChanges();
             msg(p, "sva.msg.access.relocked");
         } else if (op == AE_ISSUE) {
             issueCard(p, name);
         }
+        evictUnauthorized();
         if (p.playerNetServerHandler != null) {
-            NetSVA.CHANNEL.sendTo(new NetSVA.AccessInfo(this), p);
+            NetSVA.CHANNEL.sendTo(new NetSVA.AccessInfo(this, false), p);   // refresh only (never reopens a closed screen)
+        }
+    }
+
+    /** After an access edit: a driver without «Водить» and passengers without «Пассажир» get off (open cargo screens: isUseableByPlayer). */
+    private void evictUnauthorized() {
+        if (riddenByEntity instanceof EntityPlayer && !canDrive((EntityPlayer) riddenByEntity)) {
+            EntityPlayer d = (EntityPlayer) riddenByEntity;
+            d.mountEntity(null);
+            lockedMsg(d);
+        }
+        if (seats != null) {
+            for (EntitySeatSVA s : seats) {
+                if (s != null && s.riddenByEntity instanceof EntityPlayer && !hasRight((EntityPlayer) s.riddenByEntity, AccessMath.PASSENGER)) {
+                    EntityPlayer r = (EntityPlayer) s.riddenByEntity;
+                    r.mountEntity(null);
+                    lockedMsg(r);
+                }
+            }
         }
     }
 
@@ -2340,6 +2482,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
     public void setDead() {
         super.setDead();
         if (worldObj != null && !worldObj.isRemote) {
+            closeCargoScreens();                                    // no clicks into the state of a vehicle that became an item
             VehicleRegistrySVA r = VehicleRegistrySVA.get(worldObj);
             if (r != null) {
                 r.remove(state.vehId);
@@ -2349,6 +2492,24 @@ public class EntityVehicleSVA extends Entity implements IInventory {
                     if (s != null) {
                         s.setDead();
                     }
+                }
+            }
+        }
+    }
+
+    /** Server: this vehicle's cargo screen closes for everyone who has it open (it leaves the world / its slots change). */
+    public void closeCargoScreens() {
+        if (worldObj == null || worldObj.isRemote) {
+            return;
+        }
+        for (Object o : new ArrayList<Object>(worldObj.playerEntities)) {
+            if (o instanceof EntityPlayerMP && ((EntityPlayerMP) o).openContainer instanceof com.sva.inventory.ContainerCargoSVA
+                    && ((com.sva.inventory.ContainerCargoSVA) ((EntityPlayerMP) o).openContainer).vehicle() == this) {
+                EntityPlayerMP mp = (EntityPlayerMP) o;
+                if (mp.playerNetServerHandler != null) {
+                    mp.closeScreen();                               // later clicks with the old window id are dropped
+                } else {
+                    mp.closeContainer();
                 }
             }
         }
@@ -2669,11 +2830,23 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             msg(p, "sva.msg.platform.tooBig", new ChatComponentTranslation("item.siliconagevehicles.vehicle." + vt.key + ".name"));
             return;
         }
+        String owner = p.getUniqueID().toString();
+        VehicleRegistrySVA reg = VehicleRegistrySVA.get(worldObj);
+        if (reg != null && !VehicleMath.limitAllows(reg.count(owner), ConfigSVA.maxPerPlayer)) {
+            msg(p, "sva.msg.limit", Integer.valueOf(ConfigSVA.maxPerPlayer));     // else it could never be unloaded
+            return;
+        }
         ItemStack one = held.splitStack(1);
         if (held.stackSize <= 0) {
             p.inventory.setInventorySlotContents(p.inventory.currentItem, null);
         }
         p.inventoryContainer.detectAndSendChanges();
+        // an item is whoever holds it (as placing it - ItemVehicleSVA.spawn): the loader owns it, a fresh id
+        VehicleState ks = com.sva.item.ItemVehicleSVA.stateOf(one);
+        ks.ownerId = owner;
+        ks.ownerName = p.getCommandSenderName();
+        ks.vehId = java.util.UUID.randomUUID().toString();
+        com.sva.item.ItemVehicleSVA.withState(one, ks);
         state.carried = one.writeToNBT(new NBTTagCompound());
         carriedCard = null;
         worldObj.playSoundAtEntity(this, "random.anvil_land", 0.5F, 1.2F);
@@ -2923,15 +3096,19 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     /** The Action packet (server thread; the sender is near or seated): a cargo screen button or a drill key. */
     public void serverAction(EntityPlayerMP p, int a) {
-        long now = worldObj.getTotalWorldTime();
-        if (now - lastActionTick < 4) {
-            return;                                                 // one press, not a flood
-        }
-        lastActionTick = now;
         if (!actionAllowed(a, canManage(p), riddenByEntity == p, canOpenCargo(p))) {
             lockedMsg(p);
             return;
         }
+        long now = worldObj.getTotalWorldTime();
+        Long last = actionTicks.get(p.getUniqueID());
+        if (last != null && now - last.longValue() < 4 && now >= last.longValue()) {
+            return;                                                 // one press, not a flood (per player: nobody else's is lost)
+        }
+        if (actionTicks.size() > 16) {
+            actionTicks.clear();
+        }
+        actionTicks.put(p.getUniqueID(), Long.valueOf(now));
         VehicleType t = state.type;
         if (a == A_SORT) {
             msg(p, "sva.msg.cargo.sorted", Integer.valueOf(sortCargo()));
@@ -3013,8 +3190,8 @@ public class EntityVehicleSVA extends Entity implements IInventory {
             msg(p, r == 1 ? "sva.msg.invis.on" : r == 0 ? "sva.msg.invis.off" : "sva.msg.invis.empty");
         } else if (a == A_TRAILER_DETACH && t.trailerSlots > 0) {
             if (CrawlerMath.detachCheck(state.trailer, true) == CrawlerMath.OK) {
+                closeCargoScreens();                                // everyone's: the trailer's slots leave with it
                 ItemStack item = detachTrailer();
-                p.closeScreen();
                 if (!p.inventory.addItemStackToInventory(item)) {
                     p.dropPlayerItemWithRandomChoice(item, false);
                 }
@@ -3463,6 +3640,9 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         } else if (extraSlots() > 0 && i == n + 1) {
             state.drillModule = s;
         } else {
+            if (s != null && worldObj != null && !worldObj.isRemote) {
+                entityDropItem(s, 0.5F);                            // a slot that is gone (a stale screen): not lost
+            }
             return;
         }
         markDirty();
@@ -3495,7 +3675,7 @@ public class EntityVehicleSVA extends Entity implements IInventory {
 
     @Override
     public boolean isUseableByPlayer(EntityPlayer p) {
-        return !isDead && p.getDistanceSqToEntity(this) < 64;
+        return !isDead && p.getDistanceSqToEntity(this) < 64 && (worldObj.isRemote || canOpenCargo(p));     // ★10: a right taken away closes it
     }
 
     @Override
@@ -3518,6 +3698,31 @@ public class EntityVehicleSVA extends Entity implements IInventory {
         if (extraSlots() > 0 && i == n + 1) {
             return s == null || DrillLogicSVA.isWidener(s);
         }
-        return s == null || !(s.getItem() instanceof com.sva.item.ItemVehicleSVA);      // no vehicles inside vehicles
+        return cargoAllows(s);
+    }
+
+    /** No vehicles inside vehicles, nor trailers holding something (cargo, fluid, a vehicle, charge): no nesting. */
+    public static boolean cargoAllows(ItemStack s) {
+        return s == null || !(s.getItem() instanceof com.sva.item.ItemVehicleSVA)
+                && !(s.getItem() instanceof com.sva.item.ItemTrailerSVA && com.sva.item.ItemTrailerSVA.hasContents(s));
+    }
+
+    // ---- ISidedInventory: hoppers and pipes see no slots (they would bypass the locks); the cargo screen works through its Slots
+
+    private static final int[] NO_SLOTS = new int[0];
+
+    @Override
+    public int[] getAccessibleSlotsFromSide(int side) {
+        return NO_SLOTS;
+    }
+
+    @Override
+    public boolean canInsertItem(int slot, ItemStack s, int side) {
+        return false;
+    }
+
+    @Override
+    public boolean canExtractItem(int slot, ItemStack s, int side) {
+        return false;
     }
 }

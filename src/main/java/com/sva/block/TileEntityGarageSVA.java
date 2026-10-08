@@ -66,7 +66,7 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
     // ---- server: the floor and the vehicle
     private Set<Long> plates = Collections.emptySet();
     private int[] bounds;
-    private boolean platformDirty = true;
+    private boolean platformDirty = true, floorPartial;
     private int platformTimer, scan;
     private EntityVehicleSVA current;
     private int status, lastComparator = -1, doneTicks;
@@ -207,10 +207,15 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         platformTimer = PLATFORM_EVERY;
         final Block plate = ModContentSVA.garagePlate;
         final int y = yCoord;
+        floorPartial = false;
         plates = PlatformMath.floodFill(new PlatformMath.Plates() {
             @Override
             public boolean isPlate(int x, int z) {
-                return worldObj.blockExists(x, y, z) && worldObj.getBlock(x, y, z) == plate;
+                if (!worldObj.blockExists(x, y, z)) {
+                    floorPartial = true;                        // a chunk of the floor isn't loaded (yet)
+                    return false;
+                }
+                return worldObj.getBlock(x, y, z) == plate;
             }
         }, xCoord, zCoord, PlatformMath.MAX_PLATES);
         bounds = PlatformMath.bounds(plates);
@@ -325,6 +330,10 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         }
         EntityVehicleSVA v = current;
         if (v == null || !jobVeh.equals(v.state.vehId) || !onFloor(v)) {
+            if (floorPartial) {
+                status |= S_REPAIR;                             // part of the floor isn't loaded: wait, don't cancel
+                return;
+            }
             jobVeh = null;                                      // driven away: the job is off (the metal is spent)
             markDirty();
             return;
@@ -546,6 +555,9 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         int prog = (int) Math.floor(progress() * 20) * 5;
         boolean job = jobVeh != null, done = doneTicks > 0;
         if (veh != sentVeh || prog != sentProg || job != sentJob || done != sentDone || facing != sentFacing) {
+            if ((veh >= 0) != (sentVeh >= 0)) {
+                worldObj.func_147451_t(xCoord, yCoord, zCoord);    // isLit changed: the light level 7 / 0
+            }
             sentVeh = veh;
             sentProg = prog;
             sentJob = job;
@@ -636,6 +648,9 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         clientProg = t.getInteger(D_PROG);
         clientDone = t.getBoolean(D_DONE);
         if (worldObj != null && (wasLit != (clientVeh >= 0) || wasFacing != facing)) {
+            if (wasLit != (clientVeh >= 0)) {
+                worldObj.func_147451_t(xCoord, yCoord, zCoord);
+            }
             worldObj.markBlockRangeForRenderUpdate(xCoord, yCoord, zCoord, xCoord, yCoord, zCoord);
         }
     }
