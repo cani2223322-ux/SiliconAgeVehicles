@@ -6,6 +6,16 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
+- **Быстрая зарядка техники.**
+  - *Модуль "Быстрая зарядка"* (верстак, вкладка "Модули"): станция заряжает вдвое быстрее; считается один модуль.
+  - *Режим "Форсаж"* (кнопка в окне станции): зарядка x3, но станция греется — через 2 мин непрерывного форсажа перегрев и пауза, пока не остынет (30 с). Гелий из Газовой колонки через "Модуль газа" (1 мБ/с) охлаждает и снимает предел. В окне — шкала нагрева.
+  - *Несколько станций на одной площадке* заряжают одну машину одновременно, каждая из своего буфера — скорости складываются. Разметку плит показывает одна из них, поэтому плиты больше не мигают от двух станций; звук "готово" и сообщение "не помещается" — один раз.
+  - *Площадка до 121 плиты* (11x11, было 64): Сингулярный корабль (7x7) теперь получает полный бонус +200% (с 69 плит).
+  - *Накопитель энергии Silicon Age или IC2* (BatBox, CESU, MFE, MFSU), поставленный выходом к станции, заряжает машину напрямую, без кабеля и без ограничения напряжения линии — не быстрее скорости станции. С этой стороны станция не берёт энергию из сети, поэтому более мощный накопитель её не взрывает.
+  - *Новый блок "Суперконденсатор станции"* (верстак, XV): буфер 50 млн EU, медленно заряжается от сети (любое напряжение, до 2 048 EU/т) и, стоя вплотную к станции, отдаёт заряжающейся машине до 500 000 EU/т сверх скорости станции — 50 млн EU за 5 с. Своё окно, компаратор, заряд сохраняется в предмете.
+  - *Сингулярная зарядная станция* (верстак, SV): вход SV без трансформаторов, быстрая зарядка встроена (262 144 EU/т без плит), фиолетовый корпус.
+  - Окно станции: кнопка "Форсаж", шкала нагрева, строка "Подключено" со станциями площадки (вместе EU/т), накопителями и суперконденсаторами. Корабль 256 млн EU: SV-станция с накопителем рядом на площадке от 69 плит — ~16 с, с форсажем — ~5 с.
+  - Настройки (`vehicles`, по умолчанию включены): `stationBoost`, `stationStorageLink`, `stationsAddUp`.
 - Зарядная станция принимает улучшение «Универсальный трансформатор» из Silicon Age: с ним станцию не взрывает напряжение любой линии, и она заряжает на уровне SV — до 131 072 EU/т, буфер 13,1 млн EU (как у Инженерного верстака).
 - **Пассажиры:** у пассажира во время езды и полёта больше не трясётся экран относительно кабины и приборов (позиция пассажира обновлялась на клиенте не в том порядке, и камера двигалась рывками 20 раз в секунду).
 - **Доработки по итогам проверки: 46 пунктов** (полный список — `docs/nedorabotki-2026-10-10-sdelano.md`).
@@ -33,6 +43,16 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Исправлено: в HUD «Сингулярного корабля» вместо текста показывался ключ «sva.hud.jump.why.1» - добавлены все недостающие причины, почему прыжок недоступен.
 
 ### English
+- **Fast vehicle charging.**
+  - *"Fast Charge" module* (workbench, "Modules" tab): the station charges twice as fast; one module counts.
+  - *"Boost" mode* (a button on the station screen): charging x3, but the station heats up - after 2 min of boosting it overheats and pauses until cool (30 s). Helium from a Gas Column through the "Gas Module" (1 mB/s) cools it and lifts the limit. A heat bar on the screen.
+  - *Several stations on one platform* charge the same vehicle at once, each from its own buffer - their rates add up. One of them shows the plates' lights, so two stations no longer make the plates flicker; one "done" chime and one "doesn't fit" message.
+  - *Platforms up to 121 plates* (11x11, was 64): the Singular Ship (7x7) now gets the full +200% bonus (from 69 plates).
+  - *A Silicon Age or IC2 energy storage* (BatBox, CESU, MFE, MFSU) with its output towards the station charges the vehicle directly, no cable and no line voltage limit - no faster than the station rate. The station takes no grid energy on that face, so a stronger storage can't overvolt it.
+  - *New block "Station Supercapacitor"* (workbench, XV): a 50M EU buffer that fills slowly from the grid (any voltage, up to 2,048 EU/t) and, placed against a station, gives the charging vehicle up to 500,000 EU/t on top of the station rate - 50M EU in 5 s. Its own screen, comparator, keeps its charge in the item.
+  - *Singular Charging Station* (workbench, SV): SV input without transformers, fast charge built in (262,144 EU/t without plates), a purple casing.
+  - Station screen: the "Boost" button, the heat bar, a "Connected" row with the platform's stations (EU/t together), storages and supercapacitors. The 256M EU ship: an SV station with a storage beside it on a 69+ plate platform - ~16 s, with the boost - ~5 s.
+  - Config (`vehicles`, on by default): `stationBoost`, `stationStorageLink`, `stationsAddUp`.
 - The charging station takes the Silicon Age Universal Transformer upgrade: with it no line voltage overvolts the station and it charges at SV - up to 131,072 EU/t, a 13.1M EU buffer (like the Engineering Workbench).
 - **Passengers:** a passenger's view no longer shakes against the cabin and instruments while driving or flying (the passenger was placed on the client in the wrong order, so the camera moved in 20-a-second steps).
 - **Improvements from the audit: 46 items** (full list in `docs/nedorabotki-2026-10-10-sdelano.md`).

@@ -18,13 +18,14 @@ import net.minecraft.util.IIcon;
 /**
  * Charging station modules (plan §9 ★). Meta APPEND-ONLY: 0 gas («Модуль газа»: refuels from a Gas Column touching the
  * station or a plate), 1 repair («Модуль ремонта»: steel ingots from a chest beside it), 2 access («Модуль доступа»:
- * only the station owner's vehicles). Made on the Engineering Workbench (category «Модули»).
+ * only the station owner's vehicles), 3 fast charge («Быстрая зарядка»: the station charges x2; one counts, the SV station
+ * has it built in). Made on the Engineering Workbench (category «Модули»).
  */
 public class ItemStationModuleSVA extends Item {
 
-    public static final int GAS = 0, REPAIR = 1, ACCESS = 2;
-    public static final String[] KEYS = {"gas", "repair", "access"};
-    private static final String[] ICONS = {"moduleGas", "moduleRepair", "moduleAccess"};
+    public static final int GAS = 0, REPAIR = 1, ACCESS = 2, FAST = 3;
+    public static final String[] KEYS = {"gas", "repair", "access", "fast"};
+    private static final String[] ICONS = {"moduleGas", "moduleRepair", "moduleAccess", "moduleFast"};
 
     private IIcon[] icons;
 

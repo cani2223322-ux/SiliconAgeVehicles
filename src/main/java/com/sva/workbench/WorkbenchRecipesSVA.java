@@ -341,5 +341,21 @@ public final class WorkbenchRecipesSVA {
         ItemStack solar = com.sc.init.ModBlocks.generatorStack(com.sc.energy.GeneratorType.SOLAR_SI, 1);
         add(new WorkbenchRecipeSVA("trailerCharger", Category.VEHICLES, new ItemStack(ModContentSVA.trailer, 1, com.sva.vehicle.TrailerMath.CHARGER),
                 Tier.HV, 400000L, 600, new Object[] {"PEP", "KTK", "PEP", 'P', solar, 'E', ebHV, 'K', coil, 'T', trailer}));
+
+        // ---- fast charging (2026-10-10; appended: the list index is the sync id)
+        // «Быстрая зарядка» module (x2): two of the core's overclocker upgrades either side of the controller, Nb3Sn coils
+        // for the heavier current, HV energy cells, steel casings
+        ItemStack oc = ModItems.upgrade.stackOf(com.sc.machine.UpgradeType.OVERCLOCKER);
+        module("moduleFast", mod.stackOf(com.sva.item.ItemStationModuleSVA.FAST), Tier.EV, "XNX", "OCO", "EKE",
+                'X', casing, 'N', nbCoil, 'O', oc, 'C', controller, 'E', cellHV, 'K', coil);
+        // «Сингулярная зарядная станция» (SV): the MV station in the middle, gravity coils and singular clots round it,
+        // Nb3Sn plates, the core's singular core battery and the SV energy block below
+        block("chargerSV", new ItemStack(ModContentSVA.charger, 1, Tier.SV.ordinal()), Tier.SV, "QGQ", "PSP", "BEB",
+                'Q', clot, 'G', gravCoil, 'P', nbPlate, 'S', new ItemStack(ModContentSVA.charger, 1, Tier.MV.ordinal()), 'B', battery(6),
+                'E', part(ComponentType.ENERGY_BLOCK_SV));
+        // «Суперконденсатор станции» (50M EU): the core's exo-core batteries (XV) round the XV energy block, Nb3Sn plates,
+        // He loop modules (the cooling), a controller
+        block("supercap", new ItemStack(ModContentSVA.supercap), Tier.XV, "PBP", "HEH", "PCP",
+                'P', nbPlate, 'B', battery(5), 'H', heLoop, 'E', part(ComponentType.ENERGY_BLOCK_XV), 'C', controller);
     }
 }

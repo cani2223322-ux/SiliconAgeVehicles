@@ -49,6 +49,8 @@ public final class ModContentSVA {
     public static com.sva.block.BlockGaragePlateSVA garagePlate;
     public static com.sva.item.ItemTuningSVA tuning;
     public static com.sva.item.ItemKeyCardSVA keyCard;
+    // fast charging (2026-10-10): the station's supercapacitor
+    public static com.sva.block.BlockSupercapSVA supercap;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -124,6 +126,11 @@ public final class ModContentSVA {
         keyCard = new com.sva.item.ItemKeyCardSVA();
         keyCard.setCreativeTab(TAB);
         GameRegistry.registerItem(keyCard, "keyCard");
+        // fast charging (2026-10-10; Engineering Workbench recipe - WorkbenchRecipesSVA)
+        supercap = new com.sva.block.BlockSupercapSVA();
+        supercap.setCreativeTab(TAB);
+        GameRegistry.registerBlock(supercap, com.sva.block.ItemBlockSupercapSVA.class, "supercap");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntitySupercapSVA.class, ReferenceSVA.MODID + ":supercap");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);

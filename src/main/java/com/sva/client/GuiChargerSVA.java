@@ -36,7 +36,9 @@ import net.minecraft.util.AxisAlignedBB;
  * The charging station screen (mock-up docs/mockups/veh_9_platform_gui.png): the platform map (plates round the
  * station, occupied cells lit), plate count + speed bonus + «помещается», the vehicle card (EU / gases / hull with
  * rates, time to full), upgrades, modules, settings, connected devices, the status line and the player's inventory.
- * 360 x 236 - fits a 427 x 240 screen.
+ * 360 x 236 - fits a 427 x 240 screen. Fast charging (2026-10-10): the «Форсаж» button at the right of the status line,
+ * the heat bar beside the buffer gauge, and a fourth «Подключено» row - the other stations on the platform (their rate
+ * added up), the linked energy storages and the supercapacitors.
  */
 public class GuiChargerSVA extends GuiContainer {
 
@@ -44,6 +46,8 @@ public class GuiChargerSVA extends GuiContainer {
     private static final int BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, PANEL = 0xFF232833, SLOT = 0xFF2B313C, SLOT_DARK = 0xFF0D1015,
             GOLD = 0xF2A040, CYAN = 0x5EC8F0, TEXT = 0xD8DCE4, MUTED = 0x8A93A3, GREEN = 0x62E06A, RED = 0xF06060, YELLOW = 0xF0D060;
     private static final int MAP_X = 8, MAP_Y = 31, MAP_W = 100, MAP_H = 62;
+    /** The heat bar (between the upgrade row and the buffer gauge) and the «Подключено» rows. */
+    private static final int HEAT_X = 330, HEAT_Y = 21, HEAT_W = 5, HEAT_H = 56, DEV_Y = 152, DEV_STEP = 20;
     private static final int SET_X = 258, SET_Y = 82, SET_STEP = 9;
     private static final int[] SET_BITS = {0, TileEntityChargerSVA.SET_REDSTONE, TileEntityChargerSVA.SET_SOUND, TileEntityChargerSVA.SET_GAS};
 
@@ -103,8 +107,9 @@ public class GuiChargerSVA extends GuiContainer {
 
     // ------------------------------------------------------------------ input
 
-    /** Wave 3, ★19: «Техника» in the inventory panel's header opens «Моя техника» round this station. */
-    private static final int B_MAP = 0;
+    /** Wave 3, ★19: «Техника» in the inventory panel's header opens «Моя техника» round this station. Fast charging: «Форсаж». */
+    private static final int B_MAP = 0, B_BOOST = 1;
+    private GuiCargoSVA.Dark boost;
 
     @Override
     public void initGui() {
@@ -113,13 +118,26 @@ public class GuiChargerSVA extends GuiContainer {
         if (com.sva.ConfigSVA.vehicleMap) {
             buttonList.add(new GuiCargoSVA.Dark(B_MAP, guiLeft + 300, guiTop + 140, 52, 11, Lang.tr("sva.st.map"), Lang.tr("sva.st.tip.map")));
         }
+        boost = new GuiCargoSVA.Dark(B_BOOST, guiLeft + 300, guiTop + 124, 54, 11, Lang.tr("sva.st.boost"), Lang.tr("sva.st.tip.boost"));
+        buttonList.add(boost);
     }
 
     @Override
     protected void actionPerformed(net.minecraft.client.gui.GuiButton b) {
         if (b.id == B_MAP) {
             GuiMapSVA.openAtStation(mc, tile.xCoord, tile.zCoord);
+        } else if (b.id == B_BOOST) {
+            NetSVA.CHANNEL.sendToServer(new NetSVA.Station(tile.xCoord, tile.yCoord, tile.zCoord, TileEntityChargerSVA.SET_BOOST));
         }
+    }
+
+    private boolean flag(int bit) {
+        return (v(ContainerChargerSVA.V_FLAGS) & bit) != 0;
+    }
+
+    /** «Форсаж» allowed by the server config (synced flag). */
+    private boolean boostAllowed() {
+        return flag(ContainerChargerSVA.F_BOOST_CFG);
     }
 
     @Override
@@ -155,6 +173,11 @@ public class GuiChargerSVA extends GuiContainer {
     /** drawScreen in the window's own (virtual) coordinates. */
     private void drawFitted(int mx, int my, float pt) {
         TextFitSC.beginFrame();
+        if (boost != null) {
+            boost.visible = boostAllowed();
+            boost.active = flag(ContainerChargerSVA.F_BOOST);
+            boost.displayString = Lang.tr(st(TileEntityChargerSVA.S_OVERHEAT) ? "sva.st.boost.hot" : boost.active ? "sva.st.boost.on" : "sva.st.boost");
+        }
         super.drawScreen(mx, my, pt);
         for (Object o : buttonList) {
             if (o instanceof GuiCargoSVA.Dark && ((GuiCargoSVA.Dark) o).visible) {
@@ -199,6 +222,19 @@ public class GuiChargerSVA extends GuiContainer {
         }
         int max = v(ContainerChargerSVA.V_MAX);
         GuiEnergyGaugeSC.draw(x + 337, y + 21, 14, 56, max <= 0 ? 0F : Math.min(1F, v(ContainerChargerSVA.V_E) / (float) max));
+        if (boostAllowed()) {
+            // the boost heat: green -> yellow -> red, full red (blinking) while overheated
+            double h = v(ContainerChargerSVA.V_HEAT) / (double) PlatformMath.HEAT_MAX;
+            frame(x + HEAT_X - 1, y + HEAT_Y - 1, HEAT_W + 2, HEAT_H + 2, 0xFF3A4150, 0xFF0E1116);
+            int fh = (int) Math.round(HEAT_H * Math.max(0, Math.min(1, h)));
+            boolean hot = st(TileEntityChargerSVA.S_OVERHEAT);
+            int c = hot ? ((mc.theWorld == null || mc.theWorld.getTotalWorldTime() / 5 % 2 == 0) ? 0xFFFF4040 : 0xFF902020)
+                    : h < 0.5 ? 0xFF62E06A : h < 0.8 ? 0xFFF0D060 : 0xFFF08A30;
+            rect(x + HEAT_X, y + HEAT_Y + HEAT_H - fh, HEAT_W, fh, c);
+            if (st(TileEntityChargerSVA.S_HELIUM)) {
+                rect(x + HEAT_X, y + HEAT_Y, HEAT_W, 2, 0xFF8FE3FF);
+            }
+        }
         drawMap(x + MAP_X, y + MAP_Y);
         drawBars(x, y);
         for (int i = 0; i < SET_BITS.length; i++) {
@@ -209,8 +245,8 @@ public class GuiChargerSVA extends GuiContainer {
                 rect(x + SET_X + 2, cy + 2, 4, 4, i == 0 ? 0xFF4AA060 : 0xFF62E06A);
             }
         }
-        for (int i = 0; i < 3; i++) {
-            frame(x + 7, y + 152 + i * 27, 176, 25, 0xFF3A4150, 0xFF1E232C);
+        for (int i = 0; i < 4; i++) {
+            frame(x + 7, y + DEV_Y + i * DEV_STEP, 176, DEV_STEP - 1, 0xFF3A4150, 0xFF1E232C);
         }
         drawDeviceIcons(x, y);
     }
@@ -303,9 +339,13 @@ public class GuiChargerSVA extends GuiContainer {
     }
 
     private void drawDeviceIcons(int x, int y) {
-        item(new ItemStack(ModContentSVA.gasColumn), x + 10, y + 156);
-        item(new ItemStack(Blocks.chest), x + 10, y + 183);
-        item(new ItemStack(ModContentSVA.chargePlate, 1, BlockChargePlateSVA.EDGE), x + 10, y + 210);
+        item(new ItemStack(ModContentSVA.gasColumn), x + 9, y + DEV_Y + 1);
+        item(new ItemStack(Blocks.chest), x + 9, y + DEV_Y + DEV_STEP + 1);
+        item(new ItemStack(ModContentSVA.chargePlate, 1, BlockChargePlateSVA.EDGE), x + 9, y + DEV_Y + 2 * DEV_STEP + 1);
+        ItemStack link = v(ContainerChargerSVA.V_CAPS) > 0 ? new ItemStack(ModContentSVA.supercap)
+                : v(ContainerChargerSVA.V_STORES) > 0 ? new ItemStack(com.sc.init.ModBlocks.energyStorageSC, 1, Tier.MV.ordinal())
+                : new ItemStack(ModContentSVA.charger, 1, Tier.MV.ordinal());
+        item(link, x + 9, y + DEV_Y + 3 * DEV_STEP + 1);
         EntityVehicleSVA veh = vehicle();
         if (veh != null) {
             item(new ItemStack(ModContentSVA.vehicle, 1, veh.getVehicleType().ordinal()), x + 118, y + 21);
@@ -315,7 +355,7 @@ public class GuiChargerSVA extends GuiContainer {
     @Override
     protected void drawGuiContainerForegroundLayer(int mx, int my) {
         int ox = guiLeft, oy = guiTop;
-        fontRendererObj.drawString(Lang.tr("tile.siliconagevehicles.charger.name"), 7, 5, GOLD);
+        fontRendererObj.drawString(Lang.tr(com.sva.block.BlockChargerSVA.nameKey(tile.getTier())), 7, 5, flag(ContainerChargerSVA.F_SV) ? 0xC878FF : GOLD);
         int plates = v(ContainerChargerSVA.V_PLATES), sx = v(ContainerChargerSVA.V_SX), sz = v(ContainerChargerSVA.V_SZ);
         Tier in = Tier.byOrdinal(v(ContainerChargerSVA.V_TIER));
         String head = plates > 0 ? Lang.tr("sva.st.head", in.name(), num(v(ContainerChargerSVA.V_RATE)), sx + "x" + sz, Integer.valueOf(plates))
@@ -375,7 +415,8 @@ public class GuiChargerSVA extends GuiContainer {
         String owner = container.vehicleOwner == null || container.vehicleOwner.length() == 0 ? "—" : container.vehicleOwner;
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.st.card.owner", owner, t.platformSize.label()), 137, 31, 112, MUTED, guiLeft, guiTop);
         int ry = 42;
-        int euT = v(ContainerChargerSVA.V_EU_T);
+        int euT = v(ContainerChargerSVA.V_PEERS) > 0 ? Math.max(v(ContainerChargerSVA.V_EU_T), v(ContainerChargerSVA.V_SUM_EU))
+                : v(ContainerChargerSVA.V_EU_T);
         fontRendererObj.drawString(Lang.tr("sva.hud.eu"), 119, ry, TEXT);
         String eu = Lang.tr("sva.st.card.eu", FormatSVA.eu(veh.getEnergy()), FormatSVA.eu((long) veh.getMaxEnergy())) + (euT > 0 ? " · +" + num(euT) + " EU/t" : "");
         TextFitSC.draw(fontRendererObj, eu, 150, ry + 8, 99, MUTED, guiLeft, guiTop);
@@ -440,6 +481,7 @@ public class GuiChargerSVA extends GuiContainer {
                 List<String> t = new ArrayList<String>();
                 t.add(Lang.tr("sva.st.mod.slot"));
                 t.add("§7" + Lang.tr(mods[i]));
+                t.add("§7" + Lang.tr(flag(ContainerChargerSVA.F_SV) ? "sva.st.mod.fastBuiltIn" : "sva.st.mod.fast"));
                 TextFitSC.hover(guiLeft + sx - 1, guiTop + sy - 1, 18, 18, t);
                 fontRendererObj.drawString("M", sx + 5, sy + 4, 0x4A5262);
             }
@@ -457,7 +499,24 @@ public class GuiChargerSVA extends GuiContainer {
         List<String> g = new ArrayList<String>();
         g.add(Lang.tr("sva.st.gauge", FormatSVA.eu(e), FormatSVA.eu(max)));
         g.add("§7" + Lang.tr("sva.st.gauge.in", Tier.byOrdinal(v(ContainerChargerSVA.V_TIER)).name()));
+        if (flag(ContainerChargerSVA.F_FAST)) {
+            g.add("§a" + Lang.tr(flag(ContainerChargerSVA.F_SV) ? "sva.st.fast.builtIn" : "sva.st.fast.module"));
+        }
         TextFitSC.hover(guiLeft + 337, guiTop + 21, 14, 56, g);
+        if (boostAllowed()) {
+            int heat = v(ContainerChargerSVA.V_HEAT);
+            List<String> h = new ArrayList<String>();
+            h.add(Lang.tr("sva.st.heat", Integer.valueOf((int) Math.round(100.0 * heat / PlatformMath.HEAT_MAX))));
+            if (st(TileEntityChargerSVA.S_OVERHEAT)) {
+                h.add("§c" + Lang.tr("sva.st.heat.over", time(PlatformMath.ticksToCool(heat) / 20.0)));
+            } else if (st(TileEntityChargerSVA.S_HELIUM)) {
+                h.add("§b" + Lang.tr("sva.st.heat.helium"));
+            } else if (flag(ContainerChargerSVA.F_BOOST)) {
+                h.add("§e" + Lang.tr("sva.st.heat.left", time(PlatformMath.ticksToOverheat(heat) / 20.0)));
+            }
+            h.add("§7" + Lang.tr("sva.st.heat.tip"));
+            TextFitSC.hover(guiLeft + HEAT_X - 1, guiTop + HEAT_Y - 1, HEAT_W + 2, HEAT_H + 2, h);
+        }
     }
 
     private void drawStatus() {
@@ -480,8 +539,11 @@ public class GuiChargerSVA extends GuiContainer {
             if (st(TileEntityChargerSVA.S_OFF)) {
                 parts.add(Lang.tr("sva.st.s.off"));
                 c = YELLOW;
+            } else if (st(TileEntityChargerSVA.S_OVERHEAT)) {
+                parts.add(Lang.tr("sva.st.s.overheat"));
+                c = RED;
             } else if (st(TileEntityChargerSVA.S_CHARGING)) {
-                parts.add(Lang.tr("sva.st.s.charging"));
+                parts.add(Lang.tr(st(TileEntityChargerSVA.S_BOOST) ? "sva.st.s.chargingBoost" : "sva.st.s.charging"));
             } else if (st(TileEntityChargerSVA.S_FULL)) {
                 parts.add(Lang.tr("sva.st.s.full"));
             } else if (st(TileEntityChargerSVA.S_NO_ENERGY)) {
@@ -510,14 +572,14 @@ public class GuiChargerSVA extends GuiContainer {
             }
             b.append(p);
         }
-        TextFitSC.draw(fontRendererObj, b.toString(), 8, 126, 344, c, guiLeft, guiTop);
+        TextFitSC.draw(fontRendererObj, b.toString(), 8, 126, boostAllowed() ? 288 : 344, c, guiLeft, guiTop);
     }
 
     private void drawDevices() {
         fontRendererObj.drawString(Lang.tr("sva.st.connected"), 8, 142, CYAN);
         // the gas column
         boolean col = v(ContainerChargerSVA.V_COLUMN) > 0;
-        TextFitSC.draw(fontRendererObj, Lang.tr("tile.siliconagevehicles.gasColumn.name"), 29, 155, 150, col ? TEXT : MUTED, guiLeft, guiTop);
+        TextFitSC.draw(fontRendererObj, Lang.tr("tile.siliconagevehicles.gasColumn.name"), 28, DEV_Y + 1, 152, col ? TEXT : MUTED, guiLeft, guiTop);
         String d;
         if (!col) {
             d = Lang.tr("sva.st.dev.noColumn");
@@ -537,22 +599,55 @@ public class GuiChargerSVA extends GuiContainer {
                 d = Lang.tr("sva.st.dev.needGasModule") + " · " + d;
             }
         }
-        TextFitSC.draw(fontRendererObj, d, 29, 165, 152, MUTED, guiLeft, guiTop);
+        TextFitSC.draw(fontRendererObj, d, 28, DEV_Y + 10, 152, MUTED, guiLeft, guiTop);
         // the repair chest
         boolean chest = v(ContainerChargerSVA.V_CHESTS) > 0;
-        TextFitSC.draw(fontRendererObj, Lang.tr("sva.st.dev.chest"), 29, 182, 150, chest ? TEXT : MUTED, guiLeft, guiTop);
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.st.dev.chest"), 28, DEV_Y + DEV_STEP + 1, 152, chest ? TEXT : MUTED, guiLeft, guiTop);
         String cd = !chest ? Lang.tr("sva.st.dev.noChest") : Lang.tr("sva.st.dev.steel", Integer.valueOf(v(ContainerChargerSVA.V_STEEL)));
         if (chest && !set(ContainerChargerSVA.M_REPAIR)) {
             cd = Lang.tr("sva.st.dev.needRepairModule") + " · " + cd;
         }
-        TextFitSC.draw(fontRendererObj, cd, 29, 192, 152, MUTED, guiLeft, guiTop);
+        TextFitSC.draw(fontRendererObj, cd, 28, DEV_Y + DEV_STEP + 10, 152, MUTED, guiLeft, guiTop);
         // the lights
         int edge = v(ContainerChargerSVA.V_EDGE), avia = v(ContainerChargerSVA.V_AVIA);
-        TextFitSC.draw(fontRendererObj, Lang.tr("sva.st.dev.lights"), 29, 209, 150, edge > 0 ? TEXT : MUTED, guiLeft, guiTop);
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.st.dev.lights"), 28, DEV_Y + 2 * DEV_STEP + 1, 152, edge > 0 ? TEXT : MUTED, guiLeft, guiTop);
         String ld = edge > 0 ? Lang.tr("sva.st.dev.lightsOn", Integer.valueOf(edge)) : Lang.tr("sva.st.dev.noLights");
         if (avia > 0) {
             ld += " · " + Lang.tr("sva.st.dev.avia", Integer.valueOf(avia));
         }
-        TextFitSC.draw(fontRendererObj, ld, 29, 219, 152, MUTED, guiLeft, guiTop);
+        TextFitSC.draw(fontRendererObj, ld, 28, DEV_Y + 2 * DEV_STEP + 10, 152, MUTED, guiLeft, guiTop);
+        // fast charging: the other stations on the platform, linked energy storages, supercapacitors
+        int peers = v(ContainerChargerSVA.V_PEERS), stores = v(ContainerChargerSVA.V_STORES), caps = v(ContainerChargerSVA.V_CAPS);
+        boolean anyLink = peers > 0 || stores > 0 || caps > 0;
+        String head = peers > 0 ? Lang.tr("sva.st.dev.stations", Integer.valueOf(peers + 1), num(v(ContainerChargerSVA.V_SUM)))
+                : Lang.tr("sva.st.dev.energy");
+        int ry = DEV_Y + 3 * DEV_STEP;
+        TextFitSC.draw(fontRendererObj, head, 28, ry + 1, 152, anyLink ? TEXT : MUTED, guiLeft, guiTop);
+        List<String> parts = new ArrayList<String>();
+        if (stores > 0) {
+            parts.add(Lang.tr("sva.st.dev.storage", Integer.valueOf(stores), FormatSVA.eu(v(ContainerChargerSVA.V_STORE_E))));
+        }
+        if (caps > 0) {
+            parts.add(Lang.tr("sva.st.dev.caps", Integer.valueOf(caps), FormatSVA.eu(v(ContainerChargerSVA.V_CAP_E))));
+        }
+        StringBuilder b = new StringBuilder();
+        for (String p : parts) {
+            if (b.length() > 0) {
+                b.append(" · ");
+            }
+            b.append(p);
+        }
+        String line = b.length() > 0 ? b.toString() : Lang.tr(peers > 0 ? "sva.st.dev.noStorageShared" : "sva.st.dev.noLinks");
+        TextFitSC.draw(fontRendererObj, line, 28, ry + 10, 152, MUTED, guiLeft, guiTop);
+        List<String> tip = new ArrayList<String>();
+        tip.add(Lang.tr("sva.st.dev.linkTip1"));
+        if (peers > 0) {
+            tip.add("§a" + Lang.tr("sva.st.dev.sumTip", Integer.valueOf(peers + 1), num(v(ContainerChargerSVA.V_SUM)),
+                    num(v(ContainerChargerSVA.V_SUM_EU))));
+            tip.add("§7" + Lang.tr(flag(ContainerChargerSVA.F_MASTER) ? "sva.st.dev.master" : "sva.st.dev.notMaster"));
+        }
+        tip.add("§7" + Lang.tr("sva.st.dev.linkTip2"));
+        tip.add("§7" + Lang.tr("sva.st.dev.linkTip3", num(PlatformMath.CAP_DUMP)));
+        TextFitSC.hover(guiLeft + 7, guiTop + ry, 176, DEV_STEP - 1, tip);
     }
 }

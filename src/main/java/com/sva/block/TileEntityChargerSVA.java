@@ -43,7 +43,7 @@ import net.minecraft.util.MathHelper;
  * controller of a charging platform (plan §9, variant 1).
  * <ul>
  * <li>No plates touching it: the old 1-block charger - a vehicle touching its top gets the tier's packet a tick.</li>
- * <li>Plates (BlockChargePlateSVA) on its level, 4-way connected to it, up to 64 (flood fill on a neighbour change,
+ * <li>Plates (BlockChargePlateSVA) on its level, 4-way connected to it, up to 121 (flood fill on a neighbour change,
  * a plate placed / broken nearby, and every 5 s): vehicles over a plate (or on the station) that fit the platform
  * (VehicleType.platformSize vs plate count + bounding rectangle) are served one per tick in turn (round robin).
  * Rate = PlatformMath.rate: input tier packet x 1.6 per Overclocker x (1 + 10% per plate over the vehicle's minimum).</li>
@@ -59,6 +59,19 @@ import net.minecraft.util.MathHelper;
  * </ul>
  * The plates' look (off / charging / full) is sent with the description packet (plate offsets + state) only when
  * it changes; clients keep it in PlateStatesSVA.
+ * <p>Fast charging (2026-10-10):
+ * <ul>
+ * <li>«Быстрая зарядка» module x2 (one counts; the SV station - meta Tier.SV, SV input without transformers - has it built in).</li>
+ * <li>«Форсаж» (SET_BOOST, the screen's button, vehicles.stationBoost): x3 while it charges, +1 heat a tick; at HEAT_MAX (2 min)
+ * it overheats and charges nothing until cold (30 s). Helium from the gas module's column, 1 mB a second, keeps it cool.</li>
+ * <li>Several stations on one platform (stations touching its plates = peers): every one charges the same vehicle in the same
+ * tick from its own buffer (PlatformMath.sharedPick), the rates add up. The plates' look belongs to one of them (the
+ * master: lowest x, y, z), which shows «charging» when any of them charges; only it chimes and warns «не помещается».</li>
+ * <li>A core energy storage (or an IC2 one) whose output faces the station: the station takes what its rate leaves
+ * straight from it into the vehicle (extractForItemCharging - the storage's own accounting and on/off switch), and
+ * refuses grid input on that face (no overvoltage from a stronger storage).</li>
+ * <li>A «Суперконденсатор станции» touching it empties into the vehicle at 500 000 EU/t on top of the rate.</li>
+ * </ul>
  */
 public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISidedInventory, KeptDataSVA.Keeper {
 
@@ -66,15 +79,18 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
     public static final int FIRST_UPGRADE = 0, UPGRADE_SLOTS = 4, FIRST_MODULE = 4, MODULE_SLOTS = 3, SIZE = 7;
     /** Status bits (screen, tests). */
     public static final int S_VEHICLE = 1, S_CHARGING = 2, S_REFUEL = 4, S_REPAIR = 8, S_FULL = 16, S_NO_FIT = 32, S_NO_ACCESS = 64,
-            S_NO_ENERGY = 128, S_OFF = 256, S_NO_STEEL = 512, S_WEAR_OFF = 1024, S_PLATFORM = 2048;
-    /** Settings bits. */
-    public static final int SET_REDSTONE = 1, SET_SOUND = 2, SET_GAS = 4, SET_DEFAULT = SET_REDSTONE | SET_SOUND | SET_GAS;
+            S_NO_ENERGY = 128, S_OFF = 256, S_NO_STEEL = 512, S_WEAR_OFF = 1024, S_PLATFORM = 2048, S_OVERHEAT = 4096, S_BOOST = 8192,
+            S_HELIUM = 16384;
+    /** Settings bits (SET_BOOST: «Форсаж», off by default). */
+    public static final int SET_REDSTONE = 1, SET_SOUND = 2, SET_GAS = 4, SET_DEFAULT = SET_REDSTONE | SET_SOUND | SET_GAS, SET_BOOST = 8,
+            SET_ALL = SET_DEFAULT | SET_BOOST;
 
     // NBT keys (append-only)
     private static final String K_ACTIVE = "ChargerActive", K_ITEMS = "ChargerItems", K_FACING = "ChargerFacing", K_OWNER = "Owner",
-            K_OWNER_NAME = "OwnerName", K_SETTINGS = "ChargerSettings", K_PAID = "RepairPaid", K_FULL = "ChargerFull";
+            K_OWNER_NAME = "OwnerName", K_SETTINGS = "ChargerSettings", K_PAID = "RepairPaid", K_FULL = "ChargerFull",
+            K_HEAT = "ChargerHeat", K_OVERHEAT = "ChargerOverheat";
     // description packet keys
-    private static final String D_PLATES = "Pl", D_VISUAL = "Vs", D_FACING = "Fc";
+    private static final String D_PLATES = "Pl", D_VISUAL = "Vs", D_FACING = "Fc", D_MASTER = "Ms";
     private static final int[] NO_SLOTS = {};
 
     private final ItemStack[] slots = new ItemStack[SIZE];
@@ -89,10 +105,18 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
     private int platformTimer;
     private final List<ChunkCoordinates> columns = new ArrayList<ChunkCoordinates>(), chests = new ArrayList<ChunkCoordinates>();
     private int edgePlates, aviaPlates;
+    // ---- server: fast charging - stations on the same plates, storages / supercapacitors touching the station
+    private final List<ChunkCoordinates> peers = new ArrayList<ChunkCoordinates>(), storages = new ArrayList<ChunkCoordinates>(),
+            caps = new ArrayList<ChunkCoordinates>();
+    /** Faces (ForgeDirection ordinal bits) a linked storage's output touches: no grid input there. */
+    private int storageFaces;
+    private boolean master = true;
+    private int heat, heliumTicks;
+    private boolean overheated;
     // ---- server: vehicles
     private final List<EntityVehicleSVA> served = new ArrayList<EntityVehicleSVA>();
     private EntityVehicleSVA current;
-    private int rr = -1, scan;
+    private int scan;
     private int sinceCharge = 1000;
     private boolean active, full;
     private int status, repairTimer, repairPaid, lastTransformers = -1;
@@ -104,6 +128,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
     // ---- client
     private int[] clientPlates = new int[0];
     private int clientVisual;
+    private boolean clientMaster = true;
 
     public TileEntityChargerSVA() {
         super(Tier.MV);
@@ -157,6 +182,29 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         return false;
     }
 
+    /** «Быстрая зарядка»: the module, or the SV station's own. */
+    public boolean hasFastCharge() {
+        return getTier() == Tier.SV || hasModule(ItemStationModuleSVA.FAST);
+    }
+
+    /** «Форсаж» switched on (the button; vehicles.stationBoost). */
+    public boolean boostOn() {
+        return ConfigSVA.stationBoost && (settings & SET_BOOST) != 0;
+    }
+
+    /** x3 now: switched on and not overheated. */
+    public boolean boostActive() {
+        return boostOn() && !overheated;
+    }
+
+    public int getHeat() {
+        return heat;
+    }
+
+    public boolean isOverheated() {
+        return overheated;
+    }
+
     @Override
     public Tier inputTier() {
         // the Universal Transformer: the top tier, like the Engineering Workbench (WorkbenchMath.inputTier) - the
@@ -174,8 +222,10 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         return rateFor(0);
     }
 
+    /** EU a tick to one vehicle: the plate bonus, the fast-charge module and the boost (when not overheated) included. */
     public int rateFor(double plateBonus) {
-        return PlatformMath.rate(inputTier(), upgradeCount(UpgradeType.OVERCLOCKER), plateBonus, ConfigSVA.chargerRate);
+        return PlatformMath.rate(inputTier(), upgradeCount(UpgradeType.OVERCLOCKER), plateBonus, ConfigSVA.chargerRate, hasFastCharge(),
+                boostActive());
     }
 
     /** The speed bonus a vehicle gets here (0 without plates). */
@@ -224,7 +274,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
     }
 
     public void toggleSetting(int bit) {
-        if (bit == SET_REDSTONE || bit == SET_SOUND || bit == SET_GAS) {
+        if (bit == SET_REDSTONE || bit == SET_SOUND || bit == SET_GAS || bit == SET_BOOST) {
             settings ^= bit;
             markDirty();
         }
@@ -320,6 +370,95 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         return full;
     }
 
+    /** The other stations on this platform (loaded, still there). */
+    public List<TileEntityChargerSVA> peerStations() {
+        List<TileEntityChargerSVA> out = new ArrayList<TileEntityChargerSVA>();
+        for (ChunkCoordinates c : peers) {
+            TileEntity te = worldObj.blockExists(c.posX, c.posY, c.posZ) ? worldObj.getTileEntity(c.posX, c.posY, c.posZ) : null;
+            if (te instanceof TileEntityChargerSVA && te != this && !te.isInvalid()) {
+                out.add((TileEntityChargerSVA) te);
+            }
+        }
+        return out;
+    }
+
+    /** Shows the plates' look for the platform (no other station on it has lower coordinates). */
+    public boolean isMaster() {
+        return master;
+    }
+
+    /** EU a tick this station and the others on its platform give a vehicle together (each for its current one). */
+    public int summedRate() {
+        EntityVehicleSVA v = current;
+        long t = v == null ? rate() : rateFor(bonusFor(v));
+        for (TileEntityChargerSVA p : peerStations()) {
+            EntityVehicleSVA pv = p.getCurrent();
+            t += pv == null ? p.rate() : p.rateFor(p.bonusFor(pv));
+        }
+        return (int) Math.min(Integer.MAX_VALUE, t);
+    }
+
+    /** EU a tick measured into vehicles by this station and the others on its platform. */
+    public int summedMeasured() {
+        long t = measuredEu;
+        for (TileEntityChargerSVA p : peerStations()) {
+            t += p.getMeasuredEu();
+        }
+        return (int) Math.min(Integer.MAX_VALUE, t);
+    }
+
+    /** Linked energy storages (core / IC2) still there. */
+    public int storageCount() {
+        int n = 0;
+        for (ChunkCoordinates c : storages) {
+            if (storageAt(c) != null) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** EU in the linked storages (screen). */
+    public long storageEnergy() {
+        long t = 0;
+        for (ChunkCoordinates c : storages) {
+            TileEntity te = storageAt(c);
+            if (te instanceof TileEntityEnergyBase) {
+                t += ((TileEntityEnergyBase) te).getEnergyStored();
+            } else if (te != null && ic2Loaded()) {
+                t += Ic2StorageLinkSVA.stored(te);
+            }
+        }
+        return t;
+    }
+
+    /** Supercapacitors touching the station. */
+    public List<TileEntitySupercapSVA> supercaps() {
+        List<TileEntitySupercapSVA> out = new ArrayList<TileEntitySupercapSVA>();
+        for (ChunkCoordinates c : caps) {
+            TileEntity te = worldObj.blockExists(c.posX, c.posY, c.posZ) ? worldObj.getTileEntity(c.posX, c.posY, c.posZ) : null;
+            if (te instanceof TileEntitySupercapSVA && !te.isInvalid()) {
+                out.add((TileEntitySupercapSVA) te);
+            }
+        }
+        return out;
+    }
+
+    private TileEntity storageAt(ChunkCoordinates c) {
+        TileEntity te = worldObj.blockExists(c.posX, c.posY, c.posZ) ? worldObj.getTileEntity(c.posX, c.posY, c.posZ) : null;
+        return te == null || te.isInvalid() ? null : te;
+    }
+
+    private static boolean ic2Loaded() {
+        return cpw.mods.fml.common.Loader.isModLoaded(com.sc.Reference.IC2_MODID);
+    }
+
+    /** No grid input on a face a linked storage's output touches (a stronger storage would overvolt the station). */
+    @Override
+    public boolean acceptsFrom(net.minecraftforge.common.util.ForgeDirection side) {
+        return side == null || side.ordinal() >= 6 || (storageFaces & 1 << side.ordinal()) == 0;
+    }
+
     /** A plate nearby was placed / broken, or a neighbour changed: re-scan next tick. */
     public void platformChanged() {
         platformDirty = true;
@@ -332,6 +471,10 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
 
     public int getClientVisual() {
         return clientVisual;
+    }
+
+    public boolean isClientMaster() {
+        return clientMaster;
     }
 
     public AxisAlignedBB topZone() {
@@ -357,6 +500,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         aviaPlates = 0;
         columns.clear();
         chests.clear();
+        peers.clear();
         Set<Long> cells = new LinkedHashSet<Long>(found);
         cells.add(Long.valueOf(PlatformMath.key(xCoord, zCoord)));
         Set<String> seen = new HashSet<String>();
@@ -380,13 +524,65 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
                 if (te == null || te == this) {
                     continue;
                 }
-                if (te instanceof TileEntityGasColumnSVA) {
+                if (te instanceof TileEntityChargerSVA) {
+                    if (o[1] == 0 && found.contains(k)) {
+                        peers.add(new ChunkCoordinates(x, yy, z));      // another station on the same plates
+                    }
+                } else if (te instanceof TileEntityGasColumnSVA) {
                     columns.add(new ChunkCoordinates(x, yy, z));
                 } else if (te instanceof IInventory && !(te instanceof TileEntityEnergyBase)) {
                     chests.add(new ChunkCoordinates(x, yy, z));
                 }
             }
         }
+        List<int[]> others = new ArrayList<int[]>();
+        for (ChunkCoordinates c : peers) {
+            others.add(new int[] {c.posX, c.posY, c.posZ});
+        }
+        master = PlatformMath.isMaster(xCoord, yCoord, zCoord, others);
+        scanLinks();
+    }
+
+    /** Storages whose output faces the station and supercapacitors, on the station's own six faces. */
+    private void scanLinks() {
+        storages.clear();
+        caps.clear();
+        int faces = 0;
+        boolean ic2 = ic2Loaded();
+        for (net.minecraftforge.common.util.ForgeDirection d : net.minecraftforge.common.util.ForgeDirection.VALID_DIRECTIONS) {
+            int x = xCoord + d.offsetX, y = yCoord + d.offsetY, z = zCoord + d.offsetZ;
+            TileEntity te = worldObj.blockExists(x, y, z) ? worldObj.getTileEntity(x, y, z) : null;
+            if (te == null || te.isInvalid()) {
+                continue;
+            }
+            if (te instanceof TileEntitySupercapSVA) {
+                caps.add(new ChunkCoordinates(x, y, z));
+            } else if (ConfigSVA.stationStorageLink && (te instanceof com.sc.tileentity.TileEntityEnergyStorageSC
+                    && ((com.sc.tileentity.TileEntityEnergyStorageSC) te).isOutputFace(d.getOpposite())
+                    || ic2 && Ic2StorageLinkSVA.feeds(te, this, d.getOpposite()))) {
+                storages.add(new ChunkCoordinates(x, y, z));
+                faces |= 1 << d.ordinal();
+            }
+        }
+        if (faces != storageFaces) {
+            storageFaces = faces;
+            refreshEnergyNet();                              // IC2 caches the faces a sink accepts on
+        }
+    }
+
+    /** Takes up to `max` EU from the linked storages (their own accounting, their on/off switch). */
+    private int pullStorages(int max) {
+        int got = 0;
+        boolean ic2 = ic2Loaded();
+        for (int i = 0; i < storages.size() && got < max; i++) {
+            TileEntity te = storageAt(storages.get(i));
+            if (te instanceof com.sc.tileentity.TileEntityEnergyStorageSC) {
+                got += ((com.sc.tileentity.TileEntityEnergyStorageSC) te).extractForItemCharging(max - got);
+            } else if (te != null && ic2) {
+                got += Ic2StorageLinkSVA.take(te, max - got);
+            }
+        }
+        return got;
     }
 
     /** Over a plate (or on the station): centre column on a plate, at most a hover height above it. */
@@ -483,10 +679,17 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
             }
             served.add(v);
         }
+        // by entity id: every station of a shared platform sees the vehicles in the same order (sharedPick)
+        Collections.sort(served, new java.util.Comparator<EntityVehicleSVA>() {
+            @Override
+            public int compare(EntityVehicleSVA a, EntityVehicleSVA b) {
+                return a.getEntityId() < b.getEntityId() ? -1 : a.getEntityId() == b.getEntityId() ? 0 : 1;
+            }
+        });
     }
 
     private void warnNoFit(EntityVehicleSVA v) {
-        if (v.getEntityId() == lastWarned) {
+        if (v.getEntityId() == lastWarned || !master) {          // one message per platform
             return;
         }
         lastWarned = v.getEntityId();
@@ -523,7 +726,59 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
     }
 
     private boolean needs(EntityVehicleSVA v, TileEntityGasColumnSVA col, boolean canRepair) {
-        return v.energyRoom() >= 1 && getEnergyStored() > 0 || needsGas(v, col) || canRepair && needsRepair(v);
+        return v.energyRoom() >= 1 && (getEnergyStored() > 0 || !storages.isEmpty() || !caps.isEmpty()) || needsGas(v, col)
+                || canRepair && needsRepair(v);
+    }
+
+    /**
+     * One tick of charging `v`: the rate from the buffer, what the rate leaves from the linked storages, then every
+     * supercapacitor's burst on top. @return EU moved
+     */
+    private int charge(EntityVehicleSVA v) {
+        int rate = rateFor(bonusFor(v));
+        long moved = VehicleMath.chargeTransfer(getEnergyStored(), rate, v.energyRoom());
+        if (moved > 0) {
+            removeEnergy((int) moved);
+            v.addEnergy(moved);
+        }
+        if (!storages.isEmpty()) {
+            int need = PlatformMath.pullNeed(rate, (int) moved, v.energyRoom());
+            int got = need > 0 ? pullStorages(need) : 0;
+            if (got > 0) {
+                v.addEnergy(got);
+                moved += got;
+            }
+        }
+        if (!caps.isEmpty()) {
+            for (TileEntitySupercapSVA c : supercaps()) {
+                int got = c.dump(v.energyRoom());
+                if (got > 0) {
+                    int took = (int) Math.round(v.addEnergy(got));
+                    if (took < got) {
+                        c.refund(got - took);
+                    }
+                    moved += took;
+                }
+            }
+        }
+        return (int) Math.min(Integer.MAX_VALUE, moved);
+    }
+
+    /** «Форсаж» cooling: helium from the gas module's column, 1 mB per HELIUM_EVERY ticks. @return it flows this tick */
+    private boolean cool() {
+        if (heliumTicks > 0) {
+            heliumTicks--;
+            return true;
+        }
+        if (!hasModule(ItemStationModuleSVA.GAS)) {
+            return false;
+        }
+        TileEntityGasColumnSVA c = column();
+        if (c != null && c.takeGas(Gas.HELIUM, 1) > 0) {
+            heliumTicks = PlatformMath.HELIUM_EVERY - 1;
+            return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ tick
@@ -550,23 +805,24 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
             scanVehicles();
         }
         TileEntityGasColumnSVA col = gasOn() ? column() : null;
-        // round robin: the next vehicle that needs something; else the first one there (for the screen)
+        long worldTime = worldObj.getTotalWorldTime();
+        // the vehicles that need something (served is in entity-id order): every station of a shared platform takes the
+        // same one this tick (PlatformMath.sharedPick), so their rates add up on it; else the first one there (the screen)
         current = null;
         int n = served.size();
-        // a hull with no steel to mend it doesn't hold the round robin
+        // a hull with no steel to mend it doesn't hold the turn
         boolean canRepair = n > 0 && hasModule(ItemStationModuleSVA.REPAIR) && ConfigSVA.wear && (repairPaid > 0 || steelAvailable() > 0);
-        for (int i = 0; i < n; i++) {
-            int idx = PlatformMath.nextIndex(rr + i, n);
-            EntityVehicleSVA v = served.get(idx);
+        List<EntityVehicleSVA> needing = new ArrayList<EntityVehicleSVA>(n);
+        for (EntityVehicleSVA v : served) {
             if (valid(v) && needs(v, col, canRepair)) {
-                current = v;
-                rr = idx;
-                break;
+                needing.add(v);
             }
+        }
+        if (!needing.isEmpty()) {
+            current = needing.get(PlatformMath.sharedPick(worldTime, needing.size()));
         }
         // full = every vehicle there is charged, whatever else it still gets (gas, repair)
         boolean allFull = true, any = false;
-        long worldTime = worldObj.getTotalWorldTime();
         boolean feeding = switchedOn();
         for (EntityVehicleSVA v : served) {
             if (valid(v)) {
@@ -583,17 +839,23 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         allFull &= any;
         int moved = 0, gas = 0;
         status &= S_NO_FIT | S_NO_ACCESS;
+        // vehicles.stationsAddUp off: of several stations on one platform only the master charges
+        boolean standBy = !ConfigSVA.stationsAddUp && !master && !peers.isEmpty();
+        boolean heating = false;
         if (current != null) {
             status |= S_VEHICLE;
             if (!switchedOn()) {
                 status |= S_OFF;
+            } else if (overheated) {
+                status |= S_OVERHEAT;                               // «Форсаж»: paused until it is cold again
             } else {
-                moved = VehicleMath.chargeTransfer(getEnergyStored(), rateFor(bonusFor(current)), current.energyRoom());
+                if (!standBy) {
+                    moved = charge(current);
+                }
                 if (moved > 0) {
-                    removeEnergy(moved);
-                    current.addEnergy(moved);
                     status |= S_CHARGING;
-                } else if (current.energyRoom() >= 1) {
+                    heating = boostOn();
+                } else if (!standBy && current.energyRoom() >= 1) {
                     status |= S_NO_ENERGY;
                 }
                 if (col != null && col.serves(current)) {
@@ -608,6 +870,26 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
             if (moved > 0 || gas > 0) {
                 current.markCharging();
             }
+        }
+        // «Форсаж»: +1 heat a tick of boosted charging unless helium flows, cooling otherwise; overheated until cold
+        boolean helium = heating && cool();
+        heat = PlatformMath.heatNext(heat, heating, helium);
+        boolean wasOver = overheated;
+        overheated = PlatformMath.overheatNext(overheated, heat);
+        if (overheated != wasOver) {
+            markDirty();
+            if (overheated) {
+                worldObj.playSoundEffect(xCoord + 0.5, yCoord + 1, zCoord + 0.5, "random.fizz", 0.6F, 0.8F);
+            }
+        }
+        if (boostOn()) {
+            status |= S_BOOST;
+        }
+        if (helium) {
+            status |= S_HELIUM;
+        }
+        if (overheated) {
+            status |= S_OVERHEAT;
         }
         if (!plates.isEmpty()) {
             status |= S_PLATFORM;
@@ -624,7 +906,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         if (full) {
             status |= S_FULL;
         }
-        if (full && !wasFull && (settings & SET_SOUND) != 0) {
+        if (full && !wasFull && (settings & SET_SOUND) != 0 && master) {      // one chime per platform
             worldObj.playSoundEffect(xCoord + 0.5, yCoord + 1, zCoord + 0.5, com.sva.entity.EntityVehicleSVA.soundName("ding"), 0.8F,
                     com.sva.ConfigSVA.sounds ? 1F : 1.6F);           // ★1: the charge-done chime
         }
@@ -651,7 +933,17 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         sinceCharge = moved > 0 || gas > 0 ? 0 : Math.min(1000, sinceCharge + 1);
         boolean now = sinceCharge < ACTIVE_HOLD;
         int vis = now ? PlateStatesSVA.CHARGING : full ? PlateStatesSVA.FULL : PlateStatesSVA.OFF;
-        int hash = plates.hashCode() * 31 + facing;
+        if (master && !peers.isEmpty()) {
+            // the master shows the whole platform: charging while any of its stations charges
+            for (TileEntityChargerSVA p : peerStations()) {
+                if (p.isActive()) {
+                    vis = PlateStatesSVA.CHARGING;
+                } else if (p.isFull() && vis == PlateStatesSVA.OFF) {
+                    vis = PlateStatesSVA.FULL;
+                }
+            }
+        }
+        int hash = plates.hashCode() * 31 + facing + (master ? 1 << 20 : 0);
         if (now != active || vis != visual || hash != sentHash) {
             active = now;
             visual = vis;
@@ -722,6 +1014,11 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         addEnergy(eu);
     }
 
+    /** World test: set the boost heat (overheat without waiting 2 minutes). */
+    public void setHeatForTest(int h) {
+        heat = Math.max(0, Math.min(PlatformMath.HEAT_MAX, h));
+    }
+
     /** World test: re-scan the platform and the vehicles now. */
     public void rescanForTest() {
         recomputePlatform();
@@ -749,7 +1046,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
     @Override
     public void readKept(NBTTagCompound t) {
         if (t.hasKey(K_KEPT_SETTINGS)) {
-            settings = t.getInteger(K_KEPT_SETTINGS) & SET_DEFAULT;
+            settings = t.getInteger(K_KEPT_SETTINGS) & SET_ALL;
         }
         repairPaid = Math.max(0, Math.min(PlatformMath.STEPS_PER_INGOT, t.getInteger(K_KEPT_PAID)));
         restoreEnergy(KeptDataSVA.energy(t));               // over the bare buffer until the storage upgrades are back in
@@ -764,7 +1061,9 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         setFacing(nbt.hasKey(K_FACING) ? nbt.getInteger(K_FACING) : 3);
         ownerId = nbt.getString(K_OWNER);
         ownerName = nbt.getString(K_OWNER_NAME);
-        settings = nbt.hasKey(K_SETTINGS) ? nbt.getInteger(K_SETTINGS) & SET_DEFAULT : SET_DEFAULT;
+        settings = nbt.hasKey(K_SETTINGS) ? nbt.getInteger(K_SETTINGS) & SET_ALL : SET_DEFAULT;
+        heat = Math.max(0, Math.min(PlatformMath.HEAT_MAX, nbt.getInteger(K_HEAT)));
+        overheated = nbt.getBoolean(K_OVERHEAT);
         repairPaid = Math.max(0, Math.min(PlatformMath.STEPS_PER_INGOT, nbt.getInteger(K_PAID)));
         full = nbt.getBoolean(K_FULL);
         for (int i = 0; i < SIZE; i++) {
@@ -790,6 +1089,8 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         nbt.setInteger(K_SETTINGS, settings);
         nbt.setInteger(K_PAID, repairPaid);
         nbt.setBoolean(K_FULL, full);
+        nbt.setInteger(K_HEAT, heat);
+        nbt.setBoolean(K_OVERHEAT, overheated);
         NBTTagList list = new NBTTagList();
         for (int i = 0; i < SIZE; i++) {
             if (slots[i] != null) {
@@ -815,6 +1116,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
             p[i++] = (dx & 0xFFFF) << 16 | dz & 0xFFFF;
         }
         t.setIntArray(D_PLATES, p);
+        t.setBoolean(D_MASTER, master);
         return new S35PacketUpdateTileEntity(xCoord, yCoord, zCoord, 0, t);
     }
 
@@ -827,17 +1129,25 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         setFacing(t.getInteger(D_FACING));
         int[] old = clientPlates;
         int oldVisual = clientVisual;
+        boolean wasMaster = clientMaster;
         clientPlates = t.getIntArray(D_PLATES);
         clientVisual = t.getInteger(D_VISUAL);
+        clientMaster = !t.hasKey(D_MASTER) || t.getBoolean(D_MASTER);
         if (worldObj == null) {
             return;
         }
         if (was != active || wasFacing != facing) {
             worldObj.markBlockRangeForRenderUpdate(xCoord, yCoord, zCoord, xCoord, yCoord, zCoord);
         }
-        if (oldVisual != clientVisual || !java.util.Arrays.equals(old, clientPlates)) {
-            applyClientPlates(old, PlateStatesSVA.OFF);
-            applyClientPlates(clientPlates, clientVisual);
+        // only the platform's master paints the plates (two stations on one platform never fight over them); one that
+        // stops being the master leaves them to the new one
+        if (oldVisual != clientVisual || !java.util.Arrays.equals(old, clientPlates) || wasMaster != clientMaster) {
+            if (wasMaster && clientMaster) {
+                applyClientPlates(old, PlateStatesSVA.OFF);
+            }
+            if (clientMaster) {
+                applyClientPlates(clientPlates, clientVisual);
+            }
         }
     }
 
@@ -860,7 +1170,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
 
     @Override
     public void invalidate() {
-        if (worldObj != null && worldObj.isRemote) {
+        if (worldObj != null && worldObj.isRemote && clientMaster) {
             applyClientPlates(clientPlates, PlateStatesSVA.OFF);
         }
         super.invalidate();
@@ -868,7 +1178,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
 
     @Override
     public void onChunkUnload() {
-        if (worldObj != null && worldObj.isRemote) {
+        if (worldObj != null && worldObj.isRemote && clientMaster) {
             for (int p : clientPlates) {
                 PlateStatesSVA.put(xCoord + (short) (p >> 16), yCoord, zCoord + (short) p, PlateStatesSVA.OFF);
             }
@@ -924,7 +1234,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
 
     @Override
     public String getInventoryName() {
-        return "tile.siliconagevehicles.charger.name";
+        return BlockChargerSVA.nameKey(getTier());
     }
 
     @Override

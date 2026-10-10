@@ -123,6 +123,7 @@ public final class SelfTestSVA {
             SelfTestWave2SVA.run();                         // wave 2: garage, tuning, key cards / access
             SelfTestWave3SVA.run();                         // wave 3: trailer kinds, the vehicle registry / map
             SelfTestKeysSVA.run();                          // the «Техника» menu: function keys, migration, Controls
+            SelfTestFastChargeSVA.run();                    // fast charging: module, boost, shared platforms, storages, supercap
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);

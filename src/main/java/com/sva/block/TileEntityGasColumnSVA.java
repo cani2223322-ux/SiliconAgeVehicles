@@ -78,6 +78,19 @@ public class TileEntityGasColumnSVA extends TileEntity implements IFluidHandler,
         return n;
     }
 
+    /** Takes up to `mb` of `g` out (a charging station's boost cooling: helium). @return mB taken */
+    public int takeGas(Gas g, int mb) {
+        if (g == null || mb <= 0) {
+            return 0;
+        }
+        FluidStack out = tanks[g.ordinal()].drain(mb, true);
+        int n = out == null ? 0 : out.amount;
+        if (n > 0) {
+            markDirty();
+        }
+        return n;
+    }
+
     /** ТБ-9, the station (server): its gas module fuels this vehicle now. */
     public static void stationFeeds(EntityVehicleSVA v, long worldTime) {
         if (v != null) {

@@ -25,7 +25,9 @@ import net.minecraft.world.World;
 
 /**
  * «Зарядная станция техники». Metadata = the core's Tier ordinal (append-only, like the core's pads);
- * MV only (ТБ-10: a higher grid takes Transformer upgrades, +1 input tier each - no HV..SV blocks). The front
+ * MV (ТБ-10: a higher grid takes Transformer upgrades, +1 input tier each - no HV..XV blocks) and, since fast charging
+ * (2026-10-10), SV: «Сингулярная зарядная станция» - SV input without transformers, «Быстрая зарядка» built in, its own
+ * purple textures (chargeStation*SV). The front
  * (screen, chargeStationFront2 / On) faces the player who placed it (kept in the tile).
  * Right-click: the station screen (platform, vehicle, upgrades, modules, settings). Comparator: the served vehicle's
  * charge; strong redstone 15 while it is full («сигнал при полном»).
@@ -33,9 +35,11 @@ import net.minecraft.world.World;
 public class BlockChargerSVA extends BlockContainer {
 
     /** Tiers shown in creative / with recipes. */
-    public static final Tier[] TIERS = {Tier.MV};
+    public static final Tier[] TIERS = {Tier.MV, Tier.SV};
 
-    private IIcon top, topOn, side, sideOn, bottom, front, frontOn;
+    /** [0] MV look, [1] SV look. */
+    private final IIcon[] top = new IIcon[2], topOn = new IIcon[2], side = new IIcon[2], sideOn = new IIcon[2], bottom = new IIcon[2],
+            front = new IIcon[2], frontOn = new IIcon[2];
 
     public BlockChargerSVA() {
         super(Material.iron);
@@ -48,6 +52,15 @@ public class BlockChargerSVA extends BlockContainer {
 
     public static Tier tierFor(int meta) {
         return Tier.byOrdinal(meta);
+    }
+
+    /** The name key: the SV station has its own («Сингулярная зарядная станция»). */
+    public static String nameKey(Tier t) {
+        return t == Tier.SV ? "tile.siliconagevehicles.charger.sv.name" : "tile.siliconagevehicles.charger.name";
+    }
+
+    private static int look(int meta) {
+        return tierFor(meta) == Tier.SV ? 1 : 0;
     }
 
     @Override
@@ -109,6 +122,7 @@ public class BlockChargerSVA extends BlockContainer {
             }
         }
         super.breakBlock(w, x, y, z, b, meta);
+        BlockChargePlateSVA.nudgeStations(w, x, y, z);          // another station on the same plates re-scans at once
     }
 
     // ------------------------------------------------------------------ ТБ-1: the item keeps the buffer (KeptDataSVA)
@@ -182,19 +196,24 @@ public class BlockChargerSVA extends BlockContainer {
     @SideOnly(Side.CLIENT)
     public void registerBlockIcons(IIconRegister r) {
         String a = ReferenceSVA.ASSETS + ":";
-        top = r.registerIcon(a + "chargeStationTop");
-        topOn = r.registerIcon(a + "chargeStationTopOn");
-        side = r.registerIcon(a + "chargeStationSide");
-        sideOn = r.registerIcon(a + "chargeStationSideOn");
-        bottom = r.registerIcon("siliconage:machineCasingMV");
-        front = r.registerIcon(a + "chargeStationFront2");
-        frontOn = r.registerIcon(a + "chargeStationFront2On");
+        String[] suffix = {"", "SV"};
+        for (int i = 0; i < 2; i++) {
+            top[i] = r.registerIcon(a + "chargeStationTop" + suffix[i]);
+            topOn[i] = r.registerIcon(a + "chargeStationTopOn" + suffix[i]);
+            side[i] = r.registerIcon(a + "chargeStationSide" + suffix[i]);
+            sideOn[i] = r.registerIcon(a + "chargeStationSideOn" + suffix[i]);
+            front[i] = r.registerIcon(a + "chargeStationFront2" + suffix[i]);
+            frontOn[i] = r.registerIcon(a + "chargeStationFront2On" + suffix[i]);
+        }
+        bottom[0] = r.registerIcon("siliconage:machineCasingMV");
+        bottom[1] = r.registerIcon("siliconage:machineCasingSV");
     }
 
     @Override
     @SideOnly(Side.CLIENT)
     public IIcon getIcon(int s, int meta) {
-        return s == 1 ? top : s == 0 ? bottom : s == 3 ? frontOn : side;      // the item: the screen towards the viewer
+        int l = look(meta);
+        return s == 1 ? top[l] : s == 0 ? bottom[l] : s == 3 ? frontOn[l] : side[l];      // the item: the screen towards the viewer
     }
 
     @Override
@@ -203,9 +222,10 @@ public class BlockChargerSVA extends BlockContainer {
         TileEntity te = w.getTileEntity(x, y, z);
         boolean on = te instanceof TileEntityChargerSVA && ((TileEntityChargerSVA) te).isActive();
         int f = te instanceof TileEntityChargerSVA ? ((TileEntityChargerSVA) te).getFacing() : 3;
+        int l = look(w.getBlockMetadata(x, y, z));
         if (s == f) {
-            return on ? frontOn : front;
+            return on ? frontOn[l] : front[l];
         }
-        return s == 1 ? (on ? topOn : top) : s == 0 ? bottom : (on ? sideOn : side);
+        return s == 1 ? (on ? topOn[l] : top[l]) : s == 0 ? bottom[l] : (on ? sideOn[l] : side[l]);
     }
 }

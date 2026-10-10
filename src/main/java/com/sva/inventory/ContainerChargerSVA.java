@@ -20,7 +20,9 @@ import net.minecraft.item.ItemStack;
 /**
  * Charging station screen: 4 upgrades + 3 modules + the player's 36. Syncs (as progress bars, ints split in 16-bit
  * halves) the buffer, the measured rates, the served vehicle, the platform, status / settings and the devices beside
- * it; the served vehicle's owner name goes in a NetSVA.StationInfo message when it changes.
+ * it; the served vehicle's owner name goes in a NetSVA.StationInfo message when it changes. Fast charging (2026-10-10): the
+ * boost heat, the stations on the same platform (count, rate and measured intake together), the linked energy storages
+ * and supercapacitors (count, EU) and the flags (fast charge, boost on / allowed, plates' master, SV station).
  */
 public class ContainerChargerSVA extends Container {
 
@@ -30,9 +32,14 @@ public class ContainerChargerSVA extends Container {
     // synced value ids
     public static final int V_E = 0, V_MAX = 2, V_EU_T = 4, V_GAS = 6, V_VEH = 7, V_PLATES = 9, V_SX = 10, V_SZ = 11, V_STATUS = 12,
             V_SET = 13, V_STEEL = 14, V_CHESTS = 15, V_COLUMN = 16, V_COL_GAS = 17, V_EDGE = V_COL_GAS + 8, V_AVIA = V_EDGE + 1,
-            V_RATE = V_AVIA + 1, V_TIER = V_RATE + 2, V_COUNT = V_TIER + 1;
+            V_RATE = V_AVIA + 1, V_TIER = V_RATE + 2, V_HEAT = V_TIER + 1, V_PEERS = V_HEAT + 1, V_SUM = V_PEERS + 1, V_SUM_EU = V_SUM + 2,
+            V_STORES = V_SUM_EU + 2, V_STORE_E = V_STORES + 1, V_CAPS = V_STORE_E + 2, V_CAP_E = V_CAPS + 1, V_FLAGS = V_CAP_E + 2,
+            V_COUNT = V_FLAGS + 1;
     /** Extra bits in V_SET: modules present. */
     public static final int M_ACCESS = 8, M_GAS = 16, M_REPAIR = 32;
+    /** V_FLAGS bits. */
+    public static final int F_FAST = 1, F_BOOST = 2, F_BOOST_CFG = 4, F_MASTER = 8, F_SV = 16;
+    private static final int[] WIDE = {V_E, V_MAX, V_EU_T, V_VEH, V_RATE, V_SUM, V_SUM_EU, V_STORE_E, V_CAP_E};
 
     private final TileEntityChargerSVA tile;
     private final int[] last = new int[V_COUNT];
@@ -90,7 +97,7 @@ public class ContainerChargerSVA extends Container {
         v[V_SX] = s[0];
         v[V_SZ] = s[1];
         v[V_STATUS] = tile.getStatus();
-        v[V_SET] = tile.getSettings() | (tile.hasModule(ItemStationModuleSVA.ACCESS) ? M_ACCESS : 0)
+        v[V_SET] = tile.getSettings() & TileEntityChargerSVA.SET_DEFAULT | (tile.hasModule(ItemStationModuleSVA.ACCESS) ? M_ACCESS : 0)
                 | (tile.hasModule(ItemStationModuleSVA.GAS) ? M_GAS : 0) | (tile.hasModule(ItemStationModuleSVA.REPAIR) ? M_REPAIR : 0);
         v[V_STEEL] = Math.min(32767, tile.steelAvailable());
         v[V_CHESTS] = tile.chestCount();
@@ -105,6 +112,23 @@ public class ContainerChargerSVA extends Container {
         v[V_AVIA] = tile.getAviaPlates();
         split(v, V_RATE, cur == null ? tile.rate() : tile.rateFor(tile.bonusFor(cur)));
         v[V_TIER] = tile.inputTier().ordinal();
+        v[V_HEAT] = tile.getHeat();
+        v[V_PEERS] = tile.peerStations().size();
+        split(v, V_SUM, v[V_PEERS] > 0 ? tile.summedRate() : 0);
+        split(v, V_SUM_EU, v[V_PEERS] > 0 ? tile.summedMeasured() : 0);
+        v[V_STORES] = tile.storageCount();
+        split(v, V_STORE_E, (int) Math.min(Integer.MAX_VALUE, tile.storageEnergy()));
+        long capE = 0;
+        int caps = 0;
+        for (com.sva.block.TileEntitySupercapSVA c : tile.supercaps()) {
+            capE += c.getEnergyStored();
+            caps++;
+        }
+        v[V_CAPS] = caps;
+        split(v, V_CAP_E, (int) Math.min(Integer.MAX_VALUE, capE));
+        v[V_FLAGS] = (tile.hasFastCharge() ? F_FAST : 0) | ((tile.getSettings() & TileEntityChargerSVA.SET_BOOST) != 0 ? F_BOOST : 0)
+                | (com.sva.ConfigSVA.stationBoost ? F_BOOST_CFG : 0) | (tile.isMaster() ? F_MASTER : 0)
+                | (tile.getTier() == com.sc.energy.Tier.SV ? F_SV : 0);
         return v;
     }
 
@@ -160,8 +184,10 @@ public class ContainerChargerSVA extends Container {
 
     /** Client: a synced value (two-slot ones joined). */
     public int get(int id) {
-        if (id == V_E || id == V_MAX || id == V_EU_T || id == V_VEH || id == V_RATE) {
-            return client[id] | client[id + 1] << 16;
+        for (int w : WIDE) {
+            if (id == w) {
+                return client[id] | client[id + 1] << 16;
+            }
         }
         return (short) client[id];
     }

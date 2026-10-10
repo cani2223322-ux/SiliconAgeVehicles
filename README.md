@@ -55,7 +55,8 @@
 
 ### Блоки и предметы
 - **Инженерный верстак** (MV): сетка 5×5, делает все компоненты (3×3, мгновенно) и все машины (5×5, EU и время); слоты улучшений ядра — Трансформаторный модуль нужен машинам QV–SV (вход HV–IV).
-- **Зарядная станция техники** + **плиты зарядной платформы** (обычная, «H», с огнём): площадка любой формы, 3×3 / 3×5 / 5×5 / 7×7 по размеру машины, бонус за лишние плиты; модули газа, ремонта и доступа.
+- **Зарядная станция техники** + **плиты зарядной платформы** (обычная, «H», с огнём): площадка любой формы до 121 плиты, 3×3 / 3×5 / 5×5 / 7×7 по размеру машины, бонус за лишние плиты (до +200%); модули газа, ремонта, доступа и быстрой зарядки (×2).
+  - **Быстрая зарядка:** режим «Форсаж» (×3, станция греется — через 2 мин пауза 30 с; гелий из колонки через модуль газа, 1 мБ/с, охлаждает); несколько станций на одной площадке складывают скорость; накопитель энергии Silicon Age или IC2 выходом к станции заряжает машину напрямую, без кабеля; **Суперконденсатор станции** (50 млн EU, от сети до 2 048 EU/т) отдаёт машине до 500 000 EU/т; **Сингулярная зарядная станция** (SV, быстрая зарядка встроена). Корабль 256 млн EU: SV-станция с накопителем рядом, площадка от 69 плит — ~16 с, с форсажем — ~5 с.
 - **Газовая колонка** (HV): баки всех газов ядра, заправляет машины владельца рядом.
 - **Взлётно-посадочная полоса**: разбег самолётов ×0,5, мягкое торможение, огни по краю.
 - **Прицеп** вездехода; 24 компонента (колесо, гусеница, моторы, турбо-, антигравитационный и сингулярный двигатели, винт, крыло, бортовой компьютер, газовый бак, кабина, корпуса I–V, энергоблоки MV–SV, расширитель бура).
@@ -99,7 +100,7 @@
 3. `gradle build` — jar появится в `build/libs/`.
 
 ### Настройки
-Всё новое выключается в `config/SiliconAgeVehicles.cfg` (раздел `vehicles`): `textures`, `liveries`, `headlights`, `dynamicLight`, `navLights`, `animations`, `liveInstruments`, `icons3d`, `interiorTrim`, `nightLighting`, `cockpitStartup`, `cockpitSounds`, `sounds`, `vehicleCamera`, `cruise`, `autopilot`, `tuning`, `locks`, `trailerKinds`, `vehicleMap` и другие.
+Всё новое выключается в `config/SiliconAgeVehicles.cfg` (раздел `vehicles`): `textures`, `liveries`, `headlights`, `dynamicLight`, `navLights`, `animations`, `liveInstruments`, `icons3d`, `interiorTrim`, `nightLighting`, `cockpitStartup`, `cockpitSounds`, `sounds`, `vehicleCamera`, `cruise`, `autopilot`, `tuning`, `locks`, `trailerKinds`, `vehicleMap`, `stationBoost`, `stationStorageLink`, `stationsAddUp` и другие.
 
 ### Лицензия
 © 2026 Aleksandr. Все права защищены. Код открыт для просмотра; копирование, изменение — только с разрешения автора. Разрешено использовать мод в сборках и распространять.
@@ -153,7 +154,8 @@
 
 ### Blocks and items
 - **Engineering Workbench** (MV): a 5x5 grid, makes every component (3x3, instant) and every vehicle (5x5, EU and time); core upgrade slots - QV-SV vehicles need Transformer upgrades (HV-IV input).
-- **Vehicle Charging Station** + **charging platform plates** (plain, "H", edge light): a platform of any shape, 3x3 / 3x5 / 5x5 / 7x7 by the vehicle's size, a bonus for extra plates; gas, repair and access modules.
+- **Vehicle Charging Station** + **charging platform plates** (plain, "H", edge light): a platform of any shape up to 121 plates, 3x3 / 3x5 / 5x5 / 7x7 by the vehicle's size, a bonus for extra plates (up to +200%); gas, repair, access and fast charge (x2) modules.
+  - **Fast charging:** the "Boost" mode (x3, the station heats up - a 30 s pause after 2 min; helium from the column through the gas module, 1 mB/s, cools it); several stations on one platform add up; a Silicon Age or IC2 energy storage with its output towards the station charges the vehicle directly, no cable; the **Station Supercapacitor** (50M EU, up to 2,048 EU/t from the grid) gives the vehicle up to 500,000 EU/t; the **Singular Charging Station** (SV, fast charge built in). The 256M EU ship: an SV station with a storage beside it on a 69+ plate platform - ~16 s, with the boost - ~5 s.
 - **Gas Column** (HV): tanks of every core gas, refuels its owner's vehicles nearby.
 - **Runway**: plane take-off run x0.5, soft braking, edge lights.
 - The crawler's **Trailer**; 24 components (wheel, track, motors, turbo, antigravity and singular engines, rotor, wing, on-board computer, gas tank, cabin, hulls I-V, energy blocks MV-SV, drill widener).
@@ -197,7 +199,7 @@
 3. `gradle build` - the jar appears in `build/libs/`.
 
 ### Configuration
-Everything new can be switched off in `config/SiliconAgeVehicles.cfg` (category `vehicles`): `textures`, `liveries`, `headlights`, `dynamicLight`, `navLights`, `animations`, `liveInstruments`, `icons3d`, `interiorTrim`, `nightLighting`, `cockpitStartup`, `cockpitSounds`, `sounds`, `vehicleCamera`, `cruise`, `autopilot`, `tuning`, `locks`, `trailerKinds`, `vehicleMap` and more.
+Everything new can be switched off in `config/SiliconAgeVehicles.cfg` (category `vehicles`): `textures`, `liveries`, `headlights`, `dynamicLight`, `navLights`, `animations`, `liveInstruments`, `icons3d`, `interiorTrim`, `nightLighting`, `cockpitStartup`, `cockpitSounds`, `sounds`, `vehicleCamera`, `cruise`, `autopilot`, `tuning`, `locks`, `trailerKinds`, `vehicleMap`, `stationBoost`, `stationStorageLink`, `stationsAddUp` and more.
 
 ### License
 © 2026 Aleksandr. All rights reserved. The code is open to read; copying and changing it only with the author's permission. You may use the mod in modpacks and redistribute it.

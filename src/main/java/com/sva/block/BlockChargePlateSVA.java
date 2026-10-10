@@ -20,13 +20,13 @@ import net.minecraft.world.World;
 /**
  * «Плита зарядной платформы» (plan §9). Metadata (APPEND-ONLY): 0 plain (marking off / blue charging / green full),
  * 1 «H» aviation plate, 2 edge plate with a lamp (light 7 - glows at night). Plates touching a Charging Station
- * on its level (4-way, up to 64) make its platform; the station tells the client their look (PlateStatesSVA).
+ * on its level (4-way, up to 121) make its platform; the station tells the client their look (PlateStatesSVA).
  * A plate placed or broken nudges the stations within NOTIFY blocks to re-scan at once (they also re-scan every 5 s).
  */
 public class BlockChargePlateSVA extends Block {
 
     public static final int PLAIN = 0, AVIA = 1, EDGE = 2, VARIANTS = 3;
-    public static final int NOTIFY = 8;
+    public static final int NOTIFY = 12;                 // an 11x11 platform: its far corner is 11 + 1 blocks away
 
     private IIcon off, on, full, avia, edge, side;
 

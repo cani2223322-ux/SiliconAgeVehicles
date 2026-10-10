@@ -26,11 +26,25 @@ public class ItemBlockChargerSVA extends ItemBlock {
     }
 
     @Override
+    public String getUnlocalizedName(ItemStack s) {
+        String k = BlockChargerSVA.nameKey(BlockChargerSVA.tierFor(s.getItemDamage()));
+        return k.substring(0, k.length() - ".name".length());
+    }
+
+    @Override
     @SideOnly(Side.CLIENT)
     public void addInformation(ItemStack s, EntityPlayer p, List list, boolean adv) {
         com.sc.energy.Tier t = BlockChargerSVA.tierFor(s.getItemDamage());
-        list.add(Lang.tr("sva.tooltip.charger.summary", t.name(), Integer.valueOf(Math.round(t.getVoltage() * com.sva.net.ServerConfigSVA.chargerRate()))));
+        boolean sv = t == com.sc.energy.Tier.SV;
+        // the SV station has «Быстрая зарядка» built in: x2
+        long rate = Math.round(t.getVoltage() * (double) com.sva.net.ServerConfigSVA.chargerRate() * (sv ? com.sva.platform.PlatformMath.FAST_MULT : 1));
+        list.add(Lang.tr("sva.tooltip.charger.summary", t.name(), com.sva.FormatSVA.group(rate)));
+        if (sv) {
+            list.add(Lang.tr("sva.tooltip.charger.sv"));
+        }
         KeptDataSVA.tooltip(s, list);
-        TooltipSC.more(list, Lang.tr("sva.tooltip.charger.details", t.name(), Integer.valueOf(t.getVoltage())), Lang.tr("sva.tooltip.howto.charger"));
+        TooltipSC.more(list, Lang.tr("sva.tooltip.charger.details", t.name(), com.sva.FormatSVA.group(t.getVoltage())) + " "
+                + Lang.tr("sva.tooltip.charger.fast", com.sva.FormatSVA.group(com.sva.platform.PlatformMath.MAX_PLATES)),
+                Lang.tr("sva.tooltip.howto.charger"));
     }
 }

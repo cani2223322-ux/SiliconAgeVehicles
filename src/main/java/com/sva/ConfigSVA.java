@@ -95,6 +95,12 @@ public final class ConfigSVA {
     public static boolean drill = true;
     /** The Singular Ship's invisibility for mobs (SpaceLogicSVA.cloaked, EventsSVA). */
     public static boolean mobCloak = true;
+    /** Fast charging (2026-10-10): the station's «Форсаж» mode. */
+    public static boolean stationBoost = true;
+    /** A core (or IC2) energy storage touching the station feeds the vehicle directly. */
+    public static boolean stationStorageLink = true;
+    /** Several stations on one platform charge the same vehicle together (false: only one of them). */
+    public static boolean stationsAddUp = true;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -227,6 +233,15 @@ public final class ConfigSVA {
             mobCloak = c.getBoolean("mobCloak", v, true,
                     "The Singular Ship's invisibility: hostile mobs don't target its riders / "
                             + "Невидимость Сингулярного корабля: враждебные мобы не нападают на экипаж");
+            stationBoost = c.getBoolean("stationBoost", v, true,
+                    "Charging station 'Boost' mode: x3 charging, the station heats up (helium from the gas module cools it) / "
+                            + "Режим 'Форсаж' зарядной станции: зарядка x3, станция греется (гелий через модуль газа охлаждает)");
+            stationStorageLink = c.getBoolean("stationStorageLink", v, true,
+                    "A Silicon Age (or IC2) energy storage whose output faces the charging station feeds the vehicle directly, no cable / "
+                            + "Накопитель энергии Silicon Age (или IC2), выход которого смотрит на станцию, заряжает машину напрямую, без кабеля");
+            stationsAddUp = c.getBoolean("stationsAddUp", v, true,
+                    "Several charging stations on one platform charge the same vehicle together, their rates add up / "
+                            + "Несколько зарядных станций на одной площадке заряжают одну машину вместе, скорости складываются");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));
