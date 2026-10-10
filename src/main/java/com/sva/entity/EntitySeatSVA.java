@@ -16,6 +16,8 @@ public class EntitySeatSVA extends Entity {
     private EntityVehicleSVA parent;
     private int orphanTicks;
     private Entity lastRider;
+    /** Client: the world tick the rider last took its place in its own update (followBody). */
+    private long riderPlacedTick = -1;
 
     public EntitySeatSVA(World world) {
         super(world);
@@ -87,7 +89,25 @@ public class EntitySeatSVA extends Entity {
     @Override
     public void updateRiderPosition() {
         if (riddenByEntity != null) {
+            EntityVehicleSVA p = worldObj.isRemote ? getParent() : null;
+            if (p != null) {
+                // client, from the rider's own update: the body's place now, whichever of the two ticked first this tick
+                double[] q = p.seatPos(getIndex());
+                setPosition(q[0], q[1], q[2]);
+                riderPlacedTick = worldObj.getTotalWorldTime();
+            }
             riddenByEntity.setPosition(posX, posY + getMountedYOffset() + riddenByEntity.getYOffset(), posZ);
+        }
+    }
+
+    /**
+     * Client: the body moved after the rider's own update this tick - the rider follows (its last-tick place is already
+     * taken, so the move still draws smooth). Before the rider's update the body leaves it alone: moving it then would make
+     * the last-tick place the new one, and a passenger's view would jump 20 times a second against the smooth cabin.
+     */
+    void followBody() {
+        if (riddenByEntity != null && riderPlacedTick == worldObj.getTotalWorldTime()) {
+            updateRiderPosition();
         }
     }
 

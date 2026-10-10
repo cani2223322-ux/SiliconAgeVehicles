@@ -2058,7 +2058,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             double[] p = seatPos(s.getIndex());
             s.setPosition(p[0], p[1], p[2]);
             s.rotationYaw = rotationYaw;
-            if (s.riddenByEntity != null) {
+            if (worldObj.isRemote) {
+                s.followBody();                     // a passenger's view stays smooth (EntitySeatSVA.followBody)
+            } else if (s.riddenByEntity != null) {
                 s.updateRiderPosition();
             }
         }

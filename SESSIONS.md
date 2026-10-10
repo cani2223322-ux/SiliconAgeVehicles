@@ -152,3 +152,7 @@
 ## 2026-10-10 — Недоработки аддона: реализация выбранных вариантов (46 пунктов)
 - Сделано: бэкап `MineMod/backups-vehicles/2026-10-10_1549_before-shortcomings`. Все 46 пунктов по выбору пользователя (5 групп агентов + 2 прохода правок в чужих файлах + сборка/тесты). Новые опции конфига: playerDamage, opManage, debugKeys, dynamicLightVehicles/Range/Period, singularJump, bridgeDock, drill, mobCloak; команда /sva vehicles; WAILA (libs/ — WAILA jar, compileOnly). Новые файлы: block/KeptDataSVA, item/VehicleElectricManagerSVA, net/ServerConfigSVA, client/GuiFitSVA, CommandSVA, WailaSVA, client/VehiclePickSVA и др. Тест WorldTestWave2 переписан под ТН-1 (карта без номера выдачи не работает). Самопроверка 802/802, мир 269/269. Список — docs/nedorabotki-2026-10-10-sdelano.md; CHANGELOG «Не выпущено». Ядро не менялось.
 - Осталось / next steps: проверить в игре (ТН-6 — самолёты при низком TPS, HUD, окна на 4:3, WAILA); jar в mods — по команде.
+
+## 2026-10-10 — Тряска экрана у пассажира
+- Сделано: бэкап `MineMod/backups-vehicles/2026-10-10_1906_before-passenger-shake`. Причина: на клиенте placeSeats двигал пассажира до его собственного обновления — lastTickPos совпадал с новой позицией, камера шла рывками 20 раз/с против плавной кабины. Теперь EntitySeatSVA.updateRiderPosition на клиенте берёт место у машины (seatPos), а машина двигает пассажира (followBody) только если он уже обновился в этом такте; сервер без изменений. Самопроверка 802/802, мир 269/269.
+- Осталось / next steps: проверить в игре вдвоём (пассажир в вертолёте/машине).

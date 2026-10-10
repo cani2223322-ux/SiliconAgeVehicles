@@ -6,6 +6,7 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
+- **Пассажиры:** у пассажира во время езды и полёта больше не трясётся экран относительно кабины и приборов (позиция пассажира обновлялась на клиенте не в том порядке, и камера двигалась рывками 20 раз в секунду).
 - **Доработки по итогам проверки: 46 пунктов** (полный список — `docs/nedorabotki-2026-10-10-sdelano.md`).
   - *Сервер и защита:* настройка `vehicles.playerDamage` (all / pvp / owner / none, по умолчанию pvp) — чужие игроки не разбивают машину без разрешения сервера; `vehicles.opManage` для операторов; выключатели `singularJump`, `bridgeDock`, `drill`, `mobCloak`; команда `/sva vehicles` (list / tp / forget / forget-all) чистит реестр от пропавших машин.
   - *Доступ:* список хранит UUID игроков; «Удалить» или новая карта отключают старую карту этого игрока; машину можно передать другому игроку («Передать владельца»); кнопка «Доступ» в багажнике; «Сменить замок» — только с Shift; машина, убранная в инвентарь, сохраняет номер и ключ-карты.
@@ -31,6 +32,7 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Исправлено: в HUD «Сингулярного корабля» вместо текста показывался ключ «sva.hud.jump.why.1» - добавлены все недостающие причины, почему прыжок недоступен.
 
 ### English
+- **Passengers:** a passenger's view no longer shakes against the cabin and instruments while driving or flying (the passenger was placed on the client in the wrong order, so the camera moved in 20-a-second steps).
 - **Improvements from the audit: 46 items** (full list in `docs/nedorabotki-2026-10-10-sdelano.md`).
   - *Server and protection:* `vehicles.playerDamage` (all / pvp / owner / none, default pvp) - strangers can't wreck a vehicle unless the server allows it; `vehicles.opManage` for operators; switches `singularJump`, `bridgeDock`, `drill`, `mobCloak`; the `/sva vehicles` command (list / tp / forget / forget-all) clears lost vehicles from the registry.
   - *Access:* the list keeps players' UUIDs; Remove or a new card disables that player's old card; a vehicle can be handed to another player ("Transfer owner"); an Access button on the cargo screen; Change lock needs Shift; a vehicle put into the inventory keeps its number and key cards.
