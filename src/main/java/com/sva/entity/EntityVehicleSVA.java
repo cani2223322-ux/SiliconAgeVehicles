@@ -81,7 +81,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // wave 2 (★8): the tuning slots, TuningMath.pack + TUNE_ON (the server's vehicles.tuning)
             DW_TUNE = 10,
             // wave 3 (★15): the hitched trailer's kind and contents (trailerString - parsed on clients)
-            DW_TRAILER = 9;
+            DW_TRAILER = 9,
+            // wave 4 (★15 рекуперация): EU/t recovered this tick + the server's efficiency (RegenMath.pack)
+            DW_REGEN = 8;
     private static final int TUNE_ON = 1 << 20;
     /** DW_TUNE bits: the server's vehicles.cruise / vehicles.autopilot (★4 - the driver's client follows the server). */
     private static final int TUNE_CRUISE = 1 << 21, TUNE_AP = 1 << 22;
@@ -175,6 +177,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     private boolean wasAirborne, autoNow, stallNow;
     private double lastDy;
     private float costNow;
+    /** Wave 4 (★15 рекуперация, RegenMath): the server's recovery pool (EU spent, not saved - a reload just empties it), EU/t recovered this tick. */
+    private double regenPool;
+    private float regenNow;
     // client, aircraft: rotor / propeller angle and spin rate (deg/tick), the body's visual pitch / bank
     public float rotorAngle, prevRotorAngle, renderPitch, prevRenderPitch, renderRoll, prevRenderRoll;
     private float rotorRate;
@@ -285,6 +290,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.addObject(DW_BOARD, Integer.valueOf(0));
         dataWatcher.addObject(DW_TUNE, Integer.valueOf(0));
         dataWatcher.addObject(DW_TRAILER, "");
+        dataWatcher.addObject(DW_REGEN, Integer.valueOf(0));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -970,6 +976,17 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         return worldObj.isRemote ? dataWatcher.getWatchableObjectFloat(DW_COST) : costNow;
     }
 
+    /** Wave 4 (★15): EU/t recovered this tick (braking, downhill, windmilling; clients: synced, tenths). */
+    public double getRegenNow() {
+        return worldObj.isRemote ? com.sva.vehicle.RegenMath.rate(dataWatcher.getWatchableObjectInt(DW_REGEN)) : regenNow;
+    }
+
+    /** Wave 4 (★15): the server's recovery efficiency in % (0: vehicles.regen off). */
+    public int getRegenPct() {
+        return worldObj.isRemote ? com.sva.vehicle.RegenMath.pct(dataWatcher.getWatchableObjectInt(DW_REGEN))
+                : ConfigSVA.regen ? (int) Math.round(com.sva.vehicle.RegenMath.eff(ConfigSVA.regenEfficiency) * 100) : 0;
+    }
+
     /** Is the block under the centre a Runway block (plane: x0.5 take-off run, soft brakes)? */
     public boolean onRunway() {
         int x = MathHelper.floor_double(posX), y = MathHelper.floor_double(posY - 0.2), z = MathHelper.floor_double(posZ);
@@ -1016,6 +1033,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.updateObject(DW_TUNE, Integer.valueOf(TuningMath.pack(state.tuning) | (ConfigSVA.tuning ? TUNE_ON : 0)
                 | (ConfigSVA.cruise ? TUNE_CRUISE : 0) | (ConfigSVA.autopilot ? TUNE_AP : 0) | (ConfigSVA.locks ? TUNE_LOCKS : 0)));
         dataWatcher.updateObject(DW_TRAILER, trailerString());
+        dataWatcher.updateObject(DW_REGEN, Integer.valueOf(com.sva.vehicle.RegenMath.pack(regenNow, ConfigSVA.regenEfficiency, ConfigSVA.regen)));
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
             dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
@@ -1170,6 +1188,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             double r = Math.toRadians(rotationYaw);
             speed = dx * -Math.sin(r) + dz * Math.cos(r);           // the fallback continues from here
         }
+        double emaBefore = speedEma;                                // ★15 рекуперация: the speed lost this tick
         speedEma = speedEma * 0.5 + moved * 0.5;
         if (hitCooldown > 0) {
             hitCooldown--;
@@ -1250,6 +1269,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         costNow = (float) cost;
         state.energy = Math.max(0, state.energy - cost);
+        regenTick(t, motorOn, in, emaBefore, moved, fill, cost);    // wave 4 (★15): braking / downhill / windmilling
         boolean wasStopped = state.heatStop;
         state.heat = VehicleMath.heatStep(state.heat, load, coolingBonus());
         state.heatStop = VehicleMath.heatStopped(state.heatStop, state.heat);
@@ -1318,6 +1338,48 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return PlaneMath.cost(t, thr, air, dy, posY, fill, working);
         }
         return tilt ? HeliMath.vtolCost(t, air, v, dy, fill, working) : HeliMath.cost(t, air, v, dy, fill, working);
+    }
+
+    /**
+     * Wave 4 (★15 рекуперация, RegenMath), server, after the tick's EU was charged: the spent EU goes into the pool,
+     * then a ground vehicle with a driver gets back a share of the speed it lost braking (measured, speedEma) and of the
+     * height it lost rolling downhill; an aircraft in the air of the height it lost windmilling (glide / autorotation,
+     * plane at idle throttle, helicopter's collective down) - only with charge left: an empty aircraft's generator has
+     * no field (and the motor would restart and stop every tick). Never past the buffer, never more than share x spent.
+     */
+    private void regenTick(VehicleType t, boolean motorOn, int in, double vBefore, double moved, double fill, double spent) {
+        regenNow = 0;
+        double eff = com.sva.vehicle.RegenMath.eff(ConfigSVA.regenEfficiency);
+        double mul = Math.max(0, ConfigSVA.consumption);
+        if (!ConfigSVA.regen || eff <= 0 || mul <= 0 || isWrecked()) {
+            regenPool = 0;
+            return;
+        }
+        boolean plane = t.movement.flies && planeNow();
+        double cruise = t.movement.flies ? FlightMath.cruiseCost(t, fill, posY, plane) * mul : VehicleMath.cost(t, t.topSpeed, fill, true, mul);
+        double kTop = t.movement.flies ? 0 : com.sva.vehicle.RegenMath.kinetic(t, t.topSpeed, fill, mul);
+        regenPool = com.sva.vehicle.RegenMath.bank(regenPool, spent, com.sva.vehicle.RegenMath.poolCap(cruise, kTop, t.movement.flies));
+        double dy = posY - lastY, src;
+        if (t.movement.flies) {
+            boolean windmill = autoNow || (plane ? throttle <= com.sva.vehicle.RegenMath.IDLE_THROTTLE : (in & (IN_DOWN | IN_BOOST)) != 0);
+            src = state.energy > 0 ? com.sva.vehicle.RegenMath.airSource(dy, wasAirborne, windmill, cruise) : 0;
+        } else {
+            boolean braking = motorOn && com.sva.vehicle.RegenMath.braking(t.movement, (in & IN_FWD) != 0, (in & IN_BACK) != 0,
+                    (in & IN_BRAKE) != 0, speed);
+            src = motorOn ? com.sva.vehicle.RegenMath.groundSource(t, vBefore, speedEma, braking, dy, moved, fill, mul, cruise) : 0;
+        }
+        double share = com.sva.vehicle.RegenMath.share(t, plane, eff);
+        double r = com.sva.vehicle.RegenMath.recover(share, src, regenPool, cruise, state.maxEnergy() - state.energy);
+        if (r > 0) {
+            regenPool = com.sva.vehicle.RegenMath.drain(regenPool, r, share);
+            state.energy += r;
+            regenNow = (float) r;
+        }
+    }
+
+    /** World test: the recovery pool (EU spent the vehicle may still get a share of back). */
+    public double regenPool() {
+        return regenPool;
     }
 
     /**

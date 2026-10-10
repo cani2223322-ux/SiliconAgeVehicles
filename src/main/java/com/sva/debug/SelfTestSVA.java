@@ -122,6 +122,7 @@ public final class SelfTestSVA {
             SelfTestWave1SVA.run();                         // wave 1: sounds, camera, cruise / autopilot, roads
             SelfTestWave2SVA.run();                         // wave 2: garage, tuning, key cards / access
             SelfTestWave3SVA.run();                         // wave 3: trailer kinds, the vehicle registry / map
+            SelfTestRegenSVA.run();                         // wave 4: regenerative braking / energy recovery
             SelfTestKeysSVA.run();                          // the «Техника» menu: function keys, migration, Controls
             SelfTestFastChargeSVA.run();                    // fast charging: module, boost, shared platforms, storages, supercap
         } catch (Throwable t) {

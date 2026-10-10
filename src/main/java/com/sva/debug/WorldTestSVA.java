@@ -184,6 +184,20 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // wave 4 (★15 рекуперация: braking, a hill) runs alongside too, in its own area with its own owner
+        if (ticks >= WorldTestRegenSVA.START && !regen.done) {
+            try {
+                regen.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL regen exception " + t);
+                t.printStackTrace(System.out);
+                regen.abort(w);
+            }
+            if (regen.done) {
+                maybeSummary();
+            }
+        }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
         if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
             try {
@@ -1976,6 +1990,7 @@ public class WorldTestSVA {
     private final WorldTestWave1SVA wave1 = new WorldTestWave1SVA(this);
     private final WorldTestWave2SVA wave2 = new WorldTestWave2SVA(this);
     private final WorldTestWave3SVA wave3 = new WorldTestWave3SVA(this);
+    private final WorldTestRegenSVA regen = new WorldTestRegenSVA(this);
     private final WorldTestFastChargeSVA fastCharge = new WorldTestFastChargeSVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
@@ -1991,7 +2006,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

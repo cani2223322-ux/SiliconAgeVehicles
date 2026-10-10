@@ -482,6 +482,10 @@ public final class CockpitInstrumentsSVA {
         if (v.isBoosting()) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.boost"), ORANGE, -1F, null));
         }
+        double regen = v.getRegenNow();                             // wave 4 (★15): recovering energy
+        if (regen > 0) {
+            out.add(new Line(Lang.tr("sva.cockpit.ev.regen", com.sva.vehicle.RegenMath.fmt(regen)), GREEN, -1F, null));
+        }
         if (SNAP.autopilot) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.autopilot"), GREEN, -1F, null));     // auto-delivery or ★4 autopilot
         } else if (SNAP.cruise) {

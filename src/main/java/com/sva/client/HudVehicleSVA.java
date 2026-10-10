@@ -40,6 +40,10 @@ public class HudVehicleSVA {
     private int rateVehicle = -1, rateEnergy;
     private long rateTime;
     private double rateEma;
+    // wave 4 (★15): the «Рекуперация» line - the last synced rate, held REGEN_HOLD ticks so it doesn't flicker
+    private static final int REGEN_HOLD = 10;
+    private double regenShown;
+    private long regenUntil;
 
     public static EntityVehicleSVA vehicleOf(Entity e) {
         if (e == null) {
@@ -118,7 +122,14 @@ public class HudVehicleSVA {
         }
         boolean autoLine = t.autoDelivery && (v.isAutoOn() || v.getAutoState() == com.sva.vehicle.AutoDelivery.STOPPED);
         String trailerLine = trailerLine(v);                        // ★15: the tanker's fluid / the carried vehicle / the charger
-        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0) + (charging ? 1 : 0) + (autoLine ? 1 : 0) + (trailerLine != null ? 1 : 0);
+        double regen = v.getRegenNow();                             // wave 4 (★15): recovering - braking, downhill, windmilling
+        if (regen > 0) {
+            regenShown = regen;
+            regenUntil = now + REGEN_HOLD;
+        }
+        boolean regenLine = !charging && now < regenUntil && now + REGEN_HOLD + 1 > regenUntil;
+        int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0) + (charging ? 1 : 0) + (autoLine ? 1 : 0) + (trailerLine != null ? 1 : 0)
+                + (regenLine ? 1 : 0);
         int h = 24 + (rows - 1) * 10 + 4;
         int x = 4, y = e.resolution.getScaledHeight() - h - bottomGap(e.resolution.getScaledWidth(), x, x + W);
 
@@ -146,6 +157,10 @@ public class HudVehicleSVA {
             String line = Double.isInfinite(sec) || sec <= 0 ? Lang.tr("sva.hud.charging", pctS)
                     : Lang.tr("sva.hud.chargingEta", pctS, String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60)));
             fit(fr, line, x + 6, ry, W - 12, 0x5EC8F0, false);
+            ry += 10;
+        }
+        if (regenLine) {
+            fit(fr, Lang.tr("sva.hud.regen", com.sva.vehicle.RegenMath.fmt(regenShown)), x + 6, ry, W - 12, 0x5EE07A, false);
             ry += 10;
         }
         bar(fr, x, ry, Lang.tr("sva.hud.heat"), heat / 100.0, v.isHeatStopped() ? 0xFFFF4040 : C_HEAT, (int) heat + "%");

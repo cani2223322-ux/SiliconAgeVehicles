@@ -95,6 +95,9 @@ public final class ConfigSVA {
     public static boolean drill = true;
     /** The Singular Ship's invisibility for mobs (SpaceLogicSVA.cloaked, EventsSVA). */
     public static boolean mobCloak = true;
+    /** Wave 4 (★15): regenerative braking / energy recovery (RegenMath) and its efficiency 0..0.5. */
+    public static boolean regen = true;
+    public static float regenEfficiency = 0.2F;
     /** Fast charging (2026-10-10): the station's «Форсаж» mode. */
     public static boolean stationBoost = true;
     /** A core (or IC2) energy storage touching the station feeds the vehicle directly. */
@@ -227,6 +230,11 @@ public final class ConfigSVA {
             bridgeDock = c.getBoolean("bridgeDock", v, true,
                     "The shuttle and the ship dock with an open bridge vortex and come out at the bridge's other end / "
                             + "Челнок и корабль стыкуются с открытым порталом моста и выходят на другом конце моста");
+            regen = c.getBoolean("regen", v, true,
+                    "Regenerative braking: braking, rolling downhill and gliding / autorotation return part of the energy to the buffer / "
+                            + "Рекуперация: торможение, спуск с горки и планирование / авторотация возвращают часть энергии в буфер");
+            regenEfficiency = num(c, "regenEfficiency", v, 0.2F, 0F, 0.5F,
+                    "Share of the motion energy recovered (0..0.5; aircraft at most 0.3) / Доля возвращаемой энергии движения (0..0,5; авиация не больше 0,3)");
             drill = c.getBoolean("drill", v, true,
                     "The drill vehicle's bore digs blocks (false: it only drives and carries) / "
                             + "Бур буровой машины копает блоки (false - машина только ездит и возит груз)");

@@ -365,6 +365,11 @@ public class GuiVehicleSVA extends GuiScreen {
             }
         }
         String tune = Lang.tr("sva.vmenu.tuning", tb.length() > 0 ? tb.toString() : Lang.tr("sva.vmenu.none"));
+        int regenPct = v.getRegenPct();                             // wave 4 (★15): recovery on the server, and now
+        if (regenPct > 0) {
+            double r = v.getRegenNow();
+            tune += "  " + (r > 0 ? Lang.tr("sva.vmenu.regenNow", com.sva.vehicle.RegenMath.fmt(r)) : Lang.tr("sva.vmenu.regen", regenPct + "%"));
+        }
         String trailer = HudVehicleSVA.trailerLine(v);
         int half = (w - 12) / 2;
         TextFitSC.draw(fontRendererObj, tune, left + 6, gy + 11, trailer == null ? w - 12 : half - 4, MUTED, false, 0, 0);

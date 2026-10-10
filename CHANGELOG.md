@@ -6,6 +6,7 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
+- Рекуперация: торможение, спуск с горки и планирование / авторотация возвращают часть энергии в буфер (доля 20%, авиация до 30% — настройки `vehicles.regen`, `vehicles.regenEfficiency`); строка «Рекуперация +N EU/т» в HUD, на экране кабины и в окне «Техника».
 - **Быстрая зарядка техники.**
   - *Модуль "Быстрая зарядка"* (верстак, вкладка "Модули"): станция заряжает вдвое быстрее; считается один модуль.
   - *Режим "Форсаж"* (кнопка в окне станции): зарядка x3, но станция греется — через 2 мин непрерывного форсажа перегрев и пауза, пока не остынет (30 с). Гелий из Газовой колонки через "Модуль газа" (1 мБ/с) охлаждает и снимает предел. В окне — шкала нагрева.
@@ -43,6 +44,7 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Исправлено: в HUD «Сингулярного корабля» вместо текста показывался ключ «sva.hud.jump.why.1» - добавлены все недостающие причины, почему прыжок недоступен.
 
 ### English
+- Regenerative braking: braking, rolling downhill and gliding / autorotation return part of the energy to the buffer (20% share, aircraft up to 30% - config `vehicles.regen`, `vehicles.regenEfficiency`); a «Regen +N EU/t» line in the HUD, the cockpit screen and the «Vehicle» menu.
 - **Fast vehicle charging.**
   - *"Fast Charge" module* (workbench, "Modules" tab): the station charges twice as fast; one module counts.
   - *"Boost" mode* (a button on the station screen): charging x3, but the station heats up - after 2 min of boosting it overheats and pauses until cool (30 s). Helium from a Gas Column through the "Gas Module" (1 mB/s) cools it and lifts the limit. A heat bar on the screen.
