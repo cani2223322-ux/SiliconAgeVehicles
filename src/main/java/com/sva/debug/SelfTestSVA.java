@@ -125,6 +125,7 @@ public final class SelfTestSVA {
             SelfTestRegenSVA.run();                         // wave 4: regenerative braking / energy recovery
             SelfTestKeysSVA.run();                          // the «Техника» menu: function keys, migration, Controls
             SelfTestFastChargeSVA.run();                    // fast charging: module, boost, shared platforms, storages, supercap
+            SelfTestDriveSVA.run();                         // 2026-10-10 fixes: the stall flag in level flight
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);

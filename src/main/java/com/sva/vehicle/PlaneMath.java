@@ -168,6 +168,29 @@ public final class PlaneMath {
         return c * FlightMath.cargoMul(fill);
     }
 
+    /**
+     * The server's airspeed of an aircraft the driver's client flies (the stall flag, the flying-move rules, the
+     * autopilot's stall cancel): the client's own physics speed from its Move packets - the speed its PlanePhysicsSVA
+     * drops the nose by - but never more than AIR_MARGIN x the measured one + AIR_SLACK (a client can't claim airspeed
+     * it doesn't cover). The measured speed alone is no good for this: the Moves arrive in the server's ticks unevenly
+     * (a tick with none, the next with two - only the latest runs, ServerQueueSVA), so a per-tick measurement reads 0
+     * and then double; its EMA (x0.5 a tick) halved on every empty tick - the light plane cruising at 57 km/h read
+     * 28 km/h, under the 36 km/h stall, and the synced stall flag blinked on (title, СВАЛ. lamp, siren) in level flight.
+     * NaN / infinite = the measured speed.
+     *
+     * @param measured the measured horizontal speed (blocks/tick), already smoothed over a few ticks
+     */
+    public static double reportedAirspeed(double client, double measured) {
+        double m = Math.max(0, measured);
+        if (Double.isNaN(client) || Double.isInfinite(client)) {
+            return m;
+        }
+        return VehicleMath.clamp(client, 0, m * AIR_MARGIN + AIR_SLACK);
+    }
+
+    /** reportedAirspeed's cap over the measured speed (a factor and blocks/tick): one Move late in 4 ticks still passes. */
+    public static final double AIR_MARGIN = 1.25, AIR_SLACK = 0.05;
+
     /** The throttle a measured airspeed needs at least (the server's floor against a client that hides its keys). */
     public static double throttleFloor(VehicleType t, double speed) {
         double r = speed / t.topSpeed;

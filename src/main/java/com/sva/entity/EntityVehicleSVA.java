@@ -167,6 +167,17 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     private double lastX, lastY, lastZ, lastDx, lastDz;
     private boolean hasLast;
     private double speedEma, prevMoved;
+    // server, the driver's client flying: its reported airspeed (last accepted Move), the last MOVED_WIN ticks'
+    // measured displacements (their mean: the Moves' uneven arrival evens out), the airspeed the rules judged this tick
+    private float moveSpeed;
+    private final double[] movedWin = new double[MOVED_WIN];
+    private int movedAt;
+    private double airspeedNow;
+    private static final int MOVED_WIN = 4;
+    /** Client, the local driver: its own physics is stalling now (PlanePhysicsSVA's own speed - no packet lag). */
+    private boolean localStall;
+    /** Server: Moves refused this vehicle's life (world test: no corrections while driving normally). */
+    private int movesRefused, refuseWhy;
     private int hitCooldown;
     private boolean registered;
     /** Server: held up by lift / boosting this tick (synced as flags). */
@@ -838,7 +849,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         boolean keys = (in & (IN_FWD | IN_BACK | IN_LEFT | IN_RIGHT)) != 0;
         double charge = getEnergy() / Math.max(1.0, getMaxEnergy());
-        return CruiseMath.autopilotCancel(keys, charge, PlaneMath.stalled(t.plane, Math.max(0, speed)), !onGround,
+        // the server judges the airspeed it measured last tick (a driver's client's: its own, capped) - its per-tick
+        // `speed` read 0 on a tick without a Move and cancelled the autopilot as a stall
+        double air = worldObj.isRemote ? Math.max(0, speed) : airspeedNow;
+        return CruiseMath.autopilotCancel(keys, charge, PlaneMath.stalled(t.plane, air), !onGround,
                 hasLift() && canThrust());
     }
 
@@ -960,7 +974,51 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** A plane below its stall speed in the air (server: this tick; clients: synced). */
     public boolean isStalling() {
-        return worldObj.isRemote ? flag(F_STALL) : stallNow;
+        if (worldObj.isRemote) {
+            return localDriver() ? localStall : flag(F_STALL);     // the pilot: from the own physics, as the nose drops
+        }
+        return stallNow;
+    }
+
+    private boolean localDriver() {
+        return riddenByEntity != null && riddenByEntity == SVAMod.proxy.localPlayer();
+    }
+
+    /** Server: the airspeed the stall / flying-move rules judged this tick (PlaneMath.reportedAirspeed for a driver's client). */
+    public double airspeedNow() {
+        return airspeedNow;
+    }
+
+    /** World test: the server's measured speed EMA (blocks/tick). */
+    public double measuredSpeed() {
+        return speedEma;
+    }
+
+    /** World test: why the last Move was refused (0 taken; 1 reach / climb rules, 2 into blocks, 3 path, 4-5 hover, 6 rising unsupported). */
+    public int refuseWhy() {
+        return refuseWhy;
+    }
+
+    /** World test: Moves the server refused (a Correct is sent for them, at most one per 5 ticks). */
+    public int movesRefused() {
+        return movesRefused;
+    }
+
+    /** The mean of the last MOVED_WIN ticks' measured horizontal displacement (blocks/tick). */
+    private double movedAvg() {
+        double s = 0;
+        for (double d : movedWin) {
+            s += d;
+        }
+        return s / MOVED_WIN;
+    }
+
+    /**
+     * The driver's client's reported airspeed, capped by the measured one (PlaneMath.reportedAirspeed): the EMA, the
+     * last ticks' mean or `covered` (a Move's own displacement a tick - the reach rule bounds it) - whichever is most.
+     */
+    private double clientAirspeed(double reported, double covered) {
+        return PlaneMath.reportedAirspeed(reported, Math.max(Math.max(speedEma, movedAvg()), covered));
     }
 
     /** Plane throttle 0..1 (clients: synced; the driver's own client: its simulated value). */
@@ -1190,6 +1248,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         double emaBefore = speedEma;                                // ★15 рекуперация: the speed lost this tick
         speedEma = speedEma * 0.5 + moved * 0.5;
+        movedWin[movedAt] = moved;
+        movedAt = (movedAt + 1) % MOVED_WIN;
+        // the aircraft rules' airspeed: the driver's client's own (capped by the measured), else the server's physics'
+        airspeedNow = clientDriven ? clientAirspeed(moveSpeed, 0) : Math.max(0, speed);
         if (hitCooldown > 0) {
             hitCooldown--;
         }
@@ -1321,7 +1383,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         boolean wasAuto = autoNow;
         autoNow = air && !lifting && !isHeld();
-        stallNow = plane && air && PlaneMath.stalled(t.plane, v);
+        // the stall by the airspeed the flying physics really has (the client's when it drives - PlaneMath.reportedAirspeed;
+        // the measured EMA blinked under the stall in level flight whenever a Move came a tick late)
+        stallNow = plane && air && PlaneMath.stalled(t.plane, clientDriven ? airspeedNow : v);
         if (autoNow && !wasAuto && ticksExisted > 5) {
             tellRiders(plane ? "sva.msg.glide" : "sva.msg.autorotation");
         }
@@ -1636,12 +1700,16 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 : canThrust() ? VehicleMath.maxSpeed(t, state.energy) * tuneSpeed() * Math.max(roadSpeedMul(t),
                 RoadMath.speedMul(com.sva.block.BlockRoadSVA.surfaceAt(worldObj, x, y, z), t.movement)) : coast;   // coasting only; ★11 roads
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
-        boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), bh, by, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z), speedEma)
+        boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), bh, by, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z),
+                clientAirspeed(clientSpeed, bh / dt))           // not the bare EMA: it halved on a tick without a Move (and
+                                                                // a Move after a refused one must count what it covers)
                 : moveAllowed(bh, by, dt, limit, CrawlerMath.climbLimit(stepHeight));             // ★8: big wheels step 1.5
+        refuseWhy = ok ? 0 : 1;
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
             AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx, dy, dz).contract(0.05, 0.05, 0.05);
             if (!worldObj.getCollidingBoundingBoxes(this, box).isEmpty() || !pathClear(dx, dy, dz)) {
                 ok = false;                                         // into blocks / through a wall
+                refuseWhy = worldObj.getCollidingBoundingBoxes(this, box).isEmpty() ? 3 : 2;
             } else if (flies) {
                 ok = true;                                          // FlightMath.moveAllowed checked it
             } else if (hover) {
@@ -1650,24 +1718,31 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 double hNew = HoverPhysicsSVA.heightAt(worldObj, x, y, z);
                 if (by > 0.05 && !HoverMath.climbAllowed(lift, hNew)) {
                     ok = false;
+                    refuseWhy = 4;
                 } else if (HoverMath.mustDescend(lift, hNew) && by > -0.03 * dt) {
                     ok = false;
+                    refuseWhy = 5;
                 }
-            } else if (by > 0.05 && worldObj.getCollidingBoundingBoxes(this, box.getOffsetBoundingBox(0, -0.6, 0)).isEmpty()
+            } else if (by > 0.05 && worldObj.getCollidingBoundingBoxes(this, supportBox(dx, dy, dz)).isEmpty()
                     && !(t.movement == Movement.CRAWLER && by <= CrawlerMath.MAX_RISE * dt + 0.05
                     && worldObj.isMaterialInBB(box.expand(0, 0.6, 0), net.minecraft.block.material.Material.water))) {
                 ok = false;                                         // climbing with nothing under it (a crawler may float up)
+                refuseWhy = 6;
             }
         }
         if (ok) {
             setPosition(x, y, z);
             rotationYaw = yaw;
+            moveSpeed = clientSpeed;                                // aircraft: the client's airspeed (clientAirspeed caps it)
             moveDyMin = movesThisTick == 0 ? dy : Math.min(moveDyMin, dy);     // aircraft: one client step's sink (flightTick)
             movesThisTick++;
             clientFall(dy, flies || hover);
-        } else if (now - lastCorrectTick >= 5 && p.playerNetServerHandler != null) {
-            lastCorrectTick = now;
-            NetSVA.CHANNEL.sendTo(new NetSVA.Correct(getEntityId(), posX, posY, posZ, rotationYaw), p);
+        } else {
+            movesRefused++;
+            if (now - lastCorrectTick >= 5 && p.playerNetServerHandler != null) {
+                lastCorrectTick = now;
+                NetSVA.CHANNEL.sendTo(new NetSVA.Correct(getEntityId(), posX, posY, posZ, rotationYaw), p);
+            }
         }
     }
 
@@ -1692,6 +1767,18 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             }
         }
         return true;
+    }
+
+    /**
+     * The box under a ground vehicle's new position that must hold a block when a Move rises (no climbing on air): 0.6
+     * deep, the hull's FULL width (+0.02) - not the 0.05-contracted collision probe. A step-up lands the box overlapping
+     * the step's top by only what was left of that tick's move (0 .. the speed); with the probe narrowed by 0.05 a
+     * slow step (reversing: 0.175 b/t for the buggy - every third step-up) found no support, the Move was refused and
+     * the Correct threw the vehicle back down off the step (user report «при езде назад откидывает»).
+     */
+    private AxisAlignedBB supportBox(double dx, double dy, double dz) {
+        AxisAlignedBB b = boundingBox.getOffsetBoundingBox(dx, dy - 0.6, dz);
+        return AxisAlignedBB.getBoundingBox(b.minX - 0.02, b.minY + 0.05, b.minZ - 0.02, b.maxX + 0.02, b.maxY - 0.05, b.maxZ + 0.02);
     }
 
     private boolean blockedAt(double ox, double oy, double oz) {
@@ -1802,6 +1889,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             animIn = in;
             physicsStep(t, in);
             lerpSteps = 0;
+            // the pilot's stall warnings follow the own physics (the speed PlanePhysicsSVA drops the nose by), not the
+            // synced flag a tick or two late
+            localStall = planeNow() && t.plane != null && airborneAt(posX, posY, posZ) && PlaneMath.stalled(t.plane, Math.max(0, speed));
             boolean targets = (in & IN_CRUISE) != 0
                     && ((float) cruiseSpeed != sentCruise[0] || (float) apYaw != sentCruise[1] || (float) apAlt != sentCruise[2]);
             if (in != lastSentInput || targets || ++inputTimer >= KEEPALIVE) {
