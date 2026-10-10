@@ -137,7 +137,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
 
     /**
      * The core's Universal Transformer upgrade (one is enough): any line voltage, LV to SV, never overvolts the station,
-     * like the Engineering Workbench. The charging rate and buffer stay those of its own input tier.
+     * like the Engineering Workbench, and the input tier (the charging rate and buffer) is the top one.
      */
     @Override
     public boolean acceptsAnyVoltage() {
@@ -159,7 +159,9 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
 
     @Override
     public Tier inputTier() {
-        return PlatformMath.inputTier(getTier(), upgradeCount(UpgradeType.TRANSFORMER));
+        // the Universal Transformer: the top tier, like the Engineering Workbench (WorkbenchMath.inputTier) - the
+        // station then charges at SV voltage (and holds an SV buffer) from any line
+        return acceptsAnyVoltage() ? com.sc.energy.Tier.max() : PlatformMath.inputTier(getTier(), upgradeCount(UpgradeType.TRANSFORMER));
     }
 
     @Override

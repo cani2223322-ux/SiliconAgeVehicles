@@ -6,7 +6,7 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
-- Зарядная станция принимает улучшение «Универсальный трансформатор» из Silicon Age: с ним станцию не взрывает напряжение любой линии (как у Инженерного верстака).
+- Зарядная станция принимает улучшение «Универсальный трансформатор» из Silicon Age: с ним станцию не взрывает напряжение любой линии, и она заряжает на уровне SV — до 131 072 EU/т, буфер 13,1 млн EU (как у Инженерного верстака).
 - **Пассажиры:** у пассажира во время езды и полёта больше не трясётся экран относительно кабины и приборов (позиция пассажира обновлялась на клиенте не в том порядке, и камера двигалась рывками 20 раз в секунду).
 - **Доработки по итогам проверки: 46 пунктов** (полный список — `docs/nedorabotki-2026-10-10-sdelano.md`).
   - *Сервер и защита:* настройка `vehicles.playerDamage` (all / pvp / owner / none, по умолчанию pvp) — чужие игроки не разбивают машину без разрешения сервера; `vehicles.opManage` для операторов; выключатели `singularJump`, `bridgeDock`, `drill`, `mobCloak`; команда `/sva vehicles` (list / tp / forget / forget-all) чистит реестр от пропавших машин.
@@ -33,7 +33,7 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Исправлено: в HUD «Сингулярного корабля» вместо текста показывался ключ «sva.hud.jump.why.1» - добавлены все недостающие причины, почему прыжок недоступен.
 
 ### English
-- The charging station takes the Silicon Age Universal Transformer upgrade: with it no line voltage overvolts the station (like the Engineering Workbench).
+- The charging station takes the Silicon Age Universal Transformer upgrade: with it no line voltage overvolts the station and it charges at SV - up to 131,072 EU/t, a 13.1M EU buffer (like the Engineering Workbench).
 - **Passengers:** a passenger's view no longer shakes against the cabin and instruments while driving or flying (the passenger was placed on the client in the wrong order, so the camera moved in 20-a-second steps).
 - **Improvements from the audit: 46 items** (full list in `docs/nedorabotki-2026-10-10-sdelano.md`).
   - *Server and protection:* `vehicles.playerDamage` (all / pvp / owner / none, default pvp) - strangers can't wreck a vehicle unless the server allows it; `vehicles.opManage` for operators; switches `singularJump`, `bridgeDock`, `drill`, `mobCloak`; the `/sva vehicles` command (list / tp / forget / forget-all) clears lost vehicles from the registry.
