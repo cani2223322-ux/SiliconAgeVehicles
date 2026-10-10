@@ -31,7 +31,8 @@ import net.minecraftforge.common.config.Configuration;
  * They are read raw (Keyboard.isKeyDown / Mouse.isButtonDown) and ONLY while the player rides a vehicle with no screen
  * open: KeyBinding.hash's one-binding-a-key no longer loses the press to another mod, and on foot nothing is taken from
  * anyone. Presses fire on the rising edge (KeyBindMath.Edge); «Форсаж» / «Снижение» use the held state. The only
- * KeyBinding is the menu key (KEY_MENU, rebindable in Options > Controls) - read raw too, for the same reason.
+ * KeyBinding is the menu key (KEY_MENU, rebindable in Options > Controls) - read raw too, for the same reason. The menu
+ * and «Карта» open from the key EVENT (Taps), on foot too.
  * <p>
  * Migration: when the file does not exist yet, the player's own letters of the old KeyBindings are taken from
  * options.txt (KeyBindMath.parseOptions) - a key moved there stays where it was.
@@ -155,7 +156,10 @@ public final class VehicleKeyBindsSVA {
      */
     private static final java.util.Set<Integer> TAPPED = new java.util.HashSet<Integer>();
     private static final org.apache.logging.log4j.Logger KEYLOG = org.apache.logging.log4j.LogManager.getLogger("SiliconAgeVehicles");
-    /** Diagnostic lines written so far this session (riding presses are logged only up to a limit). */
+    /**
+     * Diagnostic lines written so far this session (riding presses are logged only up to a limit). Only with config
+     * vehicles.debugKeys (off by default) - for a «the menu does not open» report.
+     */
     private static int LOGGED;
 
     /** FML bus: every key / mouse button press while no screen is open (vanilla posts these only then). */
@@ -170,7 +174,7 @@ public final class VehicleKeyBindsSVA {
             Minecraft mc = Minecraft.getMinecraft();
             int menu = KEY_MENU.getKeyCode();
             boolean riding = mc.thePlayer != null && HudVehicleSVA.vehicleOf(mc.thePlayer) != null;
-            if (k == menu || riding && LOGGED < 40) {
+            if (com.sva.ConfigSVA.debugKeys && (k == menu || riding && LOGGED < 40)) {
                 // diagnostics for "the menu does not open": the code this keyboard sends, the menu key, the state
                 LOGGED++;
                 KEYLOG.info("[SVA-KEYS] key " + k + " '" + Keyboard.getEventCharacter() + "' menuKey " + menu + " riding "
@@ -178,6 +182,8 @@ public final class VehicleKeyBindsSVA {
             }
             if (k == menu) {
                 openMenu(mc);
+            } else {
+                openMap(mc, k);
             }
         }
 
@@ -188,6 +194,8 @@ public final class VehicleKeyBindsSVA {
                 TAPPED.add(Integer.valueOf(code));
                 if (code == KEY_MENU.getKeyCode()) {                 // the menu on a mouse button (vanilla: -100 + button)
                     openMenu(Minecraft.getMinecraft());
+                } else {
+                    openMap(Minecraft.getMinecraft(), code);
                 }
             }
         }
@@ -200,7 +208,23 @@ public final class VehicleKeyBindsSVA {
     private static void openMenu(Minecraft mc) {
         if (mc.thePlayer != null && mc.currentScreen == null) {
             mc.displayGuiScreen(new GuiVehicleSVA());
-            KEYLOG.info("[SVA-KEYS] menu opened");
+            if (com.sva.ConfigSVA.debugKeys) {
+                KEYLOG.info("[SVA-KEYS] menu opened");
+            }
+        }
+    }
+
+    /**
+     * «Карта» from the key / button EVENT, riding or on foot (like the menu: the opening press never reaches the map,
+     * which closes on its own key). With a modifier bound, it must be held; a fuller bind on the same key wins.
+     */
+    private static void openMap(Minecraft mc, int code) {
+        int[] b = BINDS.get(VehicleFn.MAP);
+        if (b == null || b[0] != code || mc.thePlayer == null || mc.currentScreen != null) {
+            return;
+        }
+        if (KeyBindMath.owns(b, true, modifiersDown(), new ArrayList<int[]>(BINDS.values()))) {
+            GuiMapSVA.openAtPlayer(mc);
         }
     }
 
@@ -263,6 +287,16 @@ public final class VehicleKeyBindsSVA {
         return out;
     }
 
+    /**
+     * The function sits on the menu key with no modifiers: in a vehicle one press would both open the «Техника» menu and
+     * fire the function - a clash, red in the menu («совпадает с клавишей меню»).
+     */
+    public static boolean clashesMenu(VehicleFn f) {
+        int[] b = BINDS.get(f);
+        int menu = KEY_MENU.getKeyCode();
+        return b != null && menu != 0 && b[0] == menu && b[1] == 0;
+    }
+
     /** KeyBindings (vanilla / other mods) on the same key: they fire too, but no longer take the press away (info only). */
     public static List<String> sharedWith(VehicleFn f) {
         List<String> out = new ArrayList<String>();
@@ -306,7 +340,8 @@ public final class VehicleKeyBindsSVA {
             int[] b = BINDS.get(f);
             boolean kd = b != null && downOrTapped(b[0]);
             KeyBindMath.Edge e = EDGES.get(f);
-            if (v == null || v.isDead) {
+            if (v == null || v.isDead || f == VehicleFn.MAP) {
+                // «Карта» opens from the key event (Taps.openMap), riding or not
                 e.hold(kd);
                 continue;
             }

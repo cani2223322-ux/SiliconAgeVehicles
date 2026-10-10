@@ -1,6 +1,8 @@
 package com.sva.block;
 
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 import com.sc.util.ArmorGasSC.Gas;
 import com.sva.entity.EntityVehicleSVA;
@@ -21,12 +23,17 @@ import net.minecraftforge.fluids.IFluidHandler;
  * Refuelling is automatic: every SCAN_EVERY ticks it looks for vehicles within RADIUS blocks that are standing
  * still (not driving past) and belong to the column's owner (a column without an owner serves everyone), and
  * moves up to RATE mB a tick of each gas they have a tank for. No EU needed - it is a pressure-fed pump.
+ * ТБ-9: a vehicle that a charging station with the gas module is fuelling from this column right now is skipped -
+ * the station already pours RATE mB a tick into it, so it never gets twice the rate.
  */
-public class TileEntityGasColumnSVA extends TileEntity implements IFluidHandler {
+public class TileEntityGasColumnSVA extends TileEntity implements IFluidHandler, KeptDataSVA.Keeper {
 
     public static final int TANK = 16000, RATE = 25, SCAN_EVERY = 10;
     public static final double RADIUS = 4;
     public static final String K_TANKS = "ColumnTanks", K_OWNER = "Owner", K_OWNER_NAME = "OwnerName";
+
+    /** ТБ-9: vehicles a station's gas module fuels (server), with the world time of the last tick it did. */
+    private static final Map<EntityVehicleSVA, Long> STATION_FED = new WeakHashMap<EntityVehicleSVA, Long>();
 
     private final FluidTank[] tanks = new FluidTank[Gas.values().length];
     private String ownerId = "", ownerName = "";
@@ -71,6 +78,19 @@ public class TileEntityGasColumnSVA extends TileEntity implements IFluidHandler 
         return n;
     }
 
+    /** ТБ-9, the station (server): its gas module fuels this vehicle now. */
+    public static void stationFeeds(EntityVehicleSVA v, long worldTime) {
+        if (v != null) {
+            STATION_FED.put(v, Long.valueOf(worldTime));
+        }
+    }
+
+    /** ТБ-9: a station's gas module fuelled it within the last scan (columns leave it to the station). */
+    public static boolean fedByStation(EntityVehicleSVA v, long worldTime) {
+        Long at = v == null ? null : STATION_FED.get(v);
+        return at != null && worldTime - at.longValue() <= SCAN_EVERY && worldTime >= at.longValue();
+    }
+
     /** May this column serve the vehicle (its owner's, or the column has none)? */
     public boolean serves(EntityVehicleSVA v) {
         return ownerId.length() == 0 || ownerId.equals(v.state.ownerId);
@@ -89,9 +109,10 @@ public class TileEntityGasColumnSVA extends TileEntity implements IFluidHandler 
         scan = SCAN_EVERY;
         lastMoved = 0;
         List list = worldObj.getEntitiesWithinAABB(EntityVehicleSVA.class, zone());
+        long now = worldObj.getTotalWorldTime();
         for (Object o : list) {
             EntityVehicleSVA v = (EntityVehicleSVA) o;
-            if (v.isDead || !v.state.type.gases.any() || !serves(v) || Math.abs(v.speed) > 0.05) {
+            if (v.isDead || !v.state.type.gases.any() || !serves(v) || Math.abs(v.speed) > 0.05 || fedByStation(v, now)) {
                 continue;
             }
             for (Gas g : v.state.type.gases.gases()) {
@@ -161,12 +182,7 @@ public class TileEntityGasColumnSVA extends TileEntity implements IFluidHandler 
     @Override
     public void readFromNBT(NBTTagCompound nbt) {
         super.readFromNBT(nbt);
-        NBTTagCompound t = nbt.getCompoundTag(K_TANKS);
-        for (Gas g : Gas.values()) {
-            Fluid f = g.fluidOf();
-            int mb = Math.max(0, Math.min(TANK, t.getInteger(g.key())));
-            tanks[g.ordinal()].setFluid(f == null || mb <= 0 ? null : new FluidStack(f, mb));
-        }
+        readTanks(nbt.getCompoundTag(K_TANKS));
         ownerId = nbt.getString(K_OWNER);
         ownerName = nbt.getString(K_OWNER_NAME);
     }
@@ -174,14 +190,43 @@ public class TileEntityGasColumnSVA extends TileEntity implements IFluidHandler 
     @Override
     public void writeToNBT(NBTTagCompound nbt) {
         super.writeToNBT(nbt);
+        nbt.setTag(K_TANKS, tanksTag());
+        nbt.setString(K_OWNER, ownerId);
+        nbt.setString(K_OWNER_NAME, ownerName);
+    }
+
+    private void readTanks(NBTTagCompound t) {
+        for (Gas g : Gas.values()) {
+            Fluid f = g.fluidOf();
+            int mb = Math.max(0, Math.min(TANK, t.getInteger(g.key())));
+            tanks[g.ordinal()].setFluid(f == null || mb <= 0 ? null : new FluidStack(f, mb));
+        }
+    }
+
+    private NBTTagCompound tanksTag() {
         NBTTagCompound t = new NBTTagCompound();
         for (Gas g : Gas.values()) {
             if (amount(g) > 0) {
                 t.setInteger(g.key(), amount(g));
             }
         }
-        nbt.setTag(K_TANKS, t);
-        nbt.setString(K_OWNER, ownerId);
-        nbt.setString(K_OWNER_NAME, ownerName);
+        return t;
+    }
+
+    // ------------------------------------------------------------------ ТБ-1: the item keeps the tanks (not the owner)
+
+    @Override
+    public void writeKept(NBTTagCompound t) {
+        NBTTagCompound tanksTag = tanksTag();
+        if (!tanksTag.hasNoTags()) {
+            t.setTag(K_TANKS, tanksTag);
+        }
+    }
+
+    @Override
+    public void readKept(NBTTagCompound t) {
+        if (t.hasKey(K_TANKS)) {
+            readTanks(t.getCompoundTag(K_TANKS));
+        }
     }
 }

@@ -127,6 +127,9 @@ public final class ModContentSVA {
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);
+        // WAILA (vehicles, station, garage, gas column): it finds the plugin through IMC and loads the class itself -
+        // nothing of WAILA's is touched when it isn't installed (the core's WailaSC does the same)
+        cpw.mods.fml.common.event.FMLInterModComms.sendMessage("Waila", "register", "com.sva.WailaSVA.callbackRegister");
     }
 
     public static void recipes() {

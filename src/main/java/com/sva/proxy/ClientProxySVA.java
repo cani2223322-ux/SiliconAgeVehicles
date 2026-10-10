@@ -65,12 +65,19 @@ public class ClientProxySVA extends CommonProxySVA {
         MinecraftForge.EVENT_BUS.register(new com.sva.client.RiderAttitudeSVA());   // riders lean with the body
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
         FMLCommonHandler.instance().bus().register(new com.sva.client.VehicleKeyBindsSVA.Taps());  // short taps between ticks
+        FMLCommonHandler.instance().bus().register(new com.sva.client.VehiclePickSVA());       // clicks on the whole model of big vehicles
         MinecraftForge.EVENT_BUS.register(new Wheel());                            // ★3 / ★4: the mouse wheel while riding
         FMLCommonHandler.instance().bus().register(this);
         // ★6: headlights light the blocks ahead (client world only; restored on leave / unload)
         com.sva.client.DynamicLightSVA light = new com.sva.client.DynamicLightSVA();
         FMLCommonHandler.instance().bus().register(light);
         MinecraftForge.EVENT_BUS.register(light);
+    }
+
+    @Override
+    public void postInit(cpw.mods.fml.common.event.FMLPostInitializationEvent e) {
+        super.postInit(e);
+        com.sva.client.RenderItemVehicleSVA.preloadModels();   // every vehicle / trailer model read now: no stall on the first look
     }
 
     @Override

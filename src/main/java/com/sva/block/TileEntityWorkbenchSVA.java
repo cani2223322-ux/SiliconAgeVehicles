@@ -26,7 +26,7 @@ import net.minecraftforge.common.util.ForgeDirection;
  * time for EU, the grid stays untouched until it finishes (a changed grid cancels it, nothing is lost).
  * Faces: top = into the grid (one item per empty cell), bottom = out of the output, the rest (not the front) = energy.
  */
-public class TileEntityWorkbenchSVA extends TileEntityEnergyBase implements ISidedInventory {
+public class TileEntityWorkbenchSVA extends TileEntityEnergyBase implements ISidedInventory, KeptDataSVA.Keeper {
 
     public static final int GRID_SLOTS = WorkbenchRecipeSVA.CELLS, OUTPUT = 25, FIRST_UPGRADE = 26, UPGRADE_SLOTS = 4, SIZE = 30;
     private static final int[] TOP = new int[GRID_SLOTS], BOTTOM = {OUTPUT}, NONE = {};
@@ -329,6 +329,7 @@ public class TileEntityWorkbenchSVA extends TileEntityEnergyBase implements ISid
             cancel();                               // the grid changed: nothing taken
             return;
         }
+        rescale();
         if (progress < totalTicks) {
             if (!switchedOn() || !WorkbenchMath.canBuild(assembling.tier, inputTier())) {
                 powered = false;
@@ -358,6 +359,25 @@ public class TileEntityWorkbenchSVA extends TileEntityEnergyBase implements ISid
         }
     }
 
+    /**
+     * ТБ-11: the upgrades changed during the assembly (or since it was saved) - the time and the EU are worked out
+     * again for what is in the slots now; the share already built and the share already paid stay.
+     */
+    private void rescale() {
+        int ticks = effectiveTicks(assembling);
+        long eu = effectiveEu(assembling);
+        if (ticks <= 0 || ticks == totalTicks && eu == totalEu) {
+            return;
+        }
+        double done = totalTicks <= 0 ? 0 : progress / (double) totalTicks;
+        double paid = totalEu <= 0 ? 1 : euPaid / (double) totalEu;
+        progress = Math.max(0, Math.min(ticks, (int) Math.floor(done * ticks)));
+        euPaid = Math.max(0, Math.min(eu, (long) Math.floor(paid * eu)));
+        totalTicks = ticks;
+        totalEu = eu;
+        changed();
+    }
+
     private void changed() {
         markDirty();
         if (worldObj != null) {
@@ -369,6 +389,20 @@ public class TileEntityWorkbenchSVA extends TileEntityEnergyBase implements ISid
     /** World test: fill the buffer. */
     public void fillForTest(int eu) {
         addEnergy(eu);
+    }
+
+    // ------------------------------------------------------------------ ТБ-1: the item keeps the charge (not the assembly)
+
+    @Override
+    public void writeKept(NBTTagCompound t) {
+        if (getEnergyStored() > 0) {
+            t.setInteger(KeptDataSVA.K_ENERGY, getEnergyStored());
+        }
+    }
+
+    @Override
+    public void readKept(NBTTagCompound t) {
+        restoreEnergy(KeptDataSVA.energy(t));
     }
 
     // ------------------------------------------------------------------ NBT / sync

@@ -3,12 +3,11 @@ package com.sva.client;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.nio.FloatBuffer;
+import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-import org.lwjgl.BufferUtils;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -17,10 +16,16 @@ import com.sva.ConfigSVA;
 import com.sva.item.ItemVehicleSVA;
 import com.sva.vehicle.VehicleType;
 
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
+import cpw.mods.fml.relauncher.ReflectionHelper;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.inventory.Slot;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.client.IItemRenderer;
@@ -45,13 +50,69 @@ public class RenderItemVehicleSVA implements IItemRenderer {
     private static final Map<String, float[]> BOUNDS = new HashMap<String, float[]>();
     /** Per stack in a slot: {angle (deg), last time (ms)} - the turn pauses under the mouse. */
     private static final WeakHashMap<ItemStack, float[]> SPIN = new WeakHashMap<ItemStack, float[]>();
-    private static final FloatBuffer MV = BufferUtils.createFloatBuffer(16);
+    /**
+     * The stack under the mouse this frame (worked out once a frame from GuiContainer's slots, no glGet a slot) and
+     * whether it is worked out yet; RenderTickEvent START clears it.
+     */
+    private static ItemStack hoverStack;
+    private static boolean hoverKnown, ticking;
+    private static Field guiLeft, guiTop;
+    private static boolean noFields;
 
     /** truck.obj: the trailer is everything behind x -1.25 (ObjModelSVA's "trailer" part). */
     private static final float TRAILER_X = -1.25F;
 
     public RenderItemVehicleSVA(boolean trailer) {
         this.trailer = trailer;
+        if (!ticking) {
+            ticking = true;
+            FMLCommonHandler.instance().bus().register(new FrameReset());
+        }
+    }
+
+    /** FML bus: a new frame - the hovered slot is looked up again. */
+    public static final class FrameReset {
+        @SubscribeEvent
+        public void onRender(TickEvent.RenderTickEvent e) {
+            if (e.phase == TickEvent.Phase.START) {
+                hoverKnown = false;
+                hoverStack = null;
+            }
+        }
+    }
+
+    /**
+     * Reads every vehicle / trailer model (ObjModelSVA) and its item bounding box now (client post-init), so the first
+     * look at the creative tab / NEI or the first vehicle in sight does not stall a frame.
+     */
+    public static void preloadModels() {
+        for (VehicleType t : VehicleType.values()) {
+            if (t.model == null) {
+                continue;
+            }
+            ObjModelSVA.get(t.model);
+            preBounds(t.model, t.model, t.trailerSlots > 0 ? -1 : 0);
+        }
+        preBounds(VehicleType.TRUCK.model + "#trailer", VehicleType.TRUCK.model, 1);
+        for (String m : com.sva.vehicle.TrailerMath.MODELS) {
+            if (m != null) {
+                ObjModelSVA.get(m);
+                preBounds(m, m, 0);
+            }
+        }
+    }
+
+    private static void preBounds(String key, String model, int cut) {
+        if (BOUNDS.containsKey(key)) {
+            return;
+        }
+        float[] b;
+        try {
+            b = readBounds(model, cut);
+        } catch (Exception e) {
+            b = null;
+        }
+        BOUNDS.put(key, b);
     }
 
     private VehicleType type(ItemStack s) {
@@ -179,8 +240,8 @@ public class RenderItemVehicleSVA implements IItemRenderer {
     }
 
     /**
-     * The slot's turn: 90 deg/s (one turn in 4 s), paused while the mouse is over this slot (an open screen; the slot's
-     * corner is read back from the modelview - the GUI projection is 1:1 in scaled pixels).
+     * The slot's turn: 90 deg/s (one turn in 4 s), paused while the mouse is over this slot (an open GuiContainer; the
+     * slot under the mouse is found once a frame from guiLeft / guiTop + the slot's place).
      */
     private static float spin(ItemStack item) {
         long now = Minecraft.getSystemTime();
@@ -191,24 +252,53 @@ public class RenderItemVehicleSVA implements IItemRenderer {
         }
         float dt = Math.min(250F, Math.max(0F, now - st[1]));
         st[1] = now;
-        if (!hovered()) {
+        if (!hovered(item)) {
             st[0] = (st[0] + dt * 0.09F) % 360F;
         }
         return st[0];
     }
 
-    private static boolean hovered() {
-        Minecraft mc = Minecraft.getMinecraft();
-        if (mc.currentScreen == null) {
-            return false;
+    private static boolean hovered(ItemStack item) {
+        if (!hoverKnown) {
+            hoverKnown = true;
+            hoverStack = findHovered();
         }
-        MV.clear();
-        GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, MV);
-        float x = MV.get(12), y = MV.get(13);
+        return hoverStack != null && hoverStack == item;
+    }
+
+    /** The stack in the GuiContainer slot under the mouse, or null (no container open / the fields unreadable). */
+    private static ItemStack findHovered() {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (!(mc.currentScreen instanceof GuiContainer) || noFields) {
+            return null;
+        }
+        GuiContainer g = (GuiContainer) mc.currentScreen;
+        int left, top;
+        try {
+            if (guiLeft == null) {
+                guiLeft = ReflectionHelper.findField(GuiContainer.class, "guiLeft", "field_147003_i");
+                guiTop = ReflectionHelper.findField(GuiContainer.class, "guiTop", "field_147009_r");
+            }
+            left = guiLeft.getInt(g);
+            top = guiTop.getInt(g);
+        } catch (Exception e) {
+            noFields = true;                                        // never again: the slots then just keep turning
+            return null;
+        }
         ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
         float mx = Mouse.getX() * sr.getScaledWidth() / (float) mc.displayWidth;
         float my = sr.getScaledHeight() - Mouse.getY() * sr.getScaledHeight() / (float) mc.displayHeight - 1;
-        return mx >= x && mx < x + 16 && my >= y && my < y + 16;
+        if (g.inventorySlots == null) {
+            return null;
+        }
+        for (Object o : g.inventorySlots.inventorySlots) {
+            Slot sl = (Slot) o;
+            int x = left + sl.xDisplayPosition, y = top + sl.yDisplayPosition;
+            if (mx >= x && mx < x + 16 && my >= y && my < y + 16) {
+                return sl.getStack();
+            }
+        }
+        return null;
     }
 
     /**

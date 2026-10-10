@@ -1,0 +1,99 @@
+# Недоработки аддона: что сделано (2026-10-10)
+
+Реализованы варианты, выбранные по отчёту `audit-2026-10-08-nedorabotki.md`.
+
+- **ТС-1 (В)** Новая настройка сервера vehicles.playerDamage (all / pvp / owner / none, по умолчанию pvp): чужие игроки больше не могут разбить машину, если сервер этого не разрешает.
+- **ТС-2 (А)** Бур, газ самолёта, причина остановки автодоставки и открывающийся портал прыжка теперь сохраняются при выгрузке чанка и перезапуске сервера.
+- **ТС-3 (А)** Временное выключение тюнинга в конфиге больше не срезает заряд и газы сверх базового лимита: излишек хранится и возвращается, когда тюнинг снова включён.
+- **ТС-4 (Б)** Высадка надёжнее: игрок выходит у своего сиденья, проверяется больше высот, под водой можно выйти в воду, при тесноте ищется место по кругу вокруг машины, а в крайнем случае игрок встаёт на крышу, а не внутрь модели.
+- **ТС-5 (Б)** Подсказки обновлены: подлатать корпус стальным слитком может любой игрок, полный ремонт — в Ремонтном гараже у владельца и тех, у кого есть право «Ремонт».
+- **ТС-6 (А)** Автодоставка у края загруженной зоны больше не встаёт насовсем: она ставит паузу «впереди незагруженный чанк» и сама едет дальше, когда чанк загрузится.
+- **ТС-7 (А)** Добавлены сообщения для редких отказов переключения режима конвертоплана (вместо сырого ключа в чате).
+- **ТС-8 (А)** Жёсткая посадка с «Лёгким корпусом» больше не опаснее задуманного: урон считается от реального запаса прочности корпуса.
+- **ТС-9 (А)** Зарядный прицеп больше не теряет EU на машины, которые уже выгрузились вместе с чанком.
+- **ТБ-1 (А)** Верстак, гараж, зарядная станция и газовая колонка при ломании (и от взрыва) выпадают целиком и сохраняют в предмете заряд буфера, газ в баках колонки и настройки станции; при установке всё возвращается, владельцем становится тот, кто поставил.
+- **ТБ-2 (А)** Модуль доступа станции теперь обслуживает и машины, за рулём которых сидит игрок с правами на машину владельца станции (он в её списке доступа или носит её ключ-карту); пустая машина — только по владельцу.
+- **ТБ-3 (А)** Воронки и трубы больше не вытаскивают улучшения и модули из зарядной станции; в гараж слитки стали и железа можно подавать трубой или воронкой, но забрать их автоматикой нельзя.
+- **ТБ-4 (А)** Машину-предмет можно зарядить в зарядниках IC2 и в накопителях/зарядных площадках Silicon Age (при установленном IC2), не дальше уровня её энергоблока.
+- **ТБ-5 (А)** Машина, убранная в инвентарь и поставленная снова, сохраняет бортовой номер и ключ-карты; новый номер получает только копия (из креатива или дюп). Если машину ставит другой игрок, замок меняется и старые карты перестают работать.
+- **ТБ-6 (А)** Изношенная головка бура теперь подходит в рецепты верстака (буровая машина, «Расширитель бура», «Усиленный бур»).
+- **ТБ-7 (А)** Убрана устаревшая надпись «Модули появятся вместе с Гаражом»: при пустом списке модулей в верстаке теперь пишется «Ничего не найдено».
+- **ТБ-8 (А)** Если ремонт в гараже прерван (машина уехала, её убрали или гараж сломан), неизрасходованная часть стали и железа возвращается в слоты гаража, а водитель или владелец получает сообщение «Ремонт прерван».
+- **ТБ-9 (А)** Газовая колонка больше не заправляет машину, которую уже заправляет зарядная станция с модулем газа: скорость везде 25 мБ/т, без удвоения.
+- **ТБ-10 (Б)** В подсказке зарядной станции сказано, что для сети выше её уровня нужно ставить трансформаторы (каждый поднимает вход на уровень).
+- **ТБ-11 (А)** Улучшения, вставленные или вынутые в верстаке во время сборки, сразу меняют оставшееся время и энергию; уже собранная и уже оплаченная доля сохраняются.
+- **ТИ-1 (А)** Нижние панели HUD техники на узком экране поднимаются над хотбаром и полосками здоровья и голода, а при F3 HUD техники скрывается, как HUD ядра.
+- **ТИ-2 (А)** Окна верстака, зарядной станции и гаража на маленьких экранах (4:3, 5:4) уменьшаются целиком и помещаются на экран; раскладка та же, мышь и подсказки работают.
+- **ТИ-3 (А)** При наведении на карточку машины в окне зарядной станции видны все её газы (мБ / ёмкость) и скорость заправки.
+- **ТИ-4 (А)** У тилтротора в режиме самолёта в панели полёта появилась строка форсажа на H₂ (состояние и остаток по времени).
+- **ТИ-5 (А)** Клавиша «Карта» работает и пешком, а карта закрывается своей клавишей, клавишей меню «Техника» и клавишей инвентаря.
+- **ТИ-6 (Б)** На карте техника теперь отмечается ромбом цвета тира, а стрелкой — только игрок и указатели за краем карты.
+- **ТИ-7 (А)** Если функции назначена клавиша меню «Техника» без модификаторов, кнопка в меню подсвечивается красным с подсказкой «совпадает с клавишей меню».
+- **ТИ-8 (А)** Отладочная запись нажатий клавиш в лог выключена по умолчанию; включается опцией vehicles.debugKeys.
+- **ТИ-9 (А)** Подсказки вертолёта, самолётов, конвертоплана, челнока, корабля и буровой показывают клавиши, которые реально назначены у игрока, а не стандартные буквы. Серверные сообщения больше не называют букву клавиши.
+- **ТИ-10 (А)** Для динамического света фар в конфиге появились число соседних машин (0 — только своя), радиус и период обновления.
+- **ТИ-11 (А)** Модели техники загружаются заранее при запуске игры, а проверка наведения мыши на 3D-иконки больше не тормозит кадр: убраны подвисания при открытии креатива/NEI и при первом появлении машины.
+- **ТИ-12 (А)** Светящаяся полоска «Аккумулятор+» теперь ярко видна и ночью.
+- **ТН-1 (В)** В списке доступа у каждого игрока свой номер выдачи карты: «Удалить» или новая карта этому игроку отключают его старую карту, карты остальных продолжают работать; старые карты читаются.
+- **ТН-2 (А)** В окне багажника на вкладке «Машина» появилась кнопка «Доступ» — владелец открывает окно доступа без ключ-карты.
+- **ТН-3 (Б)** Новая настройка vehicles.opManage: можно ли операторам в творческом режиме забирать чужие машины, открывать их багажник, окно доступа и настройки чужих зарядных станций.
+- **ТН-4 (А)** Список доступа запоминает UUID игрока (при добавлении онлайн или когда он подходит к машине) и сверяет по нему: смена ника доступ не ломает, а занявший чужой ник доступа не получает; для игроков не в сети — проверка по нику.
+- **ТН-5 (А)** «Сменить замок» в окне доступа срабатывает только с зажатым Shift, как «Вылить» у цистерны; без Shift в подсказке кнопки написано «Удерживайте Shift».
+- **ТН-6 (А)** Пакеты движения (Move, Input) больше не стоят в общей очереди: для каждого игрока хранится только последний пакет каждого вида и применяется в начале тика. Лимит очереди (24) теперь касается только кнопок, и при лаге сервера нажатия не теряются.
+- **ТН-7 (А)** Кнопка «Убрать в инвентарь» теперь пишет «Подойдите ближе к машине», если вы стоите слишком далеко.
+- **ТО-1 (А)** Новая команда для операторов /sva vehicles: list <игрок> (id, тип, бортовой номер, координаты, когда видели), tp <id>, forget <id>, forget-all <игрок> — можно убрать из реестра пропавшие машины, которые занимали лимит.
+- **ТО-2 (А)** Подбор машины гаечным ключом больше не высаживает седоков: как и кнопка в багажнике, он просит сначала всем выйти.
+- **ТО-3 (А)** Подсказки машины-предмета (заряд, ёмкость, износ, расход, запас хода) считаются по настройкам сервера: сервер присылает их при входе, при выходе они сбрасываются.
+- **ТО-4 (Б)** По большим машинам (реактивный самолёт, челнок, корабль и др.) теперь можно кликать по всей модели — крылу, носу, хвосту, а не только по центру корпуса.
+- **ТО-5 (А)** Новые опции конфига vehicles.singularJump, vehicles.bridgeDock, vehicles.drill, vehicles.mobCloak (по умолчанию включены): администратор может отключить прыжок корабля, стыковку с мостом, копание буровой и невидимость для мобов; машина отвечает «отключено на сервере».
+- **ТО-6 (А)** Машину можно передать другому игроку кнопкой «Передать владельца» в окне доступа: номер машины сохраняется, старые ключ-карты по желанию сбрасываются.
+- **ТО-7 (А)** Поддержка WAILA: у машин видно тип, владельца, бортовой номер, заряд, корпус и режим замка; у зарядной станции и гаража — владельца и обслуживаемую машину (у гаража — ход ремонта), у газовой колонки — владельца и запасы газов.
+
+# Addon shortcomings: what was done (2026-10-10)
+
+- **ТС-1 (В)** New server option vehicles.playerDamage (all / pvp / owner / none, default pvp): other players can no longer wreck a vehicle unless the server allows it.
+- **ТС-2 (А)** The drill state, plane throttle, auto-delivery stop reason and an opening jump portal now survive chunk unloads and server restarts.
+- **ТС-3 (А)** Turning tuning off in the config no longer cuts the charge and gases above the base limits: the excess is kept and comes back when tuning is on again.
+- **ТС-4 (Б)** Getting out is more reliable: you exit by your own seat, more heights are tried, water is fine when the vehicle is under water, a ring search finds a spot in tight places, and as a last resort you stand on the roof instead of inside the model.
+- **ТС-5 (Б)** Tooltips updated: anyone may patch the hull with a steel ingot; the full repair in the Repair Garage is for the owner and players with the Repair right.
+- **ТС-6 (А)** Auto-delivery at the edge of the loaded area no longer stops for good: it pauses ('unloaded chunk ahead') and drives on by itself once the chunk loads.
+- **ТС-7 (А)** Added messages for the rare tiltrotor mode-switch refusals (instead of a raw key in chat).
+- **ТС-8 (А)** A hard landing with the Light Hull is no longer harsher than intended: damage is a share of the real hull maximum.
+- **ТС-9 (А)** The charger trailer no longer loses EU into vehicles that were already unloaded with their chunk.
+- **ТБ-1 (А)** The workbench, garage, charging station and gas column now drop whole when broken (or blown up) and keep their buffer charge, the column's tanks and the station's settings in the item; placing it puts them back, and whoever places it becomes the owner.
+- **ТБ-2 (А)** The station's access module now also serves vehicles whose driver has rights on one of the station owner's vehicles (on its access list or carrying its key card); a vehicle with nobody at the wheel - by owner only.
+- **ТБ-3 (А)** Hoppers and pipes no longer pull upgrades and modules out of the charging station; the garage accepts steel and iron ingots from pipes and hoppers but nothing can be extracted from it.
+- **ТБ-4 (А)** A vehicle item can now be charged in IC2 chargers and in Silicon Age storages / charge pads (with IC2 installed), up to its energy block's tier.
+- **ТБ-5 (А)** A vehicle picked up and placed again keeps its board number and key cards; only a copy (creative or a dupe) gets a new id. Placed by another player, its lock is changed so the old cards stop working.
+- **ТБ-6 (А)** A worn drill head now fits the workbench recipes (drill vehicle, Drill Widener, Reinforced Drill).
+- **ТБ-7 (А)** Removed the outdated 'Modules come with the Garage' line: an empty module list in the workbench now says 'Nothing found'.
+- **ТБ-8 (А)** When a garage repair is interrupted (the vehicle left, was picked up, or the garage was broken), the unused share of the steel and iron goes back into the garage slots and the driver or owner is told «Repair interrupted».
+- **ТБ-9 (А)** The gas column no longer refuels a vehicle that a charging station with the gas module is already refuelling: 25 mB/t everywhere, never doubled.
+- **ТБ-10 (Б)** The charging station tooltip now says to fit transformers for a stronger grid (each raises the input by one tier).
+- **ТБ-11 (А)** Upgrades put into or taken out of the workbench during an assembly now change the remaining time and energy at once; the share already built and already paid is kept.
+- **ТИ-1 (А)** On narrow screens the bottom vehicle HUD panels move up above the hotbar and the health/food bars; the vehicle HUD now hides under F3 like the core HUDs.
+- **ТИ-2 (А)** The workbench, charging station and garage screens now shrink as a whole to fit small (4:3, 5:4) screens; same layout, mouse and tooltips work.
+- **ТИ-3 (А)** Hovering the vehicle card in the charging station screen now lists all its gases (mB / capacity) and the refuelling rate.
+- **ТИ-4 (А)** The tiltrotor's flight panel now shows the H2 afterburner line in airplane mode.
+- **ТИ-5 (А)** The Map key now works on foot too, and the map closes with its own key, the vehicle menu key or the inventory key.
+- **ТИ-6 (Б)** On the map vehicles are now diamonds in their tier colour; arrows are only the player and the off-edge pointers.
+- **ТИ-7 (А)** A function bound to the vehicle menu key (no modifiers) is now shown red in the menu with a 'same as the menu key' hint.
+- **ТИ-8 (А)** The key-press debug logging is off by default; enable it with vehicles.debugKeys.
+- **ТИ-9 (А)** Tooltips of the helicopter, planes, tiltrotor, shuttle, ship and drill vehicle show the player's actual key bindings instead of the default letters. Server messages no longer name a key letter.
+- **ТИ-10 (А)** Dynamic headlight light now has config options for the number of other vehicles (0 = only your own), the range and the update period.
+- **ТИ-11 (А)** Vehicle models are preloaded at game start and the 3D item icons' mouse-over check no longer stalls the GPU, removing hitches in creative/NEI and on the first sight of a vehicle.
+- **ТИ-12 (А)** The glowing Battery+ stripe is now bright at night too.
+- **ТН-1 (В)** Each player on the access list has his own card issue number: Remove or a new card for that player disables his old card, other players' cards keep working; old cards still read.
+- **ТН-2 (А)** The cargo screen's Vehicle tab has an Access button: the owner opens the access screen without a key card.
+- **ТН-3 (Б)** New option vehicles.opManage: whether operators in creative may pick up other players' vehicles, open their cargo and access screens and other players' charging station settings.
+- **ТН-4 (А)** The access list keeps the player's UUID (when added online or when he comes to the vehicle) and checks by it: a name change keeps access and someone taking an old name gets none; offline players are still checked by name.
+- **ТН-5 (А)** «Change lock» in the access screen now works only with Shift held, like the tank's «Dump»; without Shift its tooltip says to hold Shift.
+- **ТН-6 (А)** Movement packets (Move, Input) no longer go through the shared queue: only the latest of each kind per player is kept and applied at the start of the tick. The queue limit (24) now only applies to buttons, so presses are no longer lost when the server lags.
+- **ТН-7 (А)** The Pick up button now says 'Get closer to the vehicle' when you are too far away.
+- **ТО-1 (А)** New operator command /sva vehicles: list <player> (id, type, board number, position, last seen), tp <id>, forget <id>, forget-all <player> - lost vehicles that kept counting against the limit can be removed from the registry.
+- **ТО-2 (А)** Picking a vehicle up with the wrench no longer throws its riders out: like the cargo screen button, it asks everyone to get out first.
+- **ТО-3 (А)** Vehicle item tooltips (charge, capacity, wear, consumption, range) now use the server's settings: the server sends them on login, they reset on leaving.
+- **ТО-4 (Б)** Big vehicles (jet, shuttle, ship and others) can now be clicked anywhere on the model - wing, nose, tail - not only in the middle of the hull.
+- **ТО-5 (А)** New config options vehicles.singularJump, vehicles.bridgeDock, vehicles.drill, vehicles.mobCloak (on by default): an admin can switch off the ship's jump, bridge docking, the drill's digging and invisibility for mobs; the vehicle answers 'switched off on the server'.
+- **ТО-6 (А)** A vehicle can be handed to another player with the Transfer owner button in the access screen: it keeps its number, and old key cards can be voided.
+- **ТО-7 (А)** WAILA support: vehicles show their type, owner, board number, charge, hull and lock mode; the charging station and the garage show the owner and the vehicle being served (garage: repair progress); the gas column shows its owner and gas stocks.

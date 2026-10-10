@@ -22,6 +22,7 @@ public class SVAMod {
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent e) {
+        com.sva.net.ServerConfigSVA.init();            // ТО-3: the server's settings for the client's tooltips
         proxy.preInit(e);
     }
 
@@ -40,6 +41,7 @@ public class SVAMod {
 
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent e) {
+        e.registerServerCommand(new CommandSVA());                // /sva vehicles (operators: the vehicle registry)
         if (Boolean.getBoolean("sva.worldtest")) {
             FMLCommonHandler.instance().bus().register(new com.sva.debug.WorldTestSVA());
         }

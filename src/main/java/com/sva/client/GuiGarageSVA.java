@@ -113,8 +113,24 @@ public class GuiGarageSVA extends GuiContainer {
 
     // ------------------------------------------------------------------ drawing
 
+    /** ТИ-2: the window shrinks as a whole on a screen too small for it (GuiFitSVA); 1 = as designed. */
+    private float fit = 1F;
+
+    @Override
+    public void setWorldAndResolution(net.minecraft.client.Minecraft mc, int w, int h) {
+        fit = GuiFitSVA.fit(w, h, W, H);
+        super.setWorldAndResolution(mc, GuiFitSVA.virtual(w, fit), GuiFitSVA.virtual(h, fit));
+    }
+
     @Override
     public void drawScreen(int mx, int my, float pt) {
+        GuiFitSVA.begin(fit);
+        drawFitted(GuiFitSVA.mouse(mx, fit), GuiFitSVA.mouse(my, fit), pt);
+        GuiFitSVA.end(fit);
+    }
+
+    /** drawScreen in the window's own (virtual) coordinates. */
+    private void drawFitted(int mx, int my, float pt) {
         TextFitSC.beginFrame();
         super.drawScreen(mx, my, pt);
         List<String> tip = TextFitSC.hoverAt(mx, my);

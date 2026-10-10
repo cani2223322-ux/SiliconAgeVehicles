@@ -22,12 +22,15 @@ import net.minecraft.util.IIcon;
  * owner's card: every right). The vehicle's access screen (Shift+RMB with the bound card) writes copies for other
  * players onto blank cards. Whoever carries a card (anywhere in the inventory) gets the rights written on it for that
  * vehicle while the card's lock version is the vehicle's - «Сменить замок» makes every older card useless.
- * NBT (on the stack): VehId, Board, Type, Owner, Holder, Lock, Rights. A blank card has none and stacks (16).
+ * NBT (on the stack): VehId, Board, Type, Owner, Holder, Lock, Rights; ТН-1 / ТН-4 on a friend's card also Issue (the
+ * holder's row issue number) and HolderId (his UUID when known). A blank card has none and stacks (16).
+ * ТН-1: a friend's card (Holder != Owner) works only while its holder is listed with that issue number
+ * (AccessMath.Access.cardHolderOk); the owner's card - by the lock version alone. Old cards without Issue read as 0.
  */
 public class ItemKeyCardSVA extends Item {
 
     public static final String K_VEH = "VehId", K_BOARD = "Board", K_TYPE = "Type", K_OWNER = "Owner", K_HOLDER = "Holder",
-            K_LOCK = "Lock", K_RIGHTS = "Rights";
+            K_LOCK = "Lock", K_RIGHTS = "Rights", K_ISSUE = "Issue", K_HOLDER_ID = "HolderId";
 
     private IIcon blank, bound;
 
@@ -57,8 +60,39 @@ public class ItemKeyCardSVA extends Item {
         return AccessMath.cardRights(t.getString(K_VEH), t.getInteger(K_LOCK), t.getInteger(K_RIGHTS), vehId, lock);
     }
 
+    /**
+     * ТН-1: the rights this stack gives for the vehicle `vehId` with the access list `a` (-1: none). As rightsFor(s, vehId,
+     * lock), and a friend's card also needs its holder still listed with the card's issue number.
+     */
+    public static int rightsFor(ItemStack s, String vehId, AccessMath.Access a) {
+        if (a == null) {
+            return -1;
+        }
+        int r = rightsFor(s, vehId, a.lockVersion);
+        if (r < 0 || isOwnerCard(s)) {
+            return r;
+        }
+        NBTTagCompound t = s.getTagCompound();
+        return a.cardHolderOk(t.getString(K_HOLDER), t.getString(K_HOLDER_ID), t.getInteger(K_ISSUE)) ? r : -1;
+    }
+
+    /** The owner's own card (bound with a right-click: its holder is the owner written on it). */
+    public static boolean isOwnerCard(ItemStack s) {
+        if (!isBound(s)) {
+            return false;
+        }
+        NBTTagCompound t = s.getTagCompound();
+        return t.getString(K_HOLDER).equalsIgnoreCase(t.getString(K_OWNER));
+    }
+
     /** Writes a bound card (one item) for a vehicle. */
     public static ItemStack write(ItemStack card, String vehId, int board, VehicleType type, String owner, String holder, int lock, int rights) {
+        return write(card, vehId, board, type, owner, holder, lock, rights, null, 0);
+    }
+
+    /** ТН-1 / ТН-4: a friend's card - with the holder's UUID ("" / null unknown) and his row's issue number (Access.reissue). */
+    public static ItemStack write(ItemStack card, String vehId, int board, VehicleType type, String owner, String holder, int lock, int rights,
+            String holderId, int issue) {
         ItemStack s = new ItemStack(card.getItem(), 1, 0);
         NBTTagCompound t = new NBTTagCompound();
         t.setString(K_VEH, vehId == null ? "" : vehId);
@@ -68,6 +102,12 @@ public class ItemKeyCardSVA extends Item {
         t.setString(K_HOLDER, holder == null ? "" : holder);
         t.setInteger(K_LOCK, lock);
         t.setInteger(K_RIGHTS, AccessMath.norm(rights));
+        if (issue > 0) {
+            t.setInteger(K_ISSUE, issue);
+        }
+        if (holderId != null && holderId.length() > 0) {
+            t.setString(K_HOLDER_ID, holderId);
+        }
         s.setTagCompound(t);
         return s;
     }

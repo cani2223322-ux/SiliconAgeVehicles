@@ -22,6 +22,7 @@ public class ItemBlockGasColumnSVA extends ItemBlock {
     @SideOnly(Side.CLIENT)
     public void addInformation(ItemStack s, EntityPlayer p, List list, boolean adv) {
         list.add(Lang.tr("sva.tooltip.column.summary", fmt(TileEntityGasColumnSVA.TANK), Integer.valueOf(TileEntityGasColumnSVA.RATE)));
+        KeptDataSVA.tooltip(s, list);
         TooltipSC.more(list, Lang.tr("sva.tooltip.column.details", Integer.valueOf((int) TileEntityGasColumnSVA.RADIUS)),
                 Lang.tr("sva.tooltip.howto.column"));
     }

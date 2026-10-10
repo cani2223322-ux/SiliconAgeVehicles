@@ -32,6 +32,12 @@ public final class ConfigSVA {
     public static boolean headlights = true;
     /** Client (★6): headlights light up the blocks ahead at night (client-side block light, restored when they move on). */
     public static boolean dynamicLight = true;
+    /** Client (★6): dynamic light for this many other vehicles besides your own (0 = only your own). */
+    public static int dynamicLightVehicles = 4;
+    /** Client (★6): other vehicles light the blocks only within this many blocks. */
+    public static int dynamicLightRange = 32;
+    /** Client (★6): the dynamic light is updated every this many ticks. */
+    public static int dynamicLightPeriod = 4;
     /** Client (★7): navigation lights - red / green / strobe / beacon on aircraft, amber beacons and markers on work vehicles. */
     public static boolean navLights = true;
     /** Client (★10): animated parts - wheels, tracks, steering, control surfaces, landing gear, rotor tilt, hover lean. */
@@ -68,6 +74,12 @@ public final class ConfigSVA {
     public static boolean locks = true;
     /** ★10: server operators pass any vehicle lock. */
     public static boolean lockOpBypass = true;
+    /** Who may dent a vehicle (hand, arrow, his explosion): "all", "pvp" (the owner; others only with the server's PvP on), "owner", "none" (EntityVehicleSVA.playerDamageAllowed). */
+    public static String playerDamage = "pvp";
+    /** Operators in creative manage other players' vehicles: pick up, cargo screen, access screen; and other players' charging station settings. */
+    public static boolean opManage = true;
+    /** Client: write key presses / the vehicle menu opening to the log (diagnostics for «the menu does not open»). Off by default. */
+    public static boolean debugKeys = false;
     /**
      * Wave 3 (★15): the new trailer kinds (tanker, car platform, mobile charger) may be hitched; false = only the cargo
      * trailer (the others refuse - one already hitched keeps working).
@@ -75,6 +87,14 @@ public final class ConfigSVA {
     public static boolean trailerKinds = true;
     /** Wave 3 (★19): «Моя техника» - the vehicle map (key, the station's button) and the server's vehicle cards. */
     public static boolean vehicleMap = true;
+    /** The Singular Ship's own portal «Прыжок» (SpaceLogicSVA.startJump); off = the key answers "отключено на сервере". */
+    public static boolean singularJump = true;
+    /** The shuttle's and the ship's docking with an open core bridge vortex (SpaceLogicSVA.tryDock). */
+    public static boolean bridgeDock = true;
+    /** The drill vehicle's bore digs (DrillLogicSVA); off = it still drives and carries, the bore stays off. */
+    public static boolean drill = true;
+    /** The Singular Ship's invisibility for mobs (SpaceLogicSVA.cloaked, EventsSVA). */
+    public static boolean mobCloak = true;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -117,6 +137,15 @@ public final class ConfigSVA {
             dynamicLight = c.getBoolean("dynamicLight", v, true,
                     "Client: headlights light up the blocks ahead at night (only on your screen, nothing is saved) / "
                             + "Клиент: фары освещают блоки впереди ночью (только у вас на экране, в мир не сохраняется)");
+            dynamicLightVehicles = c.getInt("dynamicLightVehicles", v, 4, 0, 16,
+                    "Client: how many other vehicles near you light the blocks with their headlights (0 = only your own) / "
+                            + "Клиент: сколько соседних машин освещают блоки фарами (0 - только своя)");
+            dynamicLightRange = c.getInt("dynamicLightRange", v, 32, 8, 128,
+                    "Client: other vehicles' dynamic light only within this many blocks / "
+                            + "Клиент: радиус (в блоках), в котором светят фары соседних машин");
+            dynamicLightPeriod = c.getInt("dynamicLightPeriod", v, 4, 1, 40,
+                    "Client: dynamic light update period in ticks (more = less load) / "
+                            + "Клиент: период обновления света фар в тиках (больше - меньше нагрузка)");
             navLights = c.getBoolean("navLights", v, true,
                     "Client: navigation lights - red/green/strobe/beacon on aircraft, amber beacons on work vehicles / "
                             + "Клиент: бортовые огни - красный/зелёный/строб/маячок у авиации, оранжевые маячки у рабочей техники");
@@ -168,12 +197,36 @@ public final class ConfigSVA {
                             + "false - старые правила (водит владелец, пассажиром - любой)");
             lockOpBypass = c.getBoolean("lockOpBypass", v, true,
                     "Server operators pass any vehicle lock / Операторы сервера открывают любую машину");
+            String pd = c.getString("playerDamage", v, "pvp",
+                    "Who may damage vehicles: all / pvp (others only with PvP on, the owner always) / owner / none / "
+                            + "Кто может ломать технику: all - все, pvp - чужие только при включённом PvP (владелец всегда), "
+                            + "owner - только владелец, none - никто из игроков").trim().toLowerCase(java.util.Locale.ROOT);
+            playerDamage = "all".equals(pd) || "owner".equals(pd) || "none".equals(pd) ? pd : "pvp";
+            opManage = c.getBoolean("opManage", v, true,
+                    "Server operators (creative) may pick up others' vehicles, open their cargo and access screens and change others' "
+                            + "charging stations / Операторы сервера (творческий режим) могут забирать чужие машины, открывать их багажник "
+                            + "и окно доступа, настраивать чужие зарядные станции");
+            debugKeys = c.getBoolean("debugKeys", v, false,
+                    "Client: log key presses and the vehicle menu opening (diagnostics) / "
+                            + "Клиент: писать нажатия клавиш и открытие меню «Техника» в лог (диагностика)");
             trailerKinds = c.getBoolean("trailerKinds", v, true,
                     "The tanker, car platform and mobile charger trailers can be hitched (false: only the cargo trailer) / "
                             + "Прицепы цистерна, платформа и передвижная зарядка цепляются к вездеходу (false - только грузовой)");
             vehicleMap = c.getBoolean("vehicleMap", v, true,
                     "'My vehicles' map: where your vehicles are, their charge and hull (key, charging station button) / "
                             + "Карта 'Моя техника': где ваши машины, заряд и износ (клавиша, кнопка на зарядной станции)");
+            singularJump = c.getBoolean("singularJump", v, true,
+                    "The Singular Ship's own portal 'Jump' (to a Coordinator point or home, other dimensions too) / "
+                            + "Собственный портал Сингулярного корабля 'Прыжок' (к точке Координатора или домой, в том числе в другие измерения)");
+            bridgeDock = c.getBoolean("bridgeDock", v, true,
+                    "The shuttle and the ship dock with an open bridge vortex and come out at the bridge's other end / "
+                            + "Челнок и корабль стыкуются с открытым порталом моста и выходят на другом конце моста");
+            drill = c.getBoolean("drill", v, true,
+                    "The drill vehicle's bore digs blocks (false: it only drives and carries) / "
+                            + "Бур буровой машины копает блоки (false - машина только ездит и возит груз)");
+            mobCloak = c.getBoolean("mobCloak", v, true,
+                    "The Singular Ship's invisibility: hostile mobs don't target its riders / "
+                            + "Невидимость Сингулярного корабля: враждебные мобы не нападают на экипаж");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));

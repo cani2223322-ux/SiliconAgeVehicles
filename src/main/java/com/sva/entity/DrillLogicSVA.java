@@ -97,6 +97,10 @@ public final class DrillLogicSVA {
 
     /** One tick of the bore (server; the drill is on and driven forward). `moved`: blocks driven this tick. */
     public static void tick(EntityVehicleSVA v, double moved) {
+        if (!com.sva.ConfigSVA.drill) {
+            v.drillStop("sva.msg.drill.disabled");             // vehicles.drill off (a bore saved running)
+            return;
+        }
         World w = v.worldObj;
         VehicleState st = v.state;
         ItemStack head = st.drillHead;

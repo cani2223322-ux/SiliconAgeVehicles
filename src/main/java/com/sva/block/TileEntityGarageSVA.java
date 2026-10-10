@@ -22,6 +22,7 @@ import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Items;
 import net.minecraft.inventory.IInventory;
+import net.minecraft.inventory.ISidedInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
@@ -47,7 +48,7 @@ import net.minecraft.util.MathHelper;
  * The client learns the vehicle, the job and its progress from the description packet (sent on change, the progress in
  * 5 % steps): the screen, the lamp front and the hologram ring (RenderGarageSVA).
  */
-public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInventory {
+public class TileEntityGarageSVA extends TileEntityEnergyBase implements ISidedInventory, KeptDataSVA.Keeper {
 
     public static final int SCAN_EVERY = 20, PLATFORM_EVERY = 100;
     public static final int MATERIAL_SLOTS = 2, SIZE = MATERIAL_SLOTS;
@@ -57,7 +58,10 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
     public static final int R_OK = 0, R_NO_VEHICLE = 1, R_BUSY = 2, R_NOTHING = 3, R_NO_RIGHT = 4, R_NO_STEEL = 5;
 
     private static final String K_ITEMS = "GarageItems", K_FACING = "GarageFacing", K_OWNER = "Owner", K_OWNER_NAME = "OwnerName",
-            K_JOB_VEH = "JobVeh", K_JOB_MODE = "JobMode", K_JOB_EU = "JobEu", K_JOB_PAID = "JobPaid";
+            K_JOB_VEH = "JobVeh", K_JOB_MODE = "JobMode", K_JOB_EU = "JobEu", K_JOB_PAID = "JobPaid", K_JOB_STEEL = "JobSteel",
+            K_JOB_IRON = "JobIron";
+    /** ТБ-3: automation reaches the two material slots from every side, only to put metal in. */
+    private static final int[] MATERIAL_ACCESS = {0, 1};
     private static final String D_FACING = "Fc", D_VEH = "Vh", D_JOB = "Jb", D_PROG = "Pg", D_DONE = "Dn";
 
     private final ItemStack[] slots = new ItemStack[SIZE];
@@ -74,6 +78,10 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
     private String jobVeh;
     private int jobMode;
     private long jobEu, jobPaid;
+    /** ТБ-8: the metal the job took when it started (the unused share comes back if it is interrupted). */
+    private int jobSteel, jobIron;
+    /** The vehicle the job was started on (not saved: after a reload the message goes to its owner by name). */
+    private EntityVehicleSVA jobEntity;
     private int sentVeh = Integer.MIN_VALUE, sentProg = -1, sentFacing = -1;
     private boolean sentJob, sentDone;
     // ---- client
@@ -278,6 +286,9 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
             take(true, pay[0]);
             take(false, pay[1]);
             jobVeh = v.state.vehId;
+            jobEntity = v;
+            jobSteel = pay[0];
+            jobIron = pay[1];
             jobMode = mode == GarageMath.HULL ? GarageMath.HULL : GarageMath.ALL;
             jobEu = GarageMath.euCost(v.state.hp, v.state.maxHp(), v.state.heat, jobMode);
             jobPaid = 0;
@@ -334,8 +345,7 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
                 status |= S_REPAIR;                             // part of the floor isn't loaded: wait, don't cancel
                 return;
             }
-            jobVeh = null;                                      // driven away: the job is off (the metal is spent)
-            markDirty();
+            interruptRepair();                                  // driven away / picked up: the job is off, the unused metal back
             return;
         }
         status |= S_REPAIR;
@@ -354,6 +364,8 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         if (jobPaid >= jobEu) {
             v.garageRepaired(jobMode == GarageMath.ALL);
             jobVeh = null;
+            jobEntity = null;
+            jobSteel = jobIron = 0;
             doneTicks = 60;
             worldObj.playSoundEffect(xCoord + 0.5, yCoord + 1, zCoord + 0.5, EntityVehicleSVA.soundName("ding"), 0.8F,
                     ConfigSVA.sounds ? 1.2F : 1.6F);
@@ -362,6 +374,73 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
             }
             markDirty();
         }
+    }
+
+    /**
+     * ТБ-8: the job stops before it is done (the vehicle left the floor, the garage is broken): the share of the metal
+     * it hasn't used yet (1 - paid / EU) goes back into the material slots (what doesn't fit drops by the garage), the
+     * EU paid is spent; the driver - else the vehicle's owner, else the garage's owner - reads «Ремонт прерван».
+     */
+    public void interruptRepair() {
+        if (jobVeh == null) {
+            return;
+        }
+        double left = jobEu <= 0 ? 1 : Math.max(0, 1 - jobPaid / (double) jobEu);
+        int steel = (int) Math.floor(jobSteel * left + 1e-9), iron = (int) Math.floor(jobIron * left + 1e-9);
+        if (steel > 0 && com.sc.init.ModItems.ingot != null) {
+            giveBack(com.sc.init.ModItems.ingot.stackOf(com.sc.util.Material.STEEL), steel);
+        }
+        if (iron > 0) {
+            giveBack(new ItemStack(Items.iron_ingot), iron);
+        }
+        EntityVehicleSVA v = jobEntity != null && jobVeh.equals(jobEntity.state.vehId) ? jobEntity : null;
+        EntityPlayer to = v != null && v.riddenByEntity instanceof EntityPlayer ? (EntityPlayer) v.riddenByEntity : null;
+        if (to == null && v != null) {
+            to = online(v.state.ownerName);
+        }
+        if (to == null) {
+            to = online(ownerName);
+        }
+        if (to != null) {
+            to.addChatComponentMessage(new ChatComponentTranslation("sva.garage.interrupted", Integer.valueOf(steel), Integer.valueOf(iron)));
+        }
+        jobVeh = null;
+        jobEntity = null;
+        jobSteel = jobIron = 0;
+        jobEu = jobPaid = 0;
+        markDirty();
+    }
+
+    /** `n` of `one` into the material slots (stacking first), the rest dropped by the garage. */
+    private void giveBack(ItemStack one, int n) {
+        for (int pass = 0; pass < 2 && n > 0; pass++) {
+            for (int i = 0; i < SIZE && n > 0; i++) {
+                ItemStack s = slots[i];
+                if (pass == 0 && s != null && s.isItemEqual(one) && ItemStack.areItemStackTagsEqual(s, one)) {
+                    int k = Math.min(n, s.getMaxStackSize() - s.stackSize);
+                    s.stackSize += Math.max(0, k);
+                    n -= Math.max(0, k);
+                } else if (pass == 1 && s == null) {
+                    ItemStack put = one.copy();
+                    put.stackSize = Math.min(n, put.getMaxStackSize());
+                    slots[i] = put;
+                    n -= put.stackSize;
+                }
+            }
+        }
+        while (n > 0 && worldObj != null) {
+            ItemStack d = one.copy();
+            d.stackSize = Math.min(n, d.getMaxStackSize());
+            n -= d.stackSize;
+            worldObj.spawnEntityInWorld(new EntityItem(worldObj, xCoord + 0.5, yCoord + 1.2, zCoord + 0.5, d));
+        }
+        markDirty();
+    }
+
+    private static EntityPlayer online(String name) {
+        net.minecraft.server.MinecraftServer s = net.minecraft.server.MinecraftServer.getServer();
+        return name == null || name.length() == 0 || s == null || s.getConfigurationManager() == null ? null
+                : s.getConfigurationManager().func_152612_a(name);
     }
 
     // ------------------------------------------------------------------ tuning (★8)
@@ -374,7 +453,7 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         }
         if (worldObj.isRemote) {
             String o = v.getOwnerName();
-            return o.length() == 0 || o.equalsIgnoreCase(p.getCommandSenderName()) || p.capabilities.isCreativeMode;
+            return o.length() == 0 || o.equalsIgnoreCase(p.getCommandSenderName());
         }
         return v.canManage(p);
     }
@@ -578,6 +657,20 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         scan = SCAN_EVERY;
     }
 
+    // ------------------------------------------------------------------ ТБ-1: the item keeps the charge (not the job)
+
+    @Override
+    public void writeKept(NBTTagCompound t) {
+        if (getEnergyStored() > 0) {
+            t.setInteger(KeptDataSVA.K_ENERGY, getEnergyStored());
+        }
+    }
+
+    @Override
+    public void readKept(NBTTagCompound t) {
+        restoreEnergy(KeptDataSVA.energy(t));
+    }
+
     // ------------------------------------------------------------------ NBT / sync
 
     @Override
@@ -591,6 +684,8 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         jobMode = nbt.getInteger(K_JOB_MODE) == GarageMath.HULL ? GarageMath.HULL : GarageMath.ALL;
         jobEu = Math.max(0, nbt.getLong(K_JOB_EU));
         jobPaid = Math.max(0, Math.min(jobEu, nbt.getLong(K_JOB_PAID)));
+        jobSteel = Math.max(0, nbt.getInteger(K_JOB_STEEL));
+        jobIron = Math.max(0, nbt.getInteger(K_JOB_IRON));
         for (int i = 0; i < SIZE; i++) {
             slots[i] = null;
         }
@@ -614,6 +709,8 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
         nbt.setInteger(K_JOB_MODE, jobMode);
         nbt.setLong(K_JOB_EU, jobEu);
         nbt.setLong(K_JOB_PAID, jobPaid);
+        nbt.setInteger(K_JOB_STEEL, jobSteel);
+        nbt.setInteger(K_JOB_IRON, jobIron);
         NBTTagList list = new NBTTagList();
         for (int i = 0; i < SIZE; i++) {
             if (slots[i] != null) {
@@ -739,6 +836,23 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements IInvent
     @Override
     public boolean isItemValidForSlot(int i, ItemStack s) {
         return i >= 0 && i < SIZE && materialAccepted(s);
+    }
+
+    // ---- ТБ-3: pipes / hoppers may feed steel (or iron) in from any side, nothing comes out
+
+    @Override
+    public int[] getAccessibleSlotsFromSide(int side) {
+        return MATERIAL_ACCESS;
+    }
+
+    @Override
+    public boolean canInsertItem(int slot, ItemStack s, int side) {
+        return isItemValidForSlot(slot, s);
+    }
+
+    @Override
+    public boolean canExtractItem(int slot, ItemStack s, int side) {
+        return false;
     }
 
     /** VehicleType of the garage vehicle on either side (null without one). */

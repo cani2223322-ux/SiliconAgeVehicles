@@ -47,7 +47,7 @@ configurations {
 sourceSets.main.compileClasspath += configurations.compileOnlySVA
 
 dependencies {
-    compileOnlySVA files(coreDir, 'libs/industrialcraft-2-2.2.828-experimental.jar')
+    compileOnlySVA files(coreDir, 'libs/industrialcraft-2-2.2.828-experimental.jar', 'libs/Waila-1.5.10_1.7.10.jar')
     // NEI plugin (com.sva.nei) - compile only, never packed into our jar and kept off the dev run's classpath:
     // NEI finds NEISiliconAgeVehiclesConfig by its name when it is installed; without NEI nothing loads it.
     // The jars are copied from ../SiliconAge/libs (libs/ is gitignored).

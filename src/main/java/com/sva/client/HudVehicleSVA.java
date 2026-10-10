@@ -61,8 +61,8 @@ public class HudVehicleSVA {
         }
         Minecraft mc = Minecraft.getMinecraft();
         EntityVehicleSVA v = vehicleOf(mc.thePlayer);
-        if (v == null || mc.gameSettings.hideGUI) {
-            return;
+        if (v == null || mc.gameSettings.hideGUI || mc.gameSettings.showDebugInfo) {
+            return;                                                 // hidden under F3, like the core's HUDs
         }
         VehicleType t = v.getVehicleType();
         FontRenderer fr = mc.fontRenderer;
@@ -120,7 +120,7 @@ public class HudVehicleSVA {
         String trailerLine = trailerLine(v);                        // ★15: the tanker's fluid / the carried vehicle / the charger
         int rows = 5 + (wear ? 1 : 0) + gasRows + (warn != null ? 1 : 0) + (charging ? 1 : 0) + (autoLine ? 1 : 0) + (trailerLine != null ? 1 : 0);
         int h = 24 + (rows - 1) * 10 + 4;
-        int x = 4, y = e.resolution.getScaledHeight() - h - 4;
+        int x = 4, y = e.resolution.getScaledHeight() - h - bottomGap(e.resolution.getScaledWidth(), x, x + W);
 
         Gui.drawRect(x - 1, y - 1, x + W + 1, y + h + 1, EDGE);
         Gui.drawRect(x, y, x + W, y + h, BG);
@@ -173,7 +173,7 @@ public class HudVehicleSVA {
             ry += 10;
         }
         if (autoLine) {
-            boolean stop = v.getAutoState() == com.sva.vehicle.AutoDelivery.STOPPED;
+            boolean stop = v.getAutoState() == com.sva.vehicle.AutoDelivery.STOPPED || v.isAutoPaused();   // ТС-6: paused at the loaded edge - yellow as stopped
             fit(fr, GuiCargoSVA.autoStatus(v), x + 6, ry, W - 12, stop ? WARN : BLUE, false);
             ry += 10;
         }
@@ -320,7 +320,8 @@ public class HudVehicleSVA {
     private int drawFlight(Minecraft mc, FontRenderer fr, int sw, int sh, EntityVehicleSVA v, VehicleType t, int leftTop) {
         boolean tilt = t.movement == Movement.TILT;
         boolean heli = t.movement == Movement.HELI || tilt && !v.planeNow();
-        boolean extraRow = tilt || t.gases.boostGas != null;
+        boolean afterRow = t.gases.boostGas != null && !heli;      // the afterburner: jet, shuttle, tiltrotor in plane mode
+        int extraRows = (tilt ? 1 : 0) + (afterRow ? 1 : 0);
         shownVy = shownVy * 0.7 + (v.posY - v.prevPosY) * 0.3;
         long now = mc.theWorld.getTotalWorldTime();
         boolean blink = (now / 8) % 2 == 0;
@@ -379,8 +380,8 @@ public class HudVehicleSVA {
             fr.drawStringWithShadow(status, (sw - fr.getStringWidth(status)) / 2, 30, sc);
         }
         // ---- flight panel (bottom right)
-        int pw = 168, rows = (heli ? 3 : 5) + (extraRow ? 1 : 0), ph = rows * 11 + 8;
-        int px = sw - pw - 4, py = sh - ph - 4;
+        int pw = 168, rows = (heli ? 3 : 5) + extraRows, ph = rows * 11 + 8;
+        int px = sw - pw - 4, py = sh - ph - bottomGap(sw, px, px + pw);
         Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
         Gui.drawRect(px, py, px + pw, py + ph, BG);
         int ry = py + 5;
@@ -394,7 +395,8 @@ public class HudVehicleSVA {
                     : Lang.tr("sva.hud.tilt.mode", m, VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.MODE));
             fit(fr, line, px + 6, ry, pw - 12, com.sva.vehicle.TiltMath.transition(pos) ? AMBER : BLUE, true);
             ry += 11;
-        } else if (t.gases.boostGas != null) {
+        }
+        if (afterRow) {
             // «Форсаж: ВКЛ · H₂ 12:30»
             Gas g = t.gases.boostGas;
             int mb = v.getGas(g);
@@ -502,7 +504,7 @@ public class HudVehicleSVA {
         java.util.List<?> hint = v.hasHead() ? java.util.Collections.emptyList()
                 : fr.listFormattedStringToWidth(Lang.tr("sva.hud.drill.noHead", com.sva.proxy.ClientProxySVA.cargoKeyName()), pw - 12);
         int ph = (3 + Math.max(1, hint.size())) * 11 + 8;
-        int px = sw - pw - 4, py = sh - ph - 4;
+        int px = sw - pw - 4, py = sh - ph - bottomGap(sw, px, px + pw);
         Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
         Gui.drawRect(px, py, px + pw, py + ph, BG);
         int ry = py + 5;
@@ -528,6 +530,15 @@ public class HudVehicleSVA {
         ry += 11;
         fit(fr, Lang.tr(v.isFieldOn() ? "sva.hud.field.on" : "sva.hud.field.off"), px + 6, ry, pw - 12, v.isFieldOn() ? 0xB27CFF : DIM, false);
         return py;
+    }
+
+    /**
+     * The gap under a bottom panel spanning x0..x1: 4 px, or 40 px (above the hotbar, health and food) when the panel
+     * reaches the vanilla bars in the middle (182 px wide) - on narrow screens (scaled width under ~520).
+     */
+    private static int bottomGap(int sw, int x0, int x1) {
+        int hl = sw / 2 - 91 - 2, hr = sw / 2 + 91 + 2;
+        return x1 + 1 > hl && x0 - 1 < hr ? 40 : 4;
     }
 
     /** A panel line in at most maxW px: scaled down to 3/4, then cut with "..." (no tooltips in the HUD). */

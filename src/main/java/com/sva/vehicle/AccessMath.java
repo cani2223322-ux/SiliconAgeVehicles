@@ -17,6 +17,13 @@ import net.minecraft.nbt.NBTTagList;
  * on it), OWNER (nobody but the owner; cards ignored). A key card is valid while its lock version equals the vehicle's
  * («Сменить замок» bumps it). Server ops pass any lock with vehicles.lockOpBypass.
  *
+ * ТН-1: every row carries an issue number (Issue). «+ Добавить» and «Выдать ключ-карту» give it a new one from the list's
+ * never-reused counter (IssueSeq), and a friend's card (holder != the owner written on it) opens only while its holder
+ * is still listed with the number written on the card: «Удалить» or a newer card for that player revokes just his old
+ * card. The owner's card is checked by the lock version alone. Old rows / cards have no number (0) and still match.
+ * ТН-4: a row added while the player was online also keeps his UUID (Id); such a row is found by the UUID (its name
+ * follows the player's renames: refresh), rows without one by the name, as before.
+ *
  * Old saves: a vehicle saved before wave 2 (its NBT has an id but no "Access") gets LEGACY_OTHERS - anyone may sit as a
  * passenger, only the owner drives / opens the cargo, which is exactly how it worked before. A new vehicle starts in
  * FRIENDS with nobody else allowed (NEW_OTHERS). With vehicles.locks off nothing here is consulted: the old rules hold.
@@ -99,6 +106,12 @@ public final class AccessMath {
         public int lockVersion;
         public final List<String> names = new ArrayList<String>();
         public final List<Integer> rights = new ArrayList<Integer>();
+        /** ТН-4: the row's player UUID ("" - unknown: found by the name). */
+        public final List<String> ids = new ArrayList<String>();
+        /** ТН-1: the row's issue number (0 - an old row: only old cards without a number match it). */
+        public final List<Integer> issues = new ArrayList<Integer>();
+        /** ТН-1: the last issue number given out (never reused, so a removed and re-added player's old card stays dead). */
+        public int issueSeq;
 
         /** Index of a player's row (names compare ignoring case), -1 if not listed. */
         public int find(String name) {
@@ -113,19 +126,61 @@ public final class AccessMath {
             return -1;
         }
 
+        /**
+         * ТН-4: a player's row - by his UUID first; a row without a UUID by the name (ignoring case). A row that keeps
+         * another player's UUID never matches by the name alone (someone who took a renamed friend's old name).
+         * An empty / null uuid: by the name only (find).
+         */
+        public int findPlayer(String uuid, String name) {
+            if (uuid == null || uuid.length() == 0) {
+                return find(name);
+            }
+            for (int i = 0; i < ids.size(); i++) {
+                if (uuid.equals(ids.get(i))) {
+                    return i;
+                }
+            }
+            if (name == null) {
+                return -1;
+            }
+            for (int i = 0; i < names.size(); i++) {
+                if (ids.get(i).length() == 0 && names.get(i).equalsIgnoreCase(name)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
         /** The player's row rights, -1 if not listed. */
         public int listed(String name) {
             int i = find(name);
             return i < 0 ? -1 : rights.get(i).intValue();
         }
 
+        /** ТН-4: the row rights of the player with this UUID / name (findPlayer), -1 if not listed. */
+        public int listed(String uuid, String name) {
+            int i = findPlayer(uuid, name);
+            return i < 0 ? -1 : rights.get(i).intValue();
+        }
+
         /** Adds a player (driver + passenger + cargo to start with, like the mock-up's friend row). @return added */
         public boolean add(String name) {
+            return add(name, null);
+        }
+
+        /** ТН-4: adds a player, with his UUID when he is online (null / "": found by the name). @return added */
+        public boolean add(String name, String uuid) {
+            String id = uuid == null ? "" : uuid;
             if (!validName(name) || find(name) >= 0 || names.size() >= MAX_FRIENDS) {
                 return false;
             }
+            if (id.length() > 0 && ids.contains(id)) {
+                return false;                                       // already listed under his old name
+            }
             names.add(name);
             rights.add(Integer.valueOf(norm(DRIVE | PASSENGER | CARGO)));
+            ids.add(id);
+            issues.add(Integer.valueOf(++issueSeq));               // ТН-1: no older card of this player matches the new row
             return true;
         }
 
@@ -136,7 +191,67 @@ public final class AccessMath {
             }
             names.remove(i);
             rights.remove(i);
+            ids.remove(i);
+            issues.remove(i);
             return true;
+        }
+
+        /** ТН-1, «Выдать ключ-карту»: a new issue number for the player's row (his older cards stop working). @return it, -1 not listed */
+        public int reissue(String name) {
+            int i = find(name);
+            if (i < 0) {
+                return -1;
+            }
+            issues.set(i, Integer.valueOf(++issueSeq));
+            return issueSeq;
+        }
+
+        /** ТН-1: the row's issue number, -1 if not listed. */
+        public int issueOf(String uuid, String name) {
+            int i = findPlayer(uuid, name);
+            return i < 0 ? -1 : issues.get(i).intValue();
+        }
+
+        /** ТН-4: the UUID kept for a listed name ("" - none / not listed). */
+        public String idOf(String name) {
+            int i = find(name);
+            return i < 0 ? "" : ids.get(i);
+        }
+
+        /**
+         * ТН-1: does a friend's card (its holder, his UUID and the issue number written on it) still belong to a listed
+         * player? The owner's own card is not checked here (the lock version alone).
+         */
+        public boolean cardHolderOk(String holder, String holderId, int issue) {
+            int i = findPlayer(holderId, holder);
+            return i >= 0 && issues.get(i).intValue() == issue;
+        }
+
+        /**
+         * ТН-4: an online player near the vehicle refreshes his row - a row found by the name gets his UUID, a row found
+         * by the UUID follows his new name (unless another row already has that name). @return changed
+         */
+        public boolean refresh(String uuid, String name) {
+            if (uuid == null || uuid.length() == 0 || !validName(name)) {
+                return false;
+            }
+            int i = findPlayer(uuid, name);
+            if (i < 0) {
+                return false;
+            }
+            boolean changed = false;
+            if (ids.get(i).length() == 0) {
+                ids.set(i, uuid);
+                changed = true;
+            }
+            if (!names.get(i).equals(name)) {
+                int other = find(name);
+                if (other < 0 || other == i) {
+                    names.set(i, name);
+                    changed = true;
+                }
+            }
+            return changed;
         }
 
         public void set(String name, int r) {
@@ -150,11 +265,16 @@ public final class AccessMath {
             t.setInteger("Mode", mode);
             t.setInteger("Others", others);
             t.setInteger("Lock", lockVersion);
+            t.setInteger("IssueSeq", issueSeq);
             NBTTagList l = new NBTTagList();
             for (int i = 0; i < names.size(); i++) {
                 NBTTagCompound e = new NBTTagCompound();
                 e.setString("Name", names.get(i));
                 e.setInteger("Rights", rights.get(i).intValue());
+                if (ids.get(i).length() > 0) {
+                    e.setString("Id", ids.get(i));
+                }
+                e.setInteger("Issue", issues.get(i).intValue());
                 l.appendTag(e);
             }
             t.setTag("Players", l);
@@ -164,15 +284,22 @@ public final class AccessMath {
             mode = Math.max(0, Math.min(MODES - 1, t.getInteger("Mode")));
             others = norm(t.getInteger("Others"));
             lockVersion = t.getInteger("Lock");
+            issueSeq = t.getInteger("IssueSeq");                   // 0 in saves before ТН-1
             names.clear();
             rights.clear();
+            ids.clear();
+            issues.clear();
             NBTTagList l = t.getTagList("Players", 10);
             for (int i = 0; i < l.tagCount() && names.size() < MAX_FRIENDS; i++) {
                 NBTTagCompound e = l.getCompoundTagAt(i);
-                String n = e.getString("Name");
-                if (validName(n) && find(n) < 0) {
+                String n = e.getString("Name"), id = e.getString("Id");
+                if (validName(n) && find(n) < 0 && (id.length() == 0 || !ids.contains(id))) {
                     names.add(n);
                     rights.add(Integer.valueOf(norm(e.getInteger("Rights"))));
+                    ids.add(id);
+                    int issue = Math.max(0, e.getInteger("Issue"));
+                    issues.add(Integer.valueOf(issue));
+                    issueSeq = Math.max(issueSeq, issue);
                 }
             }
         }
@@ -182,8 +309,11 @@ public final class AccessMath {
             mode = FRIENDS;
             others = LEGACY_OTHERS;
             lockVersion = 0;
+            issueSeq = 0;
             names.clear();
             rights.clear();
+            ids.clear();
+            issues.clear();
         }
     }
 }

@@ -32,9 +32,11 @@ import net.minecraft.world.chunk.Chunk;
 
 /**
  * Wave 3, ★19 «Моя техника» (mock-up docs/mockups/veh_more_7_map.png, in the addon's dark style): on the left a
- * top-down map round the player (key M) or the charging station (its «Техника» button) - the terrain from the blocks
+ * top-down map round the player (key «Карта», M by default - riding or on foot; the same key, the menu key or the
+ * inventory key close it) or the charging station (its «Техника» button) - the terrain from the blocks
  * this client has loaded (each pixel: the top block's MapColor, a little darker or lighter by the slope, unknown land
- * dark), the vehicles as arrows in their tier's colour with their name and board number, the station, the player; a
+ * dark), the vehicles as diamonds in their tier's colour with their name and board number (no heading is known, so no
+ * arrow), the station, the player as an arrow along his look; a
  * vehicle off the panel is pinned to its edge with a small arrow toward it and its distance. On the right the list:
  * the item icon, name + board number, coordinates and distance, charge and wear bars, «Показать» (centres the map on
  * it), «мало заряда!» under 20 %; another dimension / an unknown place said instead of the coordinates.
@@ -142,6 +144,17 @@ public class GuiMapSVA extends GuiScreen {
 
     private boolean overMap(int mx, int my) {
         return mx >= left + MAP_X && mx < left + MAP_X + MAP && my >= top + MAP_Y && my < top + MAP_Y + MAP;
+    }
+
+    /** Esc, «Карта», the menu key or the inventory key: closed (like the «Техника» menu). */
+    @Override
+    protected void keyTyped(char c, int key) {
+        int[] map = VehicleKeyBindsSVA.get(com.sva.vehicle.VehicleFn.MAP);
+        int menu = VehicleKeyBindsSVA.KEY_MENU.getKeyCode();
+        if (key == org.lwjgl.input.Keyboard.KEY_ESCAPE || key != 0 && (map != null && key == map[0] || key == menu
+                || key == mc.gameSettings.keyBindInventory.getKeyCode())) {
+            mc.displayGuiScreen(null);
+        }
     }
 
     @Override
@@ -325,6 +338,26 @@ public class GuiMapSVA extends GuiScreen {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
     }
 
+    /** A vehicle on the map: a diamond of half-size r at (x, y) with a dark rim (no heading - only the player is an arrow). */
+    private static void diamond(double x, double y, double r, int rgb) {
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        Tessellator t = Tessellator.instance;
+        for (int pass = 0; pass < 2; pass++) {
+            double k = pass == 0 ? r + 1.5 : r;
+            GL11.glColor4f(pass == 0 ? 0.05F : (rgb >> 16 & 255) / 255F, pass == 0 ? 0.05F : (rgb >> 8 & 255) / 255F,
+                    pass == 0 ? 0.07F : (rgb & 255) / 255F, 1F);
+            t.startDrawingQuads();
+            t.addVertex(x, y - k, 0);
+            t.addVertex(x - k, y, 0);
+            t.addVertex(x, y + k, 0);
+            t.addVertex(x + k, y, 0);
+            t.draw();
+        }
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+    }
+
     @Override
     public void drawScreen(int mx, int my, float pt) {
         TextFitSC.beginFrame();
@@ -397,7 +430,7 @@ public class GuiMapSVA extends GuiScreen {
             int col = tierColour(VehicleType.byOrdinal(r.type).tier);
             double[] p = MapMath.toMap(r.x + 0.5, r.z + 0.5, cx, cz, s);
             if (MapMath.inside(p[0], p[1], half - 4)) {
-                arrow(ox + p[0], oy + p[1], -Math.PI / 2, 5, col);
+                diamond(ox + p[0], oy + p[1], 4, col);
                 fontRendererObj.drawStringWithShadow(name(r), (int) (ox + p[0]) + 7, (int) (oy + p[1]) - 4, 0xFFFFFF);
             } else {
                 double[] e = MapMath.edge(p[0], p[1], half - 7);

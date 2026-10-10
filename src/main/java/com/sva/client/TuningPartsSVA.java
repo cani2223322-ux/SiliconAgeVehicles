@@ -111,9 +111,13 @@ public final class TuningPartsSVA {
         box(xa, ya, -w, xb + 0.02F, yb, w);
         colour(0.85F, 0.70F, 0.15F, shade);
         box(xa - 0.005F, yb - 0.035F, -w * 0.9F, xa, yb - 0.015F, -w * 0.2F);   // the yellow label
+        // the charge stripe glows: full lightmap and no shade, like lightBar (bright at night too)
+        float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
         GL11.glDisable(GL11.GL_LIGHTING);
-        GL11.glColor4f(0.35F * shade, 0.85F * shade, 1F * shade, 1F);
-        box(xa - 0.005F, ya + 0.03F, -w * 0.9F, xa, ya + 0.05F, w * 0.9F);        // the charge stripe glows
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+        GL11.glColor4f(0.35F, 0.85F, 1F, 1F);
+        box(xa - 0.005F, ya + 0.03F, -w * 0.9F, xa, ya + 0.05F, w * 0.9F);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
         GL11.glEnable(GL11.GL_LIGHTING);
     }
 

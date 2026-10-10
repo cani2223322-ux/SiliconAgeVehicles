@@ -106,7 +106,7 @@ public class GuiVehicleSVA extends GuiScreen {
                 int[] k = VehicleKeyBindsSVA.get(f);
                 b.active = f == capturing;
                 b.displayString = f == capturing ? "§e" + Lang.tr("sva.vmenu.press")
-                        : !VehicleKeyBindsSVA.clashes(f, type).isEmpty() ? "§c" + VehicleKeyBindsSVA.describe(k)
+                        : !VehicleKeyBindsSVA.clashes(f, type).isEmpty() || VehicleKeyBindsSVA.clashesMenu(f) ? "§c" + VehicleKeyBindsSVA.describe(k)
                         : k == null ? "§7-" : VehicleKeyBindsSVA.describe(k);
             } else if (b.id >= B_ACT) {
                 VehicleFn f = VehicleFn.values()[b.id - B_ACT];
@@ -418,6 +418,9 @@ public class GuiVehicleSVA extends GuiScreen {
                 b.append(b.length() > 0 ? ", " : "").append(Lang.tr(o.nameKey(type)));
             }
             l.add("§c" + Lang.tr("sva.vmenu.key.clash", b.toString()));
+        }
+        if (VehicleKeyBindsSVA.clashesMenu(f)) {
+            l.add("§c" + Lang.tr("sva.vmenu.key.clashMenu"));
         }
         List<String> shared = VehicleKeyBindsSVA.sharedWith(f);
         if (!shared.isEmpty()) {

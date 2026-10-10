@@ -27,12 +27,13 @@ import net.minecraft.world.World;
  * despawns, goes out of range, the option is switched off or the world changes, those blocks get their real light back
  * (World.updateLightByType recomputes them and clears anything that spread from them). The server world is never
  * touched and nothing is saved: a chunk sent again by the server simply comes with its real light.
- * Limits: the local player's vehicle and the nearest MAX_VEHICLES others within RANGE blocks, updated every PERIOD
- * ticks; vanilla's random light checks near the player can briefly reset a lit block until the next update.
+ * Limits (config, for weak PCs): the local player's vehicle and the nearest vehicles.dynamicLightVehicles others (0 =
+ * only your own) within vehicles.dynamicLightRange blocks, updated every vehicles.dynamicLightPeriod ticks; vanilla's
+ * random light checks near the player can briefly reset a lit block until the next update.
  */
 public final class DynamicLightSVA {
 
-    private static final int PERIOD = 4, MAX_VEHICLES = 4, RANGE = 32, REACH = 10;
+    private static final int REACH = 10;
     /** Aircraft light the ground only below this height (blocks). */
     private static final double LANDING_HEIGHT = 16;
     /** Packed block position -> the level we set. */
@@ -51,7 +52,7 @@ public final class DynamicLightSVA {
             lit.clear();                                            // the old world went with its light
             world = w;
         }
-        if (w == null || mc.thePlayer == null || ++timer < PERIOD) {
+        if (w == null || mc.thePlayer == null || ++timer < Math.max(1, ConfigSVA.dynamicLightPeriod)) {
             return;
         }
         timer = 0;
@@ -100,7 +101,7 @@ public final class DynamicLightSVA {
         w.markBlockRangeForRenderUpdate(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1);
     }
 
-    /** The local player's vehicle plus the nearest powered vehicles with headlights, at most MAX_VEHICLES. */
+    /** The local player's vehicle plus the nearest other powered vehicles with headlights (at most dynamicLightVehicles). */
     private static List<EntityVehicleSVA> nearest(World w, Entity player) {
         List<EntityVehicleSVA> out = new ArrayList<EntityVehicleSVA>();
         List<Double> dist = new ArrayList<Double>();
@@ -111,7 +112,8 @@ public final class DynamicLightSVA {
             EntityVehicleSVA v = (EntityVehicleSVA) o;
             double d2 = v.getDistanceSqToEntity(player);
             boolean own = HudVehicleSVA.vehicleOf(Minecraft.getMinecraft().thePlayer) == v;
-            if (v.isDead || !own && d2 > RANGE * RANGE || !v.powered() || !VehicleLights.hasHead(v.getVehicleType().model)) {
+            double range = ConfigSVA.dynamicLightRange;
+            if (v.isDead || !own && (ConfigSVA.dynamicLightVehicles <= 0 || d2 > range * range) || !v.powered() || !VehicleLights.hasHead(v.getVehicleType().model)) {
                 continue;
             }
             double key = own ? -1 : d2;
@@ -122,7 +124,8 @@ public final class DynamicLightSVA {
             out.add(i, v);
             dist.add(i, Double.valueOf(key));
         }
-        return out.size() > MAX_VEHICLES ? out.subList(0, MAX_VEHICLES) : out;
+        int max = Math.max(0, ConfigSVA.dynamicLightVehicles) + (!dist.isEmpty() && dist.get(0).doubleValue() < 0 ? 1 : 0);
+        return out.size() > max ? out.subList(0, max) : out;
     }
 
     /**

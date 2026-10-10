@@ -49,6 +49,34 @@ public class BlockGasColumnSVA extends BlockContainer {
         if (!w.isRemote && te instanceof TileEntityGasColumnSVA && e instanceof EntityPlayer) {
             ((TileEntityGasColumnSVA) te).setOwner(e.getUniqueID().toString(), ((EntityPlayer) e).getCommandSenderName());
         }
+        KeptDataSVA.restore(w, x, y, z, s);
+    }
+
+    // ------------------------------------------------------------------ ТБ-1: the item keeps the tanks (KeptDataSVA)
+
+    @Override
+    public boolean removedByPlayer(World w, EntityPlayer p, int x, int y, int z, boolean willHarvest) {
+        if (willHarvest) {
+            return true;                                    // harvestBlock drops (reading the tile), then removes the block
+        }
+        return super.removedByPlayer(w, p, x, y, z, willHarvest);
+    }
+
+    @Override
+    public void harvestBlock(World w, EntityPlayer p, int x, int y, int z, int meta) {
+        super.harvestBlock(w, p, x, y, z, meta);
+        w.setBlockToAir(x, y, z);
+    }
+
+    /** An explosion drops it whole, as the core's tanks: the gas rides in the item. */
+    @Override
+    public void dropBlockAsItemWithChance(World w, int x, int y, int z, int meta, float chance, int fortune) {
+        super.dropBlockAsItemWithChance(w, x, y, z, meta, 1.0F, fortune);
+    }
+
+    @Override
+    public java.util.ArrayList<ItemStack> getDrops(World w, int x, int y, int z, int meta, int fortune) {
+        return KeptDataSVA.drops(this, damageDropped(meta), w, x, y, z);
     }
 
     @Override

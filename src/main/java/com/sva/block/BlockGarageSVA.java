@@ -55,6 +55,7 @@ public class BlockGarageSVA extends BlockContainer {
             }
             w.markBlockForUpdate(x, y, z);
         }
+        KeptDataSVA.restore(w, x, y, z, s);
     }
 
     @Override
@@ -81,6 +82,7 @@ public class BlockGarageSVA extends BlockContainer {
         TileEntity te = w.getTileEntity(x, y, z);
         if (te instanceof TileEntityGarageSVA && !w.isRemote) {
             TileEntityGarageSVA g = (TileEntityGarageSVA) te;
+            g.interruptRepair();                            // ТБ-8: the unused share of the metal goes back into the slots (spilt below)
             for (int i = 0; i < g.getSizeInventory(); i++) {
                 ItemStack st = g.getStackInSlot(i);
                 if (st != null) {
@@ -90,6 +92,33 @@ public class BlockGarageSVA extends BlockContainer {
             }
         }
         super.breakBlock(w, x, y, z, b, meta);
+    }
+
+    // ------------------------------------------------------------------ ТБ-1: the item keeps the buffer (KeptDataSVA)
+
+    @Override
+    public boolean removedByPlayer(World w, EntityPlayer p, int x, int y, int z, boolean willHarvest) {
+        if (willHarvest) {
+            return true;                                    // harvestBlock drops (reading the tile), then removes the block
+        }
+        return super.removedByPlayer(w, p, x, y, z, willHarvest);
+    }
+
+    @Override
+    public void harvestBlock(World w, EntityPlayer p, int x, int y, int z, int meta) {
+        super.harvestBlock(w, p, x, y, z, meta);
+        w.setBlockToAir(x, y, z);
+    }
+
+    /** An explosion drops it whole, as the core's machines: what it keeps rides in the item. */
+    @Override
+    public void dropBlockAsItemWithChance(World w, int x, int y, int z, int meta, float chance, int fortune) {
+        super.dropBlockAsItemWithChance(w, x, y, z, meta, 1.0F, fortune);
+    }
+
+    @Override
+    public java.util.ArrayList<ItemStack> getDrops(World w, int x, int y, int z, int meta, int fortune) {
+        return KeptDataSVA.drops(this, damageDropped(meta), w, x, y, z);
     }
 
     @Override

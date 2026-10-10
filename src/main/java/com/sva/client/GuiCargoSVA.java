@@ -59,7 +59,7 @@ public class GuiCargoSVA extends GuiContainer {
 
     private static final int W = ContainerCargoSVA.W, H = ContainerCargoSVA.H, X0 = 30, CW = 162;
     private static final int BTN_PICK_SMALL = 0, BTN_PREV = 1, BTN_NEXT = 2, BTN_AUTO = 3, BTN_ROUTE_CLEAR = 4, BTN_DETACH = 5,
-            BTN_DRILL = 6, BTN_MODE = 7, BTN_SORT = 10, BTN_JUNK = 11, BTN_PICK = 12, BTN_TAB = 20,
+            BTN_DRILL = 6, BTN_MODE = 7, BTN_SORT = 10, BTN_JUNK = 11, BTN_PICK = 12, BTN_ACCESS = 13, BTN_TAB = 20,
             /** ★15 the «Прицеп» tab. */
             BTN_REFUEL = 30, BTN_DUMP = 31, BTN_LOAD = 32, BTN_UNLOAD = 33, BTN_TDETACH = 34;
     private static final int BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, PANEL = 0xFF232833, PANEL_HI = 0xFF2E3542, SLOT = 0xFF2B313C,
@@ -76,7 +76,7 @@ public class GuiCargoSVA extends GuiContainer {
     private GuiTextField search;
     private final List<Dark> tabButtons = new ArrayList<Dark>();
     private final List<int[]> tabsShown = new ArrayList<int[]>();
-    private Dark pickSmall, prev, next, sort, junk, auto, routeClear, detach, drill, pick;
+    private Dark pickSmall, prev, next, sort, junk, auto, routeClear, detach, drill, pick, access;
     /** ★15 the «Прицеп» tab's buttons. */
     private Dark refuel, dump, load, unload, tDetach;
     private final Dark[] modes = new Dark[DrillMath.MODES];
@@ -163,6 +163,7 @@ public class GuiCargoSVA extends GuiContainer {
         tDetach = add(new Dark(BTN_TDETACH, x + X0 + 110, y + 132, 52, 13, Lang.tr("sva.gui.trailer.detachShort"), tip("detach")));
         // vehicle tab
         pick = add(new Dark(BTN_PICK, x + X0, y + 127, 104, 13, Lang.tr("sva.gui.pickUp"), tip("pick")));
+        access = add(new Dark(BTN_ACCESS, x + X0 + 106, y + 127, 56, 13, Lang.tr("sva.gui.access"), tip("access")));
         int t = lastTab == ContainerCargoSVA.TAB_SPECIAL && !hasSpecial() || lastTab == ContainerCargoSVA.TAB_TRAILER && !hasTrailerTab()
                 ? ContainerCargoSVA.TAB_CARGO : lastTab;
         box.setView(t, box.page());
@@ -229,6 +230,9 @@ public class GuiCargoSVA extends GuiContainer {
         next.enabled = box.page() < box.pages() - 1;
         sort.visible = junk.visible = cargo;
         pick.visible = veh;
+        String o = vehicle.getOwnerName();
+        access.visible = veh && vehicle.locksOn() && (o.length() == 0 || o.equalsIgnoreCase(mc.thePlayer.getCommandSenderName())
+                || mc.thePlayer.capabilities.isCreativeMode);
         boolean tr = tab == ContainerCargoSVA.TAB_TRAILER && hasTrailerTab();
         int kind = vehicle.trailerKind();
         refuel.visible = dump.visible = tr && kind == TrailerMath.TANK;
@@ -293,6 +297,10 @@ public class GuiCargoSVA extends GuiContainer {
             case BTN_PICK:
             case BTN_PICK_SMALL:
                 NetSVA.CHANNEL.sendToServer(new NetSVA.PickUp(id));
+                return;
+            case BTN_ACCESS:
+                mc.thePlayer.closeScreen();                         // the server's cargo container closes cleanly first
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(id, EntityVehicleSVA.A_ACCESS));
                 return;
             case BTN_AUTO:
                 action = EntityVehicleSVA.A_AUTO_TOGGLE;
@@ -810,8 +818,8 @@ public class GuiCargoSVA extends GuiContainer {
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.drill.zone", Integer.valueOf(wBlocks), Integer.valueOf(h),
                 String.valueOf(DrillMath.FAR).replace('.', Lang.tr("sva.num.point").charAt(0))), X0, 110, CW, TEXT, ox, oy);
         boolean exo = k == ItemDrillHeadSC.Kind.EXO;
-        TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.drill.euBlock", Integer.valueOf(DrillMath.euPerBlock(1.5F, exo, ConfigSVA.consumption)),
-                Integer.valueOf(DrillMath.euPerBlock(3F, exo, ConfigSVA.consumption))), X0, 120, CW, TEXT, ox, oy);
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.drill.euBlock", Integer.valueOf(DrillMath.euPerBlock(1.5F, exo, com.sva.net.ServerConfigSVA.consumption())),
+                Integer.valueOf(DrillMath.euPerBlock(3F, exo, com.sva.net.ServerConfigSVA.consumption()))), X0, 120, CW, TEXT, ox, oy);
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.drill.dug", FormatSVA.group(vehicle.getDug()), FormatSVA.group(vehicle.getTorches())),
                 X0, 130, CW, TEXT, ox, oy);
         Gas fg = type.gases.fieldGas;
@@ -834,7 +842,7 @@ public class GuiCargoSVA extends GuiContainer {
             TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.route.len", FormatSVA.group(len)), 56, 50, 136, MUTED, ox, oy);
         }
         boolean stop = vehicle.getAutoState() == AutoDelivery.STOPPED;
-        TextFitSC.draw(fontRendererObj, autoStatus(vehicle), X0, 79, CW, stop ? RED : vehicle.isAutoOn() ? GREEN : MUTED, true, ox, oy);
+        TextFitSC.draw(fontRendererObj, autoStatus(vehicle), X0, 79, CW, stop ? RED : vehicle.isAutoPaused() ? YELLOW : vehicle.isAutoOn() ? GREEN : MUTED, true, ox, oy);
         if (r[0].length() == 0 || r[1].length() == 0) {
             int yy = 90;
             for (Object l : fontRendererObj.listFormattedStringToWidth(Lang.tr("sva.gui.route.hint"), CW)) {
@@ -929,6 +937,9 @@ public class GuiCargoSVA extends GuiContainer {
         int s = v.getAutoState();
         if (!v.isAutoOn() && s != AutoDelivery.STOPPED) {
             return Lang.tr("sva.hud.auto.off");
+        }
+        if (v.isAutoPaused()) {
+            return Lang.tr("sva.hud.auto.paused");
         }
         if (s == AutoDelivery.STOPPED) {
             return Lang.tr("sva.hud.auto.stopped." + v.getAutoReason());

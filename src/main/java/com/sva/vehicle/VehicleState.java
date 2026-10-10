@@ -81,6 +81,13 @@ public class VehicleState {
     public NBTTagCompound carried;
     /** ★15 mobile charger: EU in its buffer. */
     public double chargerEnergy;
+    /**
+     * The charge / gas above today's limits, kept aside while vehicles.tuning is off («Аккумулятор+», «Доп. бак»
+     * installed but switched off): not usable, not shown, written back with the rest - nothing is lost when the server
+     * turns tuning off for a while (readNBT splits it off, writeNBT adds it back).
+     */
+    public double energyHeld;
+    public final int[] gasHeld = new int[Gas.values().length];
 
     public VehicleState(VehicleType type) {
         this.type = type;
@@ -180,6 +187,38 @@ public class VehicleState {
         return type.buffer * (com.sva.ConfigSVA.tuning ? TuningMath.bufferMul(tuning) : 1);
     }
 
+    /** What the installed upgrades let it hold whatever vehicles.tuning says (the save keeps this much). */
+    public double storedEnergyCap() {
+        return type.buffer * TuningMath.bufferMul(tuning);
+    }
+
+    /** The same for a gas tank. */
+    public int storedGasCap(Gas g) {
+        return (int) Math.round(type.gases.capacity(g) * TuningMath.gasMul(tuning));
+    }
+
+    /** Charge and gases: up to today's limits in use, the rest (tuning off) kept aside in energyHeld / gasHeld. */
+    private void splitHeld(double totalEnergy, int[] totalGas) {
+        double e = clampNum(totalEnergy, 0, Math.max(maxEnergy(), storedEnergyCap()));
+        energy = Math.min(e, maxEnergy());
+        energyHeld = e - energy;
+        for (Gas g : Gas.values()) {
+            int i = g.ordinal();
+            int all = Math.max(0, Math.min(Math.max(gasCapacity(g), storedGasCap(g)), totalGas[i]));
+            gas[i] = Math.min(all, gasCapacity(g));
+            gasHeld[i] = all - gas[i];
+        }
+    }
+
+    /** Charge and gas of each tank, the held part included (what the save keeps). */
+    private int[] gasTotals() {
+        int[] t = new int[gas.length];
+        for (int i = 0; i < gas.length; i++) {
+            t[i] = gas[i] + gasHeld[i];
+        }
+        return t;
+    }
+
     /** Max hull HP (the type's; «Лёгкий корпус» -20 %). */
     public float maxHp() {
         return (float) (type.maxHp * (com.sva.ConfigSVA.tuning ? TuningMath.hpMul(tuning) : 1));
@@ -190,12 +229,11 @@ public class VehicleState {
      * to the new limits (taking out «Аккумулятор+» or «Доп. бак» loses what no longer fits).
      */
     public void setTuning(int[] slots) {
+        double e = energy + energyHeld;
+        int[] g = gasTotals();
         tuning = TuningMath.sanitize(type, slots);
-        energy = Math.min(energy, maxEnergy());
+        splitHeld(e, g);                                        // cut to the new upgrades (the held part too)
         hp = Math.min(hp, maxHp());
-        for (Gas g : Gas.values()) {
-            gas[g.ordinal()] = Math.min(gas[g.ordinal()], gasCapacity(g));
-        }
     }
 
     /** @return EU taken */
@@ -294,7 +332,7 @@ public class VehicleState {
 
     public void writeNBT(NBTTagCompound t) {
         t.setInteger(K_TYPE, type.ordinal());
-        t.setDouble(K_ENERGY, energy);
+        t.setDouble(K_ENERGY, energy + energyHeld);             // the held part too (tuning off - nothing lost)
         t.setFloat(K_HP, hp);
         t.setDouble(K_HEAT, heat);
         t.setBoolean(K_HEAT_STOP, heatStop);
@@ -313,8 +351,8 @@ public class VehicleState {
         t.setString(K_ID, vehId);
         NBTTagCompound gt = new NBTTagCompound();
         for (Gas g : Gas.values()) {
-            if (gas[g.ordinal()] > 0) {
-                gt.setInteger(g.key(), gas[g.ordinal()]);
+            if (gas[g.ordinal()] + gasHeld[g.ordinal()] > 0) {
+                gt.setInteger(g.key(), gas[g.ordinal()] + gasHeld[g.ordinal()]);
                 if (gasFrac[g.ordinal()] > 0) {
                     gt.setFloat("frac_" + g.key(), gasFrac[g.ordinal()]);
                 }
@@ -374,7 +412,9 @@ public class VehicleState {
         } else if (t.hasKey(K_ID)) {
             access.legacy();                                    // saved before wave 2: keep the old rules
         }
-        energy = clampNum(t.hasKey(K_ENERGY) ? t.getDouble(K_ENERGY) : energy, 0, maxEnergy());
+        // the charge / gases are clamped to what the upgrades hold, not to today's config: with vehicles.tuning off
+        // the part above the base limits is kept aside (energyHeld / gasHeld) and comes back when it is on again
+        double e = t.hasKey(K_ENERGY) ? t.getDouble(K_ENERGY) : energy + energyHeld;
         hp = (float) clampNum(t.hasKey(K_HP) ? t.getFloat(K_HP) : hp, 0, maxHp());
         heat = clampNum(t.hasKey(K_HEAT) ? t.getDouble(K_HEAT) : heat, 0, VehicleMath.HEAT_STOP);
         heatStop = t.getBoolean(K_HEAT_STOP);
@@ -397,11 +437,18 @@ public class VehicleState {
         if (t.hasKey(K_ID) && t.getString(K_ID).length() > 0) {
             vehId = t.getString(K_ID);
         }
+        int[] gasAll = gasTotals();
+        if (t.hasKey(K_GASES)) {
+            NBTTagCompound gt = t.getCompoundTag(K_GASES);
+            for (Gas g : Gas.values()) {
+                gasAll[g.ordinal()] = gt.getInteger(g.key());
+            }
+        }
+        splitHeld(e, gasAll);
         if (t.hasKey(K_GASES)) {
             NBTTagCompound gt = t.getCompoundTag(K_GASES);
             for (Gas g : Gas.values()) {
                 int i = g.ordinal();
-                gas[i] = Math.max(0, Math.min(gasCapacity(g), gt.getInteger(g.key())));
                 float f = gt.getFloat("frac_" + g.key());
                 gasFrac[i] = gas[i] > 0 && f > 0 && f < 1 ? f : 0F;
             }

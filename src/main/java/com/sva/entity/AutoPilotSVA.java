@@ -16,12 +16,17 @@ import net.minecraft.world.World;
 
 /**
  * The cargo crawler's auto-delivery in the world (AutoDelivery has the state machine and the steering): no driver,
- * the server drives it through the same physics as a player's keys. Loaded chunks only - the chunk 4 blocks ahead
- * not loaded, or stuck for 10 s, and it stops (the owner is told if online). At A it loads from the nearest chest
+ * the server drives it through the same physics as a player's keys. Loaded chunks only (it never loads one): the chunk
+ * 4 blocks ahead not loaded - it pauses (autoReason R_UNLOADED, motor off), looks again every PAUSE_CHECK ticks and
+ * drives on by itself once a player brings the chunk in; stuck for 10 s - it stops (the owner is told if online,
+ * both times). At A it loads from the nearest chest
  * (any IInventory within AutoDelivery.SEARCH blocks; double chests whole), at B it unloads into one. A chest in a
  * private field that refuses the owner, or one a claim mod won't let him open, is not touched.
  */
 public final class AutoPilotSVA {
+
+    /** Paused at an unloaded chunk: the chunk ahead is looked at again this often (ticks). */
+    public static final int PAUSE_CHECK = 20;
 
     private AutoPilotSVA() {
     }
@@ -53,11 +58,22 @@ public final class AutoPilotSVA {
                 v.autoBlocked = 0;
                 return EntityVehicleSVA.IN_BRAKE;
             }
+            boolean paused = v.autoReason == AutoDelivery.R_UNLOADED;
+            if (paused && ++v.autoTimer % PAUSE_CHECK != 0) {
+                return 0;                                           // paused: look again every PAUSE_CHECK ticks
+            }
             double[] ahead = v.toWorld(4, 0);
             int ax = MathHelper.floor_double(v.posX + ahead[0]), az = MathHelper.floor_double(v.posZ + ahead[1]);
             if (!v.worldObj.blockExists(ax, MathHelper.floor_double(v.posY), az)) {
-                stop(v, AutoDelivery.R_UNLOADED);
+                if (!paused) {
+                    pause(v);
+                }
                 return 0;
+            }
+            if (paused) {
+                v.autoReason = AutoDelivery.R_NONE;                 // the chunk came in: on our way again
+                v.autoTimer = 0;
+                v.autoBlocked = 0;
             }
             int in = AutoDelivery.steer(v.rotationYaw, v.posX, v.posZ, tx, tz);
             v.autoBlocked = AutoDelivery.blockedTicks(v.autoBlocked, (in & EntityVehicleSVA.IN_FWD) != 0, moved);
@@ -82,6 +98,19 @@ public final class AutoPilotSVA {
             }
         }
         return EntityVehicleSVA.IN_BRAKE;
+    }
+
+    /** The chunk ahead is not loaded: wait on the spot (still on the way), the owner told once. */
+    static void pause(EntityVehicleSVA v) {
+        v.autoReason = AutoDelivery.R_UNLOADED;
+        v.autoTimer = 0;
+        v.autoBlocked = 0;
+        EntityPlayer owner = ownerOnline(v);
+        if (owner != null) {
+            owner.addChatComponentMessage(new ChatComponentTranslation("sva.msg.auto.paused",
+                    Integer.valueOf(MathHelper.floor_double(v.posX)), Integer.valueOf(MathHelper.floor_double(v.posY)),
+                    Integer.valueOf(MathHelper.floor_double(v.posZ))));
+        }
     }
 
     static void stop(EntityVehicleSVA v, int reason) {

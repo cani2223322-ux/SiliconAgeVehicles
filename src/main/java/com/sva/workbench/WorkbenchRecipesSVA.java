@@ -112,11 +112,11 @@ public final class WorkbenchRecipesSVA {
         return new ItemStack(ModItems.battery, 1, idx);
     }
 
-    /** The core quarry's drill head of a kind. */
+    /** The core quarry's drill head of a kind - any wear (ТБ-6: a head that has worked in a quarry fits too). */
     private static ItemStack drillHead(com.sc.item.ItemDrillHeadSC.Kind k) {
         for (com.sc.item.ItemDrillHeadSC h : ModItems.DRILL_HEADS) {
             if (h.kind == k) {
-                return new ItemStack(h);
+                return new ItemStack(h, 1, net.minecraftforge.oredict.OreDictionary.WILDCARD_VALUE);
             }
         }
         throw new IllegalStateException("Silicon Age drill head missing: " + k);

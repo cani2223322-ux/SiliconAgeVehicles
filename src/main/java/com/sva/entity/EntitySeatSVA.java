@@ -72,7 +72,7 @@ public class EntitySeatSVA extends Entity {
         orphanTicks = 0;
         if (!worldObj.isRemote) {
             if (lastRider != null && riddenByEntity != lastRider && lastRider.ridingEntity == null && !lastRider.isDead) {
-                p.placeBeside(lastRider, 1);
+                p.placeBeside(lastRider, 1, getIndex());       // beside its own seat, not the driver's
             }
             lastRider = riddenByEntity;
         }

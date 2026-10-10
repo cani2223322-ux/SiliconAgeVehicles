@@ -55,6 +55,10 @@ public final class SpaceLogicSVA {
             breathe(v);
         }
         if (t.singular) {
+            if (v.state.invisible && !com.sva.ConfigSVA.mobCloak) {
+                v.state.invisible = false;                          // saved on, switched off on the server since
+                v.tellAll("sva.msg.invis.disabled");
+            }
             if (v.state.invisible) {
                 if (v.state.gas(Gas.SINGULAR_MATTER) <= 0) {
                     v.state.invisible = false;
@@ -80,7 +84,14 @@ public final class SpaceLogicSVA {
                 }
             }
         }
-        if (t.bridgeDock) {
+        if (t.bridgeDock && !com.sva.ConfigSVA.bridgeDock) {
+            // vehicles.bridgeDock off: no hint, no docking - one line to the riders when it touches a vortex (then 5 s quiet)
+            v.dockNear = false;
+            if (v.dockCooldown == 0 && !v.riders().isEmpty() && vortexWithin(v, 1)) {
+                v.tellAll("sva.msg.dock.disabled");
+                v.dockCooldown = 100;
+            }
+        } else if (t.bridgeDock) {
             if (v.ticksExisted % 20 == 0) {
                 v.dockNear = !v.riders().isEmpty() && vortexWithin(v, SpaceMath.DOCK_HINT_RADIUS);
             }
@@ -120,7 +131,7 @@ public final class SpaceLogicSVA {
     /** Is `e` seated in a vehicle whose invisibility is on (server)? */
     public static boolean cloaked(Entity e) {
         EntityVehicleSVA v = vehicleOf(e);
-        return v != null && !v.isDead && v.state.invisible;
+        return com.sva.ConfigSVA.mobCloak && v != null && !v.isDead && v.state.invisible;
     }
 
     static EntityVehicleSVA vehicleOf(Entity e) {
@@ -425,6 +436,10 @@ public final class SpaceLogicSVA {
     public static int startJump(EntityVehicleSVA v) {
         VehicleType t = v.state.type;
         if (!t.singular) {
+            return SpaceMath.NOT_SHIP;
+        }
+        if (!com.sva.ConfigSVA.singularJump) {
+            v.tellAll("sva.msg.jump.disabled");                    // vehicles.singularJump off
             return SpaceMath.NOT_SHIP;
         }
         if (v.portalTicks > 0 || v.pendingRiders != null) {

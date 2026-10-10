@@ -17,12 +17,15 @@ import com.sva.entity.EntityVehicleSVA;
 import com.sva.init.ModContentSVA;
 import com.sva.item.ItemStationModuleSVA;
 import com.sva.platform.PlatformMath;
+import com.sva.vehicle.AccessMath;
+import com.sva.vehicle.VehicleRegistrySVA;
 import com.sva.vehicle.VehicleMath;
 import com.sva.workbench.WorkbenchMath;
 
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.IInventory;
+import net.minecraft.inventory.ISidedInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
@@ -48,14 +51,16 @@ import net.minecraft.util.MathHelper;
  * (ItemStationModuleSVA: gas / repair / access).</li>
  * <li>Gas module: pulls each gas the vehicle has a tank for (25 mB/t) from a Gas Column touching the station or a plate
  * (the column's own owner rule). Repair module: +1% hull every 60 ticks, one core steel ingot per 10 steps, taken
- * from an inventory touching the station or a plate (only with wear on). Access module: only the station owner's vehicles.</li>
+ * from an inventory touching the station or a plate (only with wear on). Access module: only the station owner's vehicles,
+ * and those whose driver may use one of the owner's vehicles (its access list or a valid key card - ТБ-2).</li>
+ * <li>Automation reaches no slot (ТБ-3): a hopper under the station takes neither upgrades nor modules.</li>
  * <li>Comparator: the served vehicle's charge; «сигнал при полном»: strong redstone 15 while the vehicle is full;
  * «звук»: one chime when it fills up.</li>
  * </ul>
  * The plates' look (off / charging / full) is sent with the description packet (plate offsets + state) only when
  * it changes; clients keep it in PlateStatesSVA.
  */
-public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInventory {
+public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISidedInventory, KeptDataSVA.Keeper {
 
     public static final int SCAN_EVERY = 20, ACTIVE_HOLD = 10, PLATFORM_EVERY = 100;
     public static final int FIRST_UPGRADE = 0, UPGRADE_SLOTS = 4, FIRST_MODULE = 4, MODULE_SLOTS = 3, SIZE = 7;
@@ -70,6 +75,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
             K_OWNER_NAME = "OwnerName", K_SETTINGS = "ChargerSettings", K_PAID = "RepairPaid", K_FULL = "ChargerFull";
     // description packet keys
     private static final String D_PLATES = "Pl", D_VISUAL = "Vs", D_FACING = "Fc";
+    private static final int[] NO_SLOTS = {};
 
     private final ItemStack[] slots = new ItemStack[SIZE];
     private int facing = 3;
@@ -193,13 +199,12 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
         return ownerName;
     }
 
-    /** May change the settings: the owner, an op, anyone when it has no owner. */
+    /** May change the settings: the owner, an op with vehicles.opManage, anyone when it has no owner. */
     public boolean mayConfigure(EntityPlayer p) {
         if (ownerId.length() == 0 || ownerId.equals(p.getUniqueID().toString())) {
             return true;
         }
-        net.minecraft.server.MinecraftServer s = net.minecraft.server.MinecraftServer.getServer();
-        return s != null && s.getConfigurationManager().func_152596_g(p.getGameProfile());
+        return com.sva.ConfigSVA.opManage && com.sva.entity.EntityVehicleSVA.isOp(p);
     }
 
     public int getSettings() {
@@ -399,7 +404,43 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
     }
 
     public boolean allows(EntityVehicleSVA v) {
-        return !hasModule(ItemStationModuleSVA.ACCESS) || ownerId.length() == 0 || ownerId.equals(v.state.ownerId);
+        return !hasModule(ItemStationModuleSVA.ACCESS) || ownerId.length() == 0 || ownerId.equals(v.state.ownerId) || driverTrusted(v);
+    }
+
+    /**
+     * ТБ-2, the garage's rule: the vehicle's driver is the station's owner, or has rights on one of the owner's vehicles -
+     * his name on its access list (a row with any right) or a valid key card for it in his inventory (vehicles.locks on).
+     * The «Все остальные» row and an open lock don't count. A vehicle with nobody at the wheel: by its owner only.
+     */
+    private boolean driverTrusted(EntityVehicleSVA v) {
+        if (!(v.riddenByEntity instanceof EntityPlayer)) {
+            return false;
+        }
+        EntityPlayer p = (EntityPlayer) v.riddenByEntity;
+        if (ownerId.equals(p.getUniqueID().toString())) {
+            return true;
+        }
+        VehicleRegistrySVA reg = ConfigSVA.locks ? VehicleRegistrySVA.get(worldObj) : null;
+        if (reg == null) {
+            return false;
+        }
+        String name = p.getCommandSenderName();
+        for (VehicleRegistrySVA.Entry e : reg.all()) {
+            if (!ownerId.equals(e.owner) || e.access.mode == AccessMath.OWNER) {
+                continue;
+            }
+            int card = -1;
+            for (ItemStack s : p.inventory.mainInventory) {
+                int r = com.sva.item.ItemKeyCardSVA.rightsFor(s, e.id, e.access);
+                if (r >= 0) {
+                    card = card < 0 ? r : card | r;
+                }
+            }
+            if (AccessMath.rights(true, false, false, AccessMath.FRIENDS, e.access.listed(p.getUniqueID().toString(), name), 0, card) != 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private AxisAlignedBB searchZone() {
@@ -512,9 +553,14 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
         }
         // full = every vehicle there is charged, whatever else it still gets (gas, repair)
         boolean allFull = true, any = false;
+        long worldTime = worldObj.getTotalWorldTime();
+        boolean feeding = switchedOn();
         for (EntityVehicleSVA v : served) {
             if (valid(v)) {
                 any = true;
+                if (col != null && feeding && col.serves(v)) {
+                    TileEntityGasColumnSVA.stationFeeds(v, worldTime);    // ТБ-9: its gas comes from here, the column skips it
+                }
                 if (current == null) {
                     current = v;
                 }
@@ -668,6 +714,32 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
         recomputePlatform();
         scanVehicles();
         scan = SCAN_EVERY;
+    }
+
+    // ------------------------------------------------------------------ ТБ-1: the item keeps the charge, the settings and the paid repair
+
+    private static final String K_KEPT_SETTINGS = "ChargerSettings", K_KEPT_PAID = "RepairPaid";
+
+    @Override
+    public void writeKept(NBTTagCompound t) {
+        if (getEnergyStored() > 0) {
+            t.setInteger(KeptDataSVA.K_ENERGY, getEnergyStored());
+        }
+        if (settings != SET_DEFAULT) {
+            t.setInteger(K_KEPT_SETTINGS, settings);
+        }
+        if (repairPaid > 0) {
+            t.setInteger(K_KEPT_PAID, repairPaid);
+        }
+    }
+
+    @Override
+    public void readKept(NBTTagCompound t) {
+        if (t.hasKey(K_KEPT_SETTINGS)) {
+            settings = t.getInteger(K_KEPT_SETTINGS) & SET_DEFAULT;
+        }
+        repairPaid = Math.max(0, Math.min(PlatformMath.STEPS_PER_INGOT, t.getInteger(K_KEPT_PAID)));
+        restoreEnergy(KeptDataSVA.energy(t));               // over the bare buffer until the storage upgrades are back in
     }
 
     // ------------------------------------------------------------------ NBT / sync
@@ -871,5 +943,22 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements IInven
             return upgradeAccepted(s);
         }
         return i >= FIRST_MODULE && i < SIZE && moduleAccepted(s);
+    }
+
+    // ---- ТБ-3: no slot for automation - upgrades and modules go in and out by hand only
+
+    @Override
+    public int[] getAccessibleSlotsFromSide(int side) {
+        return NO_SLOTS;
+    }
+
+    @Override
+    public boolean canInsertItem(int slot, ItemStack s, int side) {
+        return false;
+    }
+
+    @Override
+    public boolean canExtractItem(int slot, ItemStack s, int side) {
+        return false;
     }
 }

@@ -25,6 +25,7 @@ public class ItemBlockGarageSVA extends ItemBlock {
     @SideOnly(Side.CLIENT)
     public void addInformation(ItemStack s, EntityPlayer p, List list, boolean adv) {
         list.add(Lang.tr("sva.tooltip.garage.summary"));
+        KeptDataSVA.tooltip(s, list);
         TooltipSC.more(list, Lang.tr("sva.tooltip.garage.details", FormatSVA.group((long) GarageMath.EU_PER_HP),
                         Integer.valueOf(GarageMath.STEEL_FULL), Integer.valueOf(GarageMath.IRON_PER_STEEL), FormatSVA.eu(GarageMath.BUFFER)),
                 Lang.tr("sva.tooltip.howto.garage"));

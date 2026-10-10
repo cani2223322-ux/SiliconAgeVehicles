@@ -18,6 +18,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * Input (C->S): the driver's keys as bit flags (+ the cruise / autopilot targets while engaged), sent on change + a
  * keepalive every 10 ticks.
  * Move (C->S): the driver's simulated position / yaw / speed, every tick while it changes (+ keepalive).
+ * ТН-6: Input and Move are not queued - only the latest of each per player runs at the next tick's start
+ * (ServerQueueSVA.latest), so they never crowd the buttons out of the per-player queue.
  * Correct (S->C): the server refused a move - the driver snaps back to the server's position.
  * Workbench (C->S): a workbench screen button (start / lay out a recipe / clear), checked against the open container.
  * PickUp (C->S): the cargo screen's «Убрать в инвентарь» - owner / op, nobody seated, within 8 blocks (tryPickUp).
@@ -105,7 +107,7 @@ public final class NetSVA {
         @Override
         public IMessage onMessage(final Input m, MessageContext ctx) {
             final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
-            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+            ServerQueueSVA.INSTANCE.latest(p, ServerQueueSVA.LATEST_INPUT, new Runnable() {
                 @Override
                 public void run() {
                     EntityVehicleSVA v = driven(p, m.entity);
@@ -162,7 +164,7 @@ public final class NetSVA {
         @Override
         public IMessage onMessage(final Move m, MessageContext ctx) {
             final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
-            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+            ServerQueueSVA.INSTANCE.latest(p, ServerQueueSVA.LATEST_MOVE, new Runnable() {
                 @Override
                 public void run() {
                     EntityVehicleSVA v = driven(p, m.entity);
@@ -725,12 +727,12 @@ public final class NetSVA {
                 boolean own = e.owner.equals(id);
                 int card = -1;
                 for (net.minecraft.item.ItemStack s : p.inventory.mainInventory) {
-                    int r = com.sva.item.ItemKeyCardSVA.rightsFor(s, e.id, e.access.lockVersion);
+                    int r = com.sva.item.ItemKeyCardSVA.rightsFor(s, e.id, e.access);         // ТН-1: a revoked friend's card doesn't count
                     if (r >= 0) {
                         card = card < 0 ? r : card | r;
                     }
                 }
-                if (!com.sva.vehicle.MapMath.visible(own, com.sva.ConfigSVA.locks, e.access.mode, e.access.listed(name), card)) {
+                if (!com.sva.vehicle.MapMath.visible(own, com.sva.ConfigSVA.locks, e.access.mode, e.access.listed(id, name), card)) {   // ТН-4
                     continue;
                 }
                 Row r = new Row();

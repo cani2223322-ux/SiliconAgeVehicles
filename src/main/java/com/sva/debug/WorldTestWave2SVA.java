@@ -161,8 +161,23 @@ final class WorldTestWave2SVA {
         ItemStack card = ItemKeyCardSVA.write(new ItemStack(ModContentSVA.keyCard), v.state.vehId, v.getBoardNumber(), v.state.type,
                 "WorldTest2", "Stranger2", v.state.access.lockVersion, AccessMath.DRIVE);
         stranger.inventory.setInventorySlotContents(5, card);
+        check(v.rightsOf(stranger) == 0 && !v.canDrive(stranger),
+                "wave 2 lock: a friend's card whose holder is not on the list opens nothing (ТН-1)");
+        v.accessEdit(owner, EntityVehicleSVA.AE_ADD, "Stranger2", 0);
+        v.accessEdit(owner, EntityVehicleSVA.AE_SET, "Stranger2", 0);  // listed with no rights: only the card gives any
+        int issue = v.state.access.reissue("Stranger2");
+        card = ItemKeyCardSVA.write(new ItemStack(ModContentSVA.keyCard), v.state.vehId, v.getBoardNumber(), v.state.type,
+                "WorldTest2", "Stranger2", v.state.access.lockVersion, AccessMath.DRIVE, v.state.access.idOf("Stranger2"), issue);
+        stranger.inventory.setInventorySlotContents(5, card);
         check(v.canDrive(stranger) && (v.rightsOf(stranger) & AccessMath.PASSENGER) != 0 && !v.canOpenCargo(stranger),
                 "wave 2 lock: a valid key card with \"Drive\" lets the stranger drive (and sit), not open the cargo");
+        check(STRANGER.equals(v.state.access.idOf("Stranger2")), "wave 2 lock: the listed stranger's row gets his UUID when he comes (ТН-4)");
+        int issue2 = v.state.access.reissue("Stranger2");
+        check(issue2 != issue && v.rightsOf(stranger) == 0, "wave 2 lock: a newer card for the same player voids his old one (ТН-1)");
+        card = ItemKeyCardSVA.write(new ItemStack(ModContentSVA.keyCard), v.state.vehId, v.getBoardNumber(), v.state.type,
+                "WorldTest2", "Stranger2", v.state.access.lockVersion, AccessMath.DRIVE, v.state.access.idOf("Stranger2"), issue2);
+        stranger.inventory.setInventorySlotContents(5, card);
+        check(v.canDrive(stranger), "wave 2 lock: the newer card drives");
         v.accessEdit(owner, EntityVehicleSVA.AE_RELOCK, "", 0);
         check(!v.canDrive(stranger) && v.rightsOf(stranger) == 0 && v.state.access.lockVersion == 1,
                 "wave 2 lock: \"Change lock\" - the old card no longer opens it");

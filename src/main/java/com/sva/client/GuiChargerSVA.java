@@ -136,8 +136,24 @@ public class GuiChargerSVA extends GuiContainer {
 
     // ------------------------------------------------------------------ drawing
 
+    /** ТИ-2: the window shrinks as a whole on a screen too small for it (GuiFitSVA); 1 = as designed. */
+    private float fit = 1F;
+
+    @Override
+    public void setWorldAndResolution(net.minecraft.client.Minecraft mc, int w, int h) {
+        fit = GuiFitSVA.fit(w, h, W, H);
+        super.setWorldAndResolution(mc, GuiFitSVA.virtual(w, fit), GuiFitSVA.virtual(h, fit));
+    }
+
     @Override
     public void drawScreen(int mx, int my, float pt) {
+        GuiFitSVA.begin(fit);
+        drawFitted(GuiFitSVA.mouse(mx, fit), GuiFitSVA.mouse(my, fit), pt);
+        GuiFitSVA.end(fit);
+    }
+
+    /** drawScreen in the window's own (virtual) coordinates. */
+    private void drawFitted(int mx, int my, float pt) {
         TextFitSC.beginFrame();
         super.drawScreen(mx, my, pt);
         for (Object o : buttonList) {
@@ -376,6 +392,9 @@ public class GuiChargerSVA extends GuiContainer {
             TextFitSC.draw(fontRendererObj, line, 150, ry + 8, 99, MUTED, guiLeft, guiTop);
             ry += 16;
         }
+        if (t.gases.any()) {
+            gasTip(veh, t, gasRate);
+        }
         if (veh.wearOn() && ry <= 90) {
             fontRendererObj.drawString(Lang.tr("sva.hud.hull"), 119, ry, TEXT);
             String line = pct(veh.getHp() / veh.getMaxHp()) + (set(ContainerChargerSVA.M_REPAIR) ? " · " + Lang.tr("sva.st.card.repair") : "");
@@ -387,6 +406,18 @@ public class GuiChargerSVA extends GuiContainer {
             String eta = room < 1 ? Lang.tr("sva.st.card.full") : Lang.tr("sva.st.card.eta", time(PlatformMath.etaSeconds(room, euT)));
             TextFitSC.draw(fontRendererObj, eta, 119, 109, 130, room < 1 ? GREEN : CYAN, guiLeft, guiTop);
         }
+    }
+
+    /** ТИ-3: every tank of the vehicle (the card has room for two) and the refuelling rate, on hover over the card. */
+    private void gasTip(EntityVehicleSVA veh, VehicleType t, int gasRate) {
+        List<String> tip = new ArrayList<String>();
+        tip.add(Lang.tr("sva.st.card.gasTip"));
+        for (Gas gas : t.gases.gases()) {
+            tip.add("§7" + Lang.tr("sva.st.card.gasLine", Lang.tr("sva.gas." + gas.key()), num(veh.getGas(gas)), num(veh.getGasCapacity(gas))));
+        }
+        tip.add(gasRate > 0 ? "§a" + Lang.tr("sva.st.card.gasRate", num(gasRate), Integer.valueOf(PlatformMath.GAS_RATE))
+                : "§8" + Lang.tr("sva.st.card.gasIdle", Integer.valueOf(PlatformMath.GAS_RATE)));
+        TextFitSC.hover(guiLeft + 117, guiTop + 40, 134, 66, tip);
     }
 
     private void drawRight(int mx, int my) {

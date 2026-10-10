@@ -22,6 +22,10 @@ import net.minecraft.world.WorldSavedData;
  * (EntityVehicleSVA), an unloaded one keeps its last known place. Vehicles carried as items (inventories, the platform
  * trailer) are not placed and are not listed. NBT: the old "Id" / "Owner" pairs plus appended keys - an entry saved
  * before wave 3 has no position until its vehicle loads again ("Placed" false).
+ *
+ * A vehicle lost without setDead (a chunk rollback, a world edit, a crash) keeps its entry: operators list, visit and
+ * forget such entries with /sva vehicles (CommandSVA: all(), remove(), removeOwner()); a forgotten vehicle that still
+ * exists adds itself again when it next loads.
  */
 public class VehicleRegistrySVA extends WorldSavedData {
 
@@ -173,7 +177,7 @@ public class VehicleRegistrySVA extends WorldSavedData {
         return new ArrayList<Entry>(entries.values());
     }
 
-    /** Forgets every vehicle of `owner` (the world test's leftovers from an interrupted run). @return how many */
+    /** Forgets every vehicle of `owner` (/sva vehicles forget-all, the world test's leftovers). @return how many */
     public int removeOwner(String owner) {
         int n = 0;
         for (Iterator<Map.Entry<String, Entry>> it = entries.entrySet().iterator(); it.hasNext();) {

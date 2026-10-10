@@ -4,7 +4,6 @@ import java.util.List;
 
 import com.sc.manual.Lang;
 import com.sc.util.TooltipSC;
-import com.sva.ConfigSVA;
 
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -30,7 +29,8 @@ public class ItemBlockChargerSVA extends ItemBlock {
     @SideOnly(Side.CLIENT)
     public void addInformation(ItemStack s, EntityPlayer p, List list, boolean adv) {
         com.sc.energy.Tier t = BlockChargerSVA.tierFor(s.getItemDamage());
-        list.add(Lang.tr("sva.tooltip.charger.summary", t.name(), Integer.valueOf(Math.round(t.getVoltage() * ConfigSVA.chargerRate))));
+        list.add(Lang.tr("sva.tooltip.charger.summary", t.name(), Integer.valueOf(Math.round(t.getVoltage() * com.sva.net.ServerConfigSVA.chargerRate()))));
+        KeptDataSVA.tooltip(s, list);
         TooltipSC.more(list, Lang.tr("sva.tooltip.charger.details", t.name(), Integer.valueOf(t.getVoltage())), Lang.tr("sva.tooltip.howto.charger"));
     }
 }
