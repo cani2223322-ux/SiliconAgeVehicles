@@ -19,7 +19,7 @@ sva.tooltip.howto.vehicle1=Right-click a block top: place. Right-click the vehic
 sva.tooltip.howto.vehicle2=W/S throttle and reverse, A/D steer, Space brake. Shift + right-click: cargo. Shift + right-click with a Silicon Age wrench: pick the vehicle up (charge and cargo are kept).
 sva.tooltip.howto.vehicle3=Charges on a "Vehicle Charging Station". Full repair in the "Repair Garage" (the owner and players with the "Repair" right); anyone may patch the hull by right-clicking with a steel ingot (+10%%). Other players damage it as the server decides (by default only with PvP on).
 sva.tooltip.charger.summary=§7Input: §f%s§7, charges a vehicle at up to §f%s EU/t
-sva.tooltip.charger.details=Charges a vehicle standing on the station or on the plates of its platform (up to 64 plates) from its buffer. Joins the Silicon Age or IC2 grid and takes up to %s (%s EU/t) - anything higher blows it up. For a stronger grid fit transformers: each raises the input by one tier. Upgrades: overclocker, transformer, energy storage; modules: gas, repair, access.
+sva.tooltip.charger.details=Charges a vehicle standing on the station or on the plates of its platform (up to 64 plates) from its buffer. Joins the Silicon Age or IC2 grid and takes up to %s (%s EU/t) - anything higher blows it up. For a stronger grid fit transformers: each raises the input by one tier. Upgrades: overclocker, transformer, energy storage, universal transformer (one makes the station take any voltage); modules: gas, repair, access.
 sva.tooltip.howto.charger=Run a cable to it. Without plates the vehicle must touch its top; with plates - stand on the platform. Right-click: the station screen (platform, vehicle, upgrades, modules, settings). A comparator reads the vehicle's charge.
 
 sva.hud.kmh=km/h

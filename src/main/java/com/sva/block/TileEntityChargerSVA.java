@@ -131,7 +131,17 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
             return false;
         }
         UpgradeType t = ItemUpgradeSC.typeOf(s);
-        return t == UpgradeType.OVERCLOCKER || t == UpgradeType.TRANSFORMER || t == UpgradeType.ENERGY_STORAGE;
+        return t == UpgradeType.OVERCLOCKER || t == UpgradeType.TRANSFORMER || t == UpgradeType.ENERGY_STORAGE
+                || t == UpgradeType.UNIVERSAL_TRANSFORMER;
+    }
+
+    /**
+     * The core's Universal Transformer upgrade (one is enough): any line voltage, LV to SV, never overvolts the station,
+     * like the Engineering Workbench. The charging rate and buffer stay those of its own input tier.
+     */
+    @Override
+    public boolean acceptsAnyVoltage() {
+        return upgradeCount(UpgradeType.UNIVERSAL_TRANSFORMER) > 0;
     }
 
     public static boolean moduleAccepted(ItemStack s) {
@@ -521,7 +531,8 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         if (worldObj == null || worldObj.isRemote) {
             return;
         }
-        int tr = upgradeCount(UpgradeType.TRANSFORMER);
+        // IC2 caches the sink tier: refresh on a change of the transformers or of the universal one
+        int tr = upgradeCount(UpgradeType.TRANSFORMER) + (acceptsAnyVoltage() ? 1000 : 0);
         if (tr != lastTransformers) {
             if (lastTransformers >= 0) {
                 refreshEnergyNet();                         // IC2 caches the sink tier
