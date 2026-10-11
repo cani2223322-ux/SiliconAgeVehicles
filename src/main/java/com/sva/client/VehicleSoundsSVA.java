@@ -196,13 +196,15 @@ public final class VehicleSoundsSVA {
         // up (the hoverbike without gas, an aircraft gliding: no hum - the rotor still windmills)
         // D2: an aircraft's engine runs on the main cells - a flat board battery darkens the cabin, not the engine
         boolean cells = com.sva.vehicle.SystemsMath.applies(t) ? v.getEnergy() > 0 && !v.isWrecked() : v.powered();
-        in.engine = (v.riddenByEntity != null || v.isAutoOn()) && cells && !v.isHeatStopped()
+        if (v.onHydrogen()) {
+            cells = com.sva.vehicle.SystemsMath.lifts(v.engineState()) && !v.isWrecked();   // hydrogen wave: the engine itself
+        }
+        in.engine = (v.riddenByEntity != null || v.isAutoOn() || v.onHydrogen()) && cells && !v.isHeatStopped()
                 && (!t.movement.lifts || v.isLifting());
         int es = v.engineState();
         if (es == com.sva.vehicle.SystemsMath.CRANK || es == com.sva.vehicle.SystemsMath.WARM) {
             // D2: the start - the jet's / tiltrotor's turbine whine rises with the spool-up
-            in.spool = com.sva.vehicle.SystemsMath.progress(es, v.engineTicks(), com.sva.vehicle.SystemsMath.crankTicks(t, false),
-                    com.sva.vehicle.SystemsMath.warmTicks(t));
+            in.spool = com.sva.vehicle.SystemsMath.progress(es, v.engineTicks(), v.crankTicksFor(t, false), v.warmTicksFor(t));
         }
         in.speedFrac = sp / Math.max(0.01, t.topSpeed);
         in.kmh = VehicleMath.kmh(sp);

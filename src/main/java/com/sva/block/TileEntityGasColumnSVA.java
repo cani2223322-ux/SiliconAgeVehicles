@@ -125,10 +125,10 @@ public class TileEntityGasColumnSVA extends TileEntity implements IFluidHandler,
         long now = worldObj.getTotalWorldTime();
         for (Object o : list) {
             EntityVehicleSVA v = (EntityVehicleSVA) o;
-            if (v.isDead || !v.state.type.gases.any() || !serves(v) || Math.abs(v.speed) > 0.05 || fedByStation(v, now)) {
+            if (v.isDead || v.state.tanks().isEmpty() || !serves(v) || Math.abs(v.speed) > 0.05 || fedByStation(v, now)) {
                 continue;
             }
-            for (Gas g : v.state.type.gases.gases()) {
+            for (Gas g : v.state.tanks()) {
                 lastMoved += refuel(v, g, RATE * SCAN_EVERY);
             }
         }

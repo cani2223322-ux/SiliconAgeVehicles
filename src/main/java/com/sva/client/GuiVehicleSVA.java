@@ -45,6 +45,8 @@ public class GuiVehicleSVA extends GuiScreen {
             TEXT = 0xD8DCE4, MUTED = 0x8A93A3, GREEN = 0x62E06A, RED = 0xF06060, AMBER = 0xF0B040, VIOLET = 0xC85AFF;
     private static final int MAX_W = 340, MIN_W = 250, KEY_W = 58, ACT_W = 60;
     private static final int B_ACT = 100, B_KEY = 200, B_RESET_ALL = 1,
+            /** Hydrogen wave: the «Аккумулятор» row's «Снять». */
+            B_BAT = 2,
             /** Round 2, D2 (★17): the overhead switches' buttons (B_SW + SystemsMath.SW_*), a row under the status strip. */
             B_SW = 300;
     /** D2: the switch row's height (aircraft with the board systems). */
@@ -83,8 +85,9 @@ public class GuiVehicleSVA extends GuiScreen {
         w = Math.max(MIN_W, Math.min(MAX_W, width - 8));
         stripH = vehicle == null ? 24 : 36 + (swRow() ? SW_ROW : 0);
         int fixed = 18 + stripH + 12 + 20;                       // title, strip, the column heads, the footer
-        rowH = Math.max(12, Math.min(15, (height - 8 - fixed) / Math.max(1, rows.size())));
-        h = fixed + rows.size() * rowH + 4;
+        int n = rows.size() + (batRow() ? 1 : 0);
+        rowH = Math.max(12, Math.min(15, (height - 8 - fixed) / Math.max(1, n)));
+        h = fixed + n * rowH + 4;
         left = (width - w) / 2;
         top = Math.max(2, (height - h) / 2);
         listY = top + 18 + stripH + 12;
@@ -99,6 +102,11 @@ public class GuiVehicleSVA extends GuiScreen {
             buttonList.add(new GuiCargoSVA.Dark(B_KEY + f.ordinal(), left + w - 6 - KEY_W, y, KEY_W, bh, "", null));
         }
         buttonList.add(new GuiCargoSVA.Dark(B_RESET_ALL, left + w - 6 - 96, top + h - 17, 96, 13, Lang.tr("sva.vmenu.resetAll"), null));
+        if (batRow()) {
+            // hydrogen wave: «Аккумулятор» - the last row; «Снять» where the action buttons are, the key column «-»
+            buttonList.add(new GuiCargoSVA.Dark(B_BAT, left + w - 6 - KEY_W - 4 - ACT_W, listY + rows.size() * rowH, ACT_W, bh,
+                    Lang.tr("sva.vmenu.act.batOut"), null));
+        }
         if (swRow()) {
             // D2: «Пульт» - the seven overhead switches (the same packet as the cockpit's would be: Action A_SWITCH + i)
             int sy = top + 19 + 36, lw = 34, bw = (w - 12 - lw) / SystemsMath.SWITCHES;
@@ -114,6 +122,11 @@ public class GuiVehicleSVA extends GuiScreen {
         return id >= B_KEY && id < B_SW;
     }
 
+    /** Hydrogen wave: the vehicle runs on hydrogen - the «Аккумулятор» row. */
+    private boolean batRow() {
+        return vehicle != null && vehicle.onHydrogen();
+    }
+
     /** D2: the vehicle has the overhead switches (the light plane, the jet, the tiltrotor). */
     private boolean swRow() {
         return vehicle != null && SystemsMath.applies(type);
@@ -124,6 +137,11 @@ public class GuiVehicleSVA extends GuiScreen {
     private void refresh() {
         for (Object o : buttonList) {
             GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
+            if (b.id == B_BAT) {
+                // greyed while the engine runs / there is none (the server checks the right too)
+                b.enabled = vehicle != null && vehicle.batteryPresent() && vehicle.engineState() == SystemsMath.OFF;
+                continue;
+            }
             if (b.id >= B_SW) {
                 int i = b.id - B_SW;
                 boolean on = vehicle != null && vehicle.switchOn(i);
@@ -308,7 +326,7 @@ public class GuiVehicleSVA extends GuiScreen {
                 if ((v.failures() & SystemsMath.F_ENGINE) != 0 && SystemsMath.lifts(es)) {
                     return s("sva.vmenu.st.engineFail", RED);
                 }
-                int pct = Math.round(100 * SystemsMath.progress(es, v.engineTicks(), SystemsMath.crankTicks(type, false), SystemsMath.warmTicks(type)));
+                int pct = Math.round(100 * SystemsMath.progress(es, v.engineTicks(), v.crankTicksFor(type, false), v.warmTicksFor(type)));
                 return new Object[] {Lang.tr("sva.sys.engine." + SystemsMath.ENGINE_KEYS[es], Integer.valueOf(pct)),
                         Integer.valueOf(es == SystemsMath.RUN ? GREEN : es == SystemsMath.OFF ? MUTED : AMBER)};
             }
@@ -392,6 +410,9 @@ public class GuiVehicleSVA extends GuiScreen {
                 }
             }
         }
+        if (batRow() && vehicle != null) {
+            drawBatteryRow(listY + rows.size() * rowH, rows.size() % 2 == 1, nameW, stateX, stateW);
+        }
         String hint = Lang.tr("sva.vmenu.hint");
         TextFitSC.draw(fontRendererObj, hint, left + 6, top + h - 14, w - 12 - 100, MUTED, false, 0, 0);
         super.drawScreen(mx, my, pt);
@@ -413,6 +434,9 @@ public class GuiVehicleSVA extends GuiScreen {
                 }
             } else if (b.id == B_RESET_ALL) {
                 TextFitSC.hover(b.xPosition, b.yPosition, b.width, b.height, Lang.tr("sva.vmenu.resetAll.tip"));
+            } else if (b.id == B_BAT && vehicle != null) {
+                TextFitSC.hover(b.xPosition, b.yPosition, b.width, b.height, Lang.tr(vehicle.engineState() != SystemsMath.OFF
+                        ? "sva.vmenu.bat.outEngine" : "sva.vmenu.bat.outTip"));
             }
         }
         List<String> tip = TextFitSC.hoverAt(mx, my);
@@ -426,6 +450,45 @@ public class GuiVehicleSVA extends GuiScreen {
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
+    /**
+     * Hydrogen wave (mock-up veh_fuel_4_display_wear.png): the «Аккумулятор» row - the drawn arrow (up green: charging,
+     * down amber: discharging - not a font glyph), %, EU/t, health «зд.92%»; «НЕТ АКБ» without one; the key column «-».
+     */
+    private void drawBatteryRow(int y, boolean odd, int nameW, int stateX, int stateW) {
+        EntityVehicleSVA v = vehicle;
+        int ty = y + (rowH - 2 - 8) / 2;
+        if (odd) {
+            drawRect(left + 3, y - 1, left + w - 3, y + rowH - 1, 0x18FFFFFF);
+        }
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.vmenu.bat"), left + 6, ty, nameW, TEXT, false, 0, 0);
+        List<String> tip = new ArrayList<String>();
+        tip.add("\u00a7e" + Lang.tr("sva.vmenu.bat"));
+        tip.add(Lang.tr("sva.vmenu.bat.tip"));
+        if (v.batteryPresent()) {
+            tip.add("\u00a77" + Lang.tr("sva.vmenu.bat.tip2", com.sva.FormatSVA.eu((long) v.batteryEu()), com.sva.FormatSVA.eu((long) v.batteryMax()),
+                    com.sva.vehicle.RegenMath.fmt(v.generatorPerTick()), Integer.valueOf((int) Math.round(v.batteryHealth() * 100)),
+                    Integer.valueOf((int) Math.round(v.batteryLimit() * 100)), Integer.valueOf(v.batteryServices())));
+        }
+        TextFitSC.hover(left + 6, y, nameW, rowH - 1, tip);
+        if (!v.batteryPresent()) {
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.hud.bat.none"), stateX, ty, stateW, RED, false, 0, 0);
+        } else {
+            int trend = v.batteryTrend();
+            int x = stateX;
+            if (trend != com.sva.vehicle.BatteryMath.FLAT_TREND) {
+                HudVehicleSVA.arrow(x, ty, trend > 0, trend > 0 ? 0xFF000000 | GREEN : 0xFF000000 | AMBER);
+                x += 8;
+            }
+            double h = v.batteryHealth();
+            String s = Math.round(v.batteryFrac() * 100) + "% " + HudVehicleSVA.signed(v.batteryNetPerTick()) + Lang.tr("sva.vmenu.bat.perTick")
+                    + " " + Lang.tr("sva.vmenu.bat.health", Integer.valueOf((int) Math.round(h * 100)));
+            int c = v.batteryFrac() < com.sva.vehicle.BatteryMath.LOW ? RED : com.sva.vehicle.BatteryMath.needsService(h) ? AMBER : trend > 0 ? GREEN : trend < 0 ? AMBER : TEXT;
+            TextFitSC.draw(fontRendererObj, s, x, ty, stateW - (x - stateX), c, false, 0, 0);
+        }
+        String dash = "-";
+        fontRendererObj.drawString(dash, left + w - 6 - KEY_W + (KEY_W - fontRendererObj.getStringWidth(dash)) / 2, ty, MUTED);
+    }
+
     private int nameWidth() {
         return Math.max(70, (int) ((w - 12 - KEY_W - ACT_W - 12) * 0.5));
     }
@@ -434,13 +497,14 @@ public class GuiVehicleSVA extends GuiScreen {
     private void drawStrip(int y) {
         EntityVehicleSVA v = vehicle;
         int third = (w - 12) / 3;
-        bar(left + 6, y, third - 6, Lang.tr("sva.vmenu.charge"), v.getEnergy() / Math.max(1.0, v.getMaxEnergy()), 0xFFE05454);
+        bar(left + 6, y, third - 6, Lang.tr(v.onHydrogen() ? "sva.hud.bat" : "sva.vmenu.charge"), v.getEnergy() / Math.max(1.0, v.getMaxEnergy()),
+                v.onHydrogen() ? 0xFF62E06A : 0xFFE05454);
         bar(left + 6 + third, y, third - 6, Lang.tr("sva.hud.heat"), v.getHeat() / 100.0, v.isHeatStopped() ? 0xFFFF4040 : 0xFFFFA040);
         if (v.wearOn()) {
             bar(left + 6 + third * 2, y, third - 6, Lang.tr("sva.hud.hull"), v.getHp() / Math.max(1.0, v.getMaxHp()), 0xFF3CCB6E);
         }
         int gx = left + 6, gy = y + 11;
-        List<Gas> gases = type.gases.gases();
+        List<Gas> gases = v.tankList();
         if (gases.isEmpty()) {
             fontRendererObj.drawString(Lang.tr("sva.vmenu.noGas"), gx, gy, MUTED);
         }
@@ -562,6 +626,12 @@ public class GuiVehicleSVA extends GuiScreen {
                 NetSVA.CHANNEL.sendToServer(new NetSVA.Action(vehicle.getEntityId(), EntityVehicleSVA.A_SWITCH + b.id - B_SW));
             }
             refresh();
+            return;
+        }
+        if (b.id == B_BAT) {
+            if (vehicle != null) {
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(vehicle.getEntityId(), EntityVehicleSVA.A_BATTERY_OUT));
+            }
             return;
         }
         if (b.id == B_RESET_ALL) {

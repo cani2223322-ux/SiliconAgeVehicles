@@ -83,10 +83,28 @@ public class HudVehicleSVA {
         double hpPct = v.getHp() / v.getMaxHp();
         String warn = null;
         int warnColor = WARN;
+        boolean h2 = v.onHydrogen();
+        int fuelLamp = h2 ? v.fuelLamp() : com.sva.vehicle.FuelMath.LAMP_OK;
         if (v.isWrecked()) {
             warn = Lang.tr("sva.hud.warn.wrecked");
         } else if (v.isHeatStopped()) {
             warn = Lang.tr("sva.hud.warn.overheat");
+        } else if (h2 && fuelLamp == com.sva.vehicle.FuelMath.LAMP_EMPTY) {
+            warn = Lang.tr("sva.hud.warn.noH2");                    // hydrogen wave: «НЕТ ВОДОРОДА - ДВИГАТЕЛЬ ЗАГЛОХ»
+        } else if (h2 && !v.batteryPresent()) {
+            warn = Lang.tr("sva.hud.bat.none");
+        } else if (h2 && energy <= 0) {
+            warn = Lang.tr("sva.hud.warn.batFlat");
+        } else if (h2 && fuelLamp == com.sva.vehicle.FuelMath.LAMP_RESERVE) {
+            warn = Lang.tr("sva.hud.warn.reserve");
+        } else if (h2 && fuelLamp == com.sva.vehicle.FuelMath.LAMP_LOW) {
+            warn = Lang.tr("sva.hud.warn.lowFuel");
+            warnColor = AMBER;
+        } else if (h2) {
+            if (heat > 80) {
+                warn = Lang.tr("sva.hud.warn.hot");
+                warnColor = AMBER;
+            }
         } else if (energy <= 0) {
             warn = Lang.tr(t.movement.flies ? "sva.hud.warn.empty." + t.key : t.movement.lifts ? "sva.hud.warn.emptyLand" : "sva.hud.warn.empty");
         } else if (ePct < 0.1) {
@@ -100,7 +118,7 @@ public class HudVehicleSVA {
         Gas lift = gs.liftGas;
         double liftRate = lift == null ? 0 : (v.isBoosting() ? gs.boostPerSecond : gs.liftPerSecond);
         if (warn == null || warnColor == AMBER) {
-            String gw = gasWarning(v, gs, liftRate);
+            String gw = gasWarning(v, gs, liftRate, h2);
             if (gw != null) {
                 warn = gw;
                 warnColor = gw.startsWith("!") ? WARN : AMBER;
@@ -109,7 +127,9 @@ public class HudVehicleSVA {
                 }
             }
         }
-        int gasRows = gs.gases().size() + (lift != null ? 1 : 0);
+        java.util.List<Gas> tanks = v.tankList();
+        // hydrogen wave: H2 has its own bar + the flow line + the battery line (in place of EU + range); no lift-gas line
+        int gasRows = tanks.size() - (h2 ? 1 : 0) + (lift != null && !h2 ? 1 : 0) + (h2 ? 1 : 0);
         boolean charging = v.isCharging();
         long now = mc.theWorld.getTotalWorldTime();
         if (v.getEntityId() != rateVehicle || now < rateTime) {
@@ -152,13 +172,17 @@ public class HudVehicleSVA {
         GL11.glPopMatrix();
         fr.drawString(Lang.tr("sva.hud.kmh"), x + 10 + fr.getStringWidth(sp) * 2, y + 11, DIM);
         int ry = y + 24;
-        // EU
-        bar(fr, x, ry, Lang.tr("sva.hud.eu"), ePct, C_EU, (int) Math.floor(ePct * 100) + "%");
-        ry += 10;
-        float cruise = v.getCruiseCost();
-        String range = cruise > 0 ? fmt((long) (energy / cruise * t.topSpeed)) : "--";
-        fit(fr, Lang.tr("sva.hud.range", range), x + 6, ry, W - 12, DIM, false);
-        ry += 10;
+        if (h2) {
+            ry = drawFuel(fr, x, ry, v, now);
+        } else {
+            // EU
+            bar(fr, x, ry, Lang.tr("sva.hud.eu"), ePct, C_EU, (int) Math.floor(ePct * 100) + "%");
+            ry += 10;
+            float cruise = v.getCruiseCost();
+            String range = cruise > 0 ? fmt((long) (energy / cruise * t.topSpeed)) : "--";
+            fit(fr, Lang.tr("sva.hud.range", range), x + 6, ry, W - 12, DIM, false);
+            ry += 10;
+        }
         if (charging) {
             double sec = com.sva.platform.PlatformMath.etaSeconds(v.getMaxEnergy() - energy, rateEma);
             String pctS = (int) Math.floor(ePct * 100) + "%";
@@ -177,13 +201,16 @@ public class HudVehicleSVA {
             bar(fr, x, ry, Lang.tr("sva.hud.hull"), hpPct, hpPct < 0.25 ? 0xFFFF4040 : C_HP, (int) Math.round(hpPct * 100) + "%");
             ry += 10;
         }
-        for (Gas g : gs.gases()) {
+        for (Gas g : tanks) {
+            if (h2 && g == com.sva.vehicle.FuelMath.H2) {
+                continue;                                           // drawn at the top
+            }
             int cap = Math.max(1, v.getGasCapacity(g));
             int mb = v.getGas(g);
             bar(fr, x, ry, Lang.tr("sva.gas." + g.key()), mb / (double) cap, 0xFF000000 | g.color, (int) Math.floor(mb * 100.0 / cap) + "%");
             ry += 10;
         }
-        if (lift != null) {
+        if (lift != null && !h2) {
             double sec = HoverMath.secondsLeft(v.getGas(lift), v.isLifting() ? liftRate : gs.liftPerSecond);
             String left = Double.isInfinite(sec) ? "--" : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
             fit(fr, Lang.tr("sva.hud.gasLeft", Lang.tr("sva.gas." + lift.key()), left), x + 6, ry, W - 12, v.isBoosting() ? AMBER : DIM, false);
@@ -756,8 +783,8 @@ public class HudVehicleSVA {
     }
 
     /** Lift gas out / low, coolant out / low; a leading "!" = red. Null when all is fine. */
-    private static String gasWarning(EntityVehicleSVA v, VehicleGases gs, double liftRate) {
-        Gas lift = gs.liftGas;
+    private static String gasWarning(EntityVehicleSVA v, VehicleGases gs, double liftRate, boolean h2) {
+        Gas lift = h2 ? null : gs.liftGas;                          // hydrogen wave: the cushion runs on the battery
         if (lift != null) {
             int mb = v.getGas(lift);
             if (mb <= 0) {
@@ -807,6 +834,75 @@ public class HudVehicleSVA {
                     Integer.valueOf(v.chargerServed().size()));
         }
         return null;
+    }
+
+    /**
+     * Hydrogen wave (mock-ups veh_fuel_2_refuel.png, veh_fuel_4_display_wear.png): the H2 bar (amber under 15 %, red
+     * under 5 %), «расход N мБ/мин, запас M мин / K бл.» («--» while the flow jumps - parked / the first seconds), the
+     * battery line: «АКБ», a drawn arrow (up charging / down discharging - no font glyph), %, the net EU/t, «генератор»
+     * or «ОБСЛУЖИТЕ АКБ (здоровье 76%)»; «НЕТ АКБ» red. @return the next row's y
+     */
+    private int drawFuel(FontRenderer fr, int x, int ry, EntityVehicleSVA v, long now) {
+        int mb = v.h2Mb(), cap = Math.max(1, v.h2Max());
+        int lamp = com.sva.vehicle.FuelMath.lamp(mb, cap);
+        boolean blink = (now / 5) % 2 == 0;                         // РЕЗЕРВ: 2 Hz
+        int c = lamp == com.sva.vehicle.FuelMath.LAMP_OK ? 0xFF5EC8F0 : lamp == com.sva.vehicle.FuelMath.LAMP_LOW ? 0xFFFFC23A
+                : blink ? 0xFFFF4636 : 0xFF802018;
+        bar(fr, x, ry, Lang.tr("sva.gas.hydrogen"), mb / (double) cap, c, (int) Math.floor(mb * 100.0 / cap) + "%");
+        ry += 10;
+        double flow = v.h2FlowPerMin(), min = v.h2RangeMinutes(), blocks = v.h2RangeBlocks();
+        String left = Double.isInfinite(min) ? "--" : Lang.tr("sva.hud.h2.left", Long.valueOf(Math.round(min)), fmt(Math.round(blocks)));
+        fit(fr, Lang.tr("sva.hud.h2.flow", fmt(Math.round(flow)), left), x + 6, ry, W - 12, DIM, false);
+        ry += 10;
+        fr.drawString(Lang.tr("sva.hud.bat"), x + 6, ry, DIM);
+        int tx = x + 8 + fr.getStringWidth(Lang.tr("sva.hud.bat"));
+        if (!v.batteryPresent()) {
+            fit(fr, Lang.tr("sva.hud.bat.none"), tx + 2, ry, W - 14 - (tx - x), 0xFF5A4A, false);
+            return ry + 10;
+        }
+        int trend = v.batteryTrend();
+        if (trend != com.sva.vehicle.BatteryMath.FLAT_TREND) {
+            arrow(tx, ry, trend > 0, trend > 0 ? 0xFF5EE07A : 0xFFFFC23A);
+        }
+        tx += 8;
+        String pct = Math.round(v.batteryFrac() * 100) + "% ";
+        String tail;
+        int tc = TEXT;
+        if (v.batteryNeedsService()) {
+            tail = Lang.tr("sva.hud.bat.service", Integer.valueOf((int) Math.round(v.batteryHealth() * 100)));
+            tc = AMBER;
+        } else {
+            double net = v.batteryNetPerTick();
+            tail = signed(net) + " " + Lang.tr("sva.hud.bat.euT") + (v.generatorPerTick() > 0 ? " " + Lang.tr("sva.hud.bat.gen") : "");
+        }
+        if (v.batteryFrac() < com.sva.vehicle.BatteryMath.LOW) {
+            tc = WARN;
+        }
+        int sp = v.batteryServiceProgress(), jp = v.jumpProgress();
+        if (sp >= 0) {
+            tail = Lang.tr("sva.hud.bat.kit", Integer.valueOf(sp));
+            tc = 0x5EC8F0;
+        } else if (jp >= 0) {
+            tail = Lang.tr("sva.hud.bat.jump", Integer.valueOf(jp));
+            tc = 0x5EC8F0;
+        }
+        fit(fr, pct + tail, tx, ry, W - 6 - (tx - x), tc, false);
+        return ry + 10;
+    }
+
+    /** A small filled triangle (5 x 4 px) at (x, y + 2): pointing up or down - the HUD's / menu's arrow, drawn, not a glyph. */
+    public static void arrow(int x, int y, boolean up, int argb) {
+        for (int r = 0; r < 4; r++) {
+            int half = up ? r : 3 - r;
+            Gui.drawRect(x + 3 - half, y + 2 + r, x + 4 + half, y + 3 + r, argb);
+        }
+    }
+
+    /** "+38" / "-120" / "0" (EU/t, whole numbers; small values one decimal: "+0,4"). */
+    public static String signed(double v) {
+        double a = Math.abs(v);
+        String n = a >= 10 || a < 0.05 ? String.valueOf(Math.round(a)) : String.format(java.util.Locale.ROOT, "%.1f", a).replace('.', ',');
+        return (v > 0.05 ? "+" : v < -0.05 ? "-" : "") + n;
     }
 
     private static void bar(FontRenderer fr, int x, int y, String label, double frac, int color, String value) {

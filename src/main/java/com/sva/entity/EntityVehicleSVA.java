@@ -31,6 +31,8 @@ import com.sva.vehicle.TrailerMath;
 import com.sva.vehicle.TuningMath;
 import com.sva.vehicle.AccessMath;
 import com.sva.vehicle.VehicleGases;
+import com.sva.vehicle.FuelMath;
+import com.sva.vehicle.BatteryMath;
 import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleRegistrySVA;
 import com.sva.vehicle.VehicleState;
@@ -145,7 +147,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
              * Aircraft round 2, D2 (the pilot): «Запуск двигателя» - start (off) / stop (turning); an overhead switch -
              * A_SWITCH + SystemsMath.SW_* (30..36) toggles it.
              */
-            A_ENGINE = 28, A_SWITCH = 30;
+            A_ENGINE = 28, A_SWITCH = 30,
+            /**
+             * Hydrogen wave: «Снять» - the battery out into the player's inventory (the engine off, standing; the owner or
+             * the «Ремонт» right - the method checks, not actionAllowed).
+             */
+            A_BATTERY_OUT = 40;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -258,6 +265,22 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     // client: the synced gas string parsed
     private String gasSeen;
     private final int[] gasShown = new int[Gas.values().length];
+    /**
+     * Hydrogen wave (FuelMath / BatteryMath): the fuel part of the synced gas string ("tanks|fuel"), parsed on clients -
+     * FS_* indexes: on hydrogen, the H2 flow (mB/min), the battery in, its health / limit (per mille), services, the net
+     * battery flow and the generator (EU/t x 10), the field service and the jump start in progress (%, -1 none).
+     */
+    private static final int FS_ON = 0, FS_FLOW = 1, FS_BAT = 2, FS_HEALTH = 3, FS_LIMIT = 4, FS_SERV = 5, FS_NET = 6, FS_GEN = 7, FS_KIT = 8,
+            FS_JUMP = 9, FS_COUNT = 10;
+    private final int[] fuelShown = new int[FS_COUNT];
+    // hydrogen wave, server: the H2 flow (mB/min, averaged), the battery's net flow and the generator this tick (EU/t),
+    // the field service (ticks left, by whom, the electrolyte already taken), the jump start (from whom, EU left, ticks)
+    private double h2Flow, batNet, genNow;
+    private int kitTicks;
+    private java.util.UUID kitBy;
+    private EntityVehicleSVA jumpFrom;
+    private double jumpLeft;
+    private int jumpTicks;
     private EntitySeatSVA[] seats;
     /** Server, tiltrotor: when the nacelles last reached airplane mode. */
     private long tiltDoneTick = -1000;
@@ -436,21 +459,47 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (worldObj == null || !worldObj.isRemote) {
             return state.gas(g);
         }
+        parseGas();
+        return gasShown[g.ordinal()];
+    }
+
+    /** Client: the synced "tanks|fuel" string parsed when it changed (the tanks in FuelMath.gases order, the FS_* numbers). */
+    private void parseGas() {
         String s = dataWatcher.getWatchableObjectString(DW_GAS);
-        if (!s.equals(gasSeen)) {
-            gasSeen = s;
-            java.util.Arrays.fill(gasShown, 0);
-            List<Gas> order = getVehicleType().gases.gases();
-            String[] p = s.length() == 0 ? new String[0] : s.split(",");
-            for (int i = 0; i < p.length && i < order.size(); i++) {
-                try {
-                    gasShown[order.get(i).ordinal()] = Integer.parseInt(p[i]);
-                } catch (NumberFormatException e) {
-                    // a garbled value shows 0
-                }
+        if (s.equals(gasSeen)) {
+            return;
+        }
+        gasSeen = s;
+        java.util.Arrays.fill(gasShown, 0);
+        java.util.Arrays.fill(fuelShown, 0);
+        fuelShown[FS_KIT] = fuelShown[FS_JUMP] = -1;
+        int bar = s.indexOf('|');
+        String tanks = bar < 0 ? s : s.substring(0, bar);
+        if (bar >= 0) {
+            String[] f = s.substring(bar + 1).split(",");
+            for (int i = 0; i < f.length && i < FS_COUNT; i++) {
+                fuelShown[i] = num(f[i]);
             }
         }
-        return gasShown[g.ordinal()];
+        List<Gas> order = FuelMath.gases(getVehicleType(), fuelShown[FS_ON] != 0);
+        String[] p = tanks.length() == 0 ? new String[0] : tanks.split(",");
+        for (int i = 0; i < p.length && i < order.size(); i++) {
+            gasShown[order.get(i).ordinal()] = num(p[i]);
+        }
+    }
+
+    private static int num(String v) {
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            return 0;                                               // a garbled value shows 0
+        }
+    }
+
+    /** Client: a FS_* number (parsed on demand). */
+    private int fuelNum(int i) {
+        parseGas();
+        return fuelShown[i];
     }
 
     // ---- stage C views (clients: synced)
@@ -723,7 +772,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (worldObj == null || !worldObj.isRemote) {
             return state.maxEnergy();
         }
-        return getVehicleType().buffer * (tuningOn() ? TuningMath.bufferMul(getTuning()) : 1);
+        VehicleType t = getVehicleType();
+        double base = onHydrogen() ? (batteryPresent() ? BatteryMath.capacity(t) : 0) : t.buffer;
+        return base * (tuningOn() ? TuningMath.bufferMul(getTuning()) : 1);
     }
 
     /** A gas tank's size with the upgrades («Доп. бак»), both sides. */
@@ -731,8 +782,147 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (worldObj == null || !worldObj.isRemote) {
             return state.gasCapacity(g);
         }
-        int c = getVehicleType().gases.capacity(g);
+        int c = FuelMath.capacity(getVehicleType(), g, onHydrogen());
         return tuningOn() ? (int) Math.round(c * TuningMath.gasMul(getTuning())) : c;
+    }
+
+    // ------------------------------------------------------------------ hydrogen wave: fuel and the board battery (both sides)
+    // The accessors the HUD, the «Техника» menu, the cockpit instruments (voltmeter / ammeter / H2 gauge / lamps) read.
+
+    /** The vehicle burns hydrogen now (FuelMath; server: its state and the config, clients: synced). */
+    public boolean onHydrogen() {
+        return remote() ? fuelNum(FS_ON) != 0 : state.hydrogen();
+    }
+
+    /** The tanks it has now, in order (hydrogen mode: H2 first). */
+    public List<Gas> tankList() {
+        return FuelMath.gases(getVehicleType(), onHydrogen());
+    }
+
+    /** H2 in the tank (mB). */
+    public int h2Mb() {
+        return getGas(FuelMath.H2);
+    }
+
+    /** The H2 tank's size (mB, «Доп. бак» included). */
+    public int h2Max() {
+        return getGasCapacity(FuelMath.H2);
+    }
+
+    /** The H2 flow (mB / min, averaged over ~10 s). */
+    public double h2FlowPerMin() {
+        return remote() ? fuelNum(FS_FLOW) : h2Flow;
+    }
+
+    /** Minutes the H2 lasts at the current flow (parked: at cruise); infinity when nothing burns. */
+    public double h2RangeMinutes() {
+        return FuelMath.minutesLeft(getVehicleType(), h2Mb(), h2FlowPerMin(), remote() ? com.sva.net.ServerConfigSVA.consumption() : ConfigSVA.consumption);
+    }
+
+    /** Blocks the H2 lasts at the current speed (parked: at cruise speed). */
+    public double h2RangeBlocks() {
+        double dx = posX - prevPosX, dz = posZ - prevPosZ;
+        return FuelMath.blocksLeft(getVehicleType(), h2RangeMinutes(), Math.sqrt(dx * dx + dz * dz));
+    }
+
+    /** The fuel lamp: FuelMath.LAMP_OK / LAMP_LOW («МАЛО ТОПЛИВА») / LAMP_RESERVE («РЕЗЕРВ», blinking) / LAMP_EMPTY. */
+    public int fuelLamp() {
+        return FuelMath.lamp(h2Mb(), h2Max());
+    }
+
+    /** A board battery is in (EU mode: always true - the battery does nothing there). */
+    public boolean batteryPresent() {
+        if (!onHydrogen()) {
+            return true;
+        }
+        return remote() ? fuelNum(FS_BAT) != 0 : state.batIn;
+    }
+
+    /** The battery's charge (EU) - on hydrogen it is the vehicle's charge. */
+    public double batteryEu() {
+        return getEnergy();
+    }
+
+    /** Its capacity (EU, «Аккумулятор+» included; 0 without one). */
+    public double batteryMax() {
+        return getMaxEnergy();
+    }
+
+    /** Its charge 0..1. */
+    public double batteryFrac() {
+        double m = batteryMax();
+        return m <= 0 ? 0 : Math.max(0, Math.min(1, batteryEu() / m));
+    }
+
+    /** Its health 0..1 (1 in EU mode). */
+    public double batteryHealth() {
+        if (!onHydrogen()) {
+            return 1;
+        }
+        return remote() ? fuelNum(FS_HEALTH) / 1000.0 : state.batHealth;
+    }
+
+    /** The health a service brings it to (drops BatteryMath.CAP_DROP a service). */
+    public double batteryLimit() {
+        return remote() ? fuelNum(FS_LIMIT) / 1000.0 : state.batLimit;
+    }
+
+    public int batteryServices() {
+        return remote() ? fuelNum(FS_SERV) : state.batServices;
+    }
+
+    /** The battery's net flow this tick (EU/t; + charging). */
+    public double batteryNetPerTick() {
+        return remote() ? fuelNum(FS_NET) / 10.0 : batNet;
+    }
+
+    /** The generator's output this tick (EU/t; 0 with the engine off). */
+    public double generatorPerTick() {
+        return remote() ? fuelNum(FS_GEN) / 10.0 : genNow;
+    }
+
+    /** The HUD's arrow: BatteryMath.UP / DOWN / FLAT_TREND. */
+    public int batteryTrend() {
+        return BatteryMath.trend(batteryNetPerTick());
+    }
+
+    /** The voltmeter (V; 0 without a battery). */
+    public float batteryVolts() {
+        return BatteryMath.volts(batteryPresent() && onHydrogen(), batteryFrac(), batteryNetPerTick(), batteryMax());
+    }
+
+    /** The ammeter (A; + charging). */
+    public float batteryAmps() {
+        return BatteryMath.amps(batteryNetPerTick(), batteryVolts());
+    }
+
+    /** The «АКБ» lamp: no battery, or under BatteryMath.LOW. */
+    public boolean batteryLamp() {
+        return onHydrogen() && (!batteryPresent() || batteryFrac() < BatteryMath.LOW);
+    }
+
+    /** «ОБСЛУЖИТЕ АКБ»: the health under BatteryMath.SERVICE_AT. */
+    public boolean batteryNeedsService() {
+        return onHydrogen() && batteryPresent() && BatteryMath.needsService(batteryHealth());
+    }
+
+    /** The field service in progress (%), -1 none. */
+    public int batteryServiceProgress() {
+        return remote() ? fuelNum(FS_KIT) : kitTicks > 0 ? 100 - kitTicks * 100 / BatteryMath.KIT_TICKS : -1;
+    }
+
+    /** A jump start in progress (%), -1 none. */
+    public int jumpProgress() {
+        return remote() ? fuelNum(FS_JUMP) : jumpTicks > 0 ? 100 - jumpTicks * 100 / BatteryMath.JUMP_TICKS : -1;
+    }
+
+    /** The engine's crank / warm-up ticks (the D2 aircraft's, else FuelMath's). */
+    public int crankTicksFor(VehicleType t, boolean windmill) {
+        return SystemsMath.applies(t) ? SystemsMath.crankTicks(t, windmill) : FuelMath.GROUND_CRANK;
+    }
+
+    public int warmTicksFor(VehicleType t) {
+        return SystemsMath.applies(t) ? SystemsMath.warmTicks(t) : FuelMath.GROUND_WARM;
     }
 
     /** Torches the drill has put down, synced. */
@@ -1250,16 +1440,27 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 ? "random.break" : null;
     }
 
-    /** The synced gas string: the type's tank amounts in its order, comma separated. */
+    /** The synced gas string: the tank amounts in VehicleState.tanks order, comma separated (the fuel part: gasSync). */
     static String gasString(VehicleState st) {
         StringBuilder b = new StringBuilder();
-        for (Gas g : st.type.gases.gases()) {
+        for (Gas g : st.tanks()) {
             if (b.length() > 0) {
                 b.append(',');
             }
             b.append(st.gas(g));
         }
         return b.toString();
+    }
+
+    /** Server: the gas string + "|" + the hydrogen wave's numbers (FS_* order) - one watcher string for both. */
+    private String gasSync() {
+        boolean h2 = state.hydrogen();
+        if (!h2) {
+            return gasString(state);
+        }
+        return gasString(state) + "|1," + Math.round(h2Flow) + "," + (state.batIn ? 1 : 0) + "," + Math.round(state.batHealth * 1000) + ","
+                + Math.round(state.batLimit * 1000) + "," + state.batServices + "," + Math.round(batNet * 10) + "," + Math.round(genNow * 10) + ","
+                + (kitTicks > 0 ? 100 - kitTicks * 100 / BatteryMath.KIT_TICKS : -1) + "," + (jumpTicks > 0 ? 100 - jumpTicks * 100 / BatteryMath.JUMP_TICKS : -1);
     }
 
     /** Held up by its lift gas (server: this tick; clients: synced). */
@@ -1325,13 +1526,15 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return false;
         }
         boolean motor = riddenByEntity != null || debugDriver;
-        if (!motor || isWrecked() || isHeatStopped() || getEnergy() <= 0) {
+        boolean h2 = onHydrogen();
+        // hydrogen wave: an aircraft flies on its engine (the battery only runs the board), the hover's cushion on the battery
+        if (!motor || isWrecked() || isHeatStopped() || (!h2 || !t.movement.flies) && getEnergy() <= 0) {
             return false;
         }
-        if (engineGated(t) && !SystemsMath.lifts(engineState())) {
-            return false;                                           // D2: the engine is off / cranking
+        if ((engineGated(t) || h2) && t.movement.flies && !SystemsMath.lifts(engineState())) {
+            return false;                                           // D2: the engine is off / cranking; hydrogen: out of H2 too
         }
-        return t.gases.liftGas == null || getGas(t.gases.liftGas) > 0;      // aircraft fly on EU alone
+        return h2 || t.gases.liftGas == null || getGas(t.gases.liftGas) > 0;      // aircraft fly on EU alone
     }
 
     /** Aircraft in the air without power: the heli autorotates, the plane glides (server: this tick; clients: synced). */
@@ -1548,9 +1751,14 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         return remote() ? SystemsMath.batteryPct(sysWord()) : (int) Math.round(state.battery * 100 / SystemsMath.BAT_MAX);
     }
 
+    /** The engine's state machine works for this type: the D2 aircraft, and (hydrogen wave) every vehicle on hydrogen. */
+    public boolean engineApplies(VehicleType t) {
+        return SystemsMath.applies(t) || FuelMath.uses(t) && onHydrogen();
+    }
+
     /** The engine's state (SystemsMath.OFF .. RUN); a type without the board systems: RUN. */
     public int engineState() {
-        if (!SystemsMath.applies(getVehicleType())) {
+        if (!engineApplies(getVehicleType())) {
             return SystemsMath.RUN;
         }
         return remote() ? SystemsMath.engine(sysWord()) : engine.state;
@@ -1563,7 +1771,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** The start sequence must be flown (vehicles.engineStart on the server, the type has the board systems). */
     public boolean engineGated(VehicleType t) {
-        return SystemsMath.applies(t) && (remote() ? (sysWord() & SystemsMath.P_CFG_ENGINE) != 0 : ConfigSVA.engineStart);
+        return engineApplies(t) && (remote() ? (sysWord() & SystemsMath.P_CFG_ENGINE) != 0 : ConfigSVA.engineStart);
     }
 
     /** The failures (SystemsMath.F_*). */
@@ -1614,6 +1822,19 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         return p * SystemsMath.failPower(failures());
     }
 
+    /**
+     * Hydrogen wave: the drive has power - on hydrogen the engine turns (warm-up or running), in EU mode charge left
+     * (an empty EU vehicle still crawls - driveCharge).
+     */
+    public boolean motorDrives() {
+        return onHydrogen() ? SystemsMath.lifts(engineState()) : getEnergy() > 0;
+    }
+
+    /** The «charge» the ground physics' top speed is judged by (VehicleMath.maxSpeed): on hydrogen 1 / 0 by the engine. */
+    public double driveCharge() {
+        return onHydrogen() ? (motorDrives() ? 1 : 0) : getEnergy();
+    }
+
     /** A light of this kind (VehicleLights.*) is switched on (aircraft: its overhead switch; others: always). */
     public boolean lightOn(int kind) {
         return SystemsMath.lightOn(SystemsMath.applies(getVehicleType()), switches(), kind);
@@ -1625,46 +1846,64 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * @return EU the board took this tick (ГЕН's charging, the heat) - added to the tick's cost
      */
     private double systemsTick(VehicleType t, boolean motorOn, int in, boolean pilot) {
-        if (!SystemsMath.applies(t)) {
+        boolean d2 = SystemsMath.applies(t), h2 = state.hydrogen();
+        if (!d2 && !h2) {
             return 0;
         }
-        boolean cells = state.energy > 0 && !isWrecked();
+        // hydrogen wave: the engine burns H2 (the «cells» are the tank), the D2 battery word mirrors the removable battery
+        boolean cells = (h2 ? state.gas(FuelMath.H2) > 0 : state.energy > 0) && !isWrecked();
+        if (h2) {
+            state.battery = batteryUnits();
+        }
+        int sw = d2 ? state.switches : SystemsMath.ALL_ON;
         boolean air = wasAirborne;
         boolean busy = pilot || engine.state != SystemsMath.OFF;
         // the engine: no pilot for IDLE_STOP ticks - stopped; auto-start from the keys; the world tests' instant engine
         noPilot = pilot ? 0 : noPilot + 1;
-        if (noPilot > SystemsMath.IDLE_STOP && engine.state != SystemsMath.OFF) {
+        if (noPilot > (d2 ? SystemsMath.IDLE_STOP : FuelMath.IDLE_STOP) && engine.state != SystemsMath.OFF) {
             engine.stop();
         }
         boolean gated = ConfigSVA.engineStart;
         if (!gated || testInstantEngine && !debugEngineManual) {
-            if (engine.state != SystemsMath.RUN && pilot && cells && SystemsMath.on(state.switches, SystemsMath.SW_BAT)) {
+            if (engine.state != SystemsMath.RUN && pilot && cells && SystemsMath.on(sw, SystemsMath.SW_BAT) && (!h2 || batteryStart() == BatteryMath.OK)) {
                 engine.run();
             }
         } else if (autoWait > 0) {
             autoWait--;
-        } else if (pilot && SystemsMath.autoStart(engine.state, state.switches, (in & IN_FWD) != 0, (in & IN_BRAKE) != 0,
-                t.movement == Movement.TILT && !state.tiltPlane)) {
-            int r0 = engine.start(state.switches, state.battery, cells);
-            engineResult(r0, null);
+        } else if (pilot && SystemsMath.autoStart(engine.state, sw, (in & IN_FWD) != 0 || !d2 && (in & IN_BACK) != 0, (in & IN_BRAKE) != 0,
+                t.movement == Movement.TILT && !state.tiltPlane || t.movement == Movement.HELI)) {
+            int r0 = startEngine(null);
             if (r0 != SystemsMath.R_STARTED) {
                 autoWait = AUTO_RETRY;                              // a flat battery / no charge: said once, tried again in 3 s
             }
         }
         boolean windmill = air && airspeedNow > (t.plane != null ? t.plane.stall : 0.5);
-        double misfire = ConfigSVA.failures && !(testInstantEngine && !debugEngineManual)
+        double misfire = d2 && ConfigSVA.failures && !(testInstantEngine && !debugEngineManual)
                 ? SystemsMath.MISFIRE_K * SystemsMath.chancePerMinute(wear()) : 0;
-        int r = engine.tick(state.switches, state.battery, cells, SystemsMath.crankTicks(t, windmill), SystemsMath.warmTicks(t), rand.nextDouble(), misfire);
+        if (h2 && !(testInstantEngine && !debugEngineManual)) {
+            misfire = Math.max(misfire, BatteryMath.misfire(state.batHealth));     // a worn battery: it catches on the 2nd-3rd try
+        }
+        boolean wasTurning = SystemsMath.lifts(engine.state);
+        int r = engine.tick(sw, state.battery, cells, crankTicksFor(t, windmill), warmTicksFor(t), rand.nextDouble(), misfire);
         if (r != SystemsMath.R_NONE) {
             engineResult(r, null);
             if (r == SystemsMath.R_MISFIRE || r == SystemsMath.R_STALLED) {
                 autoWait = AUTO_RETRY;
             }
+            if (r == SystemsMath.R_STOPPED && h2 && wasTurning && state.gas(FuelMath.H2) <= 0) {
+                tellRiders("sva.msg.fuel.out");                    // «НЕТ ВОДОРОДА - ДВИГАТЕЛЬ ЗАГЛОХ»
+            }
         }
-        // the battery
-        double before = state.battery;
-        state.battery = SystemsMath.batteryStep(before, state.switches, cells, busy, engine.state == SystemsMath.CRANK, chargeTicks > 0);
-        double eu = SystemsMath.batteryEu(before, state.battery, state.switches, cells, chargeTicks > 0);
+        if (!d2) {
+            return 0;                                               // the switches, the heat, the ice and the failures are the aircraft's
+        }
+        // the battery (hydrogen: serverUpdate's electrics step charges / drains the removable one)
+        double eu = 0;
+        if (!h2) {
+            double before = state.battery;
+            state.battery = SystemsMath.batteryStep(before, state.switches, cells, busy, engine.state == SystemsMath.CRANK, chargeTicks > 0);
+            eu = SystemsMath.batteryEu(before, state.battery, state.switches, cells, chargeTicks > 0);
+        }
         // the heat: in the cold it costs EU (the board on, someone aboard / the engine turning); off - the pitot ices
         int x = MathHelper.floor_double(posX), z = MathHelper.floor_double(posZ);
         coldNow = SystemsMath.cold(posY, worldObj.isRaining() && worldObj.getBiomeGenForCoords(x, z).getEnableSnow()
@@ -1759,6 +1998,48 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
     }
 
+    /**
+     * Hydrogen wave: the battery's word for the D2 machine (units 0..BAT_MAX of its charge; 0 with none in) - the
+     * overhead АКБ / ГЕН logic, the start's BAT_START and the crank's stall read it.
+     */
+    private double batteryUnits() {
+        double m = state.maxEnergy();
+        return !state.batIn || m <= 0 ? 0 : Math.max(0, Math.min(SystemsMath.BAT_MAX, state.energy / m * SystemsMath.BAT_MAX));
+    }
+
+    /** Hydrogen wave: may the battery start the engine now (BatteryMath.OK / NONE / DEAD / FLAT). */
+    private int batteryStart() {
+        return BatteryMath.start(state.batIn, state.batHealth, state.energy, state.maxEnergy());
+    }
+
+    /**
+     * Server: a start asked for (the key, the menu, the auto-start; p - who to tell, null: the riders). On hydrogen the
+     * battery is asked first («НЕТ АКБ», «АКБ НЕ ДЕРЖИТ ЗАРЯД», «АКБ РАЗРЯЖЕН»), the tank is the engine's «cells».
+     * @return SystemsMath.R_* (R_LOW_BATTERY for any battery refusal)
+     */
+    private int startEngine(EntityPlayer p) {
+        boolean h2 = state.hydrogen();
+        if (h2 && engine.state == SystemsMath.OFF) {
+            int b = batteryStart();
+            if (b != BatteryMath.OK) {
+                vanillaShot("random.click", 0.3F, 0.8F);
+                tellOrMsg(p, b == BatteryMath.NONE ? "sva.msg.bat.none" : b == BatteryMath.DEAD ? "sva.msg.bat.dead" : "sva.msg.bat.flat");
+                return SystemsMath.R_LOW_BATTERY;
+            }
+            if (state.gas(FuelMath.H2) <= 0) {
+                tellOrMsg(p, "sva.msg.fuel.empty");
+                return SystemsMath.R_NO_CHARGE;
+            }
+        }
+        boolean cells = (h2 ? state.gas(FuelMath.H2) > 0 : state.energy > 0) && !isWrecked();
+        if (h2) {
+            state.battery = batteryUnits();
+        }
+        int r = engine.start(SystemsMath.applies(state.type) ? state.switches : SystemsMath.ALL_ON, state.battery, cells);
+        engineResult(r, p);
+        return r;
+    }
+
     /** Server: «Запуск двигателя» from the pilot (serverAction): off - start; turning - stop. */
     private void engineCommand(EntityPlayer p) {
         if (!ConfigSVA.engineStart) {
@@ -1766,9 +2047,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return;
         }
         if (engine.state == SystemsMath.OFF) {
-            boolean cells = state.energy > 0 && !isWrecked();
-            int r = engine.start(state.switches, state.battery, cells);
-            engineResult(r, p);
+            startEngine(p);
         } else {
             engine.stop();
             vanillaShot("random.click", 0.4F, 0.9F);
@@ -1802,7 +2081,14 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** World test: «Запуск двигателя» as the server takes it (no chat). Returns the start's SystemsMath.R_*. */
     public int debugStart() {
-        int r = engine.start(state.switches, state.battery, state.energy > 0 && !isWrecked());
+        int r;
+        if (state.hydrogen()) {
+            state.battery = batteryUnits();
+            r = batteryStart() != BatteryMath.OK ? SystemsMath.R_LOW_BATTERY
+                    : engine.start(SystemsMath.applies(state.type) ? state.switches : SystemsMath.ALL_ON, state.battery, state.gas(FuelMath.H2) > 0 && !isWrecked());
+        } else {
+            r = engine.start(state.switches, state.battery, state.energy > 0 && !isWrecked());
+        }
         syncWatcher();
         return r;
     }
@@ -1917,7 +2203,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.updateObject(DW_THR, Float.valueOf((float) throttle));
         dataWatcher.updateObject(DW_COST, Float.valueOf(costNow));
         dataWatcher.updateObject(DW_YAW, Float.valueOf(rotationYaw));
-        dataWatcher.updateObject(DW_GAS, gasString(state));
+        dataWatcher.updateObject(DW_GAS, gasSync());
         dataWatcher.updateObject(DW_EXTRA, Integer.valueOf(extraBits()));
         dataWatcher.updateObject(DW_DUG, Integer.valueOf((int) Math.min(Integer.MAX_VALUE, state.dug)));
         dataWatcher.updateObject(DW_HEAD, Integer.valueOf(headLeft()));
@@ -1933,8 +2219,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.updateObject(DW_REGEN, Integer.valueOf(com.sva.vehicle.RegenMath.pack(regenNow, ConfigSVA.regenEfficiency, ConfigSVA.regen)));
         dataWatcher.updateObject(DW_HILIFT, Integer.valueOf(HighLiftMath.pack(flaps, airbrake, groundSpoilers, slats, flapWarn > 0,
                 HighLiftMath.spec(t) != null && HighLiftMath.brakeDeg(HighLiftMath.spec(t), airspeedNow) < HighLiftMath.spec(t).brakeDeg)));
-        if (SystemsMath.applies(t)) {
-            dataWatcher.updateObject(DW_SYS, Integer.valueOf(SystemsMath.pack(state.switches, engine.state, state.fails, state.failInstr,
+        if (SystemsMath.applies(t) || state.hydrogen()) {
+            dataWatcher.updateObject(DW_SYS, Integer.valueOf(SystemsMath.pack(SystemsMath.applies(t) ? state.switches : SystemsMath.ALL_ON, engine.state, state.fails, state.failInstr,
                     state.battery, SystemsMath.frost(ice), (ConfigSVA.engineStart ? SystemsMath.P_CFG_ENGINE : 0)
                             | (ConfigSVA.failures ? SystemsMath.P_CFG_FAILS : 0) | (heatingNow ? SystemsMath.P_HEATING : 0)
                             | (coldNow ? SystemsMath.P_COLD : 0) | (SystemsMath.iced(ice) ? SystemsMath.P_ICED : 0)
@@ -2092,7 +2378,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             input = 0;                                              // keys went stale: let go
         }
         int in = autoDrive ? autoIn : input;
-        double sysEu = systemsTick(t, motorOn, in, riddenByEntity != null || debugDriver);   // D2: battery, engine, heat, failures
+        double sysEu = systemsTick(t, motorOn, in, riddenByEntity != null || debugDriver || autoDrive);   // D2: battery, engine, heat, failures
         cruiseNow = !autoDrive && motorOn && cruiseActive(in);
         routeServerTick();                                          // D4: МАРШ's points, the plan to the driver
         boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
@@ -2166,10 +2452,13 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         } else {
             boosting = lifting && afterburnerOn(motorOn ? in : 0);         // the jet's / tiltrotor's afterburner
         }
+        boolean h2 = state.hydrogen();
+        double boostMb = 0;
         if (boosting && t.gases.boostGas != null) {
-            state.drainGasFraction(t.gases.boostGas, t.gases.boostGasPerSecond / 20.0);
+            boostMb = t.gases.boostGasPerSecond / 20.0;
+            state.drainGasFraction(t.gases.boostGas, boostMb);
         }
-        if (lifting && t.gases.liftGas != null) {
+        if (lifting && t.gases.liftGas != null && !h2) {           // hydrogen wave: the hover's cushion runs on the battery
             state.drainGasFraction(t.gases.liftGas, t.gases.liftPerTick(boosting));
             if (riddenByEntity != null && riddenByEntity.isBurning()) {
                 riddenByEntity.extinguish();                        // the antigravity field keeps the heat off the rider
@@ -2178,7 +2467,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         // energy and heat
         double fill = state.cargoFill();
         double v = Math.min(speedEma, t.topSpeed * tuneSpeed() * (boosting ? t.gases.boostMul : 1) * 1.2);
-        boolean working = motorOn && state.energy > 0 && (!t.movement.lifts || lifting);
+        boolean working = motorOn && (h2 ? SystemsMath.lifts(engine.state) && !isWrecked() : state.energy > 0) && (!t.movement.lifts || lifting);
         double cost, load;
         if (t.movement.flies) {
             double base = flightTick(t, clientDriven, v, fill, working);
@@ -2200,9 +2489,15 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             load = 0;
         }
         cost += sysEu;
-        costNow = (float) cost;
-        state.energy = Math.max(0, state.energy - cost);
-        regenTick(t, motorOn, in, emaBefore, moved, fill, cost);    // wave 4 (★15): braking / downhill / windmilling
+        if (h2) {
+            cost = hydrogenTick(t, v, fill, boostMb, sysEu);        // hydrogen wave: H2 for the drive, the battery for the electrics
+            costNow = (float) cost;
+        } else {
+            costNow = (float) cost;
+            state.energy = Math.max(0, state.energy - cost);
+            regenTick(t, motorOn, in, emaBefore, moved, fill, cost);    // wave 4 (★15): braking / downhill / windmilling
+        }
+        batteryServiceTick();                                       // the field kit, the jump leads
         boolean wasStopped = state.heatStop;
         state.heat = VehicleMath.heatStep(state.heat, load, coolingBonus());
         state.heatStop = VehicleMath.heatStopped(state.heatStop, state.heat);
@@ -2314,6 +2609,374 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             state.energy += r;
             regenNow = (float) r;
         }
+    }
+
+    /**
+     * Hydrogen wave, server, once a tick in place of the EU cost: the engine (warming up or running) burns H2 - cruise x
+     * FuelMath.mul (the throttle share: the plane's throttle, a rotorcraft hovering at least CRUISE_SHARE, the rest its
+     * speed against the top; cargo, a trailer, climbing, height, Мотор+, the tiltrotor vertical); the battery feeds the
+     * board (someone aboard or the engine turning; D2: АКБ on), the hover's cushion, the starter and the D2 heat, the
+     * generator charges it while the engine turns (D2: ГЕН and АКБ on). Charging wears the battery a cycle at a time, a
+     * run down to empty once (BatteryMath). @return the battery's net draw (EU/t, + discharging - the HUD's cost)
+     */
+    private double hydrogenTick(VehicleType t, double v, double fill, double boostMb, double sysEu) {
+        boolean d2 = SystemsMath.applies(t), plane = t.movement.flies && planeNow();
+        boolean turning = SystemsMath.lifts(engine.state) && !isWrecked();
+        double burnMb = 0;
+        if (turning) {
+            double top = Math.max(1e-3, t.topSpeed * tuneSpeed());
+            double thr = plane ? throttle : t.movement.flies && wasAirborne ? Math.max(FuelMath.CRUISE_SHARE, v / top) : v / top;
+            double mul = FuelMath.mul(thr, fill, state.trailer, t.movement.flies, posY - lastY, posY, ConfigSVA.tuning ? state.tuning : null,
+                    t.movement == Movement.TILT && !planeNow() && wasAirborne);
+            burnMb = FuelMath.burn(t, mul, ConfigSVA.consumption);
+            state.drainGasFraction(FuelMath.H2, burnMb);
+        }
+        h2Flow = FuelMath.flowStep(h2Flow, burnMb + boostMb);
+        double cap = state.maxEnergy();
+        boolean master = !d2 || SystemsMath.on(state.switches, SystemsMath.SW_BAT);
+        double load = sysEu;
+        if (state.batIn && master && (riddenByEntity != null || debugDriver || engine.state != SystemsMath.OFF)) {
+            load += FuelMath.boardLoad(cap) * Math.max(0, ConfigSVA.consumption);
+        }
+        if (lifting && t.movement == Movement.HOVER) {
+            load += FuelMath.cushionLoad(cap, boosting) * Math.max(0, ConfigSVA.consumption);
+        }
+        if (engine.state == SystemsMath.CRANK) {
+            load += FuelMath.starterPerTick(cap, crankTicksFor(t, false));
+        }
+        genNow = turning && master && (!d2 || SystemsMath.on(state.switches, SystemsMath.SW_GEN)) ? FuelMath.generator(cap, enginePowerRamp(t)) : 0;
+        double before = state.energy;
+        state.energy = Math.max(0, Math.min(cap, state.energy - load + genNow));
+        batNet = state.energy - before;
+        batteryWear(before, state.energy);
+        state.battery = batteryUnits();
+        return load - genNow;
+    }
+
+    /** The warm-up's ramp of the engine (0..1; the D2 aircraft's, the others at once). */
+    private double enginePowerRamp(VehicleType t) {
+        return SystemsMath.applies(t) ? SystemsMath.power(engine.state, engine.ticks, SystemsMath.warmTicks(t)) : SystemsMath.lifts(engine.state) ? 1 : 0;
+    }
+
+    /**
+     * Hydrogen wave, server: the battery's wear from a change of its charge (before -> after, this tick - the generator,
+     * a station, a jump start): every full capacity charged in is a cycle, a run down to empty a deep discharge (once,
+     * until it is charged over DEEP_RESET again). Nothing with vehicles.batteryWear off.
+     */
+    void batteryWear(double before, double after) {
+        double cap = BatteryMath.capacity(state.type);
+        if (!state.batIn || cap <= 0) {
+            return;
+        }
+        if (after > before && ConfigSVA.batteryWear) {
+            state.batHealth = BatteryMath.cycleWear(state.batHealth, after - before, cap);
+            state.batCycle += after - before;
+        }
+        if (after < 1 && before >= 1 && !state.batDeep) {
+            state.batDeep = true;
+            if (ConfigSVA.batteryWear) {
+                state.batHealth = Math.max(0, state.batHealth - BatteryMath.DEEP_WEAR);
+            }
+        } else if (state.batDeep && after > cap * BatteryMath.DEEP_RESET) {
+            state.batDeep = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ hydrogen wave: the battery in / out, the kit, the jump leads
+
+    /** May p take the battery out / put one in now: on hydrogen, the engine off, standing still, the owner or the «Ремонт» right. */
+    public boolean mayHandleBattery(EntityPlayer p) {
+        if (!onHydrogen() || engineState() != SystemsMath.OFF || Math.abs(speed) > 0.05) {
+            return false;
+        }
+        return p == null || canManage(p) || hasRight(p, AccessMath.REPAIR);
+    }
+
+    /** Why p may not (a lang key) - the engine running, moving, no right; null when he may. */
+    public String batteryRefusal(EntityPlayer p) {
+        if (engineState() != SystemsMath.OFF) {
+            return "sva.msg.bat.engineOn";
+        }
+        if (Math.abs(speed) > 0.05) {
+            return "sva.msg.bat.moving";
+        }
+        return p == null || canManage(p) || hasRight(p, AccessMath.REPAIR) ? null : "sva.msg.bat.noRight";
+    }
+
+    /** Server: the battery as an item (its charge, health...), null with none in / not on hydrogen. Nothing changes. */
+    public ItemStack batteryStack() {
+        if (!state.hydrogen() || !state.batIn || ModContentSVA.battery == null) {
+            return null;
+        }
+        BatteryMath.Battery b = new BatteryMath.Battery();
+        b.charge = Math.max(0, Math.min(state.energy + state.energyHeld, BatteryMath.capacity(state.type)));
+        b.health = state.batHealth;
+        b.limit = state.batLimit;
+        b.services = state.batServices;
+        b.cycle = state.batCycle;
+        b.deep = state.batDeep;
+        return com.sva.item.ItemBatterySVA.stackOf(ModContentSVA.battery, state.type, b);
+    }
+
+    /** Server: takes the battery out (null with none in); the board goes dark. */
+    public ItemStack takeBattery() {
+        ItemStack s = batteryStack();
+        if (s != null) {
+            state.takeBattery();
+            engine.stop();
+            syncWatcher();
+        }
+        return s;
+    }
+
+    /** Server: puts this type's battery in (false: not this type's, one is in already, not on hydrogen). */
+    public boolean putBattery(ItemStack s) {
+        if (!state.hydrogen() || state.batIn || !com.sva.item.ItemBatterySVA.fits(s, state.type)) {
+            return false;
+        }
+        state.putBattery(com.sva.item.ItemBatterySVA.batteryOf(s));
+        syncWatcher();
+        return true;
+    }
+
+    /** The «Снять» button / action: the battery into p's inventory (or dropped at his feet when it is full). */
+    private void batteryOut(EntityPlayer p) {
+        if (!state.hydrogen()) {
+            return;
+        }
+        if (!state.batIn) {
+            msg(p, "sva.msg.bat.none");
+            return;
+        }
+        String why = batteryRefusal(p);
+        if (why != null) {
+            msg(p, why);
+            return;
+        }
+        ItemStack s = takeBattery();
+        if (s != null && !p.inventory.addItemStackToInventory(s)) {
+            p.dropPlayerItemWithRandomChoice(s, false);
+        }
+        oneShot("cargo", 0.4F, 1.4F);
+        msg(p, "sva.msg.bat.out");
+    }
+
+    /**
+     * Server, right-click with something in hand (hydrogen): a battery of this type goes in (another type's: «не
+     * подходит»), the service kit starts its 5 s, the jump leads take this vehicle as the donor or start the jump from
+     * the donor they hold, a charged core battery pours its charge in. @return handled
+     */
+    private boolean batteryInteract(EntityPlayer p, ItemStack held) {
+        if (held == null) {
+            return false;
+        }
+        if (com.sva.item.ItemBatterySVA.isBattery(held)) {
+            VehicleType bt = com.sva.item.ItemBatterySVA.typeOf(held);
+            if (bt != state.type) {
+                msg(p, "sva.msg.bat.wrongType", new ChatComponentTranslation("item.siliconagevehicles.vehicle." + bt.key + ".name"),
+                        new ChatComponentTranslation("item.siliconagevehicles.battery." + state.type.key + ".name"));
+            } else if (state.batIn) {
+                msg(p, "sva.msg.bat.already");
+            } else if (batteryRefusal(p) != null) {
+                msg(p, batteryRefusal(p));
+            } else if (putBattery(held)) {
+                p.inventory.setInventorySlotContents(p.inventory.currentItem, null);
+                oneShot("cargo", 0.4F, 1.2F);
+                msg(p, "sva.msg.bat.in", Integer.valueOf((int) Math.round(state.batHealth * 100)));
+            }
+            return true;
+        }
+        int k = com.sva.item.ItemBatteryToolSVA.kind(held);
+        if (k == com.sva.item.ItemBatteryToolSVA.KIT) {
+            startKit(p);
+            return true;
+        }
+        if (k == com.sva.item.ItemBatteryToolSVA.CABLES) {
+            jumpCables(p, held);
+            return true;
+        }
+        if (held.getItem() instanceof com.sc.item.ItemBatterySC && state.batIn) {
+            // a charged core battery: its charge into the vehicle's (as much as fits)
+            long have = com.sc.item.ItemBatterySC.chargeOf(held);
+            double was = state.energy;
+            double got = state.addEnergy(Math.min(have, energyRoom()));
+            if (got >= 1) {
+                com.sc.item.ItemBatterySC.setCharge(held, have - (long) Math.floor(got));
+                batteryWear(was, state.energy);
+                msg(p, "sva.msg.bat.fromCell", com.sva.FormatSVA.group((long) got), Integer.valueOf(batteryPctNow()));
+                syncWatcher();
+            } else {
+                msg(p, have <= 0 ? "sva.msg.bat.cellEmpty" : "sva.msg.bat.full");
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private int batteryPctNow() {
+        return (int) Math.floor(state.energy * 100 / Math.max(1, state.maxEnergy()));
+    }
+
+    /** The service kit (server): an electrolyte from p's inventory, then KIT_TICKS standing by - +KIT_GAIN health. */
+    private void startKit(EntityPlayer p) {
+        if (!state.batIn) {
+            msg(p, "sva.msg.bat.none");
+            return;
+        }
+        String why = batteryRefusal(p);
+        if (why != null) {
+            msg(p, why);
+            return;
+        }
+        if (kitTicks > 0) {
+            msg(p, "sva.msg.bat.kitBusy");
+            return;
+        }
+        if (!BatteryMath.serviceUseful(state.batHealth, state.batLimit)) {
+            msg(p, "sva.msg.bat.atLimit", Integer.valueOf((int) Math.round(state.batLimit * 100)));
+            return;
+        }
+        if (!com.sva.item.ItemBatteryToolSVA.takeElectrolyte(p)) {
+            msg(p, "sva.msg.bat.noElectrolyte");
+            return;
+        }
+        kitTicks = BatteryMath.KIT_TICKS;
+        kitBy = p.getUniqueID();
+        oneShot("cargo", 0.4F, 0.8F);
+        msg(p, "sva.msg.bat.kitStart", Integer.valueOf(BatteryMath.KIT_TICKS / 20));
+        syncWatcher();
+    }
+
+    /** The jump leads (server): the first vehicle clicked is the donor, the second one gets the jump start from it. */
+    private void jumpCables(EntityPlayer p, ItemStack cables) {
+        NBTTagCompound t = cables.getTagCompound();
+        Entity d = t != null && t.hasKey(com.sva.item.ItemBatteryToolSVA.K_DONOR) ? worldObj.getEntityByID(t.getInteger(com.sva.item.ItemBatteryToolSVA.K_DONOR)) : null;
+        boolean same = d instanceof EntityVehicleSVA && ((EntityVehicleSVA) d).state.vehId.equals(t.getString(com.sva.item.ItemBatteryToolSVA.K_DONOR_ID));
+        if (!same || d == this) {
+            // this one is the donor
+            if (!state.batIn || state.energy < state.maxEnergy() * BatteryMath.DONOR_MIN) {
+                msg(p, "sva.msg.jump.weakDonor", Integer.valueOf((int) Math.round(BatteryMath.DONOR_MIN * 100)));
+                return;
+            }
+            NBTTagCompound n = t == null ? new NBTTagCompound() : t;
+            n.setInteger(com.sva.item.ItemBatteryToolSVA.K_DONOR, getEntityId());
+            n.setString(com.sva.item.ItemBatteryToolSVA.K_DONOR_ID, state.vehId);
+            cables.setTagCompound(n);
+            msg(p, "sva.msg.jump.donor");
+            return;
+        }
+        EntityVehicleSVA donor = (EntityVehicleSVA) d;
+        cables.setTagCompound(null);
+        if (!state.batIn) {
+            msg(p, "sva.msg.bat.none");
+        } else if (getDistanceToEntity(donor) > BatteryMath.JUMP_RANGE + (width + donor.width) / 2) {
+            msg(p, "sva.msg.jump.far", Integer.valueOf((int) BatteryMath.JUMP_RANGE));
+        } else if (!donor.state.batIn || donor.state.energy < donor.state.maxEnergy() * BatteryMath.DONOR_MIN) {
+            msg(p, "sva.msg.jump.weakDonor", Integer.valueOf((int) Math.round(BatteryMath.DONOR_MIN * 100)));
+        } else {
+            jumpFrom = donor;
+            jumpLeft = BatteryMath.capacity(state.type) * BatteryMath.JUMP_SHARE;
+            jumpTicks = BatteryMath.JUMP_TICKS;
+            oneShot("cargo", 0.4F, 1.6F);
+            msg(p, "sva.msg.jump.start", Integer.valueOf(BatteryMath.JUMP_TICKS / 20));
+            syncWatcher();
+        }
+    }
+
+    /** World test: a jump start from `donor` as the leads would begin it (no checks but the batteries). */
+    public void debugJump(EntityVehicleSVA donor) {
+        jumpFrom = donor;
+        jumpLeft = BatteryMath.capacity(state.type) * BatteryMath.JUMP_SHARE;
+        jumpTicks = BatteryMath.JUMP_TICKS;
+    }
+
+    /** World test: the field kit started by p (the electrolyte taken by the caller). */
+    public void debugKit(EntityPlayer p) {
+        kitTicks = BatteryMath.KIT_TICKS;
+        kitBy = p == null ? null : p.getUniqueID();
+    }
+
+    /** Server, a tick: the field kit (done after KIT_TICKS; off when the engine starts or its man walks away) and a jump start. */
+    private void batteryServiceTick() {
+        if (kitTicks > 0) {
+            EntityPlayer p = kitBy == null ? null : kitPlayer();
+            if (!state.batIn || engine.state != SystemsMath.OFF || kitBy != null && (p == null || p.getDistanceSqToEntity(this) > 64)) {
+                kitTicks = 0;
+                if (p != null) {
+                    msg(p, "sva.msg.bat.kitCancel");
+                }
+            } else if (--kitTicks == 0) {
+                int was = (int) Math.round(state.batHealth * 100);
+                double[] r = BatteryMath.kitService(state.batHealth, state.batLimit);
+                state.batHealth = r[0];
+                state.batLimit = r[1];
+                state.batServices++;
+                oneShot("ding", 0.4F, 1.4F);
+                if (p != null) {
+                    msg(p, "sva.msg.bat.serviced", Integer.valueOf(was), Integer.valueOf((int) Math.round(state.batHealth * 100)),
+                            Integer.valueOf((int) Math.round(state.batLimit * 100)));
+                }
+            }
+        }
+        if (jumpTicks > 0) {
+            EntityVehicleSVA d = jumpFrom;
+            if (d == null || d.isDead || d.worldObj != worldObj || !state.batIn
+                    || getDistanceToEntity(d) > BatteryMath.JUMP_RANGE + (width + d.width) / 2 + 1) {
+                jumpTicks = 0;
+                jumpFrom = null;
+                tellRiders("sva.msg.jump.broken");
+            } else {
+                double m = BatteryMath.jumpStep(BatteryMath.jumpPerTick(BatteryMath.capacity(state.type)), jumpLeft, d.state.energy,
+                        d.state.maxEnergy(), energyRoom());
+                d.state.energy -= m;
+                double was = state.energy;
+                state.energy += m;
+                batteryWear(was, state.energy);
+                jumpLeft -= m;
+                if (--jumpTicks <= 0 || jumpLeft <= 0 || m <= 0 && d.state.energy <= d.state.maxEnergy() * BatteryMath.DONOR_MIN) {
+                    jumpTicks = 0;
+                    jumpFrom = null;
+                    oneShot("ding", 0.35F, 1.6F);
+                    tellRiders("sva.msg.jump.done");
+                }
+            }
+        }
+    }
+
+    private EntityPlayer kitPlayer() {
+        for (Object o : worldObj.playerEntities) {
+            EntityPlayer p = (EntityPlayer) o;
+            if (kitBy.equals(p.getUniqueID())) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The repair garage's «Обслужить АКБ» (server; the garage took the EU and the electrolyte): the health up to the
+     * limit, the limit a step down. @return {health before, after} in %
+     */
+    public int[] garageServiceBattery() {
+        int was = (int) Math.round(state.batHealth * 100);
+        double[] r = BatteryMath.garageService(state.batHealth, state.batLimit);
+        state.batHealth = r[0];
+        state.batLimit = r[1];
+        state.batServices++;
+        syncWatcher();
+        return new int[] {was, (int) Math.round(state.batHealth * 100)};
+    }
+
+    /** World test: the battery's health (0..1) set directly. */
+    public void debugBatteryHealth(double h) {
+        state.batHealth = Math.max(0, Math.min(1, h));
+        syncWatcher();
+    }
+
+    /** World test: run on hydrogen (1) / EU (0) whatever the config (-1: the config). */
+    public void debugFuel(int force) {
+        state.fuelForce = force;
+        syncWatcher();
     }
 
     /** World test: the recovery pool (EU spent the vehicle may still get a share of back). */
@@ -2440,8 +3103,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         boolean fwd = (in & IN_FWD) != 0, back = (in & IN_BACK) != 0, left = (in & IN_LEFT) != 0,
                 right = (in & IN_RIGHT) != 0, brake = (in & IN_BRAKE) != 0;
-        boolean thrust = canThrust();
-        double top = VehicleMath.maxSpeed(t, getEnergy()) * roadSpeedMul(t) * tuneSpeed()      // ★11: asphalt / concrete; ★8 tuning
+        boolean thrust = canThrust() && (!onHydrogen() || motorDrives());     // hydrogen: no engine - it rolls to a stop
+        double top = VehicleMath.maxSpeed(t, driveCharge()) * roadSpeedMul(t) * tuneSpeed()      // ★11: asphalt / concrete; ★8 tuning
                 * trailerSpeedMul();                                                       // ★15: a full tank / a loaded platform
         boolean water = isInWater();
         boolean crawler = t.movement == Movement.CRAWLER;
@@ -2468,7 +3131,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         int steer = (right ? 1 : 0) - (left ? 1 : 0);
         if (crawler) {
-            rotationYaw += CrawlerMath.turn(t.turnRate, steer, speed, thrust, getEnergy() > 0);   // tracks: on the spot too
+            rotationYaw += CrawlerMath.turn(t.turnRate, steer, speed, thrust, driveCharge() > 0);   // tracks: on the spot too
         } else if (steer != 0 && speed != 0) {
             rotationYaw += steer * t.turnRate * Math.min(1, Math.abs(speed) / 0.12) * Math.signum(speed);
         }
@@ -2587,8 +3250,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         boolean hover = t.movement.lifts && !flies;
         boolean lift = t.movement.lifts && hasLift() && canThrust();
         double coast = Math.max(speedEma * 1.1, 0.02);
-        double limit = hover ? (lift ? HoverMath.maxSpeed(t, true, (input & (IN_BOOST | IN_AFTER)) != 0) * tuneSpeed() : coast)
-                : canThrust() ? VehicleMath.maxSpeed(t, state.energy) * tuneSpeed() * Math.max(roadSpeedMul(t),
+        double limit = hover ? (lift && motorDrives() ? HoverMath.maxSpeed(t, true, (input & (IN_BOOST | IN_AFTER)) != 0) * tuneSpeed() : coast)
+                : canThrust() && (!onHydrogen() || motorDrives()) ? VehicleMath.maxSpeed(t, driveCharge()) * tuneSpeed() * Math.max(roadSpeedMul(t),
                 RoadMath.speedMul(com.sva.block.BlockRoadSVA.surfaceAt(worldObj, x, y, z), t.movement)) : coast;   // coasting only; ★11 roads
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
         boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), flightParams(t), bh, by, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z),
@@ -3027,7 +3690,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * exhaust when it catches, a smoke trail from the cowling (the jet: the nozzle) while it has failed and turns.
      */
     private void engineEffects(VehicleType t) {
-        if (!SystemsMath.applies(t)) {
+        if (!engineApplies(t)) {
             return;
         }
         int st = engineState();
@@ -3342,12 +4005,15 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return true;
         }
         ItemStack held = p.getCurrentEquippedItem();
-        if (state.type.gases.any() && isGasContainer(held)) {
+        if (!state.tanks().isEmpty() && isGasContainer(held)) {
             // anyone may refuel (harmless): a full cell / bucket / tank of a gas pours into its tank
             com.sc.util.FluidHandSC.use(worldObj, MathHelper.floor_double(posX), MathHelper.floor_double(posY),
                     MathHelper.floor_double(posZ), p, tanks(), held);
             syncWatcher();
             return true;
+        }
+        if (state.hydrogen() && batteryInteract(p, held)) {
+            return true;                                            // hydrogen wave: a battery, the kit, the jump leads, a core battery
         }
         if (held != null && held.getItem() instanceof com.sc.item.ItemWrenchSC && p.isSneaking()) {
             if (!canManage(p)) {
@@ -4409,6 +5075,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** The Action packet (server thread; the sender is near or seated): a cargo screen button or a drill key. */
     public void serverAction(EntityPlayerMP p, int a) {
+        if (a == A_BATTERY_OUT) {
+            batteryOut(p);                                          // its own rule: the owner or «Ремонт»
+            return;
+        }
         if (!actionAllowed(a, canManage(p), riddenByEntity == p, canOpenCargo(p))) {
             lockedMsg(p);
             return;
@@ -4497,7 +5167,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             flapCommand(p, HighLiftMath.spec(t), a == A_FLAPS_DOWN ? 1 : -1);
         } else if (a == A_AIRBRAKE && HighLiftMath.spec(t) != null && HighLiftMath.spec(t).airbrake) {
             airbrakeCommand(p);
-        } else if (a == A_ENGINE && SystemsMath.applies(t)) {
+        } else if (a == A_ENGINE && (SystemsMath.applies(t) || state.hydrogen())) {
             engineCommand(p);
         } else if (a >= A_SWITCH && a < A_SWITCH + SystemsMath.SWITCHES && SystemsMath.applies(t)) {
             switchCommand(p, a - A_SWITCH);
@@ -4797,7 +5467,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     public int addGas(Gas g, int mb) {
         int put = state.fillGas(g, mb, false);
         if (put > 0) {
-            dataWatcher.updateObject(DW_GAS, gasString(state));
+            dataWatcher.updateObject(DW_GAS, gasSync());
         }
         return put;
     }
@@ -4835,7 +5505,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
         @Override
         public FluidTankInfo[] getTankInfo(ForgeDirection from) {
-            List<Gas> gs = state.type.gases.gases();
+            List<Gas> gs = state.tanks();
             FluidTankInfo[] out = new FluidTankInfo[gs.size()];
             for (int i = 0; i < out.length; i++) {
                 Gas g = gs.get(i);
@@ -4850,7 +5520,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** @return EU taken */
     public double addEnergy(double eu) {
+        double was = state.energy;
         double got = state.addEnergy(eu);
+        if (got > 0 && state.hydrogen()) {
+            batteryWear(was, state.energy);                         // a station's charge wears the battery like the generator's
+        }
         if (got > 0) {
             dataWatcher.updateObject(DW_ENERGY, Integer.valueOf((int) state.energy));
         }
@@ -4877,7 +5551,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         HighLiftMath.Spec hl = HighLiftMath.spec(t);
         flaps = hl == null ? 0 : Math.max(0, Math.min(hl.last(), tag.getByte(K_FLAPS)));
         airbrake = hl != null && hl.airbrake && tag.getBoolean(K_AIRBRAKE);
-        if (SystemsMath.applies(t)) {
+        if (SystemsMath.applies(t) || state.hydrogen()) {
             // D2: a running engine keeps running over a reload (a pilot who logged out mid-flight); a start in progress starts over
             int es = tag.getByte(K_ENGINE);
             if (es == SystemsMath.RUN || es == SystemsMath.WARM) {

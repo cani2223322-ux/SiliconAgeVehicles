@@ -284,9 +284,15 @@ public final class CockpitInstrumentsSVA {
                 return ((yaw + 180F) % 360F + 360F) % 360F;
             }
             case CockpitDials.GAS: {
-                Gas g = mainGas(t);
+                Gas g = v.onHydrogen() ? com.sva.vehicle.FuelMath.H2 : mainGas(t);      // hydrogen wave: the fuel
                 return g == null ? 0F : gasPct(v, t, g);
             }
+            case CockpitDials.H2:
+                return gasPct(v, t, com.sva.vehicle.FuelMath.H2);
+            case CockpitDials.VOLTS:
+                return v.batteryVolts();
+            case CockpitDials.AMPS:
+                return v.batteryAmps();
             default:
                 return 0F;
         }
@@ -353,6 +359,11 @@ public final class CockpitInstrumentsSVA {
         n.slatsOut = v.slatsOut();
         n.airbrake = v.spoilersUp();
         n.flapWarning = v.flapWarning();
+        n.hydrogen = v.onHydrogen();                              // hydrogen wave: the fuel and battery lamps
+        n.fuel = v.h2Max() <= 0 ? 1F : v.h2Mb() / (float) v.h2Max();
+        n.batPresent = v.batteryPresent();
+        n.batCharge = (float) v.batteryFrac();
+        n.batHealth = (float) v.batteryHealth();
         n.fails = v.failures();                                   // round 2, D2: the failures, the iced pitot
         n.iced = v.pitotIced();
     }
@@ -626,7 +637,7 @@ public final class CockpitInstrumentsSVA {
             out.add(new Line(Lang.tr("sva.cockpit.hull", pct(hp * 100)), hp < 0.25F ? AMBER : TEXT, hp, hp < 0.25F ? new float[] {1F, 0.76F, 0.23F}
                     : new float[] {0.75F, 0.78F, 0.82F}));
         }
-        for (Gas g : t.gases.gases()) {
+        for (Gas g : v.tankList()) {
             float f = gasPct(v, t, g) / 100F;
             int c = 0xFF000000 | g.color;
             out.add(new Line(Lang.tr("sva.gas." + g.key()) + " " + pct(f * 100), TEXT, f,

@@ -29,7 +29,9 @@ public class ContainerGarageSVA extends Container {
             PLAYER_END = PLAYER_START + 36;
     // synced value ids
     public static final int V_E = 0, V_VEH = 2, V_STATUS = 4, V_PROG = 5, V_MODE = 6, V_EU_ALL = 7, V_EU_HULL = 9, V_STEEL = 11,
-            V_HAVE_STEEL = 12, V_HAVE_IRON = 13, V_PLATES = 14, V_JOB = 15, V_COUNT = 16;
+            V_HAVE_STEEL = 12, V_HAVE_IRON = 13, V_PLATES = 14, V_JOB = 15,
+            /** Hydrogen wave: electrolyte in the slots, «Обслужить АКБ»'s check (TileEntityGarageSVA.serviceCheck, R_*). */
+            V_ELYTE = 16, V_SERVICE = 17, V_COUNT = 18;
 
     private final TileEntityGarageSVA tile;
     private final EntityPlayer player;
@@ -90,6 +92,8 @@ public class ContainerGarageSVA extends Container {
         v[V_HAVE_IRON] = Math.min(32767, m[1]);
         v[V_PLATES] = tile.plateCount();
         v[V_JOB] = tile.isRepairing() ? 1 : 0;
+        v[V_ELYTE] = Math.min(32767, tile.electrolytes());
+        v[V_SERVICE] = tile.serviceCheck(null);
         return v;
     }
 

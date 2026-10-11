@@ -32,7 +32,10 @@ public class VehicleState {
             // wave 3 (★15): the hitched trailer's kind (TrailerMath) and its contents (the tank, the carried vehicle, the charger)
             K_TRAILER_TYPE = "TrailerType", K_TRAILER_DATA = "TrailerData",
             // aircraft round 2, D2 (SystemsMath): the overhead switches, the failures (+ the failed instrument's slot), the battery
-            K_SWITCHES = "Switches", K_FAILS = "Failures", K_FAIL_INSTR = "FailInstr", K_BATTERY = "Battery";
+            K_SWITCHES = "Switches", K_FAILS = "Failures", K_FAIL_INSTR = "FailInstr", K_BATTERY = "Battery",
+            // hydrogen wave (FuelMath / BatteryMath): the board battery is in (+ its health, limit, services, cycle EU, deep
+            // flag - BatteryMath.K_*), the H2 tank has been set up once (a save without it gets a full tank)
+            K_BAT_IN = "BatIn", K_H2_SEEN = "H2Seen";
     /** Keys inside K_TRAILER_DATA (also the trailer item's own NBT, ItemTrailerSVA). */
     public static final String T_FLUID = "Fluid", T_AMOUNT = "Amount", T_IN = "In", T_OUT = "Out", T_CARRIED = "Carried", T_ENERGY = "Energy";
 
@@ -102,6 +105,19 @@ public class VehicleState {
      */
     public int switches = SystemsMath.ALL_ON, fails, failInstr;
     public double battery = SystemsMath.BAT_MAX;
+    /**
+     * Hydrogen wave (BatteryMath): the removable battery - in or out, its health 0..1, the health limit (drops a step
+     * a service), services done, EU charged towards the next cycle, run down to empty (counted once). In hydrogen mode
+     * the battery's charge IS `energy` (maxEnergy = its capacity; 0 with no battery). A new vehicle and one saved before
+     * the wave have a new battery in.
+     */
+    public boolean batIn = true, batDeep;
+    public double batHealth = 1, batLimit = 1, batCycle;
+    public int batServices;
+    /** The H2 tank has been filled for an old save once (K_H2_SEEN). */
+    public boolean h2Seen;
+    /** Tests (not saved): 1 - on hydrogen, 0 - on EU whatever the config says; -1 - the server's vehicles.fuelMode. */
+    public int fuelForce = -1;
 
     public VehicleState(VehicleType type) {
         this.type = type;
@@ -197,18 +213,71 @@ public class VehicleState {
         }
     }
 
+    /** Hydrogen wave: this vehicle runs on hydrogen now (FuelMath.on: its type, the server's mode, a test's force). */
+    public boolean hydrogen() {
+        return FuelMath.on(type, fuelForce, com.sva.net.ServerConfigSVA.hydrogen());
+    }
+
+    /** The EU it may hold: the type's buffer; on hydrogen the board battery's capacity (none in: 0). «Аккумулятор+» x1.5. */
     public double maxEnergy() {
-        return type.buffer * (com.sva.ConfigSVA.tuning ? TuningMath.bufferMul(tuning) : 1);
+        return baseEnergy() * (com.sva.ConfigSVA.tuning ? TuningMath.bufferMul(tuning) : 1);
+    }
+
+    private double baseEnergy() {
+        if (hydrogen()) {
+            return batIn ? BatteryMath.capacity(type) : 0;
+        }
+        return type.buffer;
     }
 
     /** What the installed upgrades let it hold whatever vehicles.tuning says (the save keeps this much). */
     public double storedEnergyCap() {
-        return type.buffer * TuningMath.bufferMul(tuning);
+        return baseEnergy() * TuningMath.bufferMul(tuning);
     }
 
     /** The same for a gas tank. */
     public int storedGasCap(Gas g) {
-        return (int) Math.round(type.gases.capacity(g) * TuningMath.gasMul(tuning));
+        return (int) Math.round(FuelMath.capacity(type, g, hydrogen()) * TuningMath.gasMul(tuning));
+    }
+
+    /** The tanks it has now (hydrogen mode: H2 first - FuelMath.gases). */
+    public java.util.List<Gas> tanks() {
+        return FuelMath.gases(type, hydrogen());
+    }
+
+    // ------------------------------------------------------------------ the board battery (hydrogen wave)
+
+    /**
+     * Takes the battery out (BatteryMath.Battery: the charge up to its own capacity - what «Аккумулятор+» held over it
+     * stays behind and is lost); null when none is in.
+     */
+    public BatteryMath.Battery takeBattery() {
+        if (!batIn) {
+            return null;
+        }
+        BatteryMath.Battery b = new BatteryMath.Battery();
+        b.charge = Math.max(0, Math.min(energy + energyHeld, BatteryMath.capacity(type)));
+        b.health = batHealth;
+        b.limit = batLimit;
+        b.services = batServices;
+        b.cycle = batCycle;
+        b.deep = batDeep;
+        batIn = false;
+        energy = 0;
+        energyHeld = 0;
+        return b;
+    }
+
+    /** Puts a battery in (its charge up to today's limit). */
+    public void putBattery(BatteryMath.Battery b) {
+        batIn = true;
+        batHealth = b.health;
+        batLimit = b.limit;
+        batServices = b.services;
+        batCycle = b.cycle;
+        batDeep = b.deep;
+        energyHeld = 0;
+        energy = Math.max(0, Math.min(b.charge, maxEnergy()));
     }
 
     /** Charge and gases: up to today's limits in use, the rest (tuning off) kept aside in energyHeld / gasHeld. */
@@ -261,7 +330,7 @@ public class VehicleState {
     // ------------------------------------------------------------------ gas tanks
 
     public int gasCapacity(Gas g) {
-        int c = type.gases.capacity(g);
+        int c = FuelMath.capacity(type, g, hydrogen());
         return com.sva.ConfigSVA.tuning ? (int) Math.round(c * TuningMath.gasMul(tuning)) : c;
     }
 
@@ -314,7 +383,7 @@ public class VehicleState {
 
     /** Fills every tank (creative "full gases" stacks, tests). */
     public void fillAllGases() {
-        for (Gas g : type.gases.gases()) {
+        for (Gas g : tanks()) {
             gas[g.ordinal()] = gasCapacity(g);
         }
     }
@@ -412,6 +481,15 @@ public class VehicleState {
         t.setInteger(K_FAIL_INSTR, failInstr);
         t.setDouble(K_BATTERY, battery);
         RouteMath.write(plan, t);                               // D4
+        t.setBoolean(K_BAT_IN, batIn);                           // hydrogen wave: the battery
+        if (batIn) {
+            t.setDouble(BatteryMath.K_HEALTH, batHealth);
+            t.setDouble(BatteryMath.K_CAP, batLimit);
+            t.setInteger(BatteryMath.K_SERVICES, batServices);
+            t.setDouble(BatteryMath.K_CYCLE, batCycle);
+            t.setBoolean(BatteryMath.K_DEEP, batDeep);
+        }
+        t.setBoolean(K_H2_SEEN, h2Seen || hydrogen());
     }
 
     /** Tiltrotor nacelles 0 (vertical) .. 1 (airplane). */
@@ -433,6 +511,18 @@ public class VehicleState {
         }
         // the charge / gases are clamped to what the upgrades hold, not to today's config: with vehicles.tuning off
         // the part above the base limits is kept aside (energyHeld / gasHeld) and comes back when it is on again
+        // hydrogen wave: the battery first (it is the EU limit on hydrogen); a save from before it: a new one in
+        if (t.hasKey(K_BAT_IN)) {
+            batIn = t.getBoolean(K_BAT_IN);
+            if (batIn) {
+                BatteryMath.Battery b = new BatteryMath.Battery().read(t, Double.MAX_VALUE);
+                batHealth = b.health;
+                batLimit = b.limit;
+                batServices = b.services;
+                batCycle = b.cycle;
+                batDeep = b.deep;
+            }
+        }
         double e = t.hasKey(K_ENERGY) ? t.getDouble(K_ENERGY) : energy + energyHeld;
         hp = (float) clampNum(t.hasKey(K_HP) ? t.getFloat(K_HP) : hp, 0, maxHp());
         heat = clampNum(t.hasKey(K_HEAT) ? t.getDouble(K_HEAT) : heat, 0, VehicleMath.HEAT_STOP);
@@ -463,6 +553,12 @@ public class VehicleState {
                 gasAll[g.ordinal()] = gt.getInteger(g.key());
             }
         }
+        // hydrogen wave: an old save (or one from EU mode) gets a full H2 tank once - nobody is stranded by the update
+        boolean seen = t.getBoolean(K_H2_SEEN);
+        if (hydrogen() && !seen && t.hasKey(K_TYPE)) {
+            gasAll[FuelMath.H2.ordinal()] = Math.max(gasAll[FuelMath.H2.ordinal()], storedGasCap(FuelMath.H2));
+        }
+        h2Seen = seen || hydrogen() && t.hasKey(K_TYPE);
         splitHeld(e, gasAll);
         if (t.hasKey(K_GASES)) {
             NBTTagCompound gt = t.getCompoundTag(K_GASES);

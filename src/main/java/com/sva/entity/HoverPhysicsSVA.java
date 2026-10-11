@@ -51,15 +51,17 @@ public final class HoverPhysicsSVA {
                 left = (in & EntityVehicleSVA.IN_LEFT) != 0, right = (in & EntityVehicleSVA.IN_RIGHT) != 0,
                 high = (in & EntityVehicleSVA.IN_BRAKE) != 0, boostKey = (in & (EntityVehicleSVA.IN_BOOST | EntityVehicleSVA.IN_AFTER)) != 0;
         boolean lift = v.hasLift() && v.canThrust();
-        boolean boost = lift && boostKey && fwd;
-        double top = HoverMath.maxSpeed(t, lift, boost) * v.tuneSpeed();       // wave 2, ★8 tuning
+        // hydrogen wave: the cushion holds it up on the battery, the drive needs the engine (motorDrives)
+        boolean drive = lift && v.motorDrives();
+        boolean boost = drive && boostKey && fwd;
+        double top = HoverMath.maxSpeed(t, drive, boost) * v.tuneSpeed();       // wave 2, ★8 tuning
         double speed = v.speed;
         if (!fwd && v.cruiseActive(in)) {
             // ★4 cruise: toward the set speed (no boost - the boost needs W)
-            speed = com.sva.vehicle.CruiseMath.groundStep(speed, Math.min(v.cruiseSpeed, top), t.accel, EntityVehicleSVA.ROLL, lift);
-        } else if (lift && fwd && !back) {
+            speed = com.sva.vehicle.CruiseMath.groundStep(speed, Math.min(v.cruiseSpeed, top), t.accel, EntityVehicleSVA.ROLL, drive);
+        } else if (drive && fwd && !back) {
             speed += speed < 0 ? EntityVehicleSVA.BRAKE : t.accel * (boost ? 1.5 : 1);
-        } else if (lift && back && !fwd) {
+        } else if (drive && back && !fwd) {
             speed -= speed > 0 ? EntityVehicleSVA.BRAKE : t.accel * 0.6;
         } else {
             speed = toward0(speed, v.onGround ? EntityVehicleSVA.BRAKE : EntityVehicleSVA.ROLL);

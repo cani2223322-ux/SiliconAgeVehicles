@@ -165,7 +165,8 @@ public class ItemVehicleSVA extends Item implements ic2.api.item.ISpecialElectri
 
     /** The charge limit with the server's vehicles.tuning (ServerConfigSVA; the local config until it is known). */
     static double shownMaxEnergy(VehicleState st) {
-        return st.type.buffer * (ServerConfigSVA.tuning() ? TuningMath.bufferMul(st.tuning) : 1);
+        double base = st.hydrogen() ? (st.batIn ? com.sva.vehicle.BatteryMath.capacity(st.type) : 0) : st.type.buffer;   // hydrogen: the battery
+        return base * (ServerConfigSVA.tuning() ? TuningMath.bufferMul(st.tuning) : 1);
     }
 
     /** The charge shown: what the item holds (the part kept aside included) up to the server's limit. */
@@ -174,7 +175,7 @@ public class ItemVehicleSVA extends Item implements ic2.api.item.ISpecialElectri
     }
 
     static int shownGasCapacity(VehicleState st, com.sc.util.ArmorGasSC.Gas g) {
-        int c = st.type.gases.capacity(g);
+        int c = com.sva.vehicle.FuelMath.capacity(st.type, g, st.hydrogen());
         return ServerConfigSVA.tuning() ? (int) Math.round(c * TuningMath.gasMul(st.tuning)) : c;
     }
 
@@ -189,12 +190,18 @@ public class ItemVehicleSVA extends Item implements ic2.api.item.ISpecialElectri
         VehicleType t = st.type;
         double energy = shownEnergy(st), maxEnergy = shownMaxEnergy(st);
         int pct = (int) Math.floor(energy * 100 / Math.max(1, maxEnergy));
-        list.add(Lang.tr("sva.tooltip.charge", fmt((long) energy), fmt((long) maxEnergy), Integer.valueOf(pct)));
+        if (st.hydrogen()) {
+            // hydrogen wave: the charge is the board battery's (or there is none in)
+            list.add(st.batIn ? Lang.tr("sva.tooltip.batCharge", fmt((long) energy), fmt((long) maxEnergy), Integer.valueOf(pct),
+                    Integer.valueOf((int) Math.round(st.batHealth * 100))) : Lang.tr("sva.tooltip.noBattery"));
+        } else {
+            list.add(Lang.tr("sva.tooltip.charge", fmt((long) energy), fmt((long) maxEnergy), Integer.valueOf(pct)));
+        }
         if (ServerConfigSVA.wear()) {
             list.add(st.hp <= 0 ? Lang.tr("sva.tooltip.wrecked")
                     : Lang.tr("sva.tooltip.hp", Integer.valueOf(Math.round(st.hp * 100 / st.maxHp()))));
         }
-        for (com.sc.util.ArmorGasSC.Gas g : t.gases.gases()) {
+        for (com.sc.util.ArmorGasSC.Gas g : st.tanks()) {
             list.add(Lang.tr("sva.tooltip.gas", Lang.tr("sva.gas." + g.key()), fmt(shownGas(st, g)), fmt(shownGasCapacity(st, g))));
         }
         list.add(Lang.tr("sva.tooltip.cargo", Integer.valueOf(st.cargoUsed()), Integer.valueOf(st.cargoSize())));
@@ -233,7 +240,10 @@ public class ItemVehicleSVA extends Item implements ic2.api.item.ISpecialElectri
                 + (t.gases.liftGas != null || flies || crawler ? Lang.tr("sva.tooltip.vehicle.gas." + t.key, fmt(Math.round(t.gases.liftPerSecond)),
                         fmt(Math.round(t.gases.boostPerSecond)), fmt(Math.round(t.gases.boostGasPerSecond)),
                         String.valueOf(t.gases.boostMul).replace('.', ',')) + "\n" : "")
-                + Lang.tr(ground ? "sva.tooltip.vehicle.limits" : "sva.tooltip.limits." + t.key, new Object[0]);
+                + Lang.tr(ground ? "sva.tooltip.vehicle.limits" : "sva.tooltip.limits." + t.key, new Object[0])
+                + (st.hydrogen() ? "\n" + Lang.tr("sva.tooltip.vehicle.hydrogen", fmt(com.sva.vehicle.FuelMath.tank(t)),
+                        Integer.valueOf(com.sva.vehicle.FuelMath.minutes(t)), fmt((long) com.sva.vehicle.BatteryMath.capacity(t)),
+                        com.sva.vehicle.BatteryMath.tier(t).name()) : "");
         TooltipSC.more(list, details, Lang.tr("sva.tooltip.howto.vehicle1") + "\n"
                 + (ground ? Lang.tr("sva.tooltip.howto.vehicle2") : Lang.tr("sva.tooltip.howto." + t.key + "2", keyNames())) + "\n"
                 + Lang.tr(ground ? "sva.tooltip.howto.vehicle3" : "sva.tooltip.howto." + t.key + "3", new Object[0]) + "\n"
@@ -268,7 +278,7 @@ public class ItemVehicleSVA extends Item implements ic2.api.item.ISpecialElectri
             VehicleState full = new VehicleState(t);
             full.energy = full.maxEnergy();
             list.add(withState(new ItemStack(item, 1, t.ordinal()), full));
-            if (t.gases.any()) {
+            if (!full.tanks().isEmpty()) {
                 VehicleState gassed = new VehicleState(t);
                 gassed.energy = gassed.maxEnergy();
                 gassed.fillAllGases();

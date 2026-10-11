@@ -44,7 +44,7 @@ public class GuiGarageSVA extends GuiContainer {
 
     private final TileEntityGarageSVA tile;
     private final ContainerGarageSVA container;
-    private GuiButton all, hull;
+    private GuiButton all, hull, service;
 
     public GuiGarageSVA(InventoryPlayer inv, TileEntityGarageSVA te) {
         super(new ContainerGarageSVA(inv, te));
@@ -58,10 +58,13 @@ public class GuiGarageSVA extends GuiContainer {
     public void initGui() {
         super.initGui();
         buttonList.clear();
-        all = new TextFitSC.Button(0, guiLeft + 8, guiTop + 104, 86, 16, Lang.tr("sva.garage.btn.all"));
-        hull = new TextFitSC.Button(1, guiLeft + 98, guiTop + 104, 86, 16, Lang.tr("sva.garage.btn.hull"));
+        // hydrogen wave: a third button, «Обслужить АКБ» (the repairs' two get narrower)
+        all = new TextFitSC.Button(0, guiLeft + 8, guiTop + 104, 58, 16, Lang.tr("sva.garage.btn.all"));
+        hull = new TextFitSC.Button(1, guiLeft + 68, guiTop + 104, 58, 16, Lang.tr("sva.garage.btn.hull"));
+        service = new TextFitSC.Button(2, guiLeft + 128, guiTop + 104, 56, 16, Lang.tr("sva.garage.btn.service"));
         buttonList.add(all);
         buttonList.add(hull);
+        buttonList.add(service);
     }
 
     // ------------------------------------------------------------------ data
@@ -103,11 +106,12 @@ public class GuiGarageSVA extends GuiContainer {
         boolean free = veh != null && !job() && metalOk();
         all.enabled = free && v(ContainerGarageSVA.V_EU_ALL) > 0;
         hull.enabled = free && v(ContainerGarageSVA.V_EU_HULL) > 0;
+        service.enabled = veh != null && v(ContainerGarageSVA.V_SERVICE) == TileEntityGarageSVA.R_OK;
     }
 
     @Override
     protected void actionPerformed(GuiButton b) {
-        int mode = b.id == 0 ? GarageMath.ALL : GarageMath.HULL;
+        int mode = b.id == 2 ? TileEntityGarageSVA.SERVICE : b.id == 0 ? GarageMath.ALL : GarageMath.HULL;
         NetSVA.CHANNEL.sendToServer(new NetSVA.Garage(tile.xCoord, tile.yCoord, tile.zCoord, mode));
     }
 
@@ -169,7 +173,18 @@ public class GuiGarageSVA extends GuiContainer {
         r.add(new Object[] {"sva.garage.row.engine", Double.valueOf(heat), Integer.valueOf(veh.isHeatStopped() ? 0xFFFF4040 : 0xFFF0B030),
                 veh.isHeatStopped() ? Lang.tr("sva.garage.overheat") : pct(heat)});
         double e = veh.getEnergy() / Math.max(1.0, veh.getMaxEnergy());
-        r.add(new Object[] {"sva.garage.row.energy", Double.valueOf(e), Integer.valueOf(0xFFE05454), pct(e)});
+        if (veh.onHydrogen()) {
+            // hydrogen wave: the battery - its health against the limit a service brings it to (charge in the text)
+            if (!veh.batteryPresent()) {
+                r.add(new Object[] {"sva.garage.row.bat", Double.valueOf(0), Integer.valueOf(0xFFF06060), Lang.tr("sva.garage.noBat")});
+            } else {
+                double h = veh.batteryHealth();
+                r.add(new Object[] {"sva.garage.row.bat", Double.valueOf(h), Integer.valueOf(h < 0.5 ? 0xFFFF4040 : h < 0.8 ? 0xFFF0B030 : 0xFF3CCB6E),
+                        Lang.tr("sva.garage.batHealth", Integer.valueOf((int) Math.round(h * 100)), Integer.valueOf((int) Math.round(veh.batteryLimit() * 100)))});
+            }
+        } else {
+            r.add(new Object[] {"sva.garage.row.energy", Double.valueOf(e), Integer.valueOf(0xFFE05454), pct(e)});
+        }
         if (veh.getVehicleType().hasDrill && veh.hasHead()) {
             int left = veh.getHeadLeft(), maxH = veh.getHeadMax();
             double h = left < 0 ? 1 : maxH <= 0 ? 0 : left / (double) maxH;
@@ -287,6 +302,14 @@ public class GuiGarageSVA extends GuiContainer {
         tip.add(Lang.tr("sva.garage.tip.hull", FormatSVA.group(euHull)));
         tip.add("§7" + Lang.tr("sva.garage.tip.metal", Integer.valueOf(GarageMath.IRON_PER_STEEL)));
         TextFitSC.hover(guiLeft + 8, guiTop + 92, 176, 10, tip);
+        List<String> st = new ArrayList<String>();
+        st.add(Lang.tr("sva.garage.tip.service", FormatSVA.group(com.sva.vehicle.BatteryMath.GARAGE_EU),
+                Integer.valueOf((int) Math.round(com.sva.vehicle.BatteryMath.CAP_DROP * 100))));
+        int sc = v(ContainerGarageSVA.V_SERVICE);
+        if (sc != TileEntityGarageSVA.R_OK) {
+            st.add("\u00a7c" + Lang.tr("sva.garage.refused." + sc, veh.getOwnerName(), FormatSVA.group(com.sva.vehicle.BatteryMath.GARAGE_EU)));
+        }
+        TextFitSC.hover(guiLeft + 128, guiTop + 104, 56, 16, st);
     }
 
     private int ox() {
@@ -322,7 +345,10 @@ public class GuiGarageSVA extends GuiContainer {
         tip.add("§7" + Lang.tr("sva.garage.tuning.tip3"));
         TextFitSC.hover(guiLeft + 195, guiTop + 21, 82, 10, tip);
         fontRendererObj.drawString(Lang.tr("sva.garage.metal"), 195, 78, CYAN);
-        TextFitSC.draw(fontRendererObj, Lang.tr("sva.garage.have", Integer.valueOf(v(ContainerGarageSVA.V_HAVE_STEEL)),
+        int ely = v(ContainerGarageSVA.V_ELYTE);
+        TextFitSC.draw(fontRendererObj, ely > 0 ? Lang.tr("sva.garage.haveEl", Integer.valueOf(v(ContainerGarageSVA.V_HAVE_STEEL)),
+                Integer.valueOf(v(ContainerGarageSVA.V_HAVE_IRON)), Integer.valueOf(ely))
+                : Lang.tr("sva.garage.have", Integer.valueOf(v(ContainerGarageSVA.V_HAVE_STEEL)),
                 Integer.valueOf(v(ContainerGarageSVA.V_HAVE_IRON))), 195, 109, 82, MUTED, ox(), oy());
         TextFitSC.hover(guiLeft + 281, guiTop + 22, 11, 98, Lang.tr("sva.garage.eu.tip", FormatSVA.eu(v(ContainerGarageSVA.V_E)),
                 FormatSVA.eu(GarageMath.BUFFER)));

@@ -27,7 +27,7 @@ public final class ServerConfigSVA {
     public static final SimpleNetworkWrapper CHANNEL = NetworkRegistry.INSTANCE.newSimpleChannel("SAVehiclesCfg");
 
     private static volatile boolean received;
-    private static volatile boolean wear, tuning, cruise, autopilot, trailerKinds, locks;
+    private static volatile boolean wear, tuning, cruise, autopilot, trailerKinds, locks, hydrogen;
     private static volatile float consumption, chargerRate;
 
     private ServerConfigSVA() {
@@ -72,6 +72,11 @@ public final class ServerConfigSVA {
         return received ? locks : ConfigSVA.locks;
     }
 
+    /** Hydrogen wave: the server's vehicles.fuelMode is HYDROGEN (FuelMath). */
+    public static boolean hydrogen() {
+        return received ? hydrogen : ConfigSVA.hydrogen;
+    }
+
     /** The server's values arrived (tests). */
     public static boolean isReceived() {
         return received;
@@ -85,7 +90,7 @@ public final class ServerConfigSVA {
     // ------------------------------------------------------------------ the message
 
     public static final class Settings implements IMessage {
-        boolean wear, tuning, cruise, autopilot, trailerKinds, locks;
+        boolean wear, tuning, cruise, autopilot, trailerKinds, locks, hydrogen;
         float consumption, chargerRate;
 
         public Settings() {
@@ -100,6 +105,7 @@ public final class ServerConfigSVA {
             m.autopilot = ConfigSVA.autopilot;
             m.trailerKinds = ConfigSVA.trailerKinds;
             m.locks = ConfigSVA.locks;
+            m.hydrogen = ConfigSVA.hydrogen;
             m.consumption = ConfigSVA.consumption;
             m.chargerRate = ConfigSVA.chargerRate;
             return m;
@@ -114,13 +120,14 @@ public final class ServerConfigSVA {
             autopilot = (f & 8) != 0;
             trailerKinds = (f & 16) != 0;
             locks = (f & 32) != 0;
+            hydrogen = (f & 64) != 0;
             consumption = b.readFloat();
             chargerRate = b.readFloat();
         }
 
         @Override
         public void toBytes(ByteBuf b) {
-            b.writeByte((wear ? 1 : 0) | (tuning ? 2 : 0) | (cruise ? 4 : 0) | (autopilot ? 8 : 0) | (trailerKinds ? 16 : 0) | (locks ? 32 : 0));
+            b.writeByte((wear ? 1 : 0) | (tuning ? 2 : 0) | (cruise ? 4 : 0) | (autopilot ? 8 : 0) | (trailerKinds ? 16 : 0) | (locks ? 32 : 0) | (hydrogen ? 64 : 0));
             b.writeFloat(consumption);
             b.writeFloat(chargerRate);
         }
@@ -135,6 +142,7 @@ public final class ServerConfigSVA {
             autopilot = m.autopilot;
             trailerKinds = m.trailerKinds;
             locks = m.locks;
+            hydrogen = m.hydrogen;
             consumption = ConfigSVA.sanitize(m.consumption, 1F, 0F, 100F);
             chargerRate = ConfigSVA.sanitize(m.chargerRate, 1F, 0F, 100F);
             received = true;

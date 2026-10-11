@@ -316,7 +316,7 @@ public class GuiChargerSVA extends GuiContainer {
         bar(x + 150, ry, veh.getEnergy() / veh.getMaxEnergy(), 0xFFE05454);
         ry += 16;
         int g = 0;
-        for (Gas gas : t.gases.gases()) {
+        for (Gas gas : veh.tankList()) {
             if (g++ >= 2) {
                 break;
             }
@@ -423,7 +423,7 @@ public class GuiChargerSVA extends GuiContainer {
         ry += 16;
         int gasRate = v(ContainerChargerSVA.V_GAS);
         int g = 0;
-        for (Gas gas : t.gases.gases()) {
+        for (Gas gas : veh.tankList()) {
             if (g++ >= 2) {
                 break;
             }
@@ -433,7 +433,7 @@ public class GuiChargerSVA extends GuiContainer {
             TextFitSC.draw(fontRendererObj, line, 150, ry + 8, 99, MUTED, guiLeft, guiTop);
             ry += 16;
         }
-        if (t.gases.any()) {
+        if (!veh.tankList().isEmpty()) {
             gasTip(veh, t, gasRate);
         }
         if (veh.wearOn() && ry <= 90) {
@@ -453,7 +453,7 @@ public class GuiChargerSVA extends GuiContainer {
     private void gasTip(EntityVehicleSVA veh, VehicleType t, int gasRate) {
         List<String> tip = new ArrayList<String>();
         tip.add(Lang.tr("sva.st.card.gasTip"));
-        for (Gas gas : t.gases.gases()) {
+        for (Gas gas : veh.tankList()) {
             tip.add("§7" + Lang.tr("sva.st.card.gasLine", Lang.tr("sva.gas." + gas.key()), num(veh.getGas(gas)), num(veh.getGasCapacity(gas))));
         }
         tip.add(gasRate > 0 ? "§a" + Lang.tr("sva.st.card.gasRate", num(gasRate), Integer.valueOf(PlatformMath.GAS_RATE))

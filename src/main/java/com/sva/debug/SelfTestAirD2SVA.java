@@ -302,7 +302,7 @@ final class SelfTestAirD2SVA {
                         && CockpitLamps.colour(CockpitLamps.FLAP_JAM) == CockpitLamps.AMBER && CockpitLamps.colour(CockpitLamps.INSTR_FAIL) == CockpitLamps.AMBER
                         && CockpitLamps.colour(CockpitLamps.CAUTION) == CockpitLamps.RED && CockpitLamps.failureLamps(VehicleType.PLANE).length == 4
                         && CockpitLamps.failureLamps(VehicleType.TILT).length == 4 && CockpitLamps.failureLamps(VehicleType.HELI).length == 0
-                        && CockpitLamps.KEYS.length == CockpitLamps.CAUTION + 1,
+                        && CockpitLamps.KEYS.length >= CockpitLamps.CAUTION + 1,      // the hydrogen wave appended its lamps after
                 "D2 lamps: ОТКАЗ ДВИГ. red, ЗАКР. ЗАКЛИН. / ПРИБОР amber (also the iced pitot), ВНИМАНИЕ red blinking - also the jet's / tiltrotor's"
                         + " master caution; dark unpowered");
     }

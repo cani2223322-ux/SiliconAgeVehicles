@@ -54,6 +54,9 @@ public final class ModContentSVA {
     // aircraft round 2, stage D1: ★1 PAPI, ★2 approach lights
     public static com.sva.block.BlockPapiSVA papi;
     public static com.sva.block.BlockApproachLightSVA approachLight;
+    // hydrogen wave: the vehicles' removable batteries, the electrolyte / service kit / jump leads
+    public static com.sva.item.ItemBatterySVA battery;
+    public static com.sva.item.ItemBatteryToolSVA batteryTool;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -142,6 +145,13 @@ public final class ModContentSVA {
         approachLight.setCreativeTab(TAB);
         GameRegistry.registerBlock(approachLight, com.sva.block.ItemBlockAirfieldSVA.class, "approachLight");
         GameRegistry.registerTileEntity(com.sva.block.TileEntityAirfieldSVA.class, ReferenceSVA.MODID + ":airfieldLight");
+        // hydrogen wave (crafting table: core items + vanilla - recipes())
+        battery = new com.sva.item.ItemBatterySVA();
+        battery.setCreativeTab(TAB);
+        GameRegistry.registerItem(battery, "vehicleBattery");
+        batteryTool = new com.sva.item.ItemBatteryToolSVA();
+        batteryTool.setCreativeTab(TAB);
+        GameRegistry.registerItem(batteryTool, "batteryTool");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);
@@ -168,10 +178,50 @@ public final class ModContentSVA {
                 "XGX", "RCR", "XBX",
                 'X', casing, 'G', component.stackOf(com.sva.item.ComponentType.GAS_TANK, 1), 'R', new ItemStack(ModItems.rubber),
                 'C', controller, 'B', net.minecraft.init.Items.bucket));
+        batteryRecipes(casing, coil);
         com.sva.block.RoadsSVA.recipes();                    // ★11 roads: crafting table, vanilla items
         // components and vehicles: only on the workbench (the stage 1 crafting-table buggy is gone)
         WorkbenchRecipesSVA.register();
     }
+
+    /**
+     * Hydrogen wave: a vehicle's battery - the core's battery of its tier (MV / HV / EV), copper coils, steel casings,
+     * redstone and a part saying which vehicle it is for (the addon's wheel / track / rotor / wing; a feather - the
+     * hoverbike, an iron pickaxe - the drill vehicle, a fire charge - the jet, a blaze rod - the tiltrotor); the
+     * electrolyte - a water bottle, the core's NaOH bucket, redstone (x2); the service kit and the jump leads.
+     */
+    private static void batteryRecipes(ItemStack casing, ItemStack coil) {
+        Object[][] marks = {
+            {com.sva.vehicle.VehicleType.BUGGY, component.stackOf(com.sva.item.ComponentType.WHEEL, 1)},
+            {com.sva.vehicle.VehicleType.HOVER, new ItemStack(net.minecraft.init.Items.feather)},
+            {com.sva.vehicle.VehicleType.TRUCK, component.stackOf(com.sva.item.ComponentType.TRACK, 1)},
+            {com.sva.vehicle.VehicleType.DRILL, new ItemStack(net.minecraft.init.Items.iron_pickaxe)},
+            {com.sva.vehicle.VehicleType.HELI, component.stackOf(com.sva.item.ComponentType.ROTOR, 1)},
+            {com.sva.vehicle.VehicleType.PLANE, component.stackOf(com.sva.item.ComponentType.WING, 1)},
+            {com.sva.vehicle.VehicleType.JET, new ItemStack(net.minecraft.init.Items.fire_charge)},
+            {com.sva.vehicle.VehicleType.TILT, new ItemStack(net.minecraft.init.Items.blaze_rod)},
+        };
+        for (Object[] m : marks) {
+            com.sva.vehicle.VehicleType t = (com.sva.vehicle.VehicleType) m[0];
+            Tier tier = com.sva.vehicle.BatteryMath.tier(t);
+            ItemStack coreBattery = new ItemStack(ModItems.battery, 1, tier == Tier.MV ? 1 : tier == Tier.HV ? 2 : 3);
+            GameRegistry.addRecipe(new ShapedOreRecipe(new ItemStack(battery, 1, t.ordinal()),
+                    " M ", "CBC", "XRX",
+                    'M', m[1], 'C', coil, 'B', coreBattery, 'X', casing, 'R', net.minecraft.init.Items.redstone));
+        }
+        GameRegistry.addRecipe(new net.minecraftforge.oredict.ShapelessOreRecipe(batteryTool.stackOf(com.sva.item.ItemBatteryToolSVA.ELECTROLYTE, 2),
+                new ItemStack(net.minecraft.init.Items.potionitem, 1, 0), new ItemStack(ModItems.fluidBucket, 1, NAOH_BUCKET),
+                net.minecraft.init.Items.redstone));
+        GameRegistry.addRecipe(new ShapedOreRecipe(batteryTool.stackOf(com.sva.item.ItemBatteryToolSVA.KIT, 1),
+                "IRI", "XCX",
+                'I', net.minecraft.init.Items.iron_ingot, 'R', net.minecraft.init.Items.redstone, 'X', casing, 'C', net.minecraft.init.Blocks.chest));
+        GameRegistry.addRecipe(new ShapedOreRecipe(batteryTool.stackOf(com.sva.item.ItemBatteryToolSVA.CABLES, 1),
+                "K K", "RDR",
+                'K', coil, 'R', new ItemStack(ModItems.rubber), 'D', net.minecraft.init.Items.redstone));
+    }
+
+    /** The core's NaOH bucket (ItemFluidBucketSC.FLUIDS index of "naoh"). */
+    public static final int NAOH_BUCKET = java.util.Arrays.asList(com.sc.item.ItemFluidBucketSC.FLUIDS).indexOf("naoh");
 
     private static ItemStack comp(String name) {
         Item i = ModItems.component(name);

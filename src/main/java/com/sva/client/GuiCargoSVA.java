@@ -693,17 +693,28 @@ public class GuiCargoSVA extends GuiContainer {
     private List<Object[]> vehicleRows() {
         List<Object[]> rows = new ArrayList<Object[]>();
         long e = vehicle.getEnergy();
-        float cruise = vehicle.getCruiseCost();
-        String range = cruise > 0 ? FormatSVA.group((long) (e / cruise * type.topSpeed)) : "--";
-        rows.add(new Object[] {Lang.tr("sva.hud.eu"), Double.valueOf(e / Math.max(1.0, vehicle.getMaxEnergy())), Integer.valueOf(0xE04848),
-                Lang.tr("sva.gui.veh.eu", FormatSVA.eu(e), FormatSVA.eu((long) vehicle.getMaxEnergy()), range)});
+        if (vehicle.onHydrogen()) {
+            // hydrogen wave: the board battery (its slot is top right) - charge and health
+            if (!vehicle.batteryPresent()) {
+                rows.add(new Object[] {Lang.tr("sva.hud.bat"), Double.valueOf(0), Integer.valueOf(0xF06060), Lang.tr("sva.gui.veh.noBat")});
+            } else {
+                double h = vehicle.batteryHealth();
+                rows.add(new Object[] {Lang.tr("sva.hud.bat"), Double.valueOf(vehicle.batteryFrac()), Integer.valueOf(0x62E06A),
+                        Lang.tr("sva.gui.veh.bat", FormatSVA.eu(e), FormatSVA.eu((long) vehicle.getMaxEnergy()), Integer.valueOf((int) Math.round(h * 100)))});
+            }
+        } else {
+            float cruise = vehicle.getCruiseCost();
+            String range = cruise > 0 ? FormatSVA.group((long) (e / cruise * type.topSpeed)) : "--";
+            rows.add(new Object[] {Lang.tr("sva.hud.eu"), Double.valueOf(e / Math.max(1.0, vehicle.getMaxEnergy())), Integer.valueOf(0xE04848),
+                    Lang.tr("sva.gui.veh.eu", FormatSVA.eu(e), FormatSVA.eu((long) vehicle.getMaxEnergy()), range)});
+        }
         double heat = vehicle.getHeat();
         rows.add(new Object[] {Lang.tr("sva.hud.heat"), Double.valueOf(heat / 100.0), Integer.valueOf(vehicle.isHeatStopped() ? 0xFF4040 : 0xF0A040),
                 (int) heat + "%"});
         float hp = vehicle.getHp();
         rows.add(new Object[] {Lang.tr("sva.hud.hull"), Double.valueOf(hp / Math.max(1F, vehicle.getMaxHp())), Integer.valueOf(vehicle.isWrecked() ? 0xFF4040 : 0x62E06A),
                 FormatSVA.group(Math.round(hp)) + " / " + FormatSVA.group(Math.round(vehicle.getMaxHp()))});
-        for (Gas g : type.gases.gases()) {
+        for (Gas g : vehicle.tankList()) {
             int cap = vehicle.getGasCapacity(g), mb = vehicle.getGas(g);
             rows.add(new Object[] {Lang.tr("sva.gas." + g.key()), Double.valueOf(cap <= 0 ? 0 : mb / (double) cap), Integer.valueOf(g.color),
                     Lang.tr("sva.gui.veh.mb", FormatSVA.group(mb))});
@@ -718,6 +729,11 @@ public class GuiCargoSVA extends GuiContainer {
     private void vehicleBackground(int x, int y) {
         frame(x + X0, y + 18, 22, 22, LINE, PANEL);
         item(new ItemStack(ModContentSVA.vehicle, 1, type.ordinal()), x + X0 + 3, y + 21);
+        if (vehicle.onHydrogen() && box.batteryShown() == null) {
+            // hydrogen wave: the empty battery slot shows what goes there, framed red (no battery - no start, no electrics)
+            frame(x + ContainerCargoSVA.BAT_X - 2, y + ContainerCargoSVA.BAT_Y - 2, 20, 20, 0xFFF06060, SLOT);
+            ghost(new ItemStack(ModContentSVA.battery, 1, type.ordinal()), x + ContainerCargoSVA.BAT_X, y + ContainerCargoSVA.BAT_Y);
+        }
         List<Object[]> rows = vehicleRows();
         int step = rowStep(rows.size());
         for (int i = 0; i < rows.size(); i++) {
@@ -880,7 +896,13 @@ public class GuiCargoSVA extends GuiContainer {
 
     private void vehicleText(int ox, int oy) {
         String name = new ItemStack(ModContentSVA.vehicle, 1, type.ordinal()).getDisplayName();
-        TextFitSC.draw(fontRendererObj, name, 56, 19, 136, 0xFFFFFF, ox, oy);
+        TextFitSC.draw(fontRendererObj, name, 56, 19, vehicle.onHydrogen() ? 134 : 136, 0xFFFFFF, ox, oy);
+        if (vehicle.onHydrogen() && box.batteryShown() == null) {
+            List<String> tip = new ArrayList<String>();
+            tip.add(Lang.tr("sva.gui.veh.batSlot"));
+            tip.add("§7" + Lang.tr("sva.gui.veh.batSlot.tip"));
+            TextFitSC.hover(ox + ContainerCargoSVA.BAT_X, oy + ContainerCargoSVA.BAT_Y, 16, 16, tip);
+        }
         String owner = vehicle.getOwnerName();
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.gui.veh.owner", owner.length() > 0 ? owner : Lang.tr("sva.gui.veh.noOwner"),
                 Integer.valueOf(vehicle.ridersNow()), Integer.valueOf(type.seats)), 56, 29, 136, MUTED, ox, oy);

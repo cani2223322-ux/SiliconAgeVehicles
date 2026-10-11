@@ -106,7 +106,8 @@ public enum VehicleFn {
             case AP_PANEL:
                 return CruiseMath.kind(t.movement, true) == CruiseMath.AUTOPILOT;
             case ENGINE:
-                return SystemsMath.applies(t);
+                // hydrogen wave: every vehicle on hydrogen has an engine to start
+                return SystemsMath.applies(t) || FuelMath.on(t, -1, com.sva.net.ServerConfigSVA.hydrogen());
             default:
                 return true;                                        // cargo, map: every vehicle
         }

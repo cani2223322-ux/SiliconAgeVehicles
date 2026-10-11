@@ -57,6 +57,8 @@ public final class SelfTestSVA {
 
     public static void run() {
         passed = failed = 0;
+        // hydrogen wave: the suites written before it check the EU behaviour - they run as in vehicles.fuelMode=EU
+        com.sva.vehicle.FuelMath.legacyTest = true;
         try {
             consumption();
             range();
@@ -133,11 +135,14 @@ public final class SelfTestSVA {
             SelfTestAirD2SVA.run();                         // aircraft round 2, D2: switches, engine start, failures, overhead panel
             SelfTestAirD3SVA.run();                         // aircraft round 2, D3: gear doors and struts, nozzle petals, the jet's HUD
             SelfTestAirD4SVA.run();                         // aircraft round 2, D4: the flight plan (route maths, leg switching, NBT, rights)
+            com.sva.vehicle.FuelMath.legacyTest = false;
+            SelfTestFuelSVA.run();                          // hydrogen wave: fuel, the removable battery, wear and service
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
             t.printStackTrace(System.out);
         }
+        com.sva.vehicle.FuelMath.legacyTest = false;
         System.out.println("[SVA-TEST] SUMMARY passed=" + passed + " failed=" + failed);
     }
 

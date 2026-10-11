@@ -45,10 +45,16 @@ public final class CockpitLamps {
      * blinking while any is on). The light plane's on its overhead panel, the jet's / tiltrotor's as screen lines.
      */
     public static final int ENG_FAIL = 24, FLAP_JAM = 25, INSTR_FAIL = 26, CAUTION = 27;
+    /**
+     * Hydrogen wave (mock-ups veh_fuel_2_refuel.png, veh_fuel_4_display_wear.png): «МАЛО ТОПЛИВА» (amber, under 15 % of
+     * the H2 tank), «РЕЗЕРВ» (red, blinking, under 5 %), «АКБ» (red: no battery in or it is under 10 % - lit even with
+     * the board dark, it is wired straight to the battery), «ОБСЛУЖИТЕ АКБ» (amber: the battery's health under 80 %).
+     */
+    public static final int LOW_FUEL = 28, RESERVE = 29, BAT = 30, BAT_SERVICE = 31;
     /** Lang key part per role: sva.cockpit.lamp.KEY (the label under the lamp; "" = no label). */
     public static final String[] KEYS = {"", "master", "left", "right", "head", "handbrake", "overheat", "wear", "autorot", "lowCharge",
             "gen", "nav", "vortex", "cargo", "door", "mode0", "mode1", "mode2", "stall", "autop", "flapsExt", "slats", "airbrake", "flapLimit",
-            "engFail", "flapJam", "instrFail", "caution"};
+            "engFail", "flapJam", "instrFail", "caution", "lowFuel", "reserve", "bat", "batService"};
 
     // colours (0xRRGGBB, mock-up veh_cab_5_controls.png)
     public static final int RED = 0xFF4636, AMBER = 0xFFC23A, GREEN = 0x46E07A, BLUE = 0x6AD4FF, ORANGE = 0xFF8A2A;
@@ -137,6 +143,8 @@ public final class CockpitLamps {
             case AIRBRAKE:
             case FLAP_JAM:
             case INSTR_FAIL:
+            case LOW_FUEL:
+            case BAT_SERVICE:
                 return AMBER;
             case WEAR:
             case AUTOROT:
@@ -174,6 +182,9 @@ public final class CockpitLamps {
         /** D2: the failures (SystemsMath.F_*), the pitot iced. */
         public int fails;
         public boolean iced;
+        /** Hydrogen wave: on hydrogen, the H2 tank 0..1, a battery in, its charge 0..1 and health 0..1. */
+        public boolean hydrogen, batPresent = true;
+        public float fuel = 1F, batCharge = 1F, batHealth = 1F;
     }
 
     /** The overheating warning (the HUD's: over HOT % or stopped). */
@@ -198,6 +209,10 @@ public final class CockpitLamps {
 
     /** A lamp's state (OFF / ON / BLINK); an unpowered vehicle's lamps are all off. */
     public static int state(int role, Snapshot s) {
+        if (role == BAT) {
+            // wired to the battery itself: lit with the board dark (none in / flat), off on EU
+            return s.hydrogen && (!s.batPresent || s.batCharge < BatteryMath.LOW) ? ON : OFF;
+        }
         if (!s.powered) {
             return OFF;
         }
@@ -252,6 +267,12 @@ public final class CockpitLamps {
                 return (s.fails & SystemsMath.F_INSTR) != 0 || s.iced ? ON : OFF;
             case CAUTION:
                 return SystemsMath.caution(s.fails, s.iced) ? BLINK : OFF;
+            case LOW_FUEL:
+                return s.hydrogen && s.fuel < FuelMath.LOW && s.fuel >= FuelMath.RESERVE ? ON : OFF;
+            case RESERVE:
+                return s.hydrogen && s.fuel < FuelMath.RESERVE ? BLINK : OFF;
+            case BAT_SERVICE:
+                return s.hydrogen && s.batPresent && BatteryMath.needsService(s.batHealth) ? ON : OFF;
             default:
                 return OFF;                                        // buttons, the door (never)
         }

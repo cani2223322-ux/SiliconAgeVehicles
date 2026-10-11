@@ -13,10 +13,15 @@ public final class CockpitDials {
     public static final int SPEED = 0, ALT = 1, VSPEED = 2, CHARGE = 3, RPM = 4, DRILL = 5, DEPTH = 6, CARGO = 7, CORE = 8,
             SHIELD = 9, HEAT = 10, HULL = 11, THROTTLE = 12, GAS = 13,
             /** Cockpit stage 1, the plane's six-pack: turn rate (deg/s, centred) and heading (0..360, 0 = north). */
-            TURN = 14, HEADING = 15;
+            TURN = 14, HEADING = 15,
+            /**
+             * Hydrogen wave (mock-up veh_fuel_4_display_wear.png): the H2 tank (%), the voltmeter (V, V_MIN..V_MAX of
+             * BatteryMath) and the battery's ammeter (A, centred: + charging) - for the cockpits that give them a dial.
+             */
+            H2 = 16, VOLTS = 17, AMPS = 18;
     /** Lang key part per reading: sva.cockpit.dial.KEY (the label) and sva.cockpit.unit.KEY (the unit line). */
     public static final String[] KEYS = {"speed", "alt", "vs", "charge", "rpm", "drill", "depth", "cargo", "core", "shield", "heat",
-            "hull", "throttle", "gas", "turn", "heading"};
+            "hull", "throttle", "gas", "turn", "heading", "h2", "volts", "amps"};
 
     // screen jobs
     /** The largest screen: a few text lines (charge bar, hull, gas, mode, gear...). */
@@ -107,7 +112,10 @@ public final class CockpitDials {
 
     /** The low end of a reading's scale (vertical speed is centred: -max..+max; the rest start at 0). */
     public static float min(int kind, VehicleType t) {
-        return kind == VSPEED || kind == TURN ? -max(kind, t, 0) : 0F;
+        if (kind == VOLTS) {
+            return BatteryMath.V_MIN;
+        }
+        return kind == VSPEED || kind == TURN || kind == AMPS ? -max(kind, t, 0) : 0F;
     }
 
     /**
@@ -137,6 +145,11 @@ public final class CockpitDials {
                 return 128F;
             case CARGO:
                 return Math.max(1, cargoSlots);
+            case VOLTS:
+                return BatteryMath.V_MAX;
+            case AMPS:
+                // the generator's full output into the battery (EU/s over ~27 V), rounded up
+                return niceMax(FuelMath.generator(BatteryMath.capacity(t), 1) * 20 / 27.0);
             default:
                 return 100F;
         }

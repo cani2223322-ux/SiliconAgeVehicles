@@ -26,10 +26,14 @@ public class ContainerCargoSVA extends Container {
     public static final int TAB_CARGO = 0, TAB_SPECIAL = 1, TAB_VEHICLE = 2, TAB_TRAILER = 3;
     /** ★15: the tanker's «in» / «out» container slots on the «Прицеп» tab. */
     public static final int TANK_IN_X = 66, TANK_OUT_X = 112, TANK_Y = 74;
+    /** Hydrogen wave: the «Аккумулятор» slot on the «Машина» tab (top right, beside the name). */
+    public static final int BAT_X = 194, BAT_Y = 20;
     private static final int OFF = -10000;
     private final EntityVehicleSVA vehicle;
     private final int cargo, extra;
     private int page, tab;
+    /** Hydrogen wave: the battery slot's index (after the player's inventory - the old indexes stay). */
+    private final int batSlot;
 
     public ContainerCargoSVA(InventoryPlayer inv, EntityVehicleSVA v) {
         this.vehicle = v;
@@ -52,6 +56,8 @@ public class ContainerCargoSVA extends Container {
         for (int c = 0; c < 9; c++) {
             addSlotToContainer(new Slot(inv, c, GRID_X + c * 18, HOTBAR_Y));
         }
+        batSlot = inventorySlots.size();
+        addSlotToContainer(new BatterySlotSVA.BatterySlot(new BatterySlotSVA(v), v, inv.player, BAT_X, BAT_Y));
         setView(TAB_CARGO, 0);
     }
 
@@ -61,6 +67,11 @@ public class ContainerCargoSVA extends Container {
 
     public int cargoSlots() {
         return cargo;
+    }
+
+    /** Hydrogen wave: what the battery slot holds (client: as the server sent it). */
+    public ItemStack batteryShown() {
+        return ((Slot) inventorySlots.get(batSlot)).getStack();
     }
 
     public boolean hasDrillSlots() {
@@ -93,6 +104,10 @@ public class ContainerCargoSVA extends Container {
     public void setView(int t, int p) {
         tab = t;
         page = Math.max(0, Math.min(pages() - 1, p));
+        Slot b = (Slot) inventorySlots.get(batSlot);
+        boolean bat = tab == TAB_VEHICLE && vehicle.onHydrogen();
+        b.xDisplayPosition = bat ? BAT_X : OFF;
+        b.yDisplayPosition = bat ? BAT_Y : OFF;
         for (int i = 0; i < cargo; i++) {
             Slot s = (Slot) inventorySlots.get(i);
             int k = i % CrawlerMath.PAGE;
@@ -131,8 +146,15 @@ public class ContainerCargoSVA extends Container {
         ItemStack s = slot.getStack();
         ItemStack copy = s.copy();
         int own = cargo + extra;
-        if (index < own) {
-            if (!mergeItemStack(s, own, inventorySlots.size(), true)) {
+        if (index == batSlot) {
+            // hydrogen wave: the battery out into the player's inventory
+            if (!slot.canTakeStack(p) || !mergeItemStack(s, own, batSlot, true)) {
+                return null;
+            }
+        } else if (index >= own && com.sva.item.ItemBatterySVA.isBattery(s) && ((Slot) inventorySlots.get(batSlot)).isItemValid(s)) {
+            ((Slot) inventorySlots.get(batSlot)).putStack(s.splitStack(1));        // this type's battery: into its slot
+        } else if (index < own) {
+            if (!mergeItemStack(s, own, batSlot, true)) {
                 return null;
             }
         } else if (tank() && com.sc.util.FluidHandSC.isContainer(s)) {

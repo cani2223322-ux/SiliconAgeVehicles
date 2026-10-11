@@ -713,7 +713,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         if (col == null || !col.serves(v)) {
             return false;
         }
-        for (Gas g : v.state.type.gases.gases()) {
+        for (Gas g : v.state.tanks()) {
             if (v.gasRoom(g) > 0 && col.amount(g) > 0) {
                 return true;
             }
@@ -859,7 +859,7 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
                     status |= S_NO_ENERGY;
                 }
                 if (col != null && col.serves(current)) {
-                    for (Gas g : current.state.type.gases.gases()) {
+                    for (Gas g : current.state.tanks()) {
                         gas += col.refuel(current, g, PlatformMath.GAS_RATE);
                     }
                     if (gas > 0) {

@@ -192,7 +192,81 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements ISidedI
     }
 
     public static boolean materialAccepted(ItemStack s) {
-        return ModContentSVA.isSteelIngot(s) || isIron(s);
+        return ModContentSVA.isSteelIngot(s) || isIron(s) || isElectrolyte(s);
+    }
+
+    /** Hydrogen wave: «Электролит» (the battery service's consumable) - it goes into the metal slots too. */
+    static boolean isElectrolyte(ItemStack s) {
+        return com.sva.item.ItemBatteryToolSVA.kind(s) == com.sva.item.ItemBatteryToolSVA.ELECTROLYTE;
+    }
+
+    /** Electrolyte in the material slots. */
+    public int electrolytes() {
+        int n = 0;
+        for (ItemStack s : slots) {
+            if (isElectrolyte(s)) {
+                n += s.stackSize;
+            }
+        }
+        return n;
+    }
+
+    /** The garage's mode for «Обслужить АКБ» (the Garage packet's mode; GarageMath.ALL / HULL are the repairs). */
+    public static final int SERVICE = 7;
+    /** serviceCheck results past R_*: no battery in / not on hydrogen, nothing to do (at its limit), no electrolyte, too little EU. */
+    public static final int R_NO_BATTERY = 10, R_AT_LIMIT = 11, R_NO_ELECTROLYTE = 12, R_SERVICE_EU = 13;
+
+    /** May p service the current vehicle's battery now? (R_OK or why not) */
+    public int serviceCheck(EntityPlayer p) {
+        EntityVehicleSVA v = current;
+        if (v == null || !onFloor(v)) {
+            return R_NO_VEHICLE;
+        }
+        if (jobVeh != null) {
+            return R_BUSY;
+        }
+        if (!v.state.hydrogen() || !v.state.batIn) {
+            return R_NO_BATTERY;
+        }
+        if (!com.sva.vehicle.BatteryMath.serviceUseful(v.state.batHealth, v.state.batLimit)) {
+            return R_AT_LIMIT;
+        }
+        if (p != null && !v.hasRight(p, AccessMath.REPAIR)) {
+            return R_NO_RIGHT;
+        }
+        if (electrolytes() <= 0) {
+            return R_NO_ELECTROLYTE;
+        }
+        return getEnergyStored() < com.sva.vehicle.BatteryMath.GARAGE_EU ? R_SERVICE_EU : R_OK;
+    }
+
+    /**
+     * Hydrogen wave: «Обслужить АКБ» (server) - GARAGE_EU and one electrolyte, at once: the battery's health up to its
+     * limit, the limit a step down (EntityVehicleSVA.garageServiceBattery). @return R_*
+     */
+    public int serviceBattery(EntityPlayer p) {
+        int r = serviceCheck(p);
+        if (r == R_OK) {
+            removeEnergy(com.sva.vehicle.BatteryMath.GARAGE_EU);
+            for (int i = 0; i < SIZE; i++) {
+                if (isElectrolyte(slots[i])) {
+                    decrStackSize(i, 1);
+                    break;
+                }
+            }
+            int[] h = current.garageServiceBattery();
+            markDirty();
+            worldObj.playSoundEffect(xCoord + 0.5, yCoord + 1, zCoord + 0.5, "random.levelup", 0.4F, 1.6F);
+            if (p != null) {
+                p.addChatComponentMessage(new ChatComponentTranslation("sva.garage.serviced", Integer.valueOf(h[0]), Integer.valueOf(h[1]),
+                        Integer.valueOf((int) Math.round(current.state.batLimit * 100))));
+            }
+        } else if (p != null) {
+            p.addChatComponentMessage(new ChatComponentTranslation("sva.garage.refused." + r,
+                    current == null || current.state.ownerName == null ? "" : current.state.ownerName,
+                    com.sva.FormatSVA.group(com.sva.vehicle.BatteryMath.GARAGE_EU)));
+        }
+        return r;
     }
 
     /** The repair price for the current vehicle in a mode: {EU, steel ingots}; {0, 0} without one. */
@@ -279,6 +353,9 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements ISidedI
 
     /** The screen's button (server): starts a job on the garage's vehicle. @return R_* */
     public int startRepair(EntityPlayer p, int mode) {
+        if (mode == SERVICE) {
+            return serviceBattery(p);                               // hydrogen wave: «Обслужить АКБ»
+        }
         int r = repairCheck(p, mode);
         if (r == R_OK) {
             EntityVehicleSVA v = current;

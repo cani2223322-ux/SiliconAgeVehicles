@@ -160,6 +160,16 @@ public final class ConfigSVA {
     public static boolean stationStorageLink = true;
     /** Several stations on one platform charge the same vehicle together (false: only one of them). */
     public static boolean stationsAddUp = true;
+    /**
+     * Server (hydrogen wave, plan-next §2-§3): HYDROGEN - the buggy, hoverbike, crawler, drill vehicle, helicopter, light
+     * plane, jet and tiltrotor burn hydrogen (FuelMath), their electrics run on a removable battery (BatteryMath); EU - the
+     * old behaviour (driving spends the EU buffer, the battery item does nothing).
+     */
+    public static String fuelMode = com.sva.vehicle.FuelMath.MODE_HYDROGEN;
+    /** fuelMode is HYDROGEN (kept beside it: asked every tick). */
+    public static boolean hydrogen = true;
+    /** Server: the battery's health wears with charge cycles and deep discharges (false: it stays as it is). */
+    public static boolean batteryWear = true;
     /** Cargo screen «Мусор»: items thrown out next to the vehicle ("modid:name" or "modid:name@meta"). */
     public static final String[] JUNK_DEFAULT = {"minecraft:cobblestone", "minecraft:dirt", "minecraft:gravel", "minecraft:netherrack",
             "minecraft:stone"};
@@ -342,6 +352,16 @@ public final class ConfigSVA {
             stationsAddUp = c.getBoolean("stationsAddUp", v, true,
                     "Several charging stations on one platform charge the same vehicle together, their rates add up / "
                             + "Несколько зарядных станций на одной площадке заряжают одну машину вместе, скорости складываются");
+            fuelMode = com.sva.vehicle.FuelMath.mode(c.getString("fuelMode", v, com.sva.vehicle.FuelMath.MODE_HYDROGEN,
+                    "HYDROGEN - buggy, hoverbike, crawler, drill vehicle, helicopter, plane, jet and tiltrotor burn hydrogen, a removable battery "
+                            + "starts the engine and runs the electrics; EU - the old behaviour (driving on the EU buffer) / "
+                            + "HYDROGEN - багги, ховербайк, вездеход, буровая, вертолёт, самолёт, реактивный и конвертоплан на водороде, съёмный "
+                            + "аккумулятор запускает двигатель и питает электрику; EU - как раньше (ход от заряда)",
+                    new String[] {com.sva.vehicle.FuelMath.MODE_HYDROGEN, com.sva.vehicle.FuelMath.MODE_EU}));
+            hydrogen = com.sva.vehicle.FuelMath.hydrogenMode(fuelMode);
+            batteryWear = c.getBoolean("batteryWear", v, true,
+                    "The vehicle battery's health wears with charge cycles and deep discharges; service in the garage or with the kit / "
+                            + "Здоровье аккумулятора техники падает от циклов заряда и глубокого разряда; обслуживание в гараже или набором");
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));
