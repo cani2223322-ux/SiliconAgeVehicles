@@ -36,6 +36,8 @@ public class ClientProxySVA extends CommonProxySVA {
                 new com.sva.client.RenderWorkbenchSVA());
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityGarageSVA.class,
                 new com.sva.client.RenderGarageSVA());                  // wave 2, ★7: the repair hologram
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityAirfieldSVA.class,
+                new com.sva.client.RenderAirfieldSVA());                // stage D1: PAPI, approach lights
         // ★11: road signs, traffic light, guard rail - boxes in the chunk mesh
         com.sva.block.RoadsSVA.renderId = RenderingRegistry.getNextAvailableRenderId();
         RenderingRegistry.registerBlockHandler(new com.sva.client.RenderRoadSVA(com.sva.block.RoadsSVA.renderId));
@@ -67,6 +69,7 @@ public class ClientProxySVA extends CommonProxySVA {
         FMLCommonHandler.instance().bus().register(new com.sva.client.VehicleKeyBindsSVA.Taps());  // short taps between ticks
         FMLCommonHandler.instance().bus().register(new com.sva.client.VehiclePickSVA());       // clicks on the whole model of big vehicles
         MinecraftForge.EVENT_BUS.register(new Wheel());                            // ★3 / ★4: the mouse wheel while riding
+        MinecraftForge.EVENT_BUS.register(new com.sva.client.RunwayLightsSVA());   // stage D1: runway marks / inlaid lights
         FMLCommonHandler.instance().bus().register(this);
         // ★6: headlights light the blocks ahead (client world only; restored on leave / unload)
         com.sva.client.DynamicLightSVA light = new com.sva.client.DynamicLightSVA();

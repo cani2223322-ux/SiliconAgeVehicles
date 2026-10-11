@@ -22,6 +22,15 @@ package com.sva.vehicle;
  * over the strip the autopilot lets go (CruiseMath.OFF_LANDING): the pilot lands. No runway near: the mode waits.</li>
  * </ul>
  * The O key keeps its old meaning: «АП» on with КУРС + ВЫС at the current heading and height (DEFAULT).
+ * <p>
+ * Stage D1 (★1, mock-up docs/mockups/veh_air3_1_airfield.png): with a PAPI row (AirfieldMath.findPapi) serving the
+ * captured end, ЗАХВ goes on in phases - the panel's ЗАХВ window shows them: ВПП (PH_RWY: onto the centre line, the height
+ * held; over the PAPI slope it comes down to it no faster than the stage C descent, under it it stays level), ГЛИС
+ * (PH_GLIDE: entered in the «2 white + 2 red» sector - it holds the PAPI slope: the slope's own sink at this speed plus
+ * GLIDE_GAIN per block off it - more white: steeper, more red: shallower) and ВЫРАВН. (PH_FLARE: under FLARE_START blocks
+ * over the strip and within FLARE_LEAD of the threshold - the throttle closed to FLARE_THR but never under FLARE_MARGIN x the stall; still on the slope, its
+ * sink eased over the last FLARE_FULL blocks to FLARE_SINK), until the wheels touch: the autopilot lets go on the ground (CruiseMath.OFF_GROUND). Without a PAPI it works
+ * as in stage C.
  */
 public final class AutopilotMath {
 
@@ -59,6 +68,32 @@ public final class AutopilotMath {
     public static final double GLIDE_MARGIN = 2.0;
     /** ЗАХВ: how far before the threshold it captures (blocks along the strip's axis). */
     public static final double CAP_RANGE = 160;
+
+    /** Stage D1, ЗАХВ's phases with a PAPI: ВПП (the centre line), ГЛИС (the PAPI slope), ВЫРАВН. (the flare). */
+    public static final int PH_RWY = 0, PH_GLIDE = 1, PH_FLARE = 2;
+    /** Lang key part per phase: sva.ap.phase.KEY. */
+    public static final String[] PHASE_KEYS = {"rwy", "gs", "flare"};
+    /**
+     * ВПП with a PAPI ahead, over its slope: down at up to this per block flown (~12 deg) - the strip is found only
+     * RunwayMath.SCAN blocks out, where a 3 deg slope is ~5 blocks up; caught high, it must still reach the slope in time.
+     */
+    public static final double PAPI_DOWN = 0.21;
+    /** ВПП with a PAPI ahead: vertical speed per block over the slope (b/t; firmer than ВЫС's ALT_GAIN - into the sector quickly). */
+    public static final double CAPTURE_GAIN = 0.15;
+    /** ГЛИС: vertical speed per block off the slope (b/t), the most it climbs back toward it (b/t). */
+    public static final double GLIDE_GAIN = 0.06, GLIDE_UP = 0.03;
+    /**
+     * ВЫРАВН.: starts this high over the strip (blocks; the throttle closes from here), it still follows the slope but the
+     * sink eases over the last FLARE_FULL blocks down to FLARE_SINK at the touch (b/t: 0.5 blocks/s).
+     */
+    public static final double FLARE_START = 6, FLARE_FULL = 2, FLARE_SINK = 0.025;
+    /**
+     * ВЫРАВН.: and no further out than this before the threshold (blocks) - on a 3 deg slope 6 blocks up is ~100 blocks
+     * out, the whole final would be the flare; the slope crosses the threshold ~1.5 - 2 blocks up (the PAPI ~15 in).
+     */
+    public static final double FLARE_LEAD = 20;
+    /** ВЫРАВН.: the throttle it closes to, never under this x the stall speed (then it opens again). */
+    public static final double FLARE_THR = 0.2, FLARE_MARGIN = 1.2;
 
     /** HSI: blocks a course deviation dot stands for, and the dots each side. */
     public static final double DOT_BLOCKS = 4, DOTS = 2;
@@ -162,6 +197,12 @@ public final class AutopilotMath {
         public boolean done;
         /** Past the far end or too far out: nothing to capture. */
         public boolean out;
+        /** Stage D1: the phase (PH_RWY / PH_GLIDE / PH_FLARE), the PAPI row flown by (null: none), its white units (-1: not seen). */
+        public int phase;
+        public AirfieldMath.Papi papi;
+        public int whites = -1;
+        /** Stage D1: the viewing angle of the PAPI (deg; NaN without one). */
+        public double papiAngle = Double.NaN;
     }
 
     /** The runway's course (compass deg) flown in direction dir (+1 = toward +X / +Z). */
@@ -182,6 +223,14 @@ public final class AutopilotMath {
      * more: a fast jet would otherwise arrive high), let go under OFF_HEIGHT over the strip.
      */
     public static Capture capture(RunwayMath.Runway r, double x, double y, double z, double heading, double descent, double speed) {
+        return capture(r, x, y, z, heading, descent, speed, PH_RWY);
+    }
+
+    /**
+     * Stage D1: ЗАХВ's guidance in phase `phase` (last tick's; the result's `phase` is this tick's - the caller keeps it).
+     * Without a PAPI serving the captured end: stage C's guidance, PH_RWY.
+     */
+    public static Capture capture(RunwayMath.Runway r, double x, double y, double z, double heading, double descent, double speed, int phase) {
         Capture c = new Capture();
         int dir = direction(r, heading);
         c.course = course(r, dir);
@@ -195,13 +244,62 @@ public final class AutopilotMath {
         c.heading = c.course - VehicleMath.clamp(CAP_GAIN * c.cross, -MAX_INTERCEPT, MAX_INTERCEPT);
         c.heading = (c.heading % 360 + 360) % 360;
         c.aligned = !c.out && Math.abs(c.cross) < ALIGN_BLOCKS && Math.abs(CruiseMath.wrap(heading - c.course)) < ALIGN_DEG;
-        if (c.aligned) {
-            double path = r.y + FLARE_H + Math.max(0, -c.along) * GLIDE;
-            double down = Math.max(Math.abs(descent), GLIDE * Math.max(0, speed) * GLIDE_MARGIN);
-            c.vy = VehicleMath.clamp(CruiseMath.ALT_GAIN * (path - y), -down, 0);
-            c.done = y - r.y < OFF_HEIGHT;
+        AirfieldMath.Papi p = c.out ? null : r.papi(dir);
+        double down = Math.max(Math.abs(descent), GLIDE * Math.max(0, speed) * GLIDE_MARGIN);
+        if (p == null) {
+            if (c.aligned) {
+                double path = r.y + FLARE_H + Math.max(0, -c.along) * GLIDE;
+                c.vy = VehicleMath.clamp(CruiseMath.ALT_GAIN * (path - y), -down, 0);
+                c.done = y - r.y < OFF_HEIGHT;
+            }
+            return c;
+        }
+        // stage D1: the PAPI's slope
+        c.papi = p;
+        boolean ahead = p.ahead(r, x, z);
+        c.papiAngle = p.angle(r, x, y, z);
+        c.whites = ahead ? AirfieldMath.whites(c.papiAngle, p.nominal) : -1;
+        double h = y - r.y, sink = Math.max(0, speed) * Math.tan(Math.toRadians(p.nominal));
+        int ph = phase < PH_RWY || phase > PH_FLARE ? PH_RWY : phase;
+        if (ph == PH_RWY && c.aligned && c.whites == 2) {
+            ph = PH_GLIDE;                                   // in the «2 white + 2 red» sector: on the slope
+        }
+        if (ph == PH_GLIDE && h < FLARE_START && c.along > -FLARE_LEAD) {
+            ph = PH_FLARE;
+        }
+        c.phase = ph;
+        if (ph == PH_GLIDE || ph == PH_FLARE) {
+            // past the row the slope has reached its lens height: on down to the strip from there
+            double path = ahead ? p.slopeY(r, x, z) : p.y;
+            c.vy = VehicleMath.clamp(-sink + GLIDE_GAIN * (path - y), -(2 * sink + 0.02), GLIDE_UP);
+            if (ph == PH_FLARE) {
+                double ease = VehicleMath.clamp(h / FLARE_FULL, 0, 1);
+                c.vy = Math.max(c.vy, -(FLARE_SINK + Math.max(0, sink - FLARE_SINK) * ease));
+            }
+        } else if (c.aligned) {
+            // ВПП: over the slope come down to it (no faster than stage C's descent; the slope's own sink added, else it
+            // would trail the moving slope by sink / ALT_GAIN and never reach the «2 + 2» sector), under it stay level
+            double path = ahead ? p.slopeY(r, x, z) : r.y + FLARE_H;
+            double cap = ahead ? Math.max(down, PAPI_DOWN * Math.max(0, speed)) : down;
+            c.vy = VehicleMath.clamp(ahead ? -sink + CAPTURE_GAIN * (path - y) : CruiseMath.ALT_GAIN * (path - y), -cap, 0);
+            c.done = !ahead && h < OFF_HEIGHT;               // never got onto the slope: stage C's let-go over the strip
         }
         return c;
+    }
+
+    /**
+     * Stage D1, ВЫРАВН.: the throttle this tick - closing toward FLARE_THR at THR_RATE a tick while the speed is over
+     * FLARE_MARGIN x the stall (+ 10 %), opening again under FLARE_MARGIN x the stall; between: as it is.
+     */
+    public static double flareThrottle(double thr, double speed, double stall) {
+        double lo = FLARE_MARGIN * stall;
+        if (speed < lo) {
+            return VehicleMath.clamp(thr + THR_RATE, 0, SPD_MAX_THROTTLE);
+        }
+        if (speed > lo * 1.1 && thr > FLARE_THR) {
+            return Math.max(FLARE_THR, thr - THR_RATE);
+        }
+        return thr;
     }
 
     /** The descent ЗАХВ uses (b/t, positive): the set vertical speed when ВЕРТ is set downward, else DESCENT. */
@@ -215,6 +313,8 @@ public final class AutopilotMath {
     public static final class Panel {
         public boolean on, runway, aligned;
         public int modes, hdg, alt, kmh;
+        /** Stage D1: ЗАХВ's phase (PH_RWY / PH_GLIDE / PH_FLARE). */
+        public int phase;
         public double vs;
 
         public boolean mode(int bit) {
@@ -222,10 +322,13 @@ public final class AutopilotMath {
         }
     }
 
-    /** DW_AP: bit 0 engaged, 1..5 the modes, 6 a runway for ЗАХВ, 7 aligned, 8..16 the heading, 17..26 the height (0..1023). */
+    /**
+     * DW_AP: bit 0 engaged, 1..5 the modes, 6 a runway for ЗАХВ, 7 aligned, 8..16 the heading, 17..26 the height (0..1023),
+     * 27..28 ЗАХВ's phase (stage D1).
+     */
     public static int pack(Panel p) {
         return (p.on ? 1 : 0) | (p.modes & M_ALL) << 1 | (p.runway ? 64 : 0) | (p.aligned ? 128 : 0) | heading(p.hdg) << 8
-                | Math.max(0, Math.min(1023, p.alt)) << 17;
+                | Math.max(0, Math.min(1023, p.alt)) << 17 | Math.max(0, Math.min(PH_FLARE, p.phase)) << 27;
     }
 
     /** DW_AP2: bits 0..9 the set speed (km/h, 0..1023), 10..19 the set vertical speed in tenths of blocks/s + 512. */
@@ -242,6 +345,7 @@ public final class AutopilotMath {
         p.aligned = (a & 128) != 0;
         p.hdg = a >> 8 & 511;
         p.alt = a >> 17 & 1023;
+        p.phase = a >> 27 & 3;
         p.kmh = b & 1023;
         p.vs = ((b >> 10 & 1023) - 512) / 10.0;
         return p;

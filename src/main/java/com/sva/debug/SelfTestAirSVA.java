@@ -264,8 +264,8 @@ final class SelfTestAirSVA {
                 bad.append(' ').append(m).append(" untagged model");
             }
         }
-        check(bad.length() == 0 && devices == 13, "stage A parts: every tagged triangle of plane / jet / tilt goes to exactly one row, no untagged row "
-                + "takes one; " + devices + " device rows (plane flaps / slats / spoilers, jet flaps / slats / brake, tilt flaperons) with unit axes" + bad);
+        check(bad.length() == 0 && devices == 15, "stage A parts: every tagged triangle of plane / jet / tilt goes to exactly one row, no untagged row "
+                + "takes one; " + devices + " device rows (plane flaps / slats / spoilers / stage D1 landing lights, jet flaps / slats / brake, tilt flaperons) with unit axes" + bad);
         // the plane's flap at 35 deg: its trailing edge goes down and back (about the hinge, then the move)
         AnimParts.Def fr = null;
         for (AnimParts.Def d : AnimParts.of("plane")) {

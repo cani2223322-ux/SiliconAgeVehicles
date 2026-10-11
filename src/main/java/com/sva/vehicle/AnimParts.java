@@ -31,7 +31,9 @@ public final class AnimParts {
             /** Aircraft stage A: a high-lift device (flap, slat, spoiler, the jet's speed brake) - tagged, see the DEVICE rows. */
             DEVICE = 10;
     /** DEVICE kinds (what moves it: the flap position, the slats, the spoilers / the brake - EntityVehicleSVA / AnimMath.State). */
-    public static final int FLAP = 0, SLAT = 1, SPOILER = 2, BRAKE = 3;
+    public static final int FLAP = 0, SLAT = 1, SPOILER = 2, BRAKE = 3,
+            /** Stage D1, ★14: a retractable landing light (AnimMath.State.lamp 0 in .. 1 out; AirfieldMath.lampOut). */
+            LAMP = 4;
     /** The static wing skin's tag (no part takes it; ObjModelSVA gives its paint the wing panel tile). */
     public static final String SKIN_TAG = "wing";
     /**
@@ -264,6 +266,14 @@ public final class AnimParts {
             device("plane", "spoiler" + side, SPOILER, "spoil", new String[] {"paint"}, 0.5570F, 0.9907F, 0.4710F, 0.7117F, 1.0435F, 1.2415F, s,
                     new float[] {0.7059F, 1.0249F, 0.8562F}, new float[] {0.0055F, -0.0247F, -0.9997F}, 48.68F, 50F,
                     new float[] {0.0012F, 0.0011F, 0.0012F}).minTris = 192;
+        }
+        for (int s = -1; s <= 1; s += 2) {
+            // stage D1, ★14 the retractable landing light (veh_real9: |z| 13 concept, 24..40 % chord under the wing): the
+            // flush door with the lamp housing, bezel and lens on its inner face swings 105 deg about its rear (hinge) edge,
+            // front edge down - the lens then looks forward, 15 deg down (AirfieldMath.LAMP_DEG / LAMP_PITCH); 204 triangles
+            device("plane", "landingLamp" + (s > 0 ? "R" : "L"), LAMP, "llamp", new String[] {"chrome", "dark", "lamp", "paint"}, 0.7364F, 0.9103F,
+                    0.7679F, 0.8540F, 0.9571F, 0.8571F, s, new float[] {0.7404F, 0.9206F, 0.8125F}, new float[] {0F, 0F, -1F},
+                    com.sva.vehicle.AirfieldMath.LAMP_DEG, 1F, new float[] {0F, 0F, 0F}).minTris = 200;
         }
         wheel("plane", "tailWheel", new String[] {"rubber", "dark", "accent"}, -1.953F, 0.6F, 0F, 0.1F, 0.1F, -0.04F, 0.04F, 0, 0.084F);
         surface("plane", "rudder", new String[] {"paint"}, -2.34F, 0.80F, -0.05F, -2.12F, 1.58F, 0.05F, 0,

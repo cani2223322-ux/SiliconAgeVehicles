@@ -160,6 +160,10 @@ public class GuiAutopilotSVA extends GuiScreen {
             AutopilotMath.Capture c = vehicle.capture();
             rw = Lang.tr("sva.ap.rwy.line", String.format("%03d", Integer.valueOf((int) Math.round(c.course) % 360)), AutopilotMath.km(Math.max(0, -c.along)),
                     String.valueOf(r.width), String.valueOf((int) r.length()));
+            if (c.papi != null) {
+                // stage D1: the PAPI serving that end - its angle and the white units seen now
+                rw += " | " + Lang.tr("sva.ap.papi", Integer.valueOf(c.papi.nominal), c.whites < 0 ? "-" : String.valueOf(c.whites));
+            }
         }
         TextFitSC.draw(fontRendererObj, rw, left + 6, top + 95, W - 12, r == null ? MUTED : GREEN, false, 0, 0);
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.ap.hint.wheel", Lang.tr("sva.ap.group." + AutopilotMath.GROUP_KEYS[CruiseClientSVA.knob()])),
@@ -206,8 +210,14 @@ public class GuiAutopilotSVA extends GuiScreen {
             case AutopilotMath.G_VS:
                 return CruiseClientSVA.vsText(p.vs);
             default:
-                return p.mode(AutopilotMath.M_CAP) && p.runway ? Lang.tr("sva.ap.rwy") : "----";
+                return p.mode(AutopilotMath.M_CAP) && p.runway ? phaseText(p) : "----";
         }
+    }
+
+    /** Stage D1: ЗАХВ's window - ВПП, then with a PAPI ГЛИС and ВЫРАВН (AutopilotMath.PH_*). */
+    static String phaseText(AutopilotMath.Panel p) {
+        int ph = Math.max(0, Math.min(AutopilotMath.PHASE_KEYS.length - 1, p.phase));
+        return Lang.tr("sva.ap.phase." + AutopilotMath.PHASE_KEYS[ph]);
     }
 
     @Override

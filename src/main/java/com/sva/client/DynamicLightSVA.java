@@ -142,7 +142,7 @@ public final class DynamicLightSVA {
         int n = 0;
         float front = Float.NEGATIVE_INFINITY;
         for (VehicleLights.Light l : VehicleLights.of(t.model)) {
-            if (l.kind == VehicleLights.HEAD) {
+            if (l.kind == VehicleLights.HEAD && !l.has(VehicleLights.F_LAMP)) {
                 hy += l.y;
                 pitch += l.pitch;
                 front = Math.max(front, l.x);

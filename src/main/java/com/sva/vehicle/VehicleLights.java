@@ -24,7 +24,11 @@ public final class VehicleLights {
      */
     public static final int HEAD = 0, RED = 1, GREEN = 2, STROBE = 3, BEACON = 4, AMBER = 5, MARKER = 6, BRAKE = 7, WHITE = 8;
     /** Flags: only with a trailer hitched; only while the gear is down; the model has no lamp there - draw a small lamp disc. */
-    public static final int F_TRAILER = 1, F_GEAR = 2, F_DISC = 4;
+    public static final int F_TRAILER = 1, F_GEAR = 2, F_DISC = 4,
+            /** Stage D1, ★14: a retractable landing light - shines only while swung out (AnimMath.State.lamp), at any height. */
+            F_LAMP = 8;
+    /** An F_LAMP light shines from this far out (0..1). */
+    public static final float LAMP_SHINE = 0.9F;
 
     public static final class Light {
         public final int kind, flags;
@@ -94,6 +98,9 @@ public final class VehicleLights {
         add("plane", STROBE, -2.08F, 1.60F, 0F, 0, 0F);
         add("plane", BEACON, -0.2F, 0.35F, 0F, 0, 0F);
         pair("plane", HEAD, 1.0F, 0.97F, 1.15F, F_DISC, 14F);
+        // stage D1, ★14: the retractable landing lights under the wing - the lens swung out (veh_real9: x 0.758, y 0.859, |z|
+        // 0.8125), looking forward 15 deg down
+        pair("plane", HEAD, 0.765F, 0.855F, 0.8125F, F_LAMP, com.sva.vehicle.AirfieldMath.LAMP_PITCH);
         // jet.obj: red / green = the wing-tip lamps (x -1.92..-1.86, y 0.56..0.63, z -+2.11..2.17); strobes on the twin fins'
         // tops (x -2.825..-2.512, y 1.561, |z| 0.34..0.44); the beacon under the belly (y 0.292 at x 0); a landing light on
         // the nose gear strut (x 1.61, y 0.3) - shown only while the gear is down
@@ -143,6 +150,16 @@ public final class VehicleLights {
     }
 
     /** Has the model a headlight / landing light (a beam and the dynamic light). */
+    /** Stage D1: the model has retractable landing lights (F_LAMP). */
+    public static boolean hasLamp(String model) {
+        for (Light l : of(model)) {
+            if (l.has(F_LAMP)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean hasHead(String model) {
         for (Light l : of(model)) {
             if (l.kind == HEAD) {

@@ -64,6 +64,14 @@ public final class AnimMath {
         public int flapLast;
         /** Stage C: the cosmetic pitch trim -TRIM_MAX..TRIM_MAX (+ = nose up; trim()), prev for the lerp. */
         public float trim, prevTrim;
+        /**
+         * Stage D1, ★14: the retractable landing lights 0 (in) .. 1 (out) and whether they are wanted out (landingLamp();
+         * AirfieldMath.lampOut), the height over the ground below the columns' top block (blocks; the client looks it up
+         * every 8 ticks - `height` stops at 10).
+         */
+        public float lamp, prevLamp;
+        public boolean lampOut;
+        public double agl;
 
         /** A CONTROL input (AnimParts.STEER..THROTTLE) at partial tick pt, -1..1. */
         public float control(int in, float pt) {
@@ -204,6 +212,19 @@ public final class AnimMath {
         s.trim = animate ? s.trim + (target - s.trim) / TRIM_TICKS : target;
         if (!animate) {
             s.prevTrim = s.trim;
+        }
+    }
+
+    /**
+     * Stage D1, ★14: one client tick of the retractable landing lights - wanted out by AirfieldMath.lampOut (the switch,
+     * the flaps, low on the approach), travelling 1 / LAMP_TICKS a tick; animate off: they jump.
+     */
+    public static void landingLamp(State s, boolean switchOn, float flapDeg, boolean airborne, float dy, boolean animate) {
+        s.prevLamp = s.lamp;
+        s.lampOut = AirfieldMath.lampOut(s.lampOut, switchOn, flapDeg, airborne, s.agl, dy);
+        s.lamp = AirfieldMath.lampStep(s.lamp, s.lampOut, animate);
+        if (!animate) {
+            s.prevLamp = s.lamp;
         }
     }
 

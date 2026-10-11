@@ -105,9 +105,10 @@ public final class VehicleLightsSVA {
         GL11.glDepthMask(false);
         GL11.glShadeModel(GL11.GL_SMOOTH);
         // beams first, in the model frame
-        if (heads && dark > 0.05F && landing) {
+        if (heads && dark > 0.05F) {
             for (VehicleLights.Light l : lights) {
-                if (l.kind == VehicleLights.HEAD && shown(l, v, gear)) {
+                // stage D1: a retractable landing light shines out at any height (shown() asks it to be swung out)
+                if (l.kind == VehicleLights.HEAD && shown(l, v, gear) && (landing || l.has(VehicleLights.F_LAMP))) {
                     beam(l, s, dark);
                 }
             }
@@ -123,7 +124,7 @@ public final class VehicleLightsSVA {
             int rgb = VehicleLights.colour(l.kind);
             switch (l.kind) {
                 case VehicleLights.HEAD:
-                    if (heads && (landing || l.has(VehicleLights.F_DISC))) {
+                    if (heads && (landing || l.has(VehicleLights.F_DISC) || l.has(VehicleLights.F_LAMP))) {
                         glow(l, rgb, VehicleLights.glowSize(l.kind), 0.5F * dark + 0.15F, 0.07F);
                     }
                     break;
@@ -169,6 +170,9 @@ public final class VehicleLightsSVA {
     private static boolean shown(VehicleLights.Light l, EntityVehicleSVA v, float gear) {
         if (l.has(VehicleLights.F_TRAILER) && !v.hasTrailer()) {
             return false;
+        }
+        if (l.has(VehicleLights.F_LAMP) && v.anim.lamp < VehicleLights.LAMP_SHINE) {
+            return false;                                     // stage D1: the landing light is still in its well
         }
         return !l.has(VehicleLights.F_GEAR) || gear < 0.5F;
     }

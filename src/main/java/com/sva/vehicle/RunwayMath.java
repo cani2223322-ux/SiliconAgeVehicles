@@ -53,6 +53,24 @@ public final class RunwayMath {
             this.width = width;
         }
 
+        /**
+         * Stage D1: the PAPI rows serving each end ([0] the threshold at a0 - landing toward +, [1] at a1), null = none;
+         * looked up with the strip (AirfieldMath.findPapi) by whoever found it.
+         */
+        public final AirfieldMath.Papi[] papi = new AirfieldMath.Papi[2];
+
+        /** The PAPI row serving the end approached in direction dir (+1 / -1), or null. */
+        public AirfieldMath.Papi papi(int dir) {
+            return papi[dir > 0 ? 0 : 1];
+        }
+
+        /** Stage D1: looks both ends' PAPI rows up (AirfieldMath.findPapi). */
+        public Runway withPapi(AirfieldMath.Blocks w) {
+            papi[0] = AirfieldMath.findPapi(w, this, 1);
+            papi[1] = AirfieldMath.findPapi(w, this, -1);
+            return this;
+        }
+
         /** Length along the axis (blocks). */
         public double length() {
             return a1 - a0;

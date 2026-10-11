@@ -60,6 +60,9 @@ public final class RoadsSVA {
         GameRegistry.addRecipe(new ShapedOreRecipe(new ItemStack(ModContentSVA.trafficLight), "IRI", "YGE", "IXI",
                 'I', Items.iron_ingot, 'R', new ItemStack(Items.dye, 1, 1), 'Y', new ItemStack(Items.dye, 1, 11),
                 'E', new ItemStack(Items.dye, 1, 2), 'G', Items.glowstone_dust, 'X', Items.redstone));
+        // stage D1, ★2: approach lights x2 - iron ingot x3 (the pole and the bar), glowstone dust x2, glass pane, redstone
+        GameRegistry.addRecipe(new ShapedOreRecipe(new ItemStack(ModContentSVA.approachLight, 2), "GPG", " I ", "IRI",
+                'G', Items.glowstone_dust, 'P', Blocks.glass_pane, 'I', Items.iron_ingot, 'R', Items.redstone));
         // guard rail x8: iron ingot x7
         GameRegistry.addRecipe(new ShapedOreRecipe(new ItemStack(ModContentSVA.guardRail, 8), "I I", "III", "I I", 'I', Items.iron_ingot));
     }

@@ -240,6 +240,20 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // aircraft round 2, D1 (PAPI, the designator, approach lights, ЗАХВ's phases) - alongside, its own area and owner
+        if (ticks >= WorldTestAirD1SVA.START && !airD1.done) {
+            try {
+                airD1.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL air D1 exception " + t);
+                t.printStackTrace(System.out);
+                airD1.abort(w);
+            }
+            if (airD1.done) {
+                maybeSummary();
+            }
+        }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
         if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
             try {
@@ -2036,6 +2050,7 @@ public class WorldTestSVA {
     private final WorldTestDriveSVA drive = new WorldTestDriveSVA(this);
     private final WorldTestAirSVA air = new WorldTestAirSVA(this);
     private final WorldTestAirCSVA airC = new WorldTestAirCSVA(this);
+    private final WorldTestAirD1SVA airD1 = new WorldTestAirD1SVA(this);
     private final WorldTestFastChargeSVA fastCharge = new WorldTestFastChargeSVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
@@ -2051,7 +2066,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

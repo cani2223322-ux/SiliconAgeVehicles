@@ -284,6 +284,10 @@ public final class WorkbenchRecipesSVA {
                 "TTT", "GRS", "TTT", 'T', Blocks.stone, 'G', Blocks.glowstone, 'R', Items.redstone, 'S', steel);
         block("runwayLit", new ItemStack(ModContentSVA.runway, 4, com.sva.block.BlockRunwaySVA.LIT), Tier.HV,
                 " P ", "PDP", " P ", 'P', runway, 'D', Items.glowstone_dust);
+        // stage D1, ★1: PAPI x4 (a row) - steel ingot x2 (housings), glass x2 (lenses), glowstone, red dye (the filters),
+        // controller (the angle setting), iron x2 (the legs)
+        block("papi", new ItemStack(ModContentSVA.papi, 4), Tier.HV, "SGS", "LCD", "I I",
+                'S', steel, 'G', Blocks.glass, 'L', Blocks.glowstone, 'C', controller, 'D', new ItemStack(Items.dye, 1, 1), 'I', Items.iron_ingot);
         com.sva.item.ItemStationModuleSVA mod = ModContentSVA.module;
         module("moduleGas", mod.stackOf(com.sva.item.ItemStationModuleSVA.GAS), Tier.HV, "XQX", "RCR", "XBX",
                 'X', casing, 'Q', quartzChamber, 'R', rubber, 'C', controller, 'B', Items.bucket);

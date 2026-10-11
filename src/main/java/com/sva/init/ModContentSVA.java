@@ -51,6 +51,9 @@ public final class ModContentSVA {
     public static com.sva.item.ItemKeyCardSVA keyCard;
     // fast charging (2026-10-10): the station's supercapacitor
     public static com.sva.block.BlockSupercapSVA supercap;
+    // aircraft round 2, stage D1: ★1 PAPI, ★2 approach lights
+    public static com.sva.block.BlockPapiSVA papi;
+    public static com.sva.block.BlockApproachLightSVA approachLight;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -131,6 +134,14 @@ public final class ModContentSVA {
         supercap.setCreativeTab(TAB);
         GameRegistry.registerBlock(supercap, com.sva.block.ItemBlockSupercapSVA.class, "supercap");
         GameRegistry.registerTileEntity(com.sva.block.TileEntitySupercapSVA.class, ReferenceSVA.MODID + ":supercap");
+        // aircraft round 2, stage D1 (PAPI: Engineering Workbench; approach lights: crafting table - block/RoadsSVA.recipes)
+        papi = new com.sva.block.BlockPapiSVA();
+        papi.setCreativeTab(TAB);
+        GameRegistry.registerBlock(papi, com.sva.block.ItemBlockAirfieldSVA.class, "papi");
+        approachLight = new com.sva.block.BlockApproachLightSVA();
+        approachLight.setCreativeTab(TAB);
+        GameRegistry.registerBlock(approachLight, com.sva.block.ItemBlockAirfieldSVA.class, "approachLight");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityAirfieldSVA.class, ReferenceSVA.MODID + ":airfieldLight");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);

@@ -374,6 +374,9 @@ public class RenderVehicleSVA extends Render {
      * jet's brake 0..1 of 45 deg (25 deg fast).
      */
     static float deviceLevel(EntityVehicleSVA v, com.sva.vehicle.VehicleType vt, AnimParts.Def d, AnimMath.State an, float pt) {
+        if (d.device == AnimParts.LAMP) {
+            return AnimMath.lerp(an.prevLamp, an.lamp, pt);
+        }
         com.sva.vehicle.HighLiftMath.Spec s = com.sva.vehicle.HighLiftMath.spec(vt);
         if (s == null) {
             return 0F;
@@ -393,6 +396,8 @@ public class RenderVehicleSVA extends Render {
                 return AnimMath.lerp(an.prevSpoiler, an.spoiler, pt);
             case AnimParts.BRAKE:
                 return AnimMath.lerp(an.prevSpoiler, an.spoiler, pt) * (v.brakeLimited() ? s.brakeFastDeg / s.brakeDeg : 1F);
+            case AnimParts.LAMP:
+                return AnimMath.lerp(an.prevLamp, an.lamp, pt);               // stage D1: the landing light's door
             default:
                 return 0F;
         }

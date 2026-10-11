@@ -513,7 +513,7 @@ final class AvionicsSVA {
                 if (g != AutopilotMath.G_CAP) {
                     b.append(' ').append(GuiAutopilotSVA.value(g, ap));
                 } else if (ap.runway) {
-                    b.append(' ').append(Lang.tr("sva.ap.rwy"));
+                    b.append(' ').append(GuiAutopilotSVA.phaseText(ap));
                 }
             }
         }

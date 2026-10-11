@@ -119,6 +119,16 @@ public final class ConfigSVA {
      * jet's and tiltrotor's text screens; off = those faces stay dark (the autopilot modes still work: «Панель автопилота»).
      */
     public static boolean avionics = true;
+    /**
+     * Client (aircraft round 2, stage D1): the runway's painted threshold marks («зебра», the designator) and - on strips
+     * with lit edges - the centre-line and threshold lights (client.RunwayLightsSVA); off = plain runway blocks as before.
+     */
+    public static boolean airfield = true;
+    /**
+     * Client (stage D1, ★14): the light plane's retractable landing lights under the wing - they swing out with the flaps
+     * or low on the approach and shine at night; off = they stay retracted.
+     */
+    public static boolean landingLamps = true;
     /** Fast charging (2026-10-10): the station's «Форсаж» mode. */
     public static boolean stationBoost = true;
     /** A core (or IC2) energy storage touching the station feeds the vehicle directly. */
@@ -266,6 +276,12 @@ public final class ConfigSVA {
             avionics = c.getBoolean("avionics", v, true,
                     "Cockpit avionics: the light plane's autopilot panel, HSI, flap / trim indicators; the jet's HSI and AP lines (client) / "
                             + "Авионика кабины: панель автопилота, HSI, указатели закрылков и триммера лёгкого самолёта; HSI и строки АП реактивного (клиент)");
+            airfield = c.getBoolean("airfield", v, true,
+                    "Runway marks and lights: the threshold stripes and designator, centre-line / threshold lights on lit strips (client) / "
+                            + "Разметка и огни ВПП: «зебра» и номер порога, огни оси и порога на полосах с огнями (клиент)");
+            landingLamps = c.getBoolean("landingLamps", v, true,
+                    "The light plane's retractable landing lights under the wing (client) / "
+                            + "Выпускные посадочные фары под крылом лёгкого самолёта (клиент)");
             regenEfficiency = num(c, "regenEfficiency", v, 0.2F, 0F, 0.5F,
                     "Share of the motion energy recovered (0..0.5; aircraft at most 0.3) / Доля возвращаемой энергии движения (0..0,5; авиация не больше 0,3)");
             drill = c.getBoolean("drill", v, true,

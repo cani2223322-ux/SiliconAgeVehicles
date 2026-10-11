@@ -206,6 +206,7 @@ public final class CruiseClientSVA {
         p.vs = vs;
         p.runway = (modes & AutopilotMath.M_CAP) != 0 && v.runway() != null;
         p.aligned = p.on && v.apPanel().aligned;
+        p.phase = p.on ? v.apPanel().phase : AutopilotMath.PH_RWY;        // stage D1: the server's ВПП / ГЛИС / ВЫРАВН
         return p;
     }
 
@@ -319,7 +320,7 @@ public final class CruiseClientSVA {
         int[] groups = {AutopilotMath.G_HDG, AutopilotMath.G_ALT, AutopilotMath.G_SPD, AutopilotMath.G_VS, AutopilotMath.G_CAP};
         AutopilotMath.Panel ap = panel(v);
         String[] values = {String.format("%03d", Integer.valueOf(ap.hdg)), String.valueOf(ap.alt), String.valueOf(ap.kmh), vsText(ap.vs),
-                ap.runway ? Lang.tr("sva.ap.rwy") : "--"};
+                ap.runway ? GuiAutopilotSVA.phaseText(ap) : "--"};
         int bw = 30;
         for (int i = 0; i < 5; i++) {
             boolean held = (modes & bits[i]) != 0;

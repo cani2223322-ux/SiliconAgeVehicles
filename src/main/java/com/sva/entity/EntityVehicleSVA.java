@@ -182,6 +182,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     private int baseX = Integer.MIN_VALUE, baseZ = Integer.MIN_VALUE;
     /** Stage C, server: ЗАХВ aligned this tick (synced in DW_AP). */
     private boolean capAligned;
+    /**
+     * Stage D1: ЗАХВ's phase with a PAPI (AutopilotMath.PH_*; the physics' and the server's panel step keep it - the same
+     * one-way state machine evaluated twice a tick lands on the same phase), PH_RWY while ЗАХВ is not flying.
+     */
+    private int capPhase;
     /** Stage C, the physics: last tick's speed (СКОР's damping term). */
     private double apPrevSpeed = Double.NaN;
     /** Signed speed along the facing, blocks/tick (physics). */
@@ -933,6 +938,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                     return worldObj.blockExists(x, y, z) && worldObj.getBlock(x, y, z) == ModContentSVA.runway;
                 }
             }, posX, posZ);
+            if (runway != null) {
+                runway.withPapi(com.sva.block.AirfieldSVA.papiBlocks(worldObj));     // stage D1: the PAPI rows at its ends
+            }
         }
         return runway;
     }
@@ -943,7 +951,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (r == null) {
             return null;
         }
-        return AutopilotMath.capture(r, posX, posY, posZ, CruiseMath.heading(rotationYaw), AutopilotMath.descent(apModes, apVs), Math.max(0, speed));
+        return AutopilotMath.capture(r, posX, posY, posZ, CruiseMath.heading(rotationYaw), AutopilotMath.descent(apModes, apVs), Math.max(0, speed),
+                capPhase);
     }
 
     /**
@@ -963,6 +972,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         p.vs = apVs * 20;
         p.runway = (apModes & AutopilotMath.M_CAP) != 0 && runway != null;
         p.aligned = capAligned;
+        p.phase = capPhase;
         return p;
     }
 
@@ -996,6 +1006,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             capNow = null;
         }
         capAligned = capNow != null && capNow.aligned;
+        capPhase = capNow == null ? AutopilotMath.PH_RWY : capNow.phase;
     }
 
     /**
@@ -1011,7 +1022,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** Stage C: the vertical speed the modes want (b/t; NaN = level flight as without keys) - ЗАХВ's glide slope when aligned. */
     public double apWantedVy(double climb, double dive) {
-        if (capNow != null && capNow.aligned) {
+        if (capNow != null && !Double.isNaN(capNow.vy)) {
+            // stage C: aligned on the glide slope; stage D1: the PAPI's slope (ГЛИС) / the flare (ВЫРАВН.)
             return VehicleMath.clamp(capNow.vy, -dive, Math.max(0, climb));
         }
         return AutopilotMath.wantedVy(apModes, posY, apAlt, apVs, climb, dive);
@@ -1021,6 +1033,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     public double apThrottle(double thr, double speedNow) {
         double prev = Double.isNaN(apPrevSpeed) ? speedNow : apPrevSpeed;
         apPrevSpeed = speedNow;
+        if (capNow != null && capNow.phase == AutopilotMath.PH_FLARE) {
+            // stage D1, ВЫРАВН.: the throttle closed, never under the stall's margin
+            return AutopilotMath.flareThrottle(thr, speedNow, flightParams(getVehicleType()).stall);
+        }
         if ((apModes & AutopilotMath.M_SPD) == 0) {
             return thr;
         }
@@ -1431,8 +1447,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             if (cap) {
                 AutopilotMath.Capture c = capture();
                 capAligned = c != null && !c.out && c.aligned;
+                capPhase = c == null || c.out ? AutopilotMath.PH_RWY : c.phase;
             } else {
                 capAligned = false;
+                capPhase = AutopilotMath.PH_RWY;
             }
             AutopilotMath.Panel ap = apPanel();
             dataWatcher.updateObject(DW_AP, Integer.valueOf(AutopilotMath.pack(ap)));
@@ -2420,6 +2438,26 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // aircraft stage A: the flaps / slats / spoilers follow the synced state (RenderVehicleSVA's DEVICE parts)
             com.sva.vehicle.AnimMath.highLift(anim, getFlaps(), slatsOut(), spoilersUp(), ConfigSVA.animations);
         }
+        if (com.sva.vehicle.VehicleLights.hasLamp(t.model)) {
+            // stage D1, ★14: the retractable landing lights - out with the flaps (>= 10 deg), low on the approach or by the
+            // switch (stage D2's overhead panel: landingLampSwitch())
+            if ((ticksExisted & 7) == 0) {
+                anim.agl = posY - worldObj.getHeightValue(MathHelper.floor_double(posX), MathHelper.floor_double(posZ));
+            }
+            HighLiftMath.Spec hs = HighLiftMath.spec(t);
+            float flapDeg = hs == null ? 0F : hs.angleAt(anim.flapPos);
+            boolean on = ConfigSVA.landingLamps;
+            com.sva.vehicle.AnimMath.landingLamp(anim, on && landingLampSwitch(), on ? flapDeg : 0F, on && anim.height >= 0.6, on ? dy : 1F,
+                    ConfigSVA.animations);
+        }
+    }
+
+    /**
+     * Stage D1, ★14: the landing lights' switch - always off for now (they follow the flaps and the approach); stage D2's
+     * overhead panel («ПОС. ФАРЫ») sets it (synced) and this returns it.
+     */
+    public boolean landingLampSwitch() {
+        return false;
     }
 
     /**

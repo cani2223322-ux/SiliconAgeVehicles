@@ -129,6 +129,7 @@ public final class SelfTestSVA {
             SelfTestAirSVA.run();                           // aircraft stage A: flaps, slats, spoilers, the model's tagged parts
             SelfTestAirCSVA.run();                          // aircraft stage C: autopilot modes, runway capture, HSI, cockpit panels
             SelfTestAirBSVA.run();                          // aircraft stage B: weathering by wear, markings, stencil font
+            SelfTestAirD1SVA.run();                         // aircraft round 2, D1: PAPI, airfield lights, ЗАХВ phases, landing lights
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
