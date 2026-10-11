@@ -25,6 +25,9 @@ import java.util.Map;
  * it not covered by other instrument pieces in front (the plane's wide back-lit panel runs behind both dials) is cut to
  * the largest free rectangle.</li>
  * <li>LAMP: a small "warn" component (the stall / warning lamp).</li>
+ * <li>PANEL (aircraft stage C): a flat named face - 'apanel' (the light plane's glare-shield autopilot panel), 'hsi', 'flapind'
+ * (the flap position indicator, round), 'trimind' (the pitch trim strip), 'flapgate' (the flap lever's marks plate on the
+ * quadrant, tilted to the pilot: its "up" is forward) - measured like a screen; client/AvionicsSVA draws each by its name.</li>
  * </ul>
  * Only pieces near the driver's eye (MAX_DIST model units; the dashes are 0.35..0.6 away) and facing it count: the ship's
  * passenger side panels, the holo table and the jet's tail panel stay decoration. No Minecraft classes: the dedicated
@@ -33,7 +36,14 @@ import java.util.Map;
 public final class CockpitLayout {
 
     /** The materials an instrument can be made of (anything else is ignored, also as an occluder). */
-    static final String[] MATS = {"gauge", "needle", "holo", "screen", "ok", "warn", "dashlite"};
+    static final String[] MATS = {"gauge", "needle", "holo", "screen", "ok", "warn", "dashlite", "apanel", "hsi", "flapind", "trimind", "flapgate"};
+    /** Stage C: the named panel materials (veh_real8.py; CockpitInstrumentsSVA draws each by its name). */
+    public static final String[] PANELS = {"apanel", "hsi", "flapind", "trimind", "flapgate"};
+    /**
+     * Stage C: the flap lever's marks plate - low on the quadrant, in no face's plane (screen() doesn't count it over the
+     * pedestal's trim strip in front of which its projection falls) and its "up" is forward (the lever's travel).
+     */
+    public static final String GATE = "flapgate";
     /** Smallest dial radius (the round overhead buttons are ~0.019). */
     public static final float DIAL_MIN_R = 0.025F;
     /** Farthest an instrument may be from the driver's eye (model units). */
@@ -104,6 +114,8 @@ public final class CockpitLayout {
      * panel stay out): the plane's three landing-gear lamps; left -> right.
      */
     public final List<Lamp> okLamps = new ArrayList<Lamp>();
+    /** Stage C: the named panels (PANELS), each a face like a screen's free rectangle; at most one of each name. */
+    public final List<Screen> panels = new ArrayList<Screen>();
     /** Cockpit stage 2 (★8): the cabin floor's ('carpet') box {x0, x1, y0, y1, z0, z1}, null without one - the floor light strip. */
     public float[] floor;
 
@@ -313,7 +325,8 @@ public final class CockpitLayout {
                 nn = scale(nn, -1);
             }
             n = nn;
-            up = upIn(n, c, eye);
+            // stage C: the flap marks plate lies (tilted) on the quadrant - its "up" is forward (the lever's travel)
+            up = GATE.equals(mat) ? norm(sub(new float[] {1, 0, 0}, scale(n, n[0]))) : upIn(n, c, eye);
             right = cross(up, n);
             for (float[] p : pts) {
                 float[] d = sub(p, c);
@@ -408,6 +421,14 @@ public final class CockpitLayout {
                         l.screens.add(s);
                     }
                 }
+            } else if (isPanel(k.mat)) {
+                float w = k.width(), h = k.height();
+                if (facing >= MIN_FACING && w >= SCREEN_MIN && h >= SCREEN_MIN && k.d1 - k.d0 <= 0.5F * Math.min(w, h) && l.panel(k.mat) == null) {
+                    Screen s = screen(k, comps);
+                    if (s != null) {
+                        l.panels.add(s);
+                    }
+                }
             } else if ("warn".equals(k.mat) && k.c[0] - eye[0] > 0.05F) {
                 float size = Math.max(k.width(), Math.max(k.height(), k.d1 - k.d0));
                 if (size <= 0.08F) {
@@ -439,6 +460,26 @@ public final class CockpitLayout {
             }
         });
         return l;
+    }
+
+    /** Stage C: is this one of the named panel materials? */
+    public static boolean isPanel(String mat) {
+        for (String p : PANELS) {
+            if (p.equals(mat)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Stage C: the panel of that name, or null. */
+    public Screen panel(String mat) {
+        for (Screen s : panels) {
+            if (s.mat.equals(mat)) {
+                return s;
+            }
+        }
+        return null;
     }
 
     /**
@@ -539,7 +580,7 @@ public final class CockpitLayout {
     private static Screen screen(Comp k, List<Comp> comps) {
         List<float[]> occ = new ArrayList<float[]>();
         for (Comp o : comps) {
-            if (o == k) {
+            if (o == k || GATE.equals(o.mat)) {
                 continue;
             }
             float a0 = Float.MAX_VALUE, a1 = -Float.MAX_VALUE, b0 = Float.MAX_VALUE, b1 = -Float.MAX_VALUE, front = -Float.MAX_VALUE;

@@ -94,9 +94,10 @@ final class SelfTestWave1SVA {
         NetSVA.Input back = new NetSVA.Input();
         int full = buf.readableBytes();
         back.fromBytes(buf);
-        check(plain == 6 && full == 18 && back.entity == 7 && back.flags == (EntityVehicleSVA.IN_CRUISE | EntityVehicleSVA.IN_LEFT)
+        check(plain == 6 && full == 23 && back.entity == 7 && back.flags == (EntityVehicleSVA.IN_CRUISE | EntityVehicleSVA.IN_LEFT)
                         && back.cruise == 0.25F && back.yaw == -91.5F && back.alt == 120F,
-                "cruise: the Input packet carries 9 key bits and, only with IN_CRUISE, the targets (" + plain + " / " + full + " bytes)");
+                "cruise: the Input packet carries 9 key bits and, only with IN_CRUISE, the targets + stage C's modes byte and vertical speed ("
+                        + plain + " / " + full + " bytes)");
     }
 
     // ---------------------------------------------------------------- ★4 autopilot

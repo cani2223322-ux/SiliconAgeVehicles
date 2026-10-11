@@ -34,6 +34,11 @@ public final class CockpitDials {
      * 0.081 beside the left computer 0.144 x 0.119).
      */
     public static final int SCREEN_MINING = 4;
+    /**
+     * Aircraft stage C (★19): the jet's HSI - its small square side screen (the one that showed the charge; the main text
+     * screen keeps it): the first SCREEN_SMALL screen of at least ATT_MIN a side and a squarish aspect.
+     */
+    public static final int SCREEN_HSI = 5;
     /** A screen of at least this area (model units^2) gets the text lines. */
     public static final float MAIN_AREA = 0.015F;
 
@@ -48,8 +53,8 @@ public final class CockpitDials {
      * count (the rest goes unused), never shorter (self-test). Counts measured from the OBJs (cockpit stage 1, 2026-10):
      * buggy / truck 2 (the cluster: speed, charge), drill 4 (the cluster + the drill console right of it: power, depth),
      * heli 5 (the co-pilot's cluster on the left: vertical speed, charge; the pilot's panel: altitude, speed, [the attitude
-     * screen], rotor rpm), plane 5 (the six-pack column by column, left -> right, top -> bottom: speed / turn, [attitude] /
-     * heading, altitude / vertical speed), jet 1 (the small disc right of the glass panels), tilt 4, shuttle 4, ship 4
+     * screen], rotor rpm), plane 4 (the six-pack column by column, left -> right, top -> bottom: speed / turn, [attitude] /
+     * [the HSI - stage C, a panel], altitude / vertical speed), jet 1 (the small disc right of the glass panels), tilt 4, shuttle 4, ship 4
      * (the console under the canopy), hoverbike 0 (one flat screen).
      */
     public static int[] table(VehicleType t) {
@@ -61,7 +66,7 @@ public final class CockpitDials {
             case HELI:
                 return new int[] {VSPEED, CHARGE, ALT, SPEED, RPM};
             case PLANE:
-                return new int[] {SPEED, TURN, HEADING, ALT, VSPEED};
+                return new int[] {SPEED, TURN, ALT, VSPEED};      // stage C: the HSI took the heading dial's place
             case TRUCK:
                 return new int[] {SPEED, CHARGE};
             case DRILL:
@@ -184,6 +189,11 @@ public final class CockpitDials {
 
     /** As above; `drill`: the widest of two or more text screens becomes the SCREEN_MINING console. */
     public static int[] screenRoles(List<CockpitLayout.Screen> screens, boolean aircraft, boolean drill) {
+        return screenRoles(screens, aircraft, drill, false);
+    }
+
+    /** As above; `hsi` (the jet, stage C): its first squarish small screen becomes the HSI (SCREEN_HSI). */
+    public static int[] screenRoles(List<CockpitLayout.Screen> screens, boolean aircraft, boolean drill, boolean hsi) {
         int n = screens.size();
         int[] roles = new int[n];
         int att = -1;
@@ -226,6 +236,16 @@ public final class CockpitDials {
             }
             if (mains >= 2) {
                 roles[widest] = SCREEN_MINING;
+            }
+        }
+        if (hsi) {
+            for (int i = 0; i < n; i++) {
+                CockpitLayout.Screen s = screens.get(i);
+                float aspect = s.w / s.h;
+                if (roles[i] == SCREEN_SMALL && s.w >= ATT_MIN && s.h >= ATT_MIN && aspect >= 0.6F && aspect <= 1.7F) {
+                    roles[i] = SCREEN_HSI;
+                    break;
+                }
             }
         }
         return roles;

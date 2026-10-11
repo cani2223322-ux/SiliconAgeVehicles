@@ -64,6 +64,9 @@ public final class NetSVA {
         public int flags;
         /** ★4, only with IN_CRUISE: the cruise speed (b/t), the autopilot's yaw and height. */
         public float cruise, yaw, alt;
+        /** Aircraft stage C, only with IN_CRUISE: the autopilot's modes (AutopilotMath.M_*, a byte) and set vertical speed (b/t). */
+        public int modes = com.sva.vehicle.AutopilotMath.DEFAULT;
+        public float vs;
 
         public Input() {
         }
@@ -73,11 +76,17 @@ public final class NetSVA {
         }
 
         public Input(int entity, int flags, float cruise, float yaw, float alt) {
+            this(entity, flags, cruise, yaw, alt, com.sva.vehicle.AutopilotMath.DEFAULT, 0F);
+        }
+
+        public Input(int entity, int flags, float cruise, float yaw, float alt, int modes, float vs) {
             this.entity = entity;
             this.flags = flags & EntityVehicleSVA.IN_MASK;
             this.cruise = cruise;
             this.yaw = yaw;
             this.alt = alt;
+            this.modes = modes & com.sva.vehicle.AutopilotMath.M_ALL;
+            this.vs = vs;
         }
 
         @Override
@@ -88,6 +97,8 @@ public final class NetSVA {
                 cruise = buf.readFloat();
                 yaw = buf.readFloat();
                 alt = buf.readFloat();
+                modes = buf.readByte() & com.sva.vehicle.AutopilotMath.M_ALL;
+                vs = buf.readFloat();
             }
         }
 
@@ -99,6 +110,8 @@ public final class NetSVA {
                 buf.writeFloat(cruise);
                 buf.writeFloat(yaw);
                 buf.writeFloat(alt);
+                buf.writeByte(modes);
+                buf.writeFloat(vs);
             }
         }
     }
@@ -112,7 +125,7 @@ public final class NetSVA {
                 public void run() {
                     EntityVehicleSVA v = driven(p, m.entity);
                     if (v != null) {
-                        v.serverInput(m.flags, m.cruise, m.yaw, m.alt);
+                        v.serverInput(m.flags, m.cruise, m.yaw, m.alt, m.modes, m.vs);
                     }
                 }
             });

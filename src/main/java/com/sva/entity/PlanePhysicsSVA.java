@@ -39,9 +39,16 @@ public final class PlanePhysicsSVA {
         double vy;
         boolean auto = air && v.cruiseActive(in);
         if (auto) {
-            // ★4 autopilot: the height held by steering the vertical speed (CruiseMath), the throttle as the pilot left it
+            // ★4 autopilot: the height held by steering the vertical speed (CruiseMath), the throttle as the pilot left it;
+            // stage C: the modes (AutopilotMath) - ВЫС / ВЕРТ / ЗАХВ's glide slope steer the vertical speed (none: level
+            // flight as without keys), СКОР the throttle
+            v.apBegin();
+            v.throttle = v.apThrottle(v.throttle, speed);
+            thr = v.throttle;
             double climb = PlaneMath.climbCapacity(p, speed) * FlightMath.ceilingFactor(v.posY);
-            vy = CruiseMath.holdVy(v.motionY, v.apAlt, v.posY, climb, p.dive, PlaneMath.VACC);
+            double want = v.apWantedVy(climb, p.dive);
+            vy = Double.isNaN(want) ? PlaneMath.airVy(p, speed, v.motionY, false, false, powered, v.posY)
+                    : FlightMath.approach(v.motionY, want, PlaneMath.VACC);
             speed += PlaneMath.airAccel(t, p, speed, thr, vy, vy > 0, powered, mul);
         } else if (air) {
             vy = PlaneMath.airVy(p, speed, v.motionY, up, down, powered, v.posY);
@@ -57,8 +64,11 @@ public final class PlanePhysicsSVA {
         }
         speed = VehicleMath.clamp(speed, 0, PlaneMath.maxSpeed(t, mul));
         int steer = (right ? 1 : 0) - (left ? 1 : 0);
-        if (auto) {
-            v.rotationYaw = (float) CruiseMath.headingStep(v.rotationYaw, v.apYaw, t.turnRate * VehicleMath.clamp(speed / p.stall, 0, 1));
+        double wantYaw = auto ? v.apWantedYaw() : Double.NaN;
+        if (auto && !Double.isNaN(wantYaw)) {
+            v.rotationYaw = (float) CruiseMath.headingStep(v.rotationYaw, wantYaw, t.turnRate * VehicleMath.clamp(speed / p.stall, 0, 1));
+        } else if (auto) {
+            // stage C: no heading mode - wings level, no turning
         } else if (steer != 0 && speed > 0) {
             double rate = air ? t.turnRate * VehicleMath.clamp(speed / p.stall, 0, 1)
                     : t.turnRate * 0.7 * Math.min(1, speed / 0.12);

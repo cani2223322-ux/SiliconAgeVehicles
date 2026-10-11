@@ -54,7 +54,7 @@ public final class CockpitInstrumentsSVA {
     private static final FloatBuffer MAT = BufferUtils.createFloatBuffer(16);
 
     /** Lifts over a piece's front surface (model units): face, marks / text, needle, hub. */
-    private static final float LIFT_FACE = 0.0015F, LIFT_MARK = 0.0025F, LIFT_NEEDLE = 0.0035F, LIFT_HUB = 0.0045F;
+    static final float LIFT_FACE = 0.0015F, LIFT_MARK = 0.0025F, LIFT_NEEDLE = 0.0035F, LIFT_HUB = 0.0045F;
 
     private static final class State {
         float[] shown = new float[0];
@@ -72,10 +72,10 @@ public final class CockpitInstrumentsSVA {
     }
 
     /** Stage 2, this frame: the night glow 0..1 and the tier's colour (★8); the startup phase (★11). */
-    private static float night;
-    private static int glowRgb;
-    private static int phase = CockpitLamps.PH_NORMAL;
-    private static final CockpitLamps.Snapshot SNAP = new CockpitLamps.Snapshot();
+    static float night;
+    static int glowRgb;
+    static int phase = CockpitLamps.PH_NORMAL;
+    static final CockpitLamps.Snapshot SNAP = new CockpitLamps.Snapshot();
     /** Stage 2, clientTick: the vehicle the local player rode / drove last tick and whether it had power. */
     private static EntityVehicleSVA lastRidden, lastDriven;
     private static boolean lastPowered;
@@ -127,7 +127,7 @@ public final class CockpitInstrumentsSVA {
         }
         VehicleType t = v.getVehicleType();
         CockpitLayout l = CockpitLayout.of(t);
-        if (l.dials.isEmpty() && l.screens.isEmpty() && l.lamps.isEmpty()) {
+        if (l.dials.isEmpty() && l.screens.isEmpty() && l.lamps.isEmpty() && l.panels.isEmpty()) {
             return;
         }
         State s = state(v);
@@ -192,7 +192,7 @@ public final class CockpitInstrumentsSVA {
                 }
                 drawDial(fr, l.dials.get(i), kind, s.shown[i], min, max);
             }
-            int[] roles = CockpitDials.screenRoles(l.screens, t.movement.flies, t.hasDrill);
+            int[] roles = CockpitDials.screenRoles(l.screens, t.movement.flies, t.hasDrill, AvionicsSVA.jetHsi(t));
             int[] small = CockpitDials.smallTable(t);
             int smallN = 0;
             for (int i = 0; i < l.screens.size(); i++) {
@@ -211,6 +211,9 @@ public final class CockpitInstrumentsSVA {
                     case CockpitDials.SCREEN_MINING:
                         drawMain(fr, sc, miningLines(v, s));
                         break;
+                    case CockpitDials.SCREEN_HSI:                       // stage C: the jet's HSI
+                        AvionicsSVA.hsi(fr, sc, v, pt, apView(v), false);
+                        break;
                     case CockpitDials.SCREEN_BAR: {
                         int kind = small[smallN++ % small.length];
                         drawBar(sc, frac(kind, v, t, s, pt), color(kind));
@@ -223,6 +226,7 @@ public final class CockpitInstrumentsSVA {
                 }
             }
             drawLamps(fr, l, t, v, pt);
+            AvionicsSVA.draw(fr, l, v, t, pt, sweep);                  // stage C: the AP panel, HSI, flap / trim, the gate
             if (night > 0F && l.floor != null) {
                 floorStrip(l.floor);
             }
@@ -336,6 +340,18 @@ public final class CockpitInstrumentsSVA {
         boolean ap = held && t.movement.flies;
         n.autopilot = ap || t.autoDelivery && v.isAutoOn();       // the crawler's auto-delivery is its autopilot
         n.cruise = held && !ap;
+        // stage C: the annunciators (flaps out / travelling, slats, airbrake, the overspeed warning)
+        n.flaps = v.getFlaps();
+        n.flapsMoving = Math.abs(v.anim.flapPos - n.flaps) > 0.02F;
+        n.slatsOut = v.slatsOut();
+        n.airbrake = v.spoilersUp();
+        n.flapWarning = v.flapWarning();
+    }
+
+    /** Stage C: the autopilot panel this client shows - the driver's own state, a passenger's the synced one. */
+    static com.sva.vehicle.AutopilotMath.Panel apView(EntityVehicleSVA v) {
+        Minecraft mc = Minecraft.getMinecraft();
+        return mc.thePlayer != null && mc.thePlayer.ridingEntity == v ? CruiseClientSVA.panel(v) : v.apPanel();
     }
 
     /**
@@ -371,11 +387,11 @@ public final class CockpitInstrumentsSVA {
     }
 
     /** ★8: a neutral text / mark colour taken toward the tier's glow at night. */
-    private static int tint(int rgb) {
+    static int tint(int rgb) {
         return night > 0F ? CockpitLamps.mix(rgb, glowRgb, night * 0.85F) : rgb;
     }
 
-    private static void glColor(int rgb) {
+    static void glColor(int rgb) {
         GL11.glColor4f((rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F, 1F);
     }
 
@@ -486,13 +502,33 @@ public final class CockpitInstrumentsSVA {
         if (regen > 0) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.regen", com.sva.vehicle.RegenMath.fmt(regen)), GREEN, -1F, null));
         }
-        if (SNAP.autopilot) {
+        String apl = t.movement.flies && ConfigSVA.avionics ? AvionicsSVA.apLine(apView(v)) : null;
+        if (apl != null) {
+            out.add(new Line(apl, GREEN, -1F, null));                // stage C: the autopilot's modes and set values
+        } else if (SNAP.autopilot) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.autopilot"), GREEN, -1F, null));     // auto-delivery or ★4 autopilot
         } else if (SNAP.cruise) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.cruise"), GREEN, -1F, null));
         }
         if (SNAP.cargoFull) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.cargoFull"), BLUE, -1F, null));
+        }
+        if (ConfigSVA.avionics && com.sva.vehicle.HighLiftMath.spec(t) != null) {
+            // stage C: the lit annunciators as lines (the jet / tiltrotor have no annunciator column)
+            long ms = System.currentTimeMillis();
+            for (int role : CockpitLamps.annunciators(t)) {
+                int st = CockpitLamps.state(role, SNAP);
+                if (st == CockpitLamps.OFF || role == CockpitLamps.STALL) {
+                    continue;                                       // the stall has its own flag on the attitude screen
+                }
+                String label = role == CockpitLamps.FLAP_LIMIT
+                        ? Lang.tr("sva.cockpit.lamp.flapLimit", String.valueOf(com.sva.vehicle.HighLiftMath.limitKmh(com.sva.vehicle.HighLiftMath.spec(t),
+                                Math.min(com.sva.vehicle.HighLiftMath.spec(t).last(), v.getFlaps() + 1))))
+                        : role == CockpitLamps.FLAPS_EXT ? Lang.tr("sva.cockpit.flapsLine", Integer.valueOf(Math.round(v.getFlapAngle())))
+                        : Lang.tr("sva.cockpit.lamp." + CockpitLamps.KEYS[role]);
+                int c = CockpitLamps.colour(role);
+                out.add(new Line(label, CockpitLamps.lit(st, ms) || st == CockpitLamps.ON ? c : CockpitLamps.mix(c, 0, 0.5F), -1F, null));
+            }
         }
         float e = v.getEnergy() / (float) Math.max(1F, (float) v.getMaxEnergy());
         out.add(new Line(Lang.tr("sva.cockpit.charge", pct(e * 100)), e < 0.1F ? WARN : TEXT, e, e < 0.1F ? new float[] {1F, 0.3F, 0.25F}
@@ -899,7 +935,7 @@ public final class CockpitInstrumentsSVA {
      * ★8 a soft additive halo ring in the current frame: alpha `a` at radius r0 fading to 0 at r1, in glowRgb, no depth
      * writes (drawn a hair behind the face at z, so the dial / lamp itself covers the middle).
      */
-    private static void glowRing(float r0, float r1, float a, float z) {
+    static void glowRing(float r0, float r1, float a, float z) {
         float r = (glowRgb >> 16 & 255) / 255F, g = (glowRgb >> 8 & 255) / 255F, b = (glowRgb & 255) / 255F;
         glowOn();
         GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
@@ -916,7 +952,7 @@ public final class CockpitInstrumentsSVA {
     }
 
     /** ★8 the same round a w x h screen: a border 0.18 of the smaller side wide, fading outward. */
-    private static void glowRect(float w, float h, float a) {
+    static void glowRect(float w, float h, float a) {
         float r = (glowRgb >> 16 & 255) / 255F, g = (glowRgb >> 8 & 255) / 255F, b = (glowRgb & 255) / 255F;
         float e = Math.min(w, h) * 0.18F, x0 = -w / 2, x1 = w / 2, y0 = -h / 2, y1 = h / 2, z = -0.0005F;
         float[][] in = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
@@ -933,7 +969,7 @@ public final class CockpitInstrumentsSVA {
         glowOff();
     }
 
-    private static void glowOn() {
+    static void glowOn() {
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
         GL11.glDisable(GL11.GL_ALPHA_TEST);
@@ -941,7 +977,7 @@ public final class CockpitInstrumentsSVA {
         GL11.glShadeModel(GL11.GL_SMOOTH);
     }
 
-    private static void glowOff() {
+    static void glowOff() {
         GL11.glDepthMask(true);
         GL11.glEnable(GL11.GL_ALPHA_TEST);
         GL11.glDisable(GL11.GL_BLEND);
@@ -951,7 +987,7 @@ public final class CockpitInstrumentsSVA {
     // ---------------------------------------------------------------- GL helpers (the current frame: x right, y up, z out)
 
     /** Pushes a matrix with origin c + n * depth and axes right, up, n (model units). */
-    private static void frame(float[] c, float[] n, float[] up, float[] right, float depth) {
+    static void frame(float[] c, float[] n, float[] up, float[] right, float depth) {
         GL11.glPushMatrix();
         MAT.clear();
         MAT.put(right[0]).put(right[1]).put(right[2]).put(0F);
@@ -962,7 +998,7 @@ public final class CockpitInstrumentsSVA {
         GL11.glMultMatrix(MAT);
     }
 
-    private static void background(float w, float h) {
+    static void background(float w, float h) {
         if (night > 0F) {
             glowRect(w, h, 0.35F * night);                          // ★8: a soft halo round the screen
         }
@@ -973,7 +1009,7 @@ public final class CockpitInstrumentsSVA {
         rect(-w / 2 + e, -h / 2 + e, w / 2 - e, h / 2 - e, 0.0002F);
     }
 
-    private static void disc(float x, float y, float r, float z) {
+    static void disc(float x, float y, float r, float z) {
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
         GL11.glVertex3f(x, y, z);
         for (int k = 0; k <= 32; k++) {
@@ -983,7 +1019,7 @@ public final class CockpitInstrumentsSVA {
         GL11.glEnd();
     }
 
-    private static void rect(float x0, float y0, float x1, float y1, float z) {
+    static void rect(float x0, float y0, float x1, float y1, float z) {
         GL11.glBegin(GL11.GL_QUADS);
         GL11.glVertex3f(x0, y0, z);
         GL11.glVertex3f(x1, y0, z);
@@ -992,7 +1028,7 @@ public final class CockpitInstrumentsSVA {
         GL11.glEnd();
     }
 
-    private static void poly(float[][] p, float z) {
+    static void poly(float[][] p, float z) {
         if (p.length < 3) {
             return;
         }
@@ -1004,7 +1040,7 @@ public final class CockpitInstrumentsSVA {
     }
 
     /** A thick line segment (a quad) of width w. */
-    private static void line(float x0, float y0, float x1, float y1, float w, float z) {
+    static void line(float x0, float y0, float x1, float y1, float w, float z) {
         float dx = x1 - x0, dy = y1 - y0, l = (float) Math.sqrt(dx * dx + dy * dy);
         if (l < 1e-6F) {
             return;
@@ -1019,14 +1055,14 @@ public final class CockpitInstrumentsSVA {
     }
 
     /** A radial mark at `deg` (clockwise from up) from radius r0 to r1, width w. */
-    private static void ray(float deg, float r0, float r1, float w, float z) {
+    static void ray(float deg, float r0, float r1, float w, float z) {
         double a = Math.toRadians(deg);
         float sx = (float) Math.sin(a), cy = (float) Math.cos(a);
         line(sx * r0, cy * r0, sx * r1, cy * r1, w, z);
     }
 
     /** The needle: a thin spike from a short tail through the hub to `len` at `deg`. */
-    private static void needle(float deg, float len, float tail, float w, float z) {
+    static void needle(float deg, float len, float tail, float w, float z) {
         double a = Math.toRadians(deg);
         float sx = (float) Math.sin(a), cy = (float) Math.cos(a), px = cy * w, py = -sx * w;
         GL11.glBegin(GL11.GL_TRIANGLES);
@@ -1053,7 +1089,7 @@ public final class CockpitInstrumentsSVA {
     }
 
     /** Centred text, `height` model units for the 8 px font, never wider than maxW. */
-    private static void text(FontRenderer fr, String s, float x, float y, float height, float maxW, int color) {
+    static void text(FontRenderer fr, String s, float x, float y, float height, float maxW, int color) {
         int px = fr.getStringWidth(s);
         if (px <= 0) {
             return;
@@ -1063,14 +1099,14 @@ public final class CockpitInstrumentsSVA {
     }
 
     /** Left-aligned text starting at x, vertically centred on y. */
-    private static void textLeft(FontRenderer fr, String s, float x, float y, float height, int color) {
+    static void textLeft(FontRenderer fr, String s, float x, float y, float height, int color) {
         drawText(fr, s, x, y, height / 8F, color);
     }
 
     /** Text's lift over the current frame (a flag over the attitude screen raises it). */
-    private static float textLift = LIFT_MARK - LIFT_FACE;
+    static float textLift = LIFT_MARK - LIFT_FACE;
 
-    private static void drawText(FontRenderer fr, String s, float x, float y, float k, int color) {
+    static void drawText(FontRenderer fr, String s, float x, float y, float k, int color) {
         GL11.glPushMatrix();
         GL11.glTranslatef(x, y, textLift);
         GL11.glScalef(k, -k, k);

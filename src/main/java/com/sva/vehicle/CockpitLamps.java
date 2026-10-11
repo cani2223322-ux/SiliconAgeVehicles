@@ -33,9 +33,15 @@ public final class CockpitLamps {
     public static final int STALL = 18;
     /** Wave 1 (★4): «АВТОП.» - green while the autopilot or cruise holds (the jet's first button lights up). */
     public static final int AUTOP = 19;
+    /**
+     * Aircraft stage C (★18, mock-up veh_air2_5_cockpit.png): the annunciators beside the autopilot panel - «ЗАКР. ВЫП»
+     * (green: the flaps out; blinking while they travel), «ПРЕДКР.» (blue: the slats out), «ВОЗД. ТОРМ» (amber: the
+     * airbrake / spoilers up), «V>120 ЗАКР» (red, blinking: the flaps' overspeed - the next setting's limit), and STALL.
+     */
+    public static final int FLAPS_EXT = 20, SLATS = 21, AIRBRAKE = 22, FLAP_LIMIT = 23;
     /** Lang key part per role: sva.cockpit.lamp.KEY (the label under the lamp; "" = no label). */
     public static final String[] KEYS = {"", "master", "left", "right", "head", "handbrake", "overheat", "wear", "autorot", "lowCharge",
-            "gen", "nav", "vortex", "cargo", "door", "mode0", "mode1", "mode2", "stall", "autop"};
+            "gen", "nav", "vortex", "cargo", "door", "mode0", "mode1", "mode2", "stall", "autop", "flapsExt", "slats", "airbrake", "flapLimit"};
 
     // colours (0xRRGGBB, mock-up veh_cab_5_controls.png)
     public static final int RED = 0xFF4636, AMBER = 0xFFC23A, GREEN = 0x46E07A, BLUE = 0x6AD4FF, ORANGE = 0xFF8A2A;
@@ -84,6 +90,21 @@ public final class CockpitLamps {
         }
     }
 
+    /**
+     * Stage C: the annunciator column (the light plane's beside its autopilot panel; the jet's / tiltrotor's become lines
+     * on their text screen) - top -> bottom; empty for a type without high-lift devices.
+     */
+    public static int[] annunciators(VehicleType t) {
+        HighLiftMath.Spec s = HighLiftMath.spec(t);
+        if (s == null) {
+            return new int[0];
+        }
+        if (!s.slats && !s.airbrake) {
+            return new int[] {FLAPS_EXT, FLAP_LIMIT, STALL};       // the tiltrotor's flaperons
+        }
+        return new int[] {FLAPS_EXT, SLATS, AIRBRAKE, FLAP_LIMIT, STALL};
+    }
+
     /** A role's lit colour (0xRRGGBB). */
     public static int colour(int role) {
         switch (role) {
@@ -92,10 +113,14 @@ public final class CockpitLamps {
             case GEN:
             case NAV:
             case AUTOP:
+            case FLAPS_EXT:
                 return GREEN;
             case HEAD:
             case CARGO:
+            case SLATS:
                 return BLUE;
+            case AIRBRAKE:
+                return AMBER;
             case WEAR:
             case AUTOROT:
             case LOW_CHARGE:
@@ -126,6 +151,9 @@ public final class CockpitLamps {
         public int drillMode;
         /** ★4: the autopilot / cruise engaged (synced: EntityVehicleSVA.isCruiseOn); the auto-delivery counts as autopilot. */
         public boolean autopilot, cruise;
+        /** Stage C: the flap setting, the flaps still travelling, the slats out, the airbrake / spoilers up, the overspeed warning. */
+        public int flaps;
+        public boolean flapsMoving, slatsOut, airbrake, flapWarning;
     }
 
     /** The overheating warning (the HUD's: over HOT % or stopped). */
@@ -188,6 +216,14 @@ public final class CockpitLamps {
                 return s.stalling ? BLINK : OFF;
             case AUTOP:
                 return s.autopilot || s.cruise ? ON : OFF;
+            case FLAPS_EXT:
+                return s.flapsMoving ? BLINK : s.flaps > 0 ? ON : OFF;
+            case SLATS:
+                return s.slatsOut ? ON : OFF;
+            case AIRBRAKE:
+                return s.airbrake ? ON : OFF;
+            case FLAP_LIMIT:
+                return s.flapWarning ? BLINK : OFF;
             default:
                 return OFF;                                        // buttons, the door (never)
         }

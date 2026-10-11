@@ -39,7 +39,21 @@ public final class AnimParts {
      * (+ = right), YAW (+ = right), LIFT (+ = collective up), THROTTLE (the 0..1 throttle as -1..1: the lever's middle at
      * half throttle). All -1..1.
      */
-    public static final int STEER = 0, PITCH = 1, ROLL = 2, YAW = 3, LIFT = 4, THROTTLE = 5;
+    public static final int STEER = 0, PITCH = 1, ROLL = 2, YAW = 3, LIFT = 4, THROTTLE = 5,
+            /**
+             * Aircraft stage C: FLAPS = the flap position over its settings as -1..1 (-1 retracted, 1 the last setting - the
+             * lever modelled at the middle), TRIM = the cosmetic pitch trim / TRIM_MAX (AnimMath.trim; + = nose up).
+             */
+            FLAPS = 6, TRIM = 7;
+    /** Number of CONTROL inputs (debug/CockpitCheckSVA sweeps each). */
+    public static final int INPUTS = 8;
+    /**
+     * Stage C, the light plane's flap lever (veh_real8.py): its pivot on the quadrant (model units), length to the knob and
+     * forward angle (deg from the vertical) retracted / at the last setting - the CONTROL row turns it +-FLAP_SWING / 2
+     * about +z from the modelled middle; the gate's marks (CockpitInstrumentsSVA) stand under the knob at each setting.
+     */
+    public static final float[] FLAP_LEVER_PIVOT = {1.215625F, 0.65625F, 0.190625F};
+    public static final float FLAP_LEVER_LEN = 0.084375F, FLAP_LEVER_FWD = 12F, FLAP_LEVER_SWING = 44F;
     /** SURFACE controls. */
     public static final int AILERON = 0, ELEVATOR = 1, RUDDER = 2;
     /** Axes. */
@@ -353,6 +367,13 @@ public final class AnimParts {
         control("plane", "pedalL", new String[] {"steel"}, new float[] {1.230F, 0.465F, -0.241F}, new float[] {1.263F, 0.610F, -0.146F}, new float[] {1.247F, 0.469F, -0.194F}).move(YAW, new float[] {-0.028F, 0.000F, 0.000F});
         control("plane", "pedalR", new String[] {"steel"}, new float[] {1.230F, 0.465F, -0.066F}, new float[] {1.263F, 0.610F, 0.029F}, new float[] {1.247F, 0.469F, -0.019F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
         control("plane", "throttle", new String[] {"black", "steel"}, new float[] {1.178F, 0.652F, 0.100F}, new float[] {1.228F, 0.801F, 0.150F}, new float[] {1.203F, 0.656F, 0.125F}).turn(THROTTLE, new float[] {0.000F, 0.000F, 1.000F}, -28.0F);
+        // aircraft stage C (veh_real8.py, docs/mockups/veh_air2_5_cockpit.png): the flap lever (steel rod, the «wing» knob
+        // 'aid') in its gate on the quadrant - modelled at the middle (-10 deg), +-22 deg with the flap position: 0 at 12 deg
+        // forward, the last setting 32 deg back; the trim wheel moved onto the quadrant's left face (dark rim, steel / black
+        // knurls, the 'aid' index; the axle's end cap on the quadrant face stays) turns up to 120 deg with the trim. Each box
+        // holds its control's triangles (224 / 846) and no other of those materials (scratchpad vehicles/airC).
+        control("plane", "flapLever", new String[] {"aid", "steel"}, new float[] {1.172F, 0.651F, 0.169F}, new float[] {1.230F, 0.755F, 0.212F}, FLAP_LEVER_PIVOT).turn(FLAPS, new float[] {0.000F, 0.000F, 1.000F}, FLAP_LEVER_SWING / 2);
+        control("plane", "trimWheel", new String[] {"aid", "black", "dark", "steel"}, new float[] {1.120F, 0.492F, 0.062F}, new float[] {1.255F, 0.631F, 0.0935F}, new float[] {1.1875F, 0.559375F, 0.07875F}).turn(TRIM, new float[] {0.000F, 0.000F, 1.000F}, 120.0F);
         control("plane", "yoke", new String[] {"accent", "dark", "steel"}, new float[] {1.096F, 0.622F, -0.245F}, new float[] {1.204F, 0.726F, 0.054F}, new float[] {1.128F, 0.684F, -0.096F}).turn(ROLL, new float[] {0.800F, -0.600F, 0.000F}, 30.0F).move(PITCH, new float[] {-0.030F, 0.022F, -0.000F});
         for (List<Def> l : TABLE.values()) {
             ALL.addAll(l);

@@ -177,6 +177,17 @@ public final class CockpitCheckSVA {
             out.add(check(t, m, all, String.format(java.util.Locale.ROOT, "screen %d (%.3f x %.3f)", Integer.valueOf(i), Double.valueOf(s.w),
                     Double.valueOf(s.h)), s.c, s.n, pts));
         }
+        // aircraft stage C: the named panels (AP panel, HSI, flap / trim indicators, the flap gate) - as screens
+        for (CockpitLayout.Screen s : l.panels) {
+            List<double[]> pts = new ArrayList<double[]>();
+            for (int a = -2; a <= 2; a++) {
+                for (int b = -2; b <= 2; b++) {
+                    pts.add(at(s.c, s.n, s.right, s.up, a * 0.225 * s.w, b * 0.225 * s.h, s.front + LIFT));
+                }
+            }
+            out.add(check(t, m, all, String.format(java.util.Locale.ROOT, "panel %s (%.3f x %.3f)", s.mat, Double.valueOf(s.w), Double.valueOf(s.h)),
+                    s.c, s.n, pts));
+        }
         return out;
     }
 
@@ -263,7 +274,7 @@ public final class CockpitCheckSVA {
             String[] names = new String[poses];
             float[][] vals = new float[poses][];
             for (int p = 0; p < poses; p++) {
-                float[] val = new float[6];
+                float[] val = new float[AnimParts.INPUTS];
                 vals[p] = val;
                 StringBuilder nm = new StringBuilder();
                 int code = p;
@@ -325,7 +336,7 @@ public final class CockpitCheckSVA {
         return out;
     }
 
-    static final String[] INPUT_NAMES = {"steer", "pitch", "roll", "yaw", "lift", "throttle"};
+    static final String[] INPUT_NAMES = {"steer", "pitch", "roll", "yaw", "lift", "throttle", "flaps", "trim"};
 
     /** A point of the part at the inputs `val` (indexed by AnimParts.STEER..THROTTLE): RenderVehicleSVA's transform. */
     public static double[] pose(AnimParts.Def d, float[] val, double x, double y, double z) {

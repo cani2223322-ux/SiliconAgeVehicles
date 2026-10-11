@@ -103,6 +103,12 @@ public final class ConfigSVA {
      * tiltrotor (flaperons); off = everything stays retracted (the old flight) and the keys answer "отключено".
      */
     public static boolean highLift = true;
+    /**
+     * Client (aircraft stage C): the avionics drawn in the cockpit - the light plane's glare-shield autopilot panel, HSI,
+     * flap position / trim indicators and the flap gate's marks, the jet's HSI screen and the AP / annunciator lines on the
+     * jet's and tiltrotor's text screens; off = those faces stay dark (the autopilot modes still work: «Панель автопилота»).
+     */
+    public static boolean avionics = true;
     /** Fast charging (2026-10-10): the station's «Форсаж» mode. */
     public static boolean stationBoost = true;
     /** A core (or IC2) energy storage touching the station feeds the vehicle directly. */
@@ -241,6 +247,9 @@ public final class ConfigSVA {
             highLift = c.getBoolean("highLift", v, true,
                     "Aircraft high-lift devices: flaps (keys), automatic slats, spoilers / airbrake (plane, jet, tiltrotor flaperons) / "
                             + "Механизация крыла: закрылки (клавиши), автоматические предкрылки, интерцепторы / воздушный тормоз (самолёт, реактивный, флапероны конвертоплана)");
+            avionics = c.getBoolean("avionics", v, true,
+                    "Cockpit avionics: the light plane's autopilot panel, HSI, flap / trim indicators; the jet's HSI and AP lines (client) / "
+                            + "Авионика кабины: панель автопилота, HSI, указатели закрылков и триммера лёгкого самолёта; HSI и строки АП реактивного (клиент)");
             regenEfficiency = num(c, "regenEfficiency", v, 0.2F, 0F, 0.5F,
                     "Share of the motion energy recovered (0..0.5; aircraft at most 0.3) / Доля возвращаемой энергии движения (0..0,5; авиация не больше 0,3)");
             drill = c.getBoolean("drill", v, true,

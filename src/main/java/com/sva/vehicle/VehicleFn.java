@@ -46,7 +46,13 @@ public enum VehicleFn {
      */
     FLAPS_UP("flapsUp", "flapsUp", 26, false, true),
     FLAPS_DOWN("flapsDown", "flapsDown", 27, false, true),
-    AIRBRAKE("airbrake", "airbrake", 22, false, true);
+    AIRBRAKE("airbrake", "airbrake", 22, false, true),
+    /**
+     * Aircraft stage C (★17): «Панель автопилота» - the autopilot's modes and knobs (client.GuiAutopilotSVA; a screen,
+     * like the map: no packet - the modes ride in the Input packet). I: free in vanilla, the core and the old letters.
+     * A passenger may open it too (read-only).
+     */
+    AP_PANEL("apPanel", "apPanel", 23, false, false);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -91,6 +97,8 @@ public enum VehicleFn {
                 return HighLiftMath.spec(t) != null;
             case AIRBRAKE:
                 return HighLiftMath.spec(t) != null && HighLiftMath.spec(t).airbrake;
+            case AP_PANEL:
+                return CruiseMath.kind(t.movement, true) == CruiseMath.AUTOPILOT;
             default:
                 return true;                                        // cargo, map: every vehicle
         }
@@ -98,7 +106,7 @@ public enum VehicleFn {
 
     /**
      * The Action packet a press sends on this type (EntityVehicleSVA.A_*), or -1: held functions go in the Input
-     * packet, cruise is the driver's client state, the map is a screen.
+     * packet, cruise is the driver's client state, the map and the autopilot panel are screens.
      */
     public int action(VehicleType t) {
         if (!appliesTo(t)) {

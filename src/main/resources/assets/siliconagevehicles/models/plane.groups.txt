@@ -1,6 +1,7 @@
 # material r g b emissive(1 = drawn without lighting)
 accent 255 140 50 1
 aid 235 235 235 0
+apanel 14 16 20 1
 belt 200 60 40 0
 black 4 3 8 0
 cabin 255 236 200 1
@@ -10,12 +11,15 @@ copper 190 100 50 0
 dark 40 42 48 0
 ext 200 30 30 0
 fabric 54 58 68 0
+flapgate 14 16 20 1
+flapind 14 16 20 1
 gasHe 110 210 240 0
 gauge 255 190 60 1
 glass 14 20 28 0
 green 50 255 90 1
 hazard 128 128 128 0
 holo 90 220 255 1
+hsi 14 16 20 1
 lamp 255 248 220 1
 lestrip 168 172 180 0
 needle 255 70 40 1
@@ -27,3 +31,4 @@ red 255 40 40 1
 rubber 26 26 28 0
 steel 120 124 132 0
 trim 40 40 44 0
+trimind 14 16 20 1

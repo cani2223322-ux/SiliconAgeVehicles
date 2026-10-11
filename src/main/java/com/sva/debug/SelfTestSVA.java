@@ -127,6 +127,7 @@ public final class SelfTestSVA {
             SelfTestFastChargeSVA.run();                    // fast charging: module, boost, shared platforms, storages, supercap
             SelfTestDriveSVA.run();                         // 2026-10-10 fixes: the stall flag in level flight
             SelfTestAirSVA.run();                           // aircraft stage A: flaps, slats, spoilers, the model's tagged parts
+            SelfTestAirCSVA.run();                          // aircraft stage C: autopilot modes, runway capture, HSI, cockpit panels
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -1669,7 +1670,8 @@ public final class SelfTestSVA {
                             + " at most), %d controls clear in %d poses", t.key, Integer.valueOf(in.size()), Double.valueOf(hid * 100),
                     Double.valueOf(ang), Double.valueOf(down), Double.valueOf(side), Integer.valueOf(cl.size()), Integer.valueOf(poses)) + bad);
         }
-        check(nInst >= 45 && nCtl == 11, "cockpit view: " + nInst + " instruments and " + nCtl + " moving controls checked (45+ / 11)");
+        check(nInst >= 50 && nCtl == 13, "cockpit view: " + nInst + " instruments and " + nCtl + " moving controls checked (50+ / 13: stage C"
+                + " the plane's 5 panels, its flap lever and trim wheel)");
         // the seats the instruments are read from: the heli co-pilot's cluster from his seat, the ship's wall screens
         // from the front-row passengers
         int copilot = 0, passenger = 0;
@@ -2286,7 +2288,7 @@ public final class SelfTestSVA {
         expect[VehicleType.BUGGY.ordinal()] = 2;
         expect[VehicleType.HOVER.ordinal()] = 0;
         expect[VehicleType.HELI.ordinal()] = 5;
-        expect[VehicleType.PLANE.ordinal()] = 5;
+        expect[VehicleType.PLANE.ordinal()] = 4;                  // stage C: the HSI (a panel) took the heading dial's place
         expect[VehicleType.TRUCK.ordinal()] = 2;
         expect[VehicleType.DRILL.ordinal()] = 4;
         expect[VehicleType.JET.ordinal()] = 1;
@@ -2307,7 +2309,7 @@ public final class SelfTestSVA {
             screensOk &= t == VehicleType.HOVER ? cl.screens.size() == 1 : cl.screens.size() >= 2;
         }
         check(tablesOk, "cockpit: every type's dial table covers all its model's dials (dials/screens: " + found.toString().trim() + ")");
-        check(countsOk, "cockpit: dial counts per model as measured (buggy 2, hover 0, heli 5, plane 5, truck 2, drill 4, jet 1, tilt 4, shuttle 4, ship 4)");
+        check(countsOk, "cockpit: dial counts per model as measured (buggy 2, hover 0, heli 5, plane 4, truck 2, drill 4, jet 1, tilt 4, shuttle 4, ship 4)");
         check(screensOk, "cockpit: every cockpit has screens (hoverbike: its one flat screen)");
         int[] pr = com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(VehicleType.PLANE).screens, true);
         int[] jr = com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(VehicleType.JET).screens, true);
@@ -2523,12 +2525,13 @@ public final class SelfTestSVA {
                 && com.sva.vehicle.CockpitDials.max(turn, p, 0) == 40F && com.sva.vehicle.CockpitDials.max(heading, p, 0) == 360F
                 && com.sva.vehicle.CockpitDials.min(heading, p) == 0F, "cockpit stage 1: turn rate centred +-40 deg/s (plane 1.8 deg/t), heading 0..360");
         int[] pt = com.sva.vehicle.CockpitDials.table(p);
-        check(pt.length == 5 && pt[0] == com.sva.vehicle.CockpitDials.SPEED && pt[1] == turn && pt[2] == heading
-                && pt[3] == com.sva.vehicle.CockpitDials.ALT && pt[4] == com.sva.vehicle.CockpitDials.VSPEED,
-                "cockpit stage 1: the plane's six-pack table speed / turn, heading, altitude / vertical speed");
+        // stage C: the HSI (a named panel) took the lower centre heading dial's place
+        check(pt.length == 4 && pt[0] == com.sva.vehicle.CockpitDials.SPEED && pt[1] == turn
+                && pt[2] == com.sva.vehicle.CockpitDials.ALT && pt[3] == com.sva.vehicle.CockpitDials.VSPEED,
+                "cockpit stage 1 / C: the plane's six-pack table speed / turn, [HSI], altitude / vertical speed");
         com.sva.vehicle.CockpitLayout pl = com.sva.vehicle.CockpitLayout.of(p);
-        boolean cols = pl.dials.size() == 5 && Math.abs(pl.dials.get(0).c[2] - pl.dials.get(1).c[2]) < 0.01F && pl.dials.get(0).c[1] > pl.dials.get(1).c[1]
-                && Math.abs(pl.dials.get(3).c[2] - pl.dials.get(4).c[2]) < 0.01F && pl.dials.get(3).c[1] > pl.dials.get(4).c[1];
+        boolean cols = pl.dials.size() == 4 && Math.abs(pl.dials.get(0).c[2] - pl.dials.get(1).c[2]) < 0.01F && pl.dials.get(0).c[1] > pl.dials.get(1).c[1]
+                && Math.abs(pl.dials.get(2).c[2] - pl.dials.get(3).c[2]) < 0.01F && pl.dials.get(2).c[1] > pl.dials.get(3).c[1];
         check(cols, "cockpit stage 1: the six-pack's dials come in columns (top before bottom)");
         int att = 0;
         for (VehicleType t : new VehicleType[] {VehicleType.HELI, VehicleType.PLANE}) {

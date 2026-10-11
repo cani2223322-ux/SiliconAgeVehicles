@@ -60,6 +60,10 @@ public final class AnimMath {
          * and the spoilers / the jet's speed brake 0..1 - following the synced state; prev* for the partial-tick lerp.
          */
         public float flapPos, prevFlapPos, slat, prevSlat, spoiler, prevSpoiler;
+        /** Stage C: the type's last flap setting (the lever's full travel; 0 = no flaps). */
+        public int flapLast;
+        /** Stage C: the cosmetic pitch trim -TRIM_MAX..TRIM_MAX (+ = nose up; trim()), prev for the lerp. */
+        public float trim, prevTrim;
 
         /** A CONTROL input (AnimParts.STEER..THROTTLE) at partial tick pt, -1..1. */
         public float control(int in, float pt) {
@@ -76,6 +80,10 @@ public final class AnimMath {
                     return lerp(prevCtlLift, ctlLift, pt);
                 case AnimParts.THROTTLE:
                     return lerp(prevCtlThrottle, ctlThrottle, pt);
+                case AnimParts.FLAPS:
+                    return flapLast <= 0 ? -1F : clamp(lerp(prevFlapPos, flapPos, pt) / flapLast * 2F - 1F, -1F, 1F);
+                case AnimParts.TRIM:
+                    return lerp(prevTrim, trim, pt) / TRIM_MAX;
                 default:
                     return 0F;
             }
@@ -178,6 +186,25 @@ public final class AnimMath {
         s.ctlYaw = smooth(s.ctlYaw, clamp(yaw, -1, 1));
         s.ctlLift = smooth(s.ctlLift, clamp(lift, -1, 1));
         s.ctlThrottle = smooth(s.ctlThrottle, clamp(throttle01, 0, 1) * 2F - 1F);
+    }
+
+    /** Stage C: the trim scale's end (units each way; the indicator's -5..5). */
+    public static final float TRIM_MAX = 5F;
+    /** Stage C: trim units at full climb / dive (VSI_FULL blocks/s) and per flap setting; the trim's time constant (ticks). */
+    public static final float TRIM_CLIMB = 3F, TRIM_FLAP = 0.8F, VSI_FULL = 5F, TRIM_TICKS = 60F;
+
+    /**
+     * Stage C: the cosmetic pitch trim (the planes have no trim in their physics): it follows what a pilot would trim for -
+     * TRIM_CLIMB units nose up at a VSI_FULL blocks/s climb (down in a descent), TRIM_FLAP more per flap setting (the slow
+     * approach) - smoothed over TRIM_TICKS ticks (~3 s), so the wheel and the indicator creep like a real trim. vy: blocks/s.
+     */
+    public static void trim(State s, float vy, float flapPos, boolean animate) {
+        s.prevTrim = s.trim;
+        float target = clamp(TRIM_CLIMB * clamp(vy / VSI_FULL, -1F, 1F) + TRIM_FLAP * Math.max(0F, flapPos), -TRIM_MAX, TRIM_MAX);
+        s.trim = animate ? s.trim + (target - s.trim) / TRIM_TICKS : target;
+        if (!animate) {
+            s.prevTrim = s.trim;
+        }
     }
 
     /**

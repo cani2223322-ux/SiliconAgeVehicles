@@ -153,6 +153,7 @@ public class GuiVehicleSVA extends GuiScreen {
                 return Lang.tr("sva.vmenu.act.switch");
             case CARGO:
             case MAP:
+            case AP_PANEL:
                 return Lang.tr("sva.vmenu.act.open");
             case FLAPS_UP:
                 return Lang.tr("sva.vmenu.act.retract");
@@ -244,6 +245,20 @@ public class GuiVehicleSVA extends GuiScreen {
                     return s("sva.vmenu.st.flaperons", MUTED);
                 }
                 return v.slatsOut() ? s("sva.vmenu.st.slatsOut", CYAN) : s("sva.vmenu.st.slatsIn", MUTED);
+            }
+            case AP_PANEL: {
+                // stage C: the modes held, or off
+                com.sva.vehicle.AutopilotMath.Panel ap = driver ? CruiseClientSVA.panel(v) : v.apPanel();
+                if (!ap.on) {
+                    return v.cruiseKind() == CruiseMath.NONE ? s("sva.vmenu.st.notNow", MUTED) : s("sva.vmenu.st.off", MUTED);
+                }
+                StringBuilder b = new StringBuilder();
+                for (int g = com.sva.vehicle.AutopilotMath.G_HDG; g <= com.sva.vehicle.AutopilotMath.G_CAP; g++) {
+                    if (ap.mode(com.sva.vehicle.AutopilotMath.bit(g))) {
+                        b.append(b.length() > 0 ? " " : "").append(Lang.tr("sva.ap.group." + com.sva.vehicle.AutopilotMath.GROUP_KEYS[g]));
+                    }
+                }
+                return new Object[] {b.length() > 0 ? b.toString() : Lang.tr("sva.ap.on"), Integer.valueOf(GREEN)};
             }
             case AIRBRAKE:
                 if (v.isAirbrake()) {
@@ -486,6 +501,10 @@ public class GuiVehicleSVA extends GuiScreen {
             capturing = null;
             if (f == VehicleFn.MAP) {
                 GuiMapSVA.openAtPlayer(mc);
+                return;
+            }
+            if (f == VehicleFn.AP_PANEL) {
+                mc.displayGuiScreen(new GuiAutopilotSVA());
                 return;
             }
             if (f == VehicleFn.CARGO) {

@@ -10,6 +10,7 @@ import com.sva.inventory.GuiHandlerSVA;
 import com.sva.net.NetSVA;
 import com.sc.util.ArmorGasSC.Gas;
 import com.sva.vehicle.AutoDelivery;
+import com.sva.vehicle.AutopilotMath;
 import com.sva.vehicle.CrawlerMath;
 import com.sva.vehicle.CruiseMath;
 import com.sva.vehicle.DrillMath;
@@ -21,6 +22,7 @@ import com.sva.vehicle.Movement;
 import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.PlaneParams;
 import com.sva.vehicle.RoadMath;
+import com.sva.vehicle.RunwayMath;
 import com.sva.vehicle.SpaceMath;
 import com.sva.vehicle.TiltMath;
 import com.sva.vehicle.TrailerMath;
@@ -87,7 +89,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // wave 4 (★15 рекуперация): EU/t recovered this tick + the server's efficiency (RegenMath.pack)
             DW_REGEN = 8,
             // aircraft stage A (★1-★3): flap setting, airbrake, ground spoilers, slats, overspeed warning (HighLiftMath.pack)
-            DW_HILIFT = 7;
+            DW_HILIFT = 7,
+            // aircraft stage C (★17 / ★19): the autopilot panel (AutopilotMath.pack / pack2) and the HSI's «База» point
+            DW_AP = 6, DW_AP2 = 5, DW_BASE_X = 4, DW_BASE_Z = 3;
     private static final int TUNE_ON = 1 << 20;
     /** DW_TUNE bits: the server's vehicles.cruise / vehicles.autopilot (★4 - the driver's client follows the server). */
     private static final int TUNE_CRUISE = 1 << 21, TUNE_AP = 1 << 22;
@@ -160,8 +164,26 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * speed (blocks/tick), the autopilot's yaw (deg) and height (Y). Only read while the input has IN_CRUISE.
      */
     public double cruiseSpeed, apYaw, apAlt;
+    /**
+     * Aircraft stage C (AutopilotMath): the autopilot's modes (M_* bits; КУРС holds apYaw, ВЫС apAlt, СКОР cruiseSpeed,
+     * ВЕРТ apVs - blocks/tick, ЗАХВ the nearest runway) - the driver's client sets them with the targets, the server from
+     * the Input packet. Only read while the input has IN_CRUISE (the autopilot kind).
+     */
+    public int apModes = AutopilotMath.DEFAULT;
+    public double apVs;
     /** Server: cruise / autopilot engaged this tick (synced as X_CRUISE). */
     private boolean cruiseNow;
+    /** Stage C, both sides: the runway ЗАХВ / the HSI use (RunwayMath, refreshed every RUNWAY_EVERY ticks while asked for). */
+    private RunwayMath.Runway runway;
+    private long runwayAt = -1000000L;
+    /** Stage C: a runway is looked for again after this many ticks (none found yet: RUNWAY_RETRY - flying toward one). */
+    public static final int RUNWAY_EVERY = 40, RUNWAY_RETRY = 10;
+    /** Stage C, server: the «База» point (x, z; Integer.MIN_VALUE = none) - the pilot's bed, else the world spawn. */
+    private int baseX = Integer.MIN_VALUE, baseZ = Integer.MIN_VALUE;
+    /** Stage C, server: ЗАХВ aligned this tick (synced in DW_AP). */
+    private boolean capAligned;
+    /** Stage C, the physics: last tick's speed (СКОР's damping term). */
+    private double apPrevSpeed = Double.NaN;
     /** Signed speed along the facing, blocks/tick (physics). */
     public double speed;
     private int input;
@@ -226,7 +248,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     private int lerpSteps;
     private int lastSentInput = -1, inputTimer, moveTimer;
     /** Client: the ★4 targets last sent with an Input packet. */
-    private final float[] sentCruise = new float[3];
+    private final float[] sentCruise = new float[4];
+    private int sentModes = -1;
     private double sentX, sentY, sentZ;
     private float sentYaw;
     // stage C, server: the drill (on, dig budget, blocks driven since the last torch), auto-delivery (stuck ticks,
@@ -317,6 +340,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.addObject(DW_TRAILER, "");
         dataWatcher.addObject(DW_REGEN, Integer.valueOf(0));
         dataWatcher.addObject(DW_HILIFT, Integer.valueOf(0));
+        dataWatcher.addObject(DW_AP, Integer.valueOf(0));
+        dataWatcher.addObject(DW_AP2, Integer.valueOf(0));
+        dataWatcher.addObject(DW_BASE_X, Integer.valueOf(Integer.MIN_VALUE));
+        dataWatcher.addObject(DW_BASE_Z, Integer.valueOf(Integer.MIN_VALUE));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -867,13 +894,137 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         // the server judges the airspeed it measured last tick (a driver's client's: its own, capped) - its per-tick
         // `speed` read 0 on a tick without a Move and cancelled the autopilot as a stall
         double air = worldObj.isRemote ? Math.max(0, speed) : airspeedNow;
-        return CruiseMath.autopilotCancel(keys, charge, PlaneMath.stalled(flightParams(t), air), !onGround,
+        int why = CruiseMath.autopilotCancel(keys, charge, PlaneMath.stalled(flightParams(t), air), !onGround,
                 hasLift() && canThrust());
+        if (why == 0 && (in & IN_CRUISE) != 0 && (apModes & AutopilotMath.M_CAP) != 0) {
+            // stage C: ЗАХВ brought it down low over the runway - the pilot lands
+            AutopilotMath.Capture c = capture();
+            if (c != null && c.done) {
+                return CruiseMath.OFF_LANDING;
+            }
+        }
+        return why;
     }
 
     /** ★4: cruise / the autopilot works this tick with these keys. */
     public boolean cruiseActive(int in) {
         return (in & IN_CRUISE) != 0 && cruiseBlocked(in) == 0;
+    }
+
+    // ------------------------------------------------------------------ aircraft stage C: autopilot modes, runway, HSI
+
+    /**
+     * The nearest runway strip (RunwayMath) within RunwayMath.SCAN blocks, looked for again every RUNWAY_EVERY ticks while
+     * asked for (ЗАХВ on both sides, the HSI on the riders' client); null = none near. Only loaded chunks are read.
+     */
+    public RunwayMath.Runway runway() {
+        long now = worldObj.getTotalWorldTime();
+        if (now - runwayAt >= (runway == null ? RUNWAY_RETRY : RUNWAY_EVERY) || now < runwayAt) {
+            runwayAt = now;
+            runway = ModContentSVA.runway == null ? null : RunwayMath.find(new RunwayMath.World() {
+                @Override
+                public int top(int x, int z) {
+                    int h = worldObj.getHeightValue(x, z);
+                    return h <= 0 ? -1 : h - 1;
+                }
+
+                @Override
+                public boolean runway(int x, int y, int z) {
+                    return worldObj.blockExists(x, y, z) && worldObj.getBlock(x, y, z) == ModContentSVA.runway;
+                }
+            }, posX, posZ);
+        }
+        return runway;
+    }
+
+    /** ЗАХВ's guidance now (null: no runway near). The descent from the set vertical speed (AutopilotMath.descent). */
+    public AutopilotMath.Capture capture() {
+        RunwayMath.Runway r = runway();
+        if (r == null) {
+            return null;
+        }
+        return AutopilotMath.capture(r, posX, posY, posZ, CruiseMath.heading(rotationYaw), AutopilotMath.descent(apModes, apVs), Math.max(0, speed));
+    }
+
+    /**
+     * The autopilot panel as this side knows it: the server's own judgement, clients the synced DW_AP (the driver's client
+     * draws its own CruiseClientSVA state - client.CockpitInstrumentsSVA).
+     */
+    public AutopilotMath.Panel apPanel() {
+        if (worldObj.isRemote) {
+            return AutopilotMath.unpack(dataWatcher.getWatchableObjectInt(DW_AP), dataWatcher.getWatchableObjectInt(DW_AP2));
+        }
+        AutopilotMath.Panel p = new AutopilotMath.Panel();
+        p.on = cruiseNow && cruiseKind() == CruiseMath.AUTOPILOT;
+        p.modes = apModes;
+        p.hdg = CruiseMath.heading(apYaw);
+        p.alt = (int) Math.round(apAlt);
+        p.kmh = VehicleMath.kmh(cruiseSpeed);
+        p.vs = apVs * 20;
+        p.runway = (apModes & AutopilotMath.M_CAP) != 0 && runway != null;
+        p.aligned = capAligned;
+        return p;
+    }
+
+    /** The HSI's «База» (world x, z) or null: the pilot's bed (overworld), else the world's spawn - synced from the server. */
+    public int[] basePoint() {
+        int x = worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_BASE_X) : baseX;
+        int z = worldObj.isRemote ? dataWatcher.getWatchableObjectInt(DW_BASE_Z) : baseZ;
+        return x == Integer.MIN_VALUE ? null : new int[] {x, z};
+    }
+
+    /** Server, every RUNWAY_EVERY ticks: the «База» point - the pilot's bed in the overworld (as the jump's «дом»), else the spawn. */
+    private void updateBase() {
+        net.minecraft.util.ChunkCoordinates c = null;
+        if (riddenByEntity instanceof EntityPlayer && worldObj.provider.dimensionId == 0) {
+            c = ((EntityPlayer) riddenByEntity).getBedLocation(0);
+        }
+        if (c == null) {
+            c = worldObj.getSpawnPoint();
+        }
+        baseX = c == null ? Integer.MIN_VALUE : c.posX;
+        baseZ = c == null ? Integer.MIN_VALUE : c.posZ;
+    }
+
+    /** Stage C, the physics: ЗАХВ's guidance this tick (apBegin; null = no capture now). */
+    private AutopilotMath.Capture capNow;
+
+    /** Stage C: the autopilot's step begins (PlanePhysicsSVA) - ЗАХВ's guidance looked up once for the tick. */
+    public void apBegin() {
+        capNow = (apModes & AutopilotMath.M_CAP) != 0 ? capture() : null;
+        if (capNow != null && capNow.out) {
+            capNow = null;
+        }
+        capAligned = capNow != null && capNow.aligned;
+    }
+
+    /**
+     * Stage C: the heading (Minecraft yaw) the modes want this tick, NaN = don't turn - ЗАХВ's intercept when a runway is
+     * near, else КУРС's set heading.
+     */
+    public double apWantedYaw() {
+        if (capNow != null) {
+            return capNow.heading - 180;
+        }
+        return (apModes & AutopilotMath.M_HDG) != 0 ? apYaw : Double.NaN;
+    }
+
+    /** Stage C: the vertical speed the modes want (b/t; NaN = level flight as without keys) - ЗАХВ's glide slope when aligned. */
+    public double apWantedVy(double climb, double dive) {
+        if (capNow != null && capNow.aligned) {
+            return VehicleMath.clamp(capNow.vy, -dive, Math.max(0, climb));
+        }
+        return AutopilotMath.wantedVy(apModes, posY, apAlt, apVs, climb, dive);
+    }
+
+    /** Stage C: СКОР's throttle this tick (the throttle as it is without СКОР). */
+    public double apThrottle(double thr, double speedNow) {
+        double prev = Double.isNaN(apPrevSpeed) ? speedNow : apPrevSpeed;
+        apPrevSpeed = speedNow;
+        if ((apModes & AutopilotMath.M_SPD) == 0) {
+            return thr;
+        }
+        return AutopilotMath.speedThrottle(thr, speedNow, prev, cruiseSpeed, AutopilotMath.SPD_MAX_THROTTLE);
     }
 
     /** ★11: the road surface under the vehicle's wheels / tracks (RoadMath.NONE / ASPHALT / CONCRETE). */
@@ -1274,6 +1425,24 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.updateObject(DW_REGEN, Integer.valueOf(com.sva.vehicle.RegenMath.pack(regenNow, ConfigSVA.regenEfficiency, ConfigSVA.regen)));
         dataWatcher.updateObject(DW_HILIFT, Integer.valueOf(HighLiftMath.pack(flaps, airbrake, groundSpoilers, slats, flapWarn > 0,
                 HighLiftMath.spec(t) != null && HighLiftMath.brakeDeg(HighLiftMath.spec(t), airspeedNow) < HighLiftMath.spec(t).brakeDeg)));
+        if (CruiseMath.kind(t.movement, true) == CruiseMath.AUTOPILOT) {
+            // aircraft stage C: the autopilot panel for every rider (the server's judgement) and the HSI's «База»
+            boolean cap = cruiseNow && (apModes & AutopilotMath.M_CAP) != 0;
+            if (cap) {
+                AutopilotMath.Capture c = capture();
+                capAligned = c != null && !c.out && c.aligned;
+            } else {
+                capAligned = false;
+            }
+            AutopilotMath.Panel ap = apPanel();
+            dataWatcher.updateObject(DW_AP, Integer.valueOf(AutopilotMath.pack(ap)));
+            dataWatcher.updateObject(DW_AP2, Integer.valueOf(AutopilotMath.pack2(ap)));
+            if (ticksExisted % RUNWAY_EVERY == 1 || baseX == Integer.MIN_VALUE) {
+                updateBase();
+            }
+            dataWatcher.updateObject(DW_BASE_X, Integer.valueOf(baseX));
+            dataWatcher.updateObject(DW_BASE_Z, Integer.valueOf(baseZ));
+        }
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
             dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
@@ -1823,10 +1992,22 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** The Input packet with the ★4 targets (sanitised: finite, speed within reach, height within the world). */
     public void serverInput(int flags, float cruise, float yaw, float alt) {
+        serverInput(flags, cruise, yaw, alt, AutopilotMath.DEFAULT, 0F);
+    }
+
+    /** Stage C: the Input packet with the autopilot's modes and set vertical speed (b/t) too. */
+    public void serverInput(int flags, float cruise, float yaw, float alt, int modes, float vs) {
         serverInput(flags);
         if ((flags & IN_CRUISE) != 0) {
             setCruiseTargets(cruise, yaw, alt);
+            setApModes(modes, vs);
         }
+    }
+
+    /** Stage C: the autopilot's modes (AutopilotMath.M_*) and set vertical speed (b/t, within +-VS_MAX blocks/s), sanitised. */
+    public void setApModes(int modes, double vs) {
+        apModes = modes & AutopilotMath.M_ALL;
+        apVs = finite(vs) ? VehicleMath.clamp(vs, -AutopilotMath.VS_MAX / 20, AutopilotMath.VS_MAX / 20) : 0;
     }
 
     /** ★4 targets, sanitised (the server's packet path and the world test). */
@@ -1835,6 +2016,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         cruiseSpeed = finite(cruise) ? VehicleMath.clamp(cruise, 0, t.topSpeed * RoadMath.ASPHALT_SPEED * tuneSpeed()) : 0;
         apYaw = finite(yaw) ? CruiseMath.wrap(yaw) : rotationYaw;
         apAlt = finite(alt) ? VehicleMath.clamp(alt, 1, FlightMath.CEILING) : posY;
+        if (t.movement.flies && t.plane != null) {
+            // stage C: СКОР's set speed (the same field) up to the aircraft's own top speed
+            cruiseSpeed = finite(cruise) ? VehicleMath.clamp(cruise, 0, PlaneMath.maxSpeed(t, 1)) : 0;
+        }
     }
 
     /** World test: drive without a rider through the same input path. */
@@ -2076,14 +2261,17 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // synced flag a tick or two late
             localStall = planeNow() && t.plane != null && airborneAt(posX, posY, posZ) && PlaneMath.stalled(flightParams(t), Math.max(0, speed));
             boolean targets = (in & IN_CRUISE) != 0
-                    && ((float) cruiseSpeed != sentCruise[0] || (float) apYaw != sentCruise[1] || (float) apAlt != sentCruise[2]);
+                    && ((float) cruiseSpeed != sentCruise[0] || (float) apYaw != sentCruise[1] || (float) apAlt != sentCruise[2]
+                    || (float) apVs != sentCruise[3] || apModes != sentModes);
             if (in != lastSentInput || targets || ++inputTimer >= KEEPALIVE) {
-                NetSVA.CHANNEL.sendToServer(new NetSVA.Input(getEntityId(), in, (float) cruiseSpeed, (float) apYaw, (float) apAlt));
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Input(getEntityId(), in, (float) cruiseSpeed, (float) apYaw, (float) apAlt, apModes, (float) apVs));
                 lastSentInput = in;
                 inputTimer = 0;
                 sentCruise[0] = (float) cruiseSpeed;
                 sentCruise[1] = (float) apYaw;
                 sentCruise[2] = (float) apAlt;
+                sentCruise[3] = (float) apVs;
+                sentModes = apModes;
             }
             boolean changed = Math.abs(posX - sentX) + Math.abs(posY - sentY) + Math.abs(posZ - sentZ) > 1e-3 || Math.abs(rotationYaw - sentYaw) > 0.01;
             if (changed || ++moveTimer >= KEEPALIVE) {

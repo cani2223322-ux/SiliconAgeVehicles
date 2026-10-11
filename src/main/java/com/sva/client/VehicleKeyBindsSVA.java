@@ -360,6 +360,12 @@ public final class VehicleKeyBindsSVA {
             GuiMapSVA.openAtPlayer(mc);
             return;
         }
+        if (f == VehicleFn.AP_PANEL) {
+            if (v != null && !v.isDead && f.appliesTo(v.getVehicleType())) {
+                mc.displayGuiScreen(new GuiAutopilotSVA());       // stage C: the autopilot panel
+            }
+            return;
+        }
         if (v == null || v.isDead || f.hold) {
             return;
         }
