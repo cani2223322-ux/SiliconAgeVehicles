@@ -185,7 +185,40 @@ public final class ConfigSVA {
             "minecraft:stone"};
     public static java.util.Set<String> junk = com.sva.inventory.CargoToolsSVA.parseJunk(JUNK_DEFAULT);
 
+    // ---------------------------------------------------------------- air-defence wave (category "airdefense")
+
+    /** The air defence works at all (radars, launchers, the command post); off - the blocks stand idle, nobody is fired at. */
+    public static boolean adEnabled = true;
+    /** "warnings" (default): the launchers only track and warn - nothing is ever fired; "fire": they fire after the warnings. */
+    public static final String AD_WARNINGS = "warnings", AD_FIRE = "fire";
+    public static String adMode = AD_WARNINGS;
+    /** Fire at a target inside a protected region (a private field that refuses the launcher's owner). */
+    public static boolean adFireInProtectedRegions = false;
+    /** Fire at vehicles of the players on the air defence's access list (the owner's own are never fired at). */
+    public static boolean adFireOnFriends = false;
+    /** Fire only with the server's PvP on. */
+    public static boolean adRequirePvp = true;
+    /** Fire at vehicles with nobody aboard. */
+    public static boolean adFireOnUnmanned = false;
+    /** Launchers / radars one player may place (0 = unlimited). */
+    public static int adMaxLaunchers = 4, adMaxRadars = 6;
+    /** A launcher this near the world spawn never fires (blocks). */
+    public static int adMinSpawnDistance = 500;
+    /** The shortest wait between the lock and fire (s) - a launcher's own wait is never shorter. */
+    public static int adMinWarningSeconds = 10;
+    /** Every launch / burst into logs/airdefense.log (the command post's log always has it). */
+    public static boolean adLaunchLog = true;
+    /** Air-defence damage to vehicles x this. */
+    public static float adDamage = 1F;
+    /** «Ключ дня»: the command post's day code and the code cards. */
+    public static boolean adDayKey = true;
+
     private ConfigSVA() {
+    }
+
+    /** Fire is allowed at all (the air defence on and in the "fire" mode). */
+    public static boolean adFires() {
+        return adEnabled && AD_FIRE.equalsIgnoreCase(adMode);
     }
 
     public static void load(File file) {
@@ -386,11 +419,38 @@ public final class ConfigSVA {
             junk = com.sva.inventory.CargoToolsSVA.parseJunk(c.getStringList("junk", v, JUNK_DEFAULT,
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));
+            loadAirDefense(c);
         } finally {
             if (c.hasChanged()) {
                 c.save();
             }
         }
+    }
+
+    /** Air-defence wave: the "airdefense" category (mock-up veh_ad_5_zones_rules, *7 «Правила сервера»). */
+    private static void loadAirDefense(Configuration c) {
+        String a = "airdefense";
+        adEnabled = c.getBoolean("enabled", a, true,
+                "Air defence: radars, launchers, the command post, zones; off - everything stands idle / ПВО включено (РЛС, ПУ, КП, зоны)");
+        adMode = c.getString("mode", a, AD_WARNINGS,
+                "warnings - the launchers only track and warn the pilot, never fire; fire - they fire after the warnings / "
+                        + "warnings - только сопровождение и предупреждения; fire - огонь после предупреждений",
+                new String[] {AD_WARNINGS, AD_FIRE});
+        adFireInProtectedRegions = c.getBoolean("fireInProtectedRegions", a, false,
+                "Fire at targets inside a private field that refuses the launcher's owner / Огонь в защищённых регионах");
+        adFireOnFriends = c.getBoolean("fireOnFriends", a, false,
+                "Fire at vehicles of the players on the air defence's access list (own vehicles: never) / Огонь по машинам друзей (по своим - никогда)");
+        adRequirePvp = c.getBoolean("requirePvp", a, true, "Fire only with the server's PvP on / Огонь только при включённом PvP");
+        adFireOnUnmanned = c.getBoolean("fireOnUnmanned", a, false, "Fire at vehicles with nobody aboard / Огонь по машинам без пилота");
+        adMaxLaunchers = c.getInt("maxLaunchersPerPlayer", a, 4, 0, 1000, "Launchers one player may place (0 = unlimited) / ПУ на игрока");
+        adMaxRadars = c.getInt("maxRadarsPerPlayer", a, 6, 0, 1000, "Radars one player may place (0 = unlimited) / РЛС на игрока");
+        adMinSpawnDistance = c.getInt("minDistanceFromSpawn", a, 500, 0, 100000,
+                "A launcher this near the world spawn never fires (blocks) / ПУ ближе к спавну не стреляет");
+        adMinWarningSeconds = c.getInt("minWarningSeconds", a, 10, 0, 60,
+                "The shortest wait from the lock to fire (s) / Предупреждать не меньше (с)");
+        adLaunchLog = c.getBoolean("launchLog", a, true, "Write launches and bursts to logs/airdefense.log / Журнал пусков в logs/airdefense.log");
+        adDamage = num(c, "damageMultiplier", a, 1F, 0F, 10F, "Air-defence damage to vehicles x this / Урон по технике x");
+        adDayKey = c.getBoolean("dayKey", a, true, "The day key: the command post's day code and the code cards / Ключ дня");
     }
 
     /** NaN / infinity -> default, else clamped into [min, max] (pure; the self-test checks it). */

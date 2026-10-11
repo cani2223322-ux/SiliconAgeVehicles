@@ -289,11 +289,11 @@ final class SelfTestWave2SVA {
         }
         boolean rec = ids.contains("garage") && ids.contains("garagePad") && ids.contains("garageLamp") && ids.contains("keyCard");
         String[] tu = {"tuningMotor1", "tuningMotor2", "tuningBattery", "tuningArmor", "tuningLightHull", "tuningBigWheels", "tuningLightBar",
-                "tuningDrillPlus", "tuningExtraTank"};
+                "tuningDrillPlus", "tuningExtraTank", "tuningRamCoat", "tuningSmoothHull", "tuningRwr"};
         for (String s : tu) {
             rec &= ids.contains(s);
         }
-        check(rec && tu.length == TuningMath.KINDS, "wave 2: Engineering Workbench recipes for the garage, its plates, all 9 upgrades and the key card");
+        check(rec && tu.length == TuningMath.KINDS, "wave 2: Engineering Workbench recipes for the garage, its plates, all 12 upgrades (air-defence wave: +3) and the key card");
         WorkbenchRecipeSVA g = WorkbenchRecipesSVA.byId("garage");
         check(g != null && g.category == WorkbenchRecipeSVA.Category.BLOCKS && WorkbenchRecipesSVA.byId("tuningArmor").category == WorkbenchRecipeSVA.Category.MODULES
                         && WorkbenchRecipesSVA.byId("keyCard").category == WorkbenchRecipeSVA.Category.MODULES

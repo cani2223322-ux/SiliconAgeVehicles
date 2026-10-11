@@ -15,14 +15,14 @@ import cpw.mods.fml.relauncher.SideOnly;
  * overhead panel) read the board's hydrogen, battery, radar warning and transponder from. Merged with the hydrogen /
  * removable battery wave: on hydrogen (EntityVehicleSVA.onHydrogen) the methods read its accessors (H2 mB / max / range,
  * battery frac / volts / amps / present, the generator); in EU mode (vehicles.fuelMode = EU) they keep the cockpit wave's
- * readings - the main charge for the tank, the board systems' battery for the battery. PLACEHOLDER marks what has no game
- * side at all yet (the radar warning, the transponder) - TODO(air defence wave).
+ * readings - the main charge for the tank, the board systems' battery for the battery. The radar warning and the transponder
+ * come from the air-defence wave (AirDefenseClientSVA: the server's copies for the riders).
  */
 @SideOnly(Side.CLIENT)
 public final class CockpitDataSVA {
 
-    /** PLACEHOLDER: the transponder's code until it has a game side - the VFR squawk 7000 (octal). */
-    public static final int XPDR_DEFAULT = 07000;
+    /** The transponder's code before the server has told - 7000 (octal), «flying on my own». */
+    public static final int XPDR_DEFAULT = com.sva.airdefense.XpdrMath.VFR;
 
     private CockpitDataSVA() {
     }
@@ -140,25 +140,37 @@ public final class CockpitDataSVA {
     // ---------------------------------------------------------------- radar warning / transponder
 
     /**
-     * PLACEHOLDER - TODO(air defence wave): the radar threats painting the vehicle, each {bearing deg relative to the nose
-     * (clockwise), distance blocks, kind 0 search / 1 track / 2 missile}; none yet - the scope shows only its rings.
+     * Air-defence wave: the radar threats painting the vehicle, each {bearing deg relative to the nose (clockwise), distance
+     * blocks, kind RadarMath.T_* (0 search, 1 track lock, 2 missile, 3 height finder)} - the server's copy for the riders
+     * (AirDefenseClientSVA); empty without the «Приёмник облучения» upgrade - the scope shows only its rings.
      */
     public static float[][] rwrThreat(EntityVehicleSVA v) {
-        return new float[0][];
+        return AirDefenseClientSVA.rwrThreats(v);
     }
 
-    /** PLACEHOLDER - TODO(air defence wave): the transponder's code (octal), 7000 until it has a game side. */
+    /** The transponder's code (octal; 7000 until the server has told). */
     public static int xpdrCode(EntityVehicleSVA v) {
-        return XPDR_DEFAULT;
+        return AirDefenseClientSVA.xpdrCode(v);
     }
 
-    /** PLACEHOLDER - TODO(air defence wave): the transponder's mode, a lang key - «ОЖИД» (standby) until it has a game side. */
+    /** The transponder's mode, a lang key (sva.xpdr.mode.*: ВЫКЛ / ДЕЖ / A / C / S). */
     public static String xpdrMode(EntityVehicleSVA v) {
-        return "sva.xpdr.mode.stby";
+        int m = AirDefenseClientSVA.xpdrMode(v);
+        return "sva.xpdr.mode." + com.sva.airdefense.XpdrMath.MODE_KEYS[Math.max(0, Math.min(com.sva.airdefense.XpdrMath.MODES - 1, m))];
     }
 
-    /** PLACEHOLDER - TODO(air defence wave): the transponder replied to an interrogation just now (the ОТВЕТ lamp) - never yet. */
+    /** The transponder replied to an interrogation just now (the ОТВЕТ lamp). */
     public static boolean xpdrReply(EntityVehicleSVA v) {
-        return false;
+        return AirDefenseClientSVA.xpdrReply(v);
+    }
+
+    /** IDENT is flashing (the IDENT button lit). */
+    public static boolean xpdrIdent(EntityVehicleSVA v) {
+        return AirDefenseClientSVA.xpdrIdent(v);
+    }
+
+    /** The КЛЮЧ ДНЯ lamp: the code is today's from a code card. */
+    public static boolean xpdrKeyLamp(EntityVehicleSVA v) {
+        return AirDefenseClientSVA.xpdrKeyLamp(v);
     }
 }

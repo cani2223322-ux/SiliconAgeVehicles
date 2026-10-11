@@ -233,8 +233,9 @@ final class SelfTestFastChargeSVA {
         check(cap != null && net.minecraft.block.Block.getBlockFromItem(cap.result().getItem()) == ModContentSVA.supercap,
                 "fast charge content: the supercapacitor recipe");
         List<WorkbenchRecipeSVA> all = WorkbenchRecipesSVA.all();
-        int n = all.size();
-        check(n >= 3 && all.get(n - 1) == cap && all.get(n - 2) == svr && all.get(n - 3) == fast,
+        // appended after the wave 3 recipes, in this order (the air-defence wave appends its own after them)
+        int i = all.indexOf(fast);
+        check(i > all.indexOf(WorkbenchRecipesSVA.byId("trailerCharger")) && i + 2 < all.size() && all.get(i + 1) == svr && all.get(i + 2) == cap,
                 "fast charge content: the new recipes appended at the end (sync ids of the old ones unchanged)");
         check(ModItems.upgrade != null && com.sva.block.BlockChargerSVA.TIERS.length == 2 && com.sva.block.BlockChargerSVA.TIERS[1] == Tier.SV,
                 "fast charge content: the station block in MV and SV");

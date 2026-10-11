@@ -47,6 +47,8 @@ public class GuiVehicleSVA extends GuiScreen {
     private static final int B_ACT = 100, B_KEY = 200, B_RESET_ALL = 1,
             /** Hydrogen wave: the «Аккумулятор» row's «Снять». */
             B_BAT = 2,
+            /** Air-defence wave: the «Ответчик» row's «Настроить» (the transponder panel, GuiTransponderSVA). */
+            B_XPDR = 3,
             /** Round 2, D2 (★17): the overhead switches' buttons (B_SW + SystemsMath.SW_*), a row under the status strip. */
             B_SW = 300;
     /** D2: the switch row's height (aircraft with the board systems). */
@@ -85,7 +87,7 @@ public class GuiVehicleSVA extends GuiScreen {
         w = Math.max(MIN_W, Math.min(MAX_W, width - 8));
         stripH = vehicle == null ? 24 : 36 + (swRow() ? SW_ROW : 0);
         int fixed = 18 + stripH + 12 + 20;                       // title, strip, the column heads, the footer
-        int n = rows.size() + (batRow() ? 1 : 0);
+        int n = rows.size() + (batRow() ? 1 : 0) + (xpdrRow() ? 1 : 0);
         rowH = Math.max(12, Math.min(15, (height - 8 - fixed) / Math.max(1, n)));
         h = fixed + n * rowH + 4;
         left = (width - w) / 2;
@@ -107,6 +109,10 @@ public class GuiVehicleSVA extends GuiScreen {
             buttonList.add(new GuiCargoSVA.Dark(B_BAT, left + w - 6 - KEY_W - 4 - ACT_W, listY + rows.size() * rowH, ACT_W, bh,
                     Lang.tr("sva.vmenu.act.batOut"), null));
         }
+        if (xpdrRow()) {
+            buttonList.add(new GuiCargoSVA.Dark(B_XPDR, left + w - 6 - KEY_W - 4 - ACT_W, listY + (rows.size() + (batRow() ? 1 : 0)) * rowH, ACT_W, bh,
+                    Lang.tr("sva.vmenu.act.setup"), null));
+        }
         if (swRow()) {
             // D2: «Пульт» - the seven overhead switches (the same packet as the cockpit's would be: Action A_SWITCH + i)
             int sy = top + 19 + 36, lw = 34, bw = (w - 12 - lw) / SystemsMath.SWITCHES;
@@ -127,6 +133,11 @@ public class GuiVehicleSVA extends GuiScreen {
         return vehicle != null && vehicle.onHydrogen();
     }
 
+    /** Air-defence wave: the vehicle has a transponder (everything that flies) - the «Ответчик» row. */
+    private boolean xpdrRow() {
+        return vehicle != null && com.sva.airdefense.XpdrMath.fitted(type);
+    }
+
     /** D2: the vehicle has the overhead switches (the light plane, the jet, the tiltrotor). */
     private boolean swRow() {
         return vehicle != null && SystemsMath.applies(type);
@@ -137,6 +148,10 @@ public class GuiVehicleSVA extends GuiScreen {
     private void refresh() {
         for (Object o : buttonList) {
             GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
+            if (b.id == B_XPDR) {
+                b.enabled = driver;                              // only the pilot sets the transponder
+                continue;
+            }
             if (b.id == B_BAT) {
                 // greyed while the engine runs / there is none (the server checks the right too)
                 b.enabled = vehicle != null && vehicle.batteryPresent() && vehicle.engineState() == SystemsMath.OFF;
@@ -420,6 +435,10 @@ public class GuiVehicleSVA extends GuiScreen {
         if (batRow() && vehicle != null) {
             drawBatteryRow(listY + rows.size() * rowH, rows.size() % 2 == 1, nameW, stateX, stateW);
         }
+        if (xpdrRow()) {
+            int xi = rows.size() + (batRow() ? 1 : 0);
+            drawXpdrRow(listY + xi * rowH, xi % 2 == 1, nameW, stateX, stateW);
+        }
         String hint = Lang.tr("sva.vmenu.hint");
         TextFitSC.draw(fontRendererObj, hint, left + 6, top + h - 14, w - 12 - 100, MUTED, false, 0, 0);
         super.drawScreen(mx, my, pt);
@@ -492,6 +511,32 @@ public class GuiVehicleSVA extends GuiScreen {
             int c = v.batteryFrac() < com.sva.vehicle.BatteryMath.LOW ? RED : com.sva.vehicle.BatteryMath.needsService(h) ? AMBER : trend > 0 ? GREEN : trend < 0 ? AMBER : TEXT;
             TextFitSC.draw(fontRendererObj, s, x, ty, stateW - (x - stateX), c, false, 0, 0);
         }
+        String dash = "-";
+        fontRendererObj.drawString(dash, left + w - 6 - KEY_W + (KEY_W - fontRendererObj.getStringWidth(dash)) / 2, ty, MUTED);
+    }
+
+    /** Air-defence wave: the «Ответчик» row - the mode and the code («C 2471»), КЛЮЧ ДНЯ / IDENT; «Настроить» opens the panel. */
+    private void drawXpdrRow(int y, boolean odd, int nameW, int stateX, int stateW) {
+        int ty = y + (rowH - 2 - 8) / 2;
+        if (odd) {
+            drawRect(left + 3, y - 1, left + w - 3, y + rowH - 1, 0x18FFFFFF);
+        }
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.vmenu.xpdr"), left + 6, ty, nameW, driver ? TEXT : MUTED, false, 0, 0);
+        TextFitSC.hover(left + 6, y, nameW, rowH - 1, Lang.tr("sva.vmenu.xpdr.tip"));
+        int mode = AirDefenseClientSVA.xpdrMode(vehicle);
+        String st = Lang.tr("sva.xpdr.mode." + com.sva.airdefense.XpdrMath.MODE_KEYS[mode]);
+        if (com.sva.airdefense.XpdrMath.replies(mode)) {
+            st += " " + com.sva.airdefense.XpdrMath.format(AirDefenseClientSVA.xpdrCode(vehicle));
+        }
+        if (AirDefenseClientSVA.xpdrKeyLamp(vehicle)) {
+            st += " " + Lang.tr("sva.ad.xpdr.dayKey");
+        }
+        if (AirDefenseClientSVA.xpdrIdent(vehicle)) {
+            st += " IDENT";
+        }
+        int c = AirDefenseClientSVA.xpdrCode(vehicle) == com.sva.airdefense.XpdrMath.EMERGENCY && com.sva.airdefense.XpdrMath.replies(mode) ? RED
+                : com.sva.airdefense.XpdrMath.replies(mode) ? GREEN : MUTED;
+        TextFitSC.draw(fontRendererObj, st, stateX, ty, stateW, c, false, 0, 0);
         String dash = "-";
         fontRendererObj.drawString(dash, left + w - 6 - KEY_W + (KEY_W - fontRendererObj.getStringWidth(dash)) / 2, ty, MUTED);
     }
@@ -638,6 +683,12 @@ public class GuiVehicleSVA extends GuiScreen {
         if (b.id == B_BAT) {
             if (vehicle != null) {
                 NetSVA.CHANNEL.sendToServer(new NetSVA.Action(vehicle.getEntityId(), EntityVehicleSVA.A_BATTERY_OUT));
+            }
+            return;
+        }
+        if (b.id == B_XPDR) {
+            if (vehicle != null && driver) {
+                mc.displayGuiScreen(new GuiTransponderSVA(vehicle));
             }
             return;
         }
