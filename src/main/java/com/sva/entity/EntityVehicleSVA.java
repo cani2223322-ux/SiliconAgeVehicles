@@ -2937,7 +2937,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                     jumpTicks = 0;
                     jumpFrom = null;
                     oneShot("ding", 0.35F, 1.6F);
-                    tellRiders("sva.msg.jump.done");
+                    tellRiders("sva.msg.jumpStart.done");
                 }
             }
         }

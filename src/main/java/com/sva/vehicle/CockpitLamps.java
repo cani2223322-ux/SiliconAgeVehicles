@@ -9,11 +9,12 @@ package com.sva.vehicle;
  * The lamps are CockpitLayout.lamps in its order (rows top -> bottom, each row left -> right as the pilot sees it); a
  * type's table has exactly one role per lamp of its model (self-test). Measured from the OBJs (2026-10): buggy / truck
  * the row of 6 under the cluster + the red stop button on the centre console; drill the 3 mode lamps on the drill console
- * (a row above) + the row of 6; heli the co-pilot cluster's small lamp, the 8 annunciators, the stop button; jet the
+ * (a row above) + the row of 6; heli (cockpit wave, C+) the co-pilot stick's top and the console's lamp - its annunciators
+ * are the lamp strip now (strip(): the plane's 13, the heli's 9, drawn on the 'lampbar' face); jet the
  * small lamp over the glass panels, two buttons, the big disc under the left side screen (mirror of the throttle dial);
  * ship the two stick tops + the stop button; tilt the left stick top, the stop button, the right stick top (one row);
- * shuttle 5 overhead buttons + the two stick tops; the plane has no 'warn' lamps - its three green 'ok' gear lamps are
- * CockpitLayout.okLamps (gear()); the hoverbike has none.
+ * shuttle 5 overhead buttons + the two stick tops; the plane has no 'warn' lamps (C+: its gear lamps went to the MFD's ДВИГ
+ * page - gear() colours them there); the hoverbike has none.
  * <p>
  * Cockpit visibility fix (2026-10): the jet's side screens turned to the pilot lifted their buttons over the big disc,
  * which went under the left screen (it sat behind it, unseen) - the disc (STALL) is now last; the tilt's sticks got
@@ -47,14 +48,26 @@ public final class CockpitLamps {
     public static final int ENG_FAIL = 24, FLAP_JAM = 25, INSTR_FAIL = 26, CAUTION = 27;
     /**
      * Hydrogen wave (mock-ups veh_fuel_2_refuel.png, veh_fuel_4_display_wear.png): «МАЛО ТОПЛИВА» (amber, under 15 % of
-     * the H2 tank), «РЕЗЕРВ» (red, blinking, under 5 %), «АКБ» (red: no battery in or it is under 10 % - lit even with
-     * the board dark, it is wired straight to the battery), «ОБСЛУЖИТЕ АКБ» (amber: the battery's health under 80 %).
+     * the H2 tank - FuelMath.LOW), «РЕЗЕРВ» (red, blinking, under 5 % - FuelMath.RESERVE), «АКБ» (amber: no battery in or
+     * it is under 10 % - lit even with the board dark, it is wired straight to the battery), «ОБСЛУЖИТЕ АКБ» (amber: the
+     * battery's health under 80 %). In EU mode the C+ strips (strip()) still show them: the charge stands in for the fuel
+     * (fuelLeft) and the board battery 0..1 (Snapshot.battery) for the removable one - under BAT_LOW, blinking under BAT_FLAT.
      */
     public static final int LOW_FUEL = 28, RESERVE = 29, BAT = 30, BAT_SERVICE = 31;
+    /**
+     * Cockpit wave (plan-next §5 / §6, the C+ cockpits' lamp strips - strip(); with the hydrogen wave's four above):
+     * «ОБОРОТЫ ВИНТА» (red, blinking: a rotorcraft in the air with the rotor outside ROTOR_LO..ROTOR_HI %), «ПЕРЕГРУЗ»
+     * (red, blinking: the power over 100 %), «ГЕН» (amber: the generator off), «ЗЕМЛЯ» (amber: in the air within
+     * GROUND_AGL blocks of the ground), «ОБЛЕДЕН.» (blue: the iced pitot / airframe).
+     */
+    public static final int ROTOR_RPM = 32, OVERLOAD = 33, GEN_OFF = 34, GROUND = 35, ICING = 36;
     /** Lang key part per role: sva.cockpit.lamp.KEY (the label under the lamp; "" = no label). */
     public static final String[] KEYS = {"", "master", "left", "right", "head", "handbrake", "overheat", "wear", "autorot", "lowCharge",
             "gen", "nav", "vortex", "cargo", "door", "mode0", "mode1", "mode2", "stall", "autop", "flapsExt", "slats", "airbrake", "flapLimit",
-            "engFail", "flapJam", "instrFail", "caution", "lowFuel", "reserve", "bat", "batService"};
+            "engFail", "flapJam", "instrFail", "caution", "lowFuel", "reserve", "bat", "batService", "rotorRpm", "overload", "genOff", "ground",
+            "icing"};
+    /** Cockpit wave: the strips' thresholds - the EU-mode board battery fractions, rotor %, blocks over the ground. */
+    public static final float BAT_LOW = 0.2F, BAT_FLAT = 0.05F, ROTOR_LO = 90F, ROTOR_HI = 110F, GROUND_AGL = 6F;
 
     // colours (0xRRGGBB, mock-up veh_cab_5_controls.png)
     public static final int RED = 0xFF4636, AMBER = 0xFFC23A, GREEN = 0x46E07A, BLUE = 0x6AD4FF, ORANGE = 0xFF8A2A;
@@ -89,7 +102,8 @@ public final class CockpitLamps {
             case DRILL:
                 return new int[] {MODE0, MODE1, MODE2, TURN_L, HEAD, HANDBRAKE, OVERHEAT, WEAR, TURN_R};
             case HELI:
-                return new int[] {MASTER, AUTOROT, OVERHEAT, LOW_CHARGE, GEN, NAV, VORTEX, CARGO, DOOR, DECOR};
+                // cockpit wave (C+): the co-pilot's stick top, the console's lamp - the annunciators went to the lamp strip
+                return new int[] {MASTER, DECOR};
             case JET:
                 return new int[] {MASTER, AUTOP, DECOR, STALL};
             case TILT:
@@ -118,6 +132,21 @@ public final class CockpitLamps {
         return new int[] {FLAPS_EXT, SLATS, AIRBRAKE, FLAP_LIMIT, STALL};
     }
 
+    /**
+     * Cockpit wave (plan-next §5 / §6): the lamp strip under the glare shield ('lampbar', client/GlassCockpitSVA), left ->
+     * right - the light plane's 13 (failures, fuel, battery, autopilot, the high-lift annunciators: they left the AP bar's
+     * column), the helicopter's 9; empty for the other types.
+     */
+    public static int[] strip(VehicleType t) {
+        if (t == VehicleType.PLANE) {
+            return new int[] {ENG_FAIL, FLAP_JAM, INSTR_FAIL, CAUTION, LOW_FUEL, RESERVE, BAT, AUTOP, FLAPS_EXT, SLATS, AIRBRAKE, FLAP_LIMIT, STALL};
+        }
+        if (t == VehicleType.HELI) {
+            return new int[] {AUTOROT, VORTEX, ROTOR_RPM, OVERLOAD, LOW_FUEL, BAT, GEN_OFF, GROUND, ICING};
+        }
+        return new int[0];
+    }
+
     /** D2: the failure annunciators of a type with the board systems (SystemsMath.applies); the flap lamp only with flaps. */
     public static int[] failureLamps(VehicleType t) {
         if (!SystemsMath.applies(t)) {
@@ -139,11 +168,13 @@ public final class CockpitLamps {
             case HEAD:
             case CARGO:
             case SLATS:
+            case ICING:
                 return BLUE;
             case AIRBRAKE:
             case FLAP_JAM:
             case INSTR_FAIL:
             case LOW_FUEL:
+            case BAT:
             case BAT_SERVICE:
                 return AMBER;
             case WEAR:
@@ -153,9 +184,11 @@ public final class CockpitLamps {
             case MODE0:
             case MODE1:
             case MODE2:
+            case GEN_OFF:
+            case GROUND:
                 return AMBER;
             default:
-                return RED;                                        // master, handbrake, overheat, vortex, stall, buttons
+                return RED;                                        // master, reserve, handbrake, overheat, vortex, stall, buttons
         }
     }
 
@@ -182,9 +215,18 @@ public final class CockpitLamps {
         /** D2: the failures (SystemsMath.F_*), the pitot iced. */
         public int fails;
         public boolean iced;
-        /** Hydrogen wave: on hydrogen, the H2 tank 0..1, a battery in, its charge 0..1 and health 0..1. */
+        /**
+         * Hydrogen wave: on hydrogen, the H2 tank 0..1 (read only on hydrogen - EU mode's fuel lamps read `charge`), a
+         * battery in, its charge 0..1 and health 0..1.
+         */
         public boolean hydrogen, batPresent = true;
         public float fuel = 1F, batCharge = 1F, batHealth = 1F;
+        /**
+         * Cockpit wave: the EU-mode board battery 0..1 (client/CockpitDataSVA: the board systems' battery), the generator
+         * on, blocks over the ground, rotor rpm % (100 = the powered spin), power % (100 = the limit).
+         */
+        public float battery = 1F, agl = 99F, rotor = 100F, power;
+        public boolean genOn = true;
     }
 
     /** The overheating warning (the HUD's: over HOT % or stopped). */
@@ -207,11 +249,16 @@ public final class CockpitLamps {
         return s.stalling || s.autorotating || overheat(s) || lowCharge(s) || SystemsMath.caution(s.fails, s.iced);
     }
 
+    /** What the fuel lamps read: the H2 tank on hydrogen, the charge in EU mode (the charge is the fuel there). */
+    public static float fuelLeft(Snapshot s) {
+        return s.hydrogen ? s.fuel : s.charge;
+    }
+
     /** A lamp's state (OFF / ON / BLINK); an unpowered vehicle's lamps are all off. */
     public static int state(int role, Snapshot s) {
-        if (role == BAT) {
-            // wired to the battery itself: lit with the board dark (none in / flat), off on EU
-            return s.hydrogen && (!s.batPresent || s.batCharge < BatteryMath.LOW) ? ON : OFF;
+        if (role == BAT && s.hydrogen) {
+            // wired to the battery itself: lit with the board dark (none in / flat) - EntityVehicleSVA.batteryLamp()
+            return !s.batPresent || s.batCharge < BatteryMath.LOW ? ON : OFF;
         }
         if (!s.powered) {
             return OFF;
@@ -268,11 +315,23 @@ public final class CockpitLamps {
             case CAUTION:
                 return SystemsMath.caution(s.fails, s.iced) ? BLINK : OFF;
             case LOW_FUEL:
-                return s.hydrogen && s.fuel < FuelMath.LOW && s.fuel >= FuelMath.RESERVE ? ON : OFF;
+                return fuelLeft(s) < (float) FuelMath.LOW && fuelLeft(s) >= (float) FuelMath.RESERVE ? ON : OFF;
             case RESERVE:
-                return s.hydrogen && s.fuel < FuelMath.RESERVE ? BLINK : OFF;
+                return fuelLeft(s) < (float) FuelMath.RESERVE ? BLINK : OFF;
+            case BAT:
+                return s.battery < BAT_FLAT ? BLINK : s.battery < BAT_LOW ? ON : OFF;     // EU mode (hydrogen: above)
             case BAT_SERVICE:
                 return s.hydrogen && s.batPresent && BatteryMath.needsService(s.batHealth) ? ON : OFF;
+            case ROTOR_RPM:
+                return s.heliMode && s.airborne && (s.rotor < ROTOR_LO || s.rotor > ROTOR_HI) ? BLINK : OFF;
+            case OVERLOAD:
+                return s.power > 100F ? BLINK : OFF;
+            case GEN_OFF:
+                return s.genOn ? OFF : ON;
+            case GROUND:
+                return s.airborne && s.agl <= GROUND_AGL ? ON : OFF;
+            case ICING:
+                return s.iced ? ON : OFF;
             default:
                 return OFF;                                        // buttons, the door (never)
         }

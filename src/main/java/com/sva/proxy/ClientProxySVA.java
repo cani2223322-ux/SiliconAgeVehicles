@@ -30,6 +30,7 @@ public class ClientProxySVA extends CommonProxySVA {
     public void preInit(FMLPreInitializationEvent e) {
         super.preInit(e);
         com.sva.client.VehicleKeyBindsSVA.load(e.getModConfigurationDirectory(), Minecraft.getMinecraft().mcDataDir);
+        com.sva.client.MfdPagesSVA.load(e.getModConfigurationDirectory());      // cockpit wave: the MFD page per vehicle
         RenderingRegistry.registerEntityRenderingHandler(EntityVehicleSVA.class, new RenderVehicleSVA());
         RenderingRegistry.registerEntityRenderingHandler(EntitySeatSVA.class, new RenderSeatSVA());
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityWorkbenchSVA.class,

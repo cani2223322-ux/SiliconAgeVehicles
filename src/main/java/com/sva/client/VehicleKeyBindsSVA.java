@@ -382,6 +382,12 @@ public final class VehicleKeyBindsSVA {
             CruiseClientSVA.toggleFor(v);
             return;
         }
+        if (f == VehicleFn.MFD_PAGE) {
+            MfdPagesSVA.next(v);                                // cockpit wave: this client's own MFD page, no packet
+            mc.getSoundHandler().playSound(net.minecraft.client.audio.PositionedSoundRecord.func_147674_a(
+                    new net.minecraft.util.ResourceLocation("gui.button.press"), 1.6F));
+            return;
+        }
         int a = f.action(t);
         if (a >= 0) {
             NetSVA.CHANNEL.sendToServer(new NetSVA.Action(v.getEntityId(), a));

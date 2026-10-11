@@ -68,6 +68,7 @@ public class HudVehicleSVA {
         if (v == null || mc.gameSettings.hideGUI || mc.gameSettings.showDebugInfo) {
             return;                                                 // hidden under F3, like the core's HUDs
         }
+        GlassCockpitSVA.drawHudFlash(mc, e.resolution);             // cockpit wave: the radar altimeter's callout, no chat
         VehicleType t = v.getVehicleType();
         FontRenderer fr = mc.fontRenderer;
         double dx = v.posX - v.prevPosX, dz = v.posZ - v.prevPosZ;

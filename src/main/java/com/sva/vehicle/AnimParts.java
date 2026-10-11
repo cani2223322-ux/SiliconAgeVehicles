@@ -431,6 +431,9 @@ public final class AnimParts {
         // short horns on a fixed column rising out of the panel's foot - it turns about the column (0.80, -0.60, 0) and
         // slides 0.037 back ALONG it when pulled (a level shaft between the rows lay over the lower centre dial); the
         // plane's pedals 0.019 back, the left one 0.013 inboard (pushed fully it went into the narrowing nose).
+        // Cockpit wave (C+ panel, veh_real12.py): the light plane's throttle swings +-14 deg (was 28) - the new panel's MFD
+        // and its keys sit right over the quadrant (the concept's screen angles), full throttle at 28 deg put the knob into
+        // their lower right corner; at 14 the knob stops 0.03 short of them (debug/CockpitCheckSVA: clear).
         control("buggy", "steering", new String[] {"accent", "leather", "steel"}, new float[] {-0.248F, 0.940F, -0.386F}, new float[] {-0.077F, 1.136F, -0.146F}, new float[] {-0.162F, 1.038F, -0.266F}).turn(STEER, new float[] {0.766F, -0.643F, 0.000F}, 90.0F);
         control("truck", "steering", new String[] {"accent", "leather", "steel"}, new float[] {2.235F, 1.116F, -0.442F}, new float[] {2.440F, 1.340F, -0.158F}, new float[] {2.337F, 1.228F, -0.300F}).turn(STEER, new float[] {0.743F, -0.669F, 0.000F}, 90.0F);
         control("drill", "steering", new String[] {"accent", "leather", "steel"}, new float[] {0.417F, 1.209F, -0.445F}, new float[] {0.608F, 1.429F, -0.174F}, new float[] {0.512F, 1.319F, -0.309F}).turn(STEER, new float[] {0.766F, -0.643F, 0.000F}, 90.0F);
@@ -440,7 +443,7 @@ public final class AnimParts {
         control("heli", "pedalR", new String[] {"steel"}, new float[] {1.191F, 0.453F, 0.296F}, new float[] {1.224F, 0.572F, 0.391F}, new float[] {1.208F, 0.456F, 0.344F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
         control("plane", "pedalL", new String[] {"steel"}, new float[] {1.230F, 0.465F, -0.241F}, new float[] {1.263F, 0.610F, -0.146F}, new float[] {1.247F, 0.469F, -0.194F}).move(YAW, new float[] {-0.028F, 0.000F, 0.000F});
         control("plane", "pedalR", new String[] {"steel"}, new float[] {1.230F, 0.465F, -0.066F}, new float[] {1.263F, 0.610F, 0.029F}, new float[] {1.247F, 0.469F, -0.019F}).move(YAW, new float[] {0.028F, 0.000F, 0.000F});
-        control("plane", "throttle", new String[] {"black", "steel"}, new float[] {1.178F, 0.652F, 0.100F}, new float[] {1.228F, 0.801F, 0.150F}, new float[] {1.203F, 0.656F, 0.125F}).turn(THROTTLE, new float[] {0.000F, 0.000F, 1.000F}, -28.0F);
+        control("plane", "throttle", new String[] {"black", "steel"}, new float[] {1.178F, 0.652F, 0.100F}, new float[] {1.228F, 0.801F, 0.150F}, new float[] {1.203F, 0.656F, 0.125F}).turn(THROTTLE, new float[] {0.000F, 0.000F, 1.000F}, -14.0F);
         // aircraft stage C (veh_real8.py, docs/mockups/veh_air2_5_cockpit.png): the flap lever (steel rod, the «wing» knob
         // 'aid') in its gate on the quadrant - modelled at the middle (-10 deg), +-22 deg with the flap position: 0 at 12 deg
         // forward, the last setting 32 deg back; the trim wheel moved onto the quadrant's left face (dark rim, steel / black

@@ -135,6 +135,7 @@ public final class SelfTestSVA {
             SelfTestAirD2SVA.run();                         // aircraft round 2, D2: switches, engine start, failures, overhead panel
             SelfTestAirD3SVA.run();                         // aircraft round 2, D3: gear doors and struts, nozzle petals, the jet's HUD
             SelfTestAirD4SVA.run();                         // aircraft round 2, D4: the flight plan (route maths, leg switching, NBT, rights)
+            SelfTestCockpitSVA.run();                       // cockpit wave: the C+ cockpits (MFD pages, heli gauges, callouts, lamp strips, layouts)
             com.sva.vehicle.FuelMath.legacyTest = false;
             SelfTestFuelSVA.run();                          // hydrogen wave: fuel, the removable battery, wear and service
         } catch (Throwable t) {
@@ -1694,7 +1695,8 @@ public final class SelfTestSVA {
                 passenger += i.seat >= 2 ? 1 : 0;
             }
         }
-        check(copilot == 3 && passenger == 2, "cockpit view: the heli co-pilot reads his own 2 dials + screen (" + copilot
+        // cockpit wave (C+): the heli's co-pilot cluster is gone - every face is the pilot's (the lamp strip spans both)
+        check(copilot == 0 && passenger == 2, "cockpit view: the heli's C+ faces are all read from the pilot's seat (co-pilot: " + copilot
                 + "), the ship's 2 wall screens face the front-row passengers (" + passenger + ")");
         check(VehicleType.DRILL.cabCuts != null && VehicleType.DRILL.ownViewCuts().length <= com.sva.vehicle.CockpitView.MAX_WINDOWS,
                 "cockpit view: the drill cuts its body's top over the cab from the own view (2 windows + 1 cut, 3 clip planes)");
@@ -2297,8 +2299,8 @@ public final class SelfTestSVA {
         int[] expect = new int[VehicleType.values().length];
         expect[VehicleType.BUGGY.ordinal()] = 2;
         expect[VehicleType.HOVER.ordinal()] = 0;
-        expect[VehicleType.HELI.ordinal()] = 5;
-        expect[VehicleType.PLANE.ordinal()] = 4;                  // stage C: the HSI (a panel) took the heading dial's place
+        expect[VehicleType.HELI.ordinal()] = 1;                   // cockpit wave (C+): the airspeed (the РВ, tach, power... are panels)
+        expect[VehicleType.PLANE.ordinal()] = 3;                  // cockpit wave (C+): airspeed, vario, altimeter
         expect[VehicleType.TRUCK.ordinal()] = 2;
         expect[VehicleType.DRILL.ordinal()] = 4;
         expect[VehicleType.JET.ordinal()] = 1;
@@ -2316,16 +2318,17 @@ public final class SelfTestSVA {
                 tablesOk &= k >= 0 && k < com.sva.vehicle.CockpitDials.KEYS.length;
             }
             countsOk &= cl.dials.size() == expect[t.ordinal()];
-            screensOk &= t == VehicleType.HOVER ? cl.screens.size() == 1 : cl.screens.size() >= 2;
+            // cockpit wave: the plane's and the heli's glass are named panels (PFD, MFD...), no free screens
+            screensOk &= t == VehicleType.HOVER ? cl.screens.size() == 1 : t == VehicleType.PLANE || t == VehicleType.HELI
+                    ? cl.screens.isEmpty() && cl.panel("pfd") != null && cl.panel("mfd") != null : cl.screens.size() >= 2;
         }
         check(tablesOk, "cockpit: every type's dial table covers all its model's dials (dials/screens: " + found.toString().trim() + ")");
-        check(countsOk, "cockpit: dial counts per model as measured (buggy 2, hover 0, heli 5, plane 4, truck 2, drill 4, jet 1, tilt 4, shuttle 4, ship 4)");
-        check(screensOk, "cockpit: every cockpit has screens (hoverbike: its one flat screen)");
-        int[] pr = com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(VehicleType.PLANE).screens, true);
+        check(countsOk, "cockpit: dial counts per model as measured (buggy 2, hover 0, heli 1, plane 3, truck 2, drill 4, jet 1, tilt 4, shuttle 4, ship 4)");
+        check(screensOk, "cockpit: every cockpit has screens (hoverbike: its one flat screen; the C+ plane and heli: the PFD and MFD panels)");
         int[] jr = com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(VehicleType.JET).screens, true);
-        check(contains(pr, com.sva.vehicle.CockpitDials.SCREEN_ATTITUDE) && contains(jr, com.sva.vehicle.CockpitDials.SCREEN_ATTITUDE)
+        check(com.sva.vehicle.CockpitLayout.of(VehicleType.PLANE).panel("pfd") != null && contains(jr, com.sva.vehicle.CockpitDials.SCREEN_ATTITUDE)
                 && contains(jr, com.sva.vehicle.CockpitDials.SCREEN_MAIN),
-                "cockpit: the plane and the jet get an attitude indicator, the jet a text screen too");
+                "cockpit: the plane (its C+ PFD) and the jet get an attitude indicator, the jet a text screen too");
         java.util.List<com.sva.vehicle.CockpitLayout.Screen> syn = new java.util.ArrayList<com.sva.vehicle.CockpitLayout.Screen>();
         float[] z3 = {0, 0, 0};
         syn.add(new com.sva.vehicle.CockpitLayout.Screen("holo", z3, z3, z3, z3, 0.4F, 0.1F, 0));
@@ -2535,28 +2538,28 @@ public final class SelfTestSVA {
                 && com.sva.vehicle.CockpitDials.max(turn, p, 0) == 40F && com.sva.vehicle.CockpitDials.max(heading, p, 0) == 360F
                 && com.sva.vehicle.CockpitDials.min(heading, p) == 0F, "cockpit stage 1: turn rate centred +-40 deg/s (plane 1.8 deg/t), heading 0..360");
         int[] pt = com.sva.vehicle.CockpitDials.table(p);
-        // stage C: the HSI (a named panel) took the lower centre heading dial's place
-        check(pt.length == 4 && pt[0] == com.sva.vehicle.CockpitDials.SPEED && pt[1] == turn
-                && pt[2] == com.sva.vehicle.CockpitDials.ALT && pt[3] == com.sva.vehicle.CockpitDials.VSPEED,
-                "cockpit stage 1 / C: the plane's six-pack table speed / turn, [HSI], altitude / vertical speed");
+        // cockpit wave (C+): the six-pack is gone - airspeed over vario left of the PFD, the altimeter right of it
+        check(pt.length == 3 && pt[0] == com.sva.vehicle.CockpitDials.SPEED && pt[1] == com.sva.vehicle.CockpitDials.VSPEED
+                && pt[2] == com.sva.vehicle.CockpitDials.ALT,
+                "cockpit stage 1 / C+: the plane's dial table airspeed, vertical speed, altimeter");
         com.sva.vehicle.CockpitLayout pl = com.sva.vehicle.CockpitLayout.of(p);
-        boolean cols = pl.dials.size() == 4 && Math.abs(pl.dials.get(0).c[2] - pl.dials.get(1).c[2]) < 0.01F && pl.dials.get(0).c[1] > pl.dials.get(1).c[1]
-                && Math.abs(pl.dials.get(2).c[2] - pl.dials.get(3).c[2]) < 0.01F && pl.dials.get(2).c[1] > pl.dials.get(3).c[1];
-        check(cols, "cockpit stage 1: the six-pack's dials come in columns (top before bottom)");
+        boolean cols = pl.dials.size() == 3 && Math.abs(pl.dials.get(0).c[2] - pl.dials.get(1).c[2]) < 0.01F && pl.dials.get(0).c[1] > pl.dials.get(1).c[1]
+                && pl.dials.get(2).c[2] > pl.dials.get(0).c[2] + 0.2F;
+        check(cols, "cockpit stage 1 / C+: the airspeed over the vario in one column (top before bottom), the altimeter far right of them");
         int att = 0;
         for (VehicleType t : new VehicleType[] {VehicleType.HELI, VehicleType.PLANE}) {
-            att += contains(com.sva.vehicle.CockpitDials.screenRoles(com.sva.vehicle.CockpitLayout.of(t).screens, true),
-                    com.sva.vehicle.CockpitDials.SCREEN_ATTITUDE) ? 1 : 0;
+            att += com.sva.vehicle.CockpitLayout.of(t).panel("pfd") != null ? 1 : 0;   // cockpit wave: the C+ PFDs
         }
         com.sva.vehicle.CockpitLayout dl = com.sva.vehicle.CockpitLayout.of(VehicleType.DRILL);
         check(att == 2 && dl.dials.size() == 4 && dl.dials.get(3).c[2] > dl.dials.get(1).c[2]
                 && com.sva.vehicle.CockpitDials.table(VehicleType.DRILL)[2] == com.sva.vehicle.CockpitDials.DRILL,
-                "cockpit stage 1: heli and plane attitude screens; the drill console's dials right of the cluster (power, depth)");
+                "cockpit stage 1: heli and plane attitude (C+: their PFD panels); the drill console's dials right of the cluster (power, depth)");
         int lamps = 0;
-        for (VehicleType t : new VehicleType[] {VehicleType.BUGGY, VehicleType.TRUCK, VehicleType.HELI}) {
+        for (VehicleType t : new VehicleType[] {VehicleType.BUGGY, VehicleType.TRUCK}) {
             lamps += com.sva.vehicle.CockpitLayout.of(t).lamps.size() >= 6 ? 1 : 0;
         }
-        check(lamps == 3, "cockpit stage 1: the warning lamp rows are found (buggy / truck 6, heli 8 annunciators)");
+        lamps += com.sva.vehicle.CockpitLayout.of(VehicleType.HELI).panel("lampbar") != null && com.sva.vehicle.CockpitLamps.strip(VehicleType.HELI).length == 9 ? 1 : 0;
+        check(lamps == 3, "cockpit stage 1: the warning lamp rows are found (buggy / truck 6; the heli's C+ strip of 9)");
         // trim by tier
         String[] mats = {"fabric", "leather", "carpet", "trim", "headliner"};
         boolean differ = true;
@@ -2803,11 +2806,11 @@ public final class SelfTestSVA {
             for (int r : roles) {
                 tables &= r >= 0 && r < com.sva.vehicle.CockpitLamps.KEYS.length;
             }
-            ok &= l.okLamps.size() == (t == VehicleType.PLANE ? 3 : 0);
+            ok &= l.okLamps.isEmpty();                            // cockpit wave: the plane's gear lamps went to the MFD's ДВИГ page
             floors &= (l.floor != null) == (t != VehicleType.HOVER && t != VehicleType.JET);
         }
         check(tables, "cockpit stage 2: every type's lamp role table covers its model's lamps exactly (" + found.toString().trim() + ")");
-        check(ok, "cockpit stage 2: the plane's three green gear lamps are found, no other model has 'ok' lamps that small");
+        check(ok, "cockpit stage 2: no model has 'ok' lamps that small (cockpit wave: the plane's gear lamps are on the MFD's ДВИГ page)");
         check(floors, "cockpit stage 2: a cabin floor box for the floor strip in every model with a carpet (all but the hoverbike, the jet)");
         // rows: the buggy's 6 lamps first, left -> right on one height; the drill's 3 mode lamps first (the row above)
         java.util.List<com.sva.vehicle.CockpitLayout.Lamp> bl = com.sva.vehicle.CockpitLayout.of(VehicleType.BUGGY).lamps;
@@ -2819,13 +2822,15 @@ public final class SelfTestSVA {
         check(row && dl.size() == 9 && dl.get(0).c[1] > dl.get(3).c[1] + 0.05F && dl.get(0).c[2] < dl.get(2).c[2],
                 "cockpit stage 2: lamps sorted in rows top -> bottom, left -> right (buggy row of 6, drill mode lamps first)");
         int[] heli = com.sva.vehicle.CockpitLamps.table(VehicleType.HELI);
-        check(heli[1] == com.sva.vehicle.CockpitLamps.AUTOROT && heli[8] == com.sva.vehicle.CockpitLamps.DOOR
+        int[] strip = com.sva.vehicle.CockpitLamps.strip(VehicleType.HELI);
+        check(heli.length == 2 && heli[0] == com.sva.vehicle.CockpitLamps.MASTER && strip[0] == com.sva.vehicle.CockpitLamps.AUTOROT
+                && strip[1] == com.sva.vehicle.CockpitLamps.VORTEX
                 && com.sva.vehicle.CockpitLamps.table(VehicleType.BUGGY)[0] == com.sva.vehicle.CockpitLamps.TURN_L
                 && com.sva.vehicle.CockpitLamps.table(VehicleType.BUGGY)[5] == com.sva.vehicle.CockpitLamps.TURN_R
                 && com.sva.vehicle.CockpitLamps.colour(com.sva.vehicle.CockpitLamps.HEAD) == com.sva.vehicle.CockpitLamps.BLUE
                 && com.sva.vehicle.CockpitLamps.colour(com.sva.vehicle.CockpitLamps.WEAR) == com.sva.vehicle.CockpitLamps.AMBER
                 && com.sva.vehicle.CockpitLamps.colour(com.sva.vehicle.CockpitLamps.GEN) == com.sva.vehicle.CockpitLamps.GREEN,
-                "cockpit stage 2: heli annunciators AUTOROT..DOOR, car row turn L..turn R, colours (lights blue, wear amber, gen green)");
+                "cockpit stage 2: heli annunciators (C+: the strip, АВТОРОТАЦИЯ first), car row turn L..turn R, colours (lights blue, wear amber, gen green)");
         // the startup sequence's timing
         check(com.sva.vehicle.CockpitLamps.phase(-1F) == com.sva.vehicle.CockpitLamps.PH_NORMAL
                 && com.sva.vehicle.CockpitLamps.phase(Float.NaN) == com.sva.vehicle.CockpitLamps.PH_NORMAL

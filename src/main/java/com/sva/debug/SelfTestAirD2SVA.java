@@ -302,7 +302,7 @@ final class SelfTestAirD2SVA {
                         && CockpitLamps.colour(CockpitLamps.FLAP_JAM) == CockpitLamps.AMBER && CockpitLamps.colour(CockpitLamps.INSTR_FAIL) == CockpitLamps.AMBER
                         && CockpitLamps.colour(CockpitLamps.CAUTION) == CockpitLamps.RED && CockpitLamps.failureLamps(VehicleType.PLANE).length == 4
                         && CockpitLamps.failureLamps(VehicleType.TILT).length == 4 && CockpitLamps.failureLamps(VehicleType.HELI).length == 0
-                        && CockpitLamps.KEYS.length >= CockpitLamps.CAUTION + 1,      // the hydrogen wave appended its lamps after
+                        && CockpitLamps.KEYS.length == CockpitLamps.ICING + 1,
                 "D2 lamps: ОТКАЗ ДВИГ. red, ЗАКР. ЗАКЛИН. / ПРИБОР amber (also the iced pitot), ВНИМАНИЕ red blinking - also the jet's / tiltrotor's"
                         + " master caution; dark unpowered");
     }
@@ -324,8 +324,10 @@ final class SelfTestAirD2SVA {
     }
 
     private static void panel() {
+        // cockpit wave (C+): the light plane's switches moved from the overhead console to the panel on the left wall
+        // ('swpanel', left of and below the eye, turned to it); the helicopter has the overhead panel now
         CockpitLayout l = CockpitLayout.of(VehicleType.PLANE);
-        CockpitLayout.Screen s = l.panel(CockpitLayout.OVERHEAD);
+        CockpitLayout.Screen s = l.panel("swpanel");
         float[] e = CockpitLayout.eye(VehicleType.PLANE);
         boolean ok = s != null;
         String info = "none";
@@ -333,16 +335,17 @@ final class SelfTestAirD2SVA {
             double dx = e[0] - s.c[0], dy = e[1] - s.c[1], dz = e[2] - s.c[2], d = Math.sqrt(dx * dx + dy * dy + dz * dz);
             double ang = Math.toDegrees(Math.acos((s.n[0] * dx + s.n[1] * dy + s.n[2] * dz) / d));
             double el = Math.toDegrees(Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz)));
-            ok = s.c[1] > e[1] + 0.05F && s.c[0] > e[0] && ang < 30 && el > 15 && el < 40 && s.w > 0.15F && s.w / s.h > 1.6F && s.w / s.h < 2.4F
-                    && s.up[1] > 0.5F;
-            info = String.format(java.util.Locale.ROOT, "%.3f x %.3f, %.0f deg up from the eye, facing within %.0f deg", s.w, s.h, el, ang);
+            ok = s.c[1] < e[1] - 0.05F && s.c[0] > e[0] && s.c[2] < e[2] - 0.1F && ang < 35 && el < -20 && el > -45 && s.w > 0.1F && s.w / s.h > 1.3F
+                    && s.w / s.h < 1.8F && s.up[1] > 0.5F && l.panel(CockpitLayout.OVERHEAD) == null;
+            info = String.format(java.util.Locale.ROOT, "%.3f x %.3f, %.0f deg down from the eye, facing within %.0f deg", s.w, s.h, -el, ang);
         }
-        boolean others = true;
+        boolean others = CockpitLayout.of(VehicleType.HELI).panel(CockpitLayout.OVERHEAD) != null;
         for (VehicleType t : VehicleType.values()) {
-            others &= t == VehicleType.PLANE || CockpitLayout.of(t).panel(CockpitLayout.OVERHEAD) == null;
+            others &= t == VehicleType.PLANE || CockpitLayout.of(t).panel("swpanel") == null;
+            others &= t == VehicleType.HELI || CockpitLayout.of(t).panel(CockpitLayout.OVERHEAD) == null;
         }
-        check(ok && others, "D2 panel: the light plane's overhead switch panel found in its model - over and forward of the pilot's eye, "
-                + info + "; no other type has one");
+        check(ok && others, "D2 panel (C+): the light plane's switch panel on the left wall - left of and below the pilot's eye, "
+                + info + "; no overhead console; only the helicopter has an overhead panel");
     }
 
     private static void lang() throws java.io.IOException {

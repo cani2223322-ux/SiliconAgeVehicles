@@ -154,6 +154,16 @@ public final class ConfigSVA {
     public static boolean jetNozzle = true;
     /** Client (stage D3, ★18): the jet's head-up display on the canopy glass (first-person pilot view). */
     public static boolean jetHud = true;
+    /**
+     * Client (cockpit wave, plan-next §5 / §6): the light plane's and the helicopter's C+ glass - the PFD, the MFD and its
+     * pages, the lamp strip, the transponder, the radar-warning scope, the heli's tach / power / hover / radar altimeter
+     * faces (off: the faces stay dark; the dials, the AP bar and the switch panels as before).
+     */
+    public static boolean glassCockpit = true;
+    /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
+    public static boolean radarAltCallouts = true;
+    /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
+    public static String radarAltCalloutStyle = "both";
     /** Fast charging (2026-10-10): the station's «Форсаж» mode. */
     public static boolean stationBoost = true;
     /** A core (or IC2) energy storage touching the station feeds the vehicle directly. */
@@ -335,6 +345,17 @@ public final class ConfigSVA {
             jetHud = c.getBoolean("jetHud", v, true,
                     "Jet head-up display on the canopy glass in the pilot's view (client) / "
                             + "Индикатор на стекле фонаря реактивного в виде пилота (клиент)");
+            glassCockpit = c.getBoolean("glassCockpit", v, true,
+                    "Light plane / helicopter cockpits: PFD, MFD pages, lamp strip, transponder, radar warning, the heli's tach / power / hover /"
+                            + " radar altimeter faces (client) / Кабины лёгкого самолёта и вертолёта: PFD, страницы MFD, табло, ответчик, СПО,"
+                            + " тахометр / мощность / висение / радиовысотомер вертолёта (клиент)");
+            radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,
+                    "Helicopter radar altimeter callouts 50.. 40.. 30.. 20.. 10 on the descent (client) / "
+                            + "Радиовысотомер вертолёта отсчитывает 50.. 40.. 30.. 20.. 10 при снижении (клиент)");
+            String cs = c.getString("radarAltCalloutStyle", v, "both",
+                    "Callouts: sound = a tone each, flash = the number on the HUD (no chat), both / "
+                            + "Отсчёт: sound - тон, flash - цифра на экране (без чата), both - и то и другое").trim().toLowerCase(java.util.Locale.ROOT);
+            radarAltCalloutStyle = "sound".equals(cs) || "flash".equals(cs) ? cs : "both";
             regenEfficiency = num(c, "regenEfficiency", v, 0.2F, 0F, 0.5F,
                     "Share of the motion energy recovered (0..0.5; aircraft at most 0.3) / Доля возвращаемой энергии движения (0..0,5; авиация не больше 0,3)");
             drill = c.getBoolean("drill", v, true,

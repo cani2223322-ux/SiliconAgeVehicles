@@ -69,7 +69,8 @@ final class AvionicsSVA {
         float flapPos = AnimMath.lerp(v.anim.prevFlapPos, v.anim.flapPos, pt);
         for (CockpitLayout.Screen s : l.panels) {
             if ("apanel".equals(s.mat)) {
-                apPanel(fr, s, ap, CockpitLamps.annunciators(t), spec, v);
+                // cockpit wave (C+): with a lamp strip the annunciators live there - the AP bar is seven equal groups
+                apPanel(fr, s, ap, l.panel("lampbar") != null ? new int[0] : CockpitLamps.annunciators(t), spec, v);
             } else if ("hsi".equals(s.mat)) {
                 hsi(fr, s, v, pt, ap, true);
             } else if ("flapind".equals(s.mat) && spec != null) {
@@ -133,7 +134,7 @@ final class AvionicsSVA {
         GL11.glPopMatrix();
     }
 
-    private static void tri(float x0, float y0, float x1, float y1, float x2, float y2, float z) {
+    static void tri(float x0, float y0, float x1, float y1, float x2, float y2, float z) {
         GL11.glBegin(GL11.GL_TRIANGLES);
         GL11.glVertex3f(x0, y0, z);
         GL11.glVertex3f(x1, y1, z);
@@ -142,7 +143,7 @@ final class AvionicsSVA {
     }
 
     /** A ring of radius r, line width w (segments), in the current colour. */
-    private static void ring(float x, float y, float r, float w, float z) {
+    static void ring(float x, float y, float r, float w, float z) {
         GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
         for (int k = 0; k <= 24; k++) {
             double a = k * Math.PI * 2 / 24;
@@ -154,7 +155,7 @@ final class AvionicsSVA {
     }
 
     /** An arc band at radius r (deg clockwise from up, a0 -> a1), width w. */
-    private static void arc(float r, float a0, float a1, float w, float z) {
+    static void arc(float r, float a0, float a1, float w, float z) {
         GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
         int n = Math.max(2, (int) Math.ceil(Math.abs(a1 - a0) / 4));
         for (int k = 0; k <= n; k++) {
@@ -187,14 +188,18 @@ final class AvionicsSVA {
         face(s, 0.3F);
         col(0x26282E, 1F);                                          // the brushed dark panel
         CockpitInstrumentsSVA.rect(-s.w / 2, -s.h / 2, s.w / 2, s.h / 2, 0F);
-        // the six groups stand where the model's knobs are; D4's МАРШ takes the left of the annunciator column (narrowed)
-        float lampW = AP_W * 0.2F, gw = (AP_W - lampW - 30) / 6, lampX = AP_W - lampW - 6, routeW = lampW * 0.48F;
+        // the six groups stand where the model's knobs are; D4's МАРШ takes the left of the annunciator column (narrowed).
+        // Cockpit wave (C+, no annunciators: `bar`): seven equal groups across the whole bar (cab2_art.ap_panel lamps='none'),
+        // taller windows - the digits 0.3 of the bar's height (>= 19 px at 1920 x 1080) - and the knobs drawn (none modelled)
+        boolean bar = ann.length == 0;
+        float lampW = bar ? 0F : AP_W * 0.2F, gw = bar ? (AP_W - 20) / 7 : (AP_W - lampW - 30) / 6, lampX = AP_W - lampW - 6, routeW = lampW * 0.48F;
+        float wTop = bar ? 10 : 22, wBot = bar ? 104 : 92, bTop = bar ? 114 : 118, bBot = bar ? 206 : 196, digits = bar ? 0.72F : 0.62F;
         boolean blink = (System.currentTimeMillis() / 400) % 2 == 0;
         for (int g = 0; g < AutopilotMath.GROUPS; g++) {
             boolean route = g == AutopilotMath.G_ROUTE;
-            float gx = route ? lampX + routeW / 2 : 18 + gw * (g + 0.5F);
-            float gwk = route ? routeW * 0.98F : gw;
-            float x0 = apX(gx - gwk * 0.39F, s), x1 = apX(gx + gwk * 0.39F, s), y0 = apY(92, s), y1 = apY(22, s);
+            float gx = route && !bar ? lampX + routeW / 2 : (bar ? 10 : 18) + gw * (g + 0.5F);
+            float gwk = route && !bar ? routeW * 0.98F : gw;
+            float x0 = apX(gx - gwk * 0.39F, s), x1 = apX(gx + gwk * 0.39F, s), y0 = apY(wBot, s), y1 = apY(wTop, s);
             col(0x101012, 1F);
             CockpitInstrumentsSVA.rect(x0 - s.h * 0.02F, y0 - s.h * 0.02F, x1 + s.h * 0.02F, y1 + s.h * 0.02F, Z0);
             col(0x050607, 1F);
@@ -221,11 +226,25 @@ final class AvionicsSVA {
                         c = held ? AMB : AMB_DIM;
                     }
                 }
-                CockpitInstrumentsSVA.text(fr, txt, (x0 + x1) / 2, (y0 + y1) / 2, (y1 - y0) * 0.62F, (x1 - x0) * 0.9F, c);
+                CockpitInstrumentsSVA.text(fr, txt, (x0 + x1) / 2, (y0 + y1) / 2, (y1 - y0) * digits, (x1 - x0) * 0.9F, c);
             }
             // the button: a dark key with its lamp bar and label (the four knobs beside are the model's)
-            float bx = g == AutopilotMath.G_AP || g == AutopilotMath.G_CAP || route ? gx : gx - gw * 0.17F, bw = gw * 0.44F;
-            float b0 = apX(bx - bw / 2, s), b1 = apX(bx + bw / 2, s), by0 = apY(196, s), by1 = apY(118, s);
+            boolean knob = g != AutopilotMath.G_AP && g != AutopilotMath.G_CAP && !route;
+            float bx = knob ? gx - gw * 0.17F : gx, bw = gw * 0.44F;
+            float b0 = apX(bx - bw / 2, s), b1 = apX(bx + bw / 2, s), by0 = apY(bBot, s), by1 = apY(bTop, s);
+            if (bar && knob) {
+                // the setting knob right of the button (concept ap_cell: a black knob with a steel cap and an index)
+                float kx = apX(gx + gw * 0.3F, s), ky = (by0 + by1) / 2, kr = Math.min(apX(gw * 0.14F, s) - apX(0, s), (by1 - by0) * 0.42F);
+                col(0x0A0A0C, 1F);
+                CockpitInstrumentsSVA.disc(kx, ky, kr, Z0);
+                col(0x6E727A, 1F);
+                CockpitInstrumentsSVA.disc(kx, ky, kr * 0.62F, Z0 * 2);
+                col(0xE8EAEE, 1F);
+                GL11.glPushMatrix();
+                GL11.glTranslatef(kx, ky, 0F);
+                CockpitInstrumentsSVA.ray(-60 + 40 * g, kr * 0.2F, kr * 0.9F, kr * 0.14F, Z1);
+                GL11.glPopMatrix();
+            }
             col(0x0C0C0E, 1F);
             CockpitInstrumentsSVA.rect(b0 - s.h * 0.015F, by0 - s.h * 0.015F, b1 + s.h * 0.015F, by1 + s.h * 0.015F, Z0);
             col(0x3A3C42, 1F);
@@ -236,6 +255,10 @@ final class AvionicsSVA {
             CockpitInstrumentsSVA.rect(lb0, ly0, lb1, ly1, Z1);
             CockpitInstrumentsSVA.text(fr, Lang.tr("sva.ap.group." + AutopilotMath.GROUP_KEYS[g]), (b0 + b1) / 2, by1 - (by1 - by0) * 0.64F,
                     (by1 - by0) * 0.3F, (b1 - b0) * 0.86F, tint(lit ? 0xFAFAEC : 0xB4B6B0));
+        }
+        if (bar) {
+            GL11.glPopMatrix();
+            return;
         }
         // the annunciator column
         float lx0 = apX(lampX + routeW + 8, s), lx1 = apX(AP_W - 22, s);
