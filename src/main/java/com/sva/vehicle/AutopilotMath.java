@@ -34,14 +34,18 @@ package com.sva.vehicle;
  */
 public final class AutopilotMath {
 
-    /** Mode bits (the Input packet with IN_CRUISE, the synced panel - EntityVehicleSVA.DW_AP). */
-    public static final int M_HDG = 1, M_ALT = 2, M_SPD = 4, M_VS = 8, M_CAP = 16, M_ALL = 31;
+    /**
+     * Mode bits (the Input packet with IN_CRUISE, the synced panel - EntityVehicleSVA.DW_AP). Stage D4: M_ROUTE - «МАРШ»,
+     * the flight plan (RouteMath): the heading from the active leg, the height from its points (instead of КУРС's / ВЫС's
+     * set values); after the last point their course / height are held (with a runway near it ЗАХВ takes over).
+     */
+    public static final int M_HDG = 1, M_ALT = 2, M_SPD = 4, M_VS = 8, M_CAP = 16, M_ROUTE = 32, M_ALL = 63;
     /** The O key: КУРС + ВЫС at the current values. */
     public static final int DEFAULT = M_HDG | M_ALT;
-    /** The panel's groups left -> right: АП, КУРС, ВЫС, СКОР, ВЕРТ, ЗАХВ (0 = the master «АП»). */
-    public static final int G_AP = 0, G_HDG = 1, G_ALT = 2, G_SPD = 3, G_VS = 4, G_CAP = 5, GROUPS = 6;
+    /** The panel's groups left -> right: АП, КУРС, ВЫС, СКОР, ВЕРТ, ЗАХВ, МАРШ (0 = the master «АП»; stage D4: МАРШ). */
+    public static final int G_AP = 0, G_HDG = 1, G_ALT = 2, G_SPD = 3, G_VS = 4, G_CAP = 5, G_ROUTE = 6, GROUPS = 7;
     /** Lang key part per group: sva.ap.group.KEY. */
-    public static final String[] GROUP_KEYS = {"ap", "hdg", "alt", "spd", "vs", "cap"};
+    public static final String[] GROUP_KEYS = {"ap", "hdg", "alt", "spd", "vs", "cap", "route"};
 
     /** Knob steps: heading 5 deg, height 5 blocks, speed 5 km/h, vertical speed 0.5 blocks/s. */
     public static final int HDG_STEP = 5, ALT_STEP = 5, SPD_STEP = 5;
@@ -146,6 +150,8 @@ public final class AutopilotMath {
                 return M_VS;
             case G_CAP:
                 return M_CAP;
+            case G_ROUTE:
+                return M_ROUTE;
             default:
                 return 0;
         }
@@ -316,31 +322,41 @@ public final class AutopilotMath {
         /** Stage D1: ЗАХВ's phase (PH_RWY / PH_GLIDE / PH_FLARE). */
         public int phase;
         public double vs;
+        /** Stage D4: the flight plan's points (0 = none) and the active one (0-based; = routeN: flown through). */
+        public int routeN, routeAct;
 
         public boolean mode(int bit) {
             return (modes & bit) != 0;
         }
+
+        /** Stage D4: the plan flown through (the last point behind). */
+        public boolean routeDone() {
+            return routeN > 0 && routeAct >= routeN;
+        }
     }
 
     /**
-     * DW_AP: bit 0 engaged, 1..5 the modes, 6 a runway for ЗАХВ, 7 aligned, 8..16 the heading, 17..26 the height (0..1023),
-     * 27..28 ЗАХВ's phase (stage D1).
+     * DW_AP: bit 0 engaged, 1..5 the modes КУРС..ЗАХВ, 6 a runway for ЗАХВ, 7 aligned, 8..16 the heading, 17..26 the height
+     * (0..1023), 27..28 ЗАХВ's phase (stage D1), 29 МАРШ (stage D4 - bits 1..5 were taken).
      */
     public static int pack(Panel p) {
-        return (p.on ? 1 : 0) | (p.modes & M_ALL) << 1 | (p.runway ? 64 : 0) | (p.aligned ? 128 : 0) | heading(p.hdg) << 8
-                | Math.max(0, Math.min(1023, p.alt)) << 17 | Math.max(0, Math.min(PH_FLARE, p.phase)) << 27;
+        return (p.on ? 1 : 0) | (p.modes & 31) << 1 | (p.runway ? 64 : 0) | (p.aligned ? 128 : 0) | heading(p.hdg) << 8
+                | Math.max(0, Math.min(1023, p.alt)) << 17 | Math.max(0, Math.min(PH_FLARE, p.phase)) << 27 | ((p.modes & M_ROUTE) != 0 ? 1 << 29 : 0);
     }
 
-    /** DW_AP2: bits 0..9 the set speed (km/h, 0..1023), 10..19 the set vertical speed in tenths of blocks/s + 512. */
+    /**
+     * DW_AP2: bits 0..9 the set speed (km/h, 0..1023), 10..19 the set vertical speed in tenths of blocks/s + 512; stage D4:
+     * 20..24 the flight plan's active point (0..31), 25..29 its points (0..31).
+     */
     public static int pack2(Panel p) {
         int vs = (int) Math.max(0, Math.min(1023, Math.round(p.vs * 10) + 512));
-        return Math.max(0, Math.min(1023, p.kmh)) | vs << 10;
+        return Math.max(0, Math.min(1023, p.kmh)) | vs << 10 | Math.max(0, Math.min(31, p.routeAct)) << 20 | Math.max(0, Math.min(31, p.routeN)) << 25;
     }
 
     public static Panel unpack(int a, int b) {
         Panel p = new Panel();
         p.on = (a & 1) != 0;
-        p.modes = a >> 1 & M_ALL;
+        p.modes = (a >> 1 & 31) | ((a & 1 << 29) != 0 ? M_ROUTE : 0);
         p.runway = (a & 64) != 0;
         p.aligned = (a & 128) != 0;
         p.hdg = a >> 8 & 511;
@@ -348,6 +364,8 @@ public final class AutopilotMath {
         p.phase = a >> 27 & 3;
         p.kmh = b & 1023;
         p.vs = ((b >> 10 & 1023) - 512) / 10.0;
+        p.routeAct = b >> 20 & 31;
+        p.routeN = b >> 25 & 31;
         return p;
     }
 

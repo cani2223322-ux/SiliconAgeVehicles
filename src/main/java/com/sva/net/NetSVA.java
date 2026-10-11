@@ -32,6 +32,10 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * AccessEdit (C->S) - an access screen change (owner / op, within 8 blocks: EntityVehicleSVA.accessEdit).
  * Wave 3, ★19: MapRequest (C->S) - the «Моя техника» screen asks (on open and every MapMath.REFRESH_EVERY ticks);
  * MapInfo (S->C) - the vehicles the sender may see (MapMath.visible: his own, or listed / a key card), nearest first.
+ * Round 2, D4 (★22 the flight plan): RouteRequest (C->S) - the map's «Маршрут» tab asks for an aircraft's plan (loaded
+ * in the sender's world); RouteSet (C->S) - its «В автопилот»: the new plan (EntityVehicleSVA.serverSetPlan: the right to
+ * drive it - RouteMath.mayEdit); RouteInfo (S->C) - the plan (points, active one, may the receiver edit it) to the tab
+ * and to the driver (when he gets in and after a change - his client's physics flies it).
  */
 public final class NetSVA {
 
@@ -54,6 +58,9 @@ public final class NetSVA {
         CHANNEL.registerMessage(AccessEditHandler.class, AccessEdit.class, 10, Side.SERVER);
         CHANNEL.registerMessage(MapRequestHandler.class, MapRequest.class, 11, Side.SERVER);
         CHANNEL.registerMessage(MapInfoHandler.class, MapInfo.class, 12, Side.CLIENT);
+        CHANNEL.registerMessage(RouteRequestHandler.class, RouteRequest.class, 13, Side.SERVER);
+        CHANNEL.registerMessage(RouteSetHandler.class, RouteSet.class, 14, Side.SERVER);
+        CHANNEL.registerMessage(RouteInfoHandler.class, RouteInfo.class, 15, Side.CLIENT);
     }
 
     // ---------------------------------------------------------------- input
@@ -702,11 +709,14 @@ public final class NetSVA {
 
     /** One player's map: whether the map is on, the world time, and the rows. */
     public static class MapInfo implements IMessage {
-        /** One vehicle: type, board, block position, dimension, charge / hull %, seconds since seen, owner, own, position known. */
+        /**
+         * One vehicle: type, board, block position, dimension, charge / hull %, seconds since seen, owner, own, position
+         * known; D4: its entity id when loaded in the player's world (-1: not) and whether he may drive it (the «Маршрут» tab).
+         */
         public static final class Row {
-            public int type, board, x, y, z, dim, charge, hull, age;
+            public int type, board, x, y, z, dim, charge, hull, age, entity = -1;
             public String owner = "";
-            public boolean own, placed;
+            public boolean own, placed, drive;
         }
 
         public boolean enabled;
@@ -728,6 +738,13 @@ public final class NetSVA {
             final int dim = p.worldObj.provider.dimensionId;
             final double px = p.posX, pz = p.posZ;
             java.util.List<com.sva.vehicle.VehicleRegistrySVA.Entry> list = reg.all();
+            // D4: the loaded vehicles of the player's world by their id (the route tab edits loaded aircraft only)
+            java.util.Map<String, EntityVehicleSVA> loaded = new java.util.HashMap<String, EntityVehicleSVA>();
+            for (Object o : p.worldObj.loadedEntityList) {
+                if (o instanceof EntityVehicleSVA && !((EntityVehicleSVA) o).isDead && ((EntityVehicleSVA) o).state.vehId != null) {
+                    loaded.put(((EntityVehicleSVA) o).state.vehId, (EntityVehicleSVA) o);
+                }
+            }
             java.util.Collections.sort(list, new java.util.Comparator<com.sva.vehicle.VehicleRegistrySVA.Entry>() {
                 @Override
                 public int compare(com.sva.vehicle.VehicleRegistrySVA.Entry a, com.sva.vehicle.VehicleRegistrySVA.Entry b) {
@@ -761,6 +778,11 @@ public final class NetSVA {
                 r.owner = e.ownerName;
                 r.own = own;
                 r.placed = e.placed;
+                EntityVehicleSVA ev = loaded.get(e.id);
+                if (ev != null) {
+                    r.entity = ev.getEntityId();
+                    r.drive = ev.canDrive(p);
+                }
                 m.rows.add(r);
                 if (m.rows.size() >= com.sva.vehicle.MapMath.MAX_LIST) {
                     break;
@@ -787,6 +809,8 @@ public final class NetSVA {
                 int f = buf.readUnsignedByte();
                 r.own = (f & 1) != 0;
                 r.placed = (f & 2) != 0;
+                r.drive = (f & 4) != 0;
+                r.entity = buf.readInt();
                 r.owner = cut(cpw.mods.fml.common.network.ByteBufUtils.readUTF8String(buf), 32);
                 rows.add(r);
             }
@@ -808,7 +832,8 @@ public final class NetSVA {
                 buf.writeByte(Math.max(0, Math.min(100, r.charge)));
                 buf.writeByte(Math.max(0, Math.min(100, r.hull)));
                 buf.writeInt(r.age);
-                buf.writeByte((r.own ? 1 : 0) | (r.placed ? 2 : 0));
+                buf.writeByte((r.own ? 1 : 0) | (r.placed ? 2 : 0) | (r.drive ? 4 : 0));
+                buf.writeInt(r.entity);
                 cpw.mods.fml.common.network.ByteBufUtils.writeUTF8String(buf, cut(r.owner, 32));
             }
         }
@@ -818,6 +843,160 @@ public final class NetSVA {
         @Override
         public IMessage onMessage(MapInfo m, MessageContext ctx) {
             SVAMod.proxy.mapInfo(m);                                // shown on the client thread
+            return null;
+        }
+    }
+
+    // ---------------------------------------------------------------- round 2, D4 (★22): the flight plan
+
+    /** The aircraft `id` loaded in p's world (server thread), or null. */
+    static EntityVehicleSVA aircraft(EntityPlayerMP p, int id) {
+        if (p == null || p.worldObj == null) {
+            return null;
+        }
+        Entity e = p.worldObj.getEntityByID(id);
+        return e instanceof EntityVehicleSVA && !e.isDead && ((EntityVehicleSVA) e).isAircraft() ? (EntityVehicleSVA) e : null;
+    }
+
+    public static class RouteRequest implements IMessage {
+        public int entity;
+
+        public RouteRequest() {
+        }
+
+        public RouteRequest(int entity) {
+            this.entity = entity;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+        }
+    }
+
+    public static class RouteRequestHandler implements IMessageHandler<RouteRequest, IMessage> {
+        @Override
+        public IMessage onMessage(final RouteRequest m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    EntityVehicleSVA v = aircraft(p, m.entity);
+                    if (v != null) {
+                        v.sendPlan(p);
+                    }
+                }
+            });
+            return null;
+        }
+    }
+
+    /** The points of a plan on the wire: count, then {x, z, alt} each (at most RouteMath.MAX). */
+    static void writePoints(ByteBuf buf, int[] flat) {
+        int n = Math.min(com.sva.vehicle.RouteMath.MAX, flat.length / 3);
+        buf.writeByte(n);
+        for (int i = 0; i < n * 3; i++) {
+            buf.writeInt(flat[i]);
+        }
+    }
+
+    static int[] readPoints(ByteBuf buf) {
+        int n = Math.min(com.sva.vehicle.RouteMath.MAX, buf.readUnsignedByte());
+        int[] a = new int[n * 3];
+        for (int i = 0; i < a.length; i++) {
+            a[i] = buf.readInt();
+        }
+        return a;
+    }
+
+    public static class RouteSet implements IMessage {
+        public int entity;
+        public int[] points = new int[0];
+
+        public RouteSet() {
+        }
+
+        public RouteSet(int entity, com.sva.vehicle.RouteMath.Plan plan) {
+            this.entity = entity;
+            this.points = com.sva.vehicle.RouteMath.flatten(plan);
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+            points = readPoints(buf);
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+            writePoints(buf, points);
+        }
+    }
+
+    public static class RouteSetHandler implements IMessageHandler<RouteSet, IMessage> {
+        @Override
+        public IMessage onMessage(final RouteSet m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    EntityVehicleSVA v = aircraft(p, m.entity);
+                    if (v != null) {
+                        v.serverSetPlan(p, m.points);
+                    }
+                }
+            });
+            return null;
+        }
+    }
+
+    public static class RouteInfo implements IMessage {
+        public int entity, active;
+        public boolean editable;
+        public int[] points = new int[0];
+
+        public RouteInfo() {
+        }
+
+        public RouteInfo(int entity, com.sva.vehicle.RouteMath.Plan plan, boolean editable) {
+            this.entity = entity;
+            this.points = com.sva.vehicle.RouteMath.flatten(plan);
+            this.active = plan.active;
+            this.editable = editable;
+        }
+
+        /** The plan received (sanitised). */
+        public com.sva.vehicle.RouteMath.Plan plan() {
+            return com.sva.vehicle.RouteMath.sanitize(points, active);
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+            active = buf.readUnsignedByte();
+            editable = buf.readBoolean();
+            points = readPoints(buf);
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+            buf.writeByte(Math.max(0, Math.min(255, active)));
+            buf.writeBoolean(editable);
+            writePoints(buf, points);
+        }
+    }
+
+    public static class RouteInfoHandler implements IMessageHandler<RouteInfo, IMessage> {
+        @Override
+        public IMessage onMessage(RouteInfo m, MessageContext ctx) {
+            SVAMod.proxy.routeInfo(m);                              // applied on the client thread
             return null;
         }
     }

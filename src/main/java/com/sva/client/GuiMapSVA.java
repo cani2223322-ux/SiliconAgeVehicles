@@ -12,8 +12,14 @@ import com.sc.inventory.TextFitSC;
 import com.sc.manual.Lang;
 import com.sva.init.ModContentSVA;
 import com.sva.net.NetSVA;
+import com.sva.entity.EntityVehicleSVA;
+import com.sva.vehicle.AutopilotMath;
+import com.sva.vehicle.CruiseMath;
 import com.sva.vehicle.MapMath;
+import com.sva.vehicle.RouteMath;
+import com.sva.vehicle.RunwayMath;
 import com.sva.vehicle.SkinMath;
+import com.sva.vehicle.VehicleMath;
 import com.sva.vehicle.VehicleType;
 
 import net.minecraft.block.Block;
@@ -43,6 +49,15 @@ import net.minecraft.world.chunk.Chunk;
  * Zoom: the mouse wheel over the map or the - / + buttons (1..16 blocks a pixel); drag the map to look round; «Ко мне»
  * centres it again. The rows come from the server (NetSVA.MapRequest / MapInfo - only the vehicles the player may see,
  * MapMath.visible), asked again every MapMath.REFRESH_EVERY ticks while the screen is open.
+ * <p>
+ * Round 2, D4 (★22 the flight plan, mock-up docs/mockups/veh_air3_5_flightplan.png): tabs «Техника» / «Маршрут». The route
+ * tab edits the plan of an aircraft the player may drive (the one he sits in first, else the loaded ones of the list -
+ * MapInfo.Row.entity / drive; «<» / «>» pick another): LMB on the map - a point there, drag a point - move it, RMB on a
+ * point - delete it (a drag of the empty map still pans it); on the right the points with their height - / + (Shift: x10),
+ * up / down, delete; «+ Точка» (at the map's centre), «Очистить», «В автопилот» (NetSVA.RouteSet - the server keeps it in
+ * the vehicle; the driver's own: МАРШ engaged at once). The edits are a draft until sent. On the map the legs flown are
+ * grey, the active one magenta, the next ones dashed (the server's NetSVA.RouteInfo - the active point - while the draft
+ * is not changed).
  */
 public class GuiMapSVA extends GuiScreen {
 
@@ -50,10 +65,22 @@ public class GuiMapSVA extends GuiScreen {
     private static final int BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, PANEL = 0xFF232833, LINE = 0xFF3A4150, GOLD = 0xF2A040, CYAN = 0x5EC8F0,
             TEXT = 0xD8DCE4, MUTED = 0x8A93A3, GREEN = 0x62E06A, RED = 0xF06060, AMBER = 0xF0B040, UNKNOWN = 0xFF15181E;
     private static final int B_OUT = 0, B_IN = 1, B_HOME = 2;
+    /** D4: the tabs, the aircraft picker, the route's buttons. */
+    private static final int B_TAB_VEH = 3, B_TAB_ROUTE = 4, B_PREV = 5, B_NEXT = 6, B_ADD = 7, B_CLEAR = 8, B_SEND = 9;
+    /** D4: the route list - rows from LIST_Y + R_TOP, R_ROWS of R_H; the legs' colours. */
+    private static final int R_TOP = 24, R_H = 20, R_ROWS = 6, MAGENTA = 0xEC5ADC, PINK = 0xECA0E6, DONE = 0x9696A0;
+    /** D4: a map press moving less than this (px) is a click (a point), more - a pan; a point is hit within HIT px. */
+    private static final int CLICK_SLOP = 3, HIT = 6;
     private static final RenderItem ITEMS = new RenderItem();
 
     /** The rows last received (kept while the game runs: the screen reopens with them at once). */
     private static NetSVA.MapInfo last;
+    /** D4: the open tab (kept: the screen reopens on it), the last flight plan received, the draft per aircraft. */
+    private static int tabNow;
+    private static NetSVA.RouteInfo lastRoute;
+    private static int draftFor = -1;
+    private static RouteMath.Plan draft = new RouteMath.Plan();
+    private static boolean dirty;
 
     /** The map's centre (world x, z), the home it returns to, and whether that home is a station. */
     private double cx, cz;
@@ -65,6 +92,13 @@ public class GuiMapSVA extends GuiScreen {
     private DynamicTexture terrain;
     private boolean dragging;
     private int dragX, dragY;
+    /** D4: the route tab - the aircraft edited (entity id, -1 none), the plan received for it, the point dragged, the press. */
+    private int routeVeh = -1, dragPoint = -1, pressX, pressY, moved, routeScroll, askedRouteAt = -1000;
+    private NetSVA.RouteInfo shownRoute;
+    private boolean pressing;
+    /** D4: the runway by the last point (looked for again when it moves): «после последней: ЗАХВ». */
+    private int rwyKeyX = Integer.MIN_VALUE, rwyKeyZ;
+    private boolean rwyByLast;
 
     private GuiMapSVA(double x, double z, boolean station) {
         this.cx = this.homeX = x;
@@ -88,6 +122,11 @@ public class GuiMapSVA extends GuiScreen {
         last = m;
     }
 
+    /** D4: a flight plan from the server (client thread) - the route tab picks it up if it is its aircraft's. */
+    public static void receiveRoute(NetSVA.RouteInfo m) {
+        lastRoute = m;
+    }
+
     private double scale() {
         return MapMath.ZOOMS[zoom];
     }
@@ -101,7 +140,40 @@ public class GuiMapSVA extends GuiScreen {
         buttonList.add(new GuiCargoSVA.Dark(B_IN, left + MAP_X + MAP - 54, top + 3, 14, 12, "+", Lang.tr("sva.map.tip.in")));
         buttonList.add(new GuiCargoSVA.Dark(B_HOME, left + MAP_X + MAP - 38, top + 3, 38, 12, Lang.tr(station ? "sva.map.home.station" : "sva.map.home"),
                 Lang.tr("sva.map.tip.home")));
+        // D4: the tabs «Техника» / «Маршрут», the route's aircraft picker and buttons
+        GuiCargoSVA.Dark tv = new GuiCargoSVA.Dark(B_TAB_VEH, left + 280, top + 3, 52, 11, Lang.tr("sva.map.tab.vehicles"), null);
+        GuiCargoSVA.Dark tr = new GuiCargoSVA.Dark(B_TAB_ROUTE, left + 336, top + 3, 56, 11, Lang.tr("sva.map.tab.route"), Lang.tr("sva.map.tip.route"));
+        tv.tab = tr.tab = true;
+        buttonList.add(tv);
+        buttonList.add(tr);
+        int lx = left + LIST_X, by = top + MAP_Y + 180;
+        buttonList.add(new GuiCargoSVA.Dark(B_PREV, lx + LIST_W - 52, top + MAP_Y + 2, 10, 9, "<", Lang.tr("sva.map.route.tip.pick")));
+        buttonList.add(new GuiCargoSVA.Dark(B_NEXT, lx + LIST_W - 41, top + MAP_Y + 2, 10, 9, ">", Lang.tr("sva.map.route.tip.pick")));
+        buttonList.add(new GuiCargoSVA.Dark(B_ADD, lx + 2, by, 56, 14, Lang.tr("sva.map.route.add"), Lang.tr("sva.map.route.tip.add")));
+        buttonList.add(new GuiCargoSVA.Dark(B_CLEAR, lx + 61, by, 56, 14, Lang.tr("sva.map.route.clear"), Lang.tr("sva.map.route.tip.clear")));
+        buttonList.add(new GuiCargoSVA.Dark(B_SEND, lx + 120, by, 60, 14, Lang.tr("sva.map.route.send"), Lang.tr("sva.map.route.tip.send")));
         ask();
+        if (tabNow == 1) {
+            pickRoute(0);
+        }
+        layout();
+    }
+
+    /** D4: which buttons the open tab shows (and their state). */
+    private void layout() {
+        boolean route = tabNow == 1, ed = editable();
+        int n = candidates().size();
+        for (Object o : buttonList) {
+            GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
+            if (b.id == B_TAB_VEH || b.id == B_TAB_ROUTE) {
+                b.active = (b.id == B_TAB_ROUTE) == route;
+            } else if (b.id == B_PREV || b.id == B_NEXT) {
+                b.visible = route && n > 1;
+            } else if (b.id == B_ADD || b.id == B_CLEAR || b.id == B_SEND) {
+                b.visible = route;
+                b.enabled = routeVeh >= 0 && ed && (b.id != B_ADD || draft.size() < RouteMath.MAX) && (b.id != B_CLEAR || !draft.isEmpty());
+            }
+        }
     }
 
     private void ask() {
@@ -115,6 +187,138 @@ public class GuiMapSVA extends GuiScreen {
         if (mc.thePlayer != null && mc.thePlayer.ticksExisted - askedAt >= MapMath.REFRESH_EVERY) {
             ask();
         }
+        if (tabNow == 1) {
+            if (routeVeh < 0 || !hasCandidate(routeVeh)) {
+                pickRoute(0);
+            }
+            NetSVA.RouteInfo r = lastRoute;
+            if (r != null && r != shownRoute && r.entity == routeVeh) {
+                shownRoute = r;                                       // the server's plan: the draft follows it unless edited
+                if (!dirty || draftFor != routeVeh) {
+                    draft = r.plan();
+                    draftFor = routeVeh;
+                    dirty = false;
+                }
+            }
+            int now = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+            if (routeVeh >= 0 && now - askedRouteAt >= MapMath.REFRESH_EVERY) {
+                askedRouteAt = now;                                   // the active point moves on in flight
+                NetSVA.CHANNEL.sendToServer(new NetSVA.RouteRequest(routeVeh));
+            }
+        }
+        layout();
+    }
+
+    // ------------------------------------------------------------------ D4: the route tab's aircraft
+
+    /** An aircraft to plan for: {entity id, type, board, x, z, alt hint}. */
+    private static final class Cand {
+        int entity, type, board;
+        double x, z, y;
+    }
+
+    private static boolean aircraftType(int type) {
+        return CruiseMath.kind(VehicleType.byOrdinal(type).movement, true) == CruiseMath.AUTOPILOT;
+    }
+
+    /** The aircraft the route tab may edit: the one the player sits in first, then the loaded ones he may drive (MapInfo). */
+    private List<Cand> candidates() {
+        List<Cand> c = new ArrayList<Cand>();
+        EntityVehicleSVA rid = mc.thePlayer != null && mc.thePlayer.ridingEntity instanceof EntityVehicleSVA ? (EntityVehicleSVA) mc.thePlayer.ridingEntity : null;
+        if (rid != null && !rid.isDead && rid.isAircraft()) {
+            Cand k = new Cand();
+            k.entity = rid.getEntityId();
+            k.type = rid.getVehicleType().ordinal();
+            k.board = rid.getBoardNumber();
+            k.x = rid.posX;
+            k.z = rid.posZ;
+            k.y = rid.posY;
+            c.add(k);
+        }
+        for (NetSVA.MapInfo.Row r : rows()) {
+            if (r.entity >= 0 && r.drive && r.dim == dim() && aircraftType(r.type) && (rid == null || r.entity != rid.getEntityId())) {
+                Cand k = new Cand();
+                k.entity = r.entity;
+                k.type = r.type;
+                k.board = r.board;
+                net.minecraft.entity.Entity e = mc.theWorld == null ? null : mc.theWorld.getEntityByID(r.entity);
+                k.x = e != null ? e.posX : r.x + 0.5;
+                k.z = e != null ? e.posZ : r.z + 0.5;
+                k.y = e != null ? e.posY : r.y;
+                c.add(k);
+            }
+        }
+        return c;
+    }
+
+    private boolean hasCandidate(int id) {
+        return cand(id) != null;
+    }
+
+    private Cand cand(int id) {
+        for (Cand k : candidates()) {
+            if (k.entity == id) {
+                return k;
+            }
+        }
+        return null;
+    }
+
+    /** The next aircraft (dir -1 / +1; 0: keep the one shown if it still may be, else the first); asks its plan. */
+    private void pickRoute(int dir) {
+        List<Cand> c = candidates();
+        if (c.isEmpty()) {
+            routeVeh = -1;
+            return;
+        }
+        int i = 0;
+        for (int k = 0; k < c.size(); k++) {
+            if (c.get(k).entity == routeVeh) {
+                i = k;
+            }
+        }
+        int was = routeVeh;
+        routeVeh = c.get(((i + dir) % c.size() + c.size()) % c.size()).entity;
+        if (routeVeh != was) {
+            routeScroll = 0;
+            shownRoute = null;
+            if (draftFor != routeVeh) {
+                draft = new RouteMath.Plan();
+                draftFor = routeVeh;
+                dirty = false;
+            }
+            askedRouteAt = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+            NetSVA.CHANNEL.sendToServer(new NetSVA.RouteRequest(routeVeh));
+        }
+    }
+
+    /** The server said this player may set the shown aircraft's plan. */
+    private boolean editable() {
+        return shownRoute != null && shownRoute.entity == routeVeh && shownRoute.editable;
+    }
+
+    /** The active point shown (the server's), -1 while the draft differs from it. */
+    private int activeShown() {
+        return shownRoute != null && shownRoute.entity == routeVeh && !dirty ? shownRoute.active : -1;
+    }
+
+    private void edited() {
+        dirty = true;
+        draftFor = routeVeh;
+    }
+
+    private void click() {
+        mc.getSoundHandler().playSound(net.minecraft.client.audio.PositionedSoundRecord.func_147674_a(
+                new net.minecraft.util.ResourceLocation("gui.button.press"), 1.0F));
+    }
+
+    /** A new point's height: the last point's, else the aircraft's (to 5 blocks), else RouteMath.ALT_DEFAULT. */
+    private int newAlt() {
+        if (!draft.isEmpty()) {
+            return draft.pts.get(draft.size() - 1)[2];
+        }
+        Cand k = cand(routeVeh);
+        return k == null ? RouteMath.ALT_DEFAULT : RouteMath.clampAlt((int) Math.round(k.y / RouteMath.ALT_STEP) * RouteMath.ALT_STEP);
     }
 
     @Override
@@ -132,6 +336,45 @@ public class GuiMapSVA extends GuiScreen {
 
     @Override
     protected void actionPerformed(GuiButton b) {
+        if (b.id == B_TAB_VEH || b.id == B_TAB_ROUTE) {
+            tabNow = b.id == B_TAB_ROUTE ? 1 : 0;
+            if (tabNow == 1) {
+                pickRoute(0);
+            }
+            layout();
+            return;
+        }
+        if (b.id == B_PREV || b.id == B_NEXT) {
+            pickRoute(b.id == B_PREV ? -1 : 1);
+            return;
+        }
+        if (b.id == B_ADD && editable()) {
+            if (draft.add(MathHelper.floor_double(cx), MathHelper.floor_double(cz), newAlt())) {
+                edited();
+            }
+            return;
+        }
+        if (b.id == B_CLEAR && editable()) {
+            draft.clear();
+            edited();
+            return;
+        }
+        if (b.id == B_SEND && editable() && routeVeh >= 0) {
+            // to the server (it keeps the plan in the vehicle); the aircraft the player drives flies it at once
+            RouteMath.Plan p = draft.copy();
+            p.active = 0;
+            NetSVA.CHANNEL.sendToServer(new NetSVA.RouteSet(routeVeh, p));
+            dirty = false;
+            shownRoute = null;
+            EntityVehicleSVA v = CruiseClientSVA.driven(mc);
+            if (v != null && v.getEntityId() == routeVeh) {
+                v.setClientPlan(p.copy());
+                if (!p.isEmpty()) {
+                    CruiseClientSVA.routeEngage(v);
+                }
+            }
+            return;
+        }
         if (b.id == B_OUT || b.id == B_IN) {
             zoom = MapMath.zoomStep(zoom, b.id == B_OUT ? 1 : -1);
         } else if (b.id == B_HOME) {
@@ -167,18 +410,50 @@ public class GuiMapSVA extends GuiScreen {
         int mx = Mouse.getEventX() * width / mc.displayWidth, my = height - Mouse.getEventY() * height / mc.displayHeight - 1;
         if (overMap(mx, my)) {
             zoom = MapMath.zoomStep(zoom, d > 0 ? -1 : 1);
+        } else if (tabNow == 1) {
+            routeScroll = Math.max(0, Math.min(Math.max(0, draft.size() - R_ROWS), routeScroll + (d > 0 ? -1 : 1)));
         } else {
             scroll = Math.max(0, Math.min(Math.max(0, rows().size() - ROWS), scroll + (d > 0 ? -1 : 1)));
         }
     }
 
+    /** D4: the draft's point under the mouse on the map (within HIT px), -1 none. */
+    private int pointAt(int mx, int my) {
+        double s = scale(), ox = left + MAP_X + MAP / 2.0, oy = top + MAP_Y + MAP / 2.0;
+        int best = -1;
+        double bd = HIT * HIT;
+        for (int i = 0; i < draft.size(); i++) {
+            int[] w = draft.pts.get(i);
+            double[] p = MapMath.toMap(w[0] + 0.5, w[1] + 0.5, cx, cz, s);
+            double dx = ox + p[0] - mx, dy = oy + p[1] - my, d = dx * dx + dy * dy;
+            if (d <= bd) {
+                bd = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /** D4: the world block column under a map pixel. */
+    private int[] worldAt(int mx, int my) {
+        double s = scale();
+        return new int[] {MathHelper.floor_double(cx + (mx - (left + MAP_X + MAP / 2.0)) * s),
+                MathHelper.floor_double(cz + (my - (top + MAP_Y + MAP / 2.0)) * s)};
+    }
+
     @Override
     protected void mouseClicked(int mx, int my, int button) {
         super.mouseClicked(mx, my, button);
+        if (tabNow == 1 && routeClicked(mx, my, button)) {
+            return;
+        }
         if (overMap(mx, my) && button == 0) {
             dragging = true;
             dragX = mx;
             dragY = my;
+            return;
+        }
+        if (tabNow == 1) {
             return;
         }
         List<NetSVA.MapInfo.Row> rows = rows();
@@ -194,8 +469,79 @@ public class GuiMapSVA extends GuiScreen {
         }
     }
 
+    /** D4: a press in the route tab - on the map (a point: drag / delete; empty: a click adds, a drag pans) or a row's button. */
+    private boolean routeClicked(int mx, int my, int button) {
+        boolean ed = editable();
+        if (overMap(mx, my)) {
+            int hit = ed ? pointAt(mx, my) : -1;
+            if (button == 1 && hit >= 0) {
+                draft.remove(hit);
+                edited();
+                return true;
+            }
+            if (button == 0) {
+                dragPoint = hit;
+                pressing = hit < 0 && ed;
+                pressX = mx;
+                pressY = my;
+                moved = 0;
+                if (hit < 0) {
+                    dragging = true;                                // a drag pans as on the other tab
+                    dragX = mx;
+                    dragY = my;
+                }
+                return true;
+            }
+            return false;
+        }
+        if (button != 0 || !ed) {
+            return false;
+        }
+        int lx = left + LIST_X, ry0 = top + MAP_Y + R_TOP;
+        for (int i = 0; i < R_ROWS && routeScroll + i < draft.size(); i++) {
+            int k = routeScroll + i, ry = ry0 + i * R_H + 5;
+            if (my < ry || my >= ry + 10) {
+                continue;
+            }
+            int step = RouteMath.ALT_STEP * (GuiScreen.isShiftKeyDown() ? 10 : 1);
+            if (mx >= lx + 98 && mx < lx + 108) {
+                draft.addAlt(k, -step);
+            } else if (mx >= lx + 132 && mx < lx + 142) {
+                draft.addAlt(k, step);
+            } else if (mx >= lx + 146 && mx < lx + 156) {
+                if (!draft.move(k, -1)) {
+                    return true;
+                }
+            } else if (mx >= lx + 157 && mx < lx + 167) {
+                if (!draft.move(k, 1)) {
+                    return true;
+                }
+            } else if (mx >= lx + 168 && mx < lx + 178) {
+                draft.remove(k);
+                routeScroll = Math.max(0, Math.min(routeScroll, draft.size() - R_ROWS));
+            } else {
+                continue;
+            }
+            edited();
+            click();
+            return true;
+        }
+        return false;
+    }
+
     @Override
     protected void mouseClickMove(int mx, int my, int button, long time) {
+        if (tabNow == 1 && dragPoint >= 0 && dragPoint < draft.size()) {
+            int[] w = worldAt(Math.max(left + MAP_X, Math.min(left + MAP_X + MAP - 1, mx)), Math.max(top + MAP_Y, Math.min(top + MAP_Y + MAP - 1, my)));
+            int[] p = draft.pts.get(dragPoint);
+            if (p[0] != w[0] || p[1] != w[1]) {
+                p[0] = RouteMath.clampCoord(w[0]);
+                p[1] = RouteMath.clampCoord(w[1]);
+                edited();
+            }
+            return;
+        }
+        moved += Math.abs(mx - dragX) + Math.abs(my - dragY);
         if (dragging) {
             cx -= (mx - dragX) * scale();
             cz -= (my - dragY) * scale();
@@ -208,6 +554,15 @@ public class GuiMapSVA extends GuiScreen {
     protected void mouseMovedOrUp(int mx, int my, int button) {
         super.mouseMovedOrUp(mx, my, button);
         if (button == 0) {
+            if (tabNow == 1 && pressing && moved < CLICK_SLOP && overMap(mx, my) && editable()) {
+                int[] w = worldAt(mx, my);                          // a click, not a drag: a new point there
+                if (draft.add(w[0], w[1], newAlt())) {
+                    edited();
+                    routeScroll = Math.max(0, draft.size() - R_ROWS);
+                }
+            }
+            pressing = false;
+            dragPoint = -1;
             dragging = false;
         }
     }
@@ -386,16 +741,23 @@ public class GuiMapSVA extends GuiScreen {
                 t.draw();
             }
             drawMarkers(mapL, mapT);
+            if (tabNow == 1) {
+                drawRouteOnMap(mapL, mapT);
+            }
         }
         String sc = Lang.tr("sva.map.scale", Integer.valueOf((int) scale()));
         fontRendererObj.drawString(sc, mapL + MAP - 74 - fontRendererObj.getStringWidth(sc), top + 5, MUTED);
-        drawList(mx, my);
+        if (tabNow == 1) {
+            drawRouteList(mx, my);
+        } else {
+            drawList(mx, my);
+        }
         if (disabled) {
             TextFitSC.drawCentered(fontRendererObj, Lang.tr("sva.map.disabled"), mapL, mapT + MAP / 2 - 4, MAP, RED, false, 0, 0);
         }
         super.drawScreen(mx, my, pt);
         for (Object o : buttonList) {
-            if (o instanceof GuiCargoSVA.Dark && ((GuiCargoSVA.Dark) o).tip != null) {
+            if (o instanceof GuiCargoSVA.Dark && ((GuiCargoSVA.Dark) o).tip != null && ((GuiCargoSVA.Dark) o).visible) {
                 GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
                 TextFitSC.hover(b.xPosition, b.yPosition, b.width, b.height, b.tip);
             }
@@ -516,7 +878,243 @@ public class GuiMapSVA extends GuiScreen {
             rect(lx + LIST_W - 3, ly + 2, 2, track, 0xFF15181E);
             rect(lx + LIST_W - 3, ly + 2 + pos, 2, knob, 0xFF5A6272);
         }
-        TextFitSC.draw(fontRendererObj, Lang.tr("sva.map.count", Integer.valueOf(rows.size())), lx, top + 5, LIST_W, MUTED, 0, 0);
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.map.count", Integer.valueOf(rows.size())), lx, top + 5, 64, MUTED, 0, 0);
+    }
+
+    // ------------------------------------------------------------------ D4: the route tab
+
+    /** A thick line (quad) between two GUI points, `w` px wide. */
+    private static void line(double x0, double y0, double x1, double y1, double w, int rgb) {
+        double dx = x1 - x0, dy = y1 - y0, l = Math.sqrt(dx * dx + dy * dy);
+        if (l < 1e-6) {
+            return;
+        }
+        double nx = -dy / l * w / 2, ny = dx / l * w / 2;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f((rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F, 1F);
+        Tessellator t = Tessellator.instance;
+        t.startDrawingQuads();
+        t.addVertex(x0 + nx, y0 + ny, 0);
+        t.addVertex(x1 + nx, y1 + ny, 0);
+        t.addVertex(x1 - nx, y1 - ny, 0);
+        t.addVertex(x0 - nx, y0 - ny, 0);
+        t.draw();
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+    }
+
+    /** A dashed line: dashes of `dash` px with gaps as long. */
+    private static void dashed(double x0, double y0, double x1, double y1, double w, double dash, int rgb) {
+        double l = Math.sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
+        int n = Math.max(1, (int) (l / dash));
+        for (int k = 0; k < n; k += 2) {
+            double a = k / (double) n, b = Math.min(1, (k + 1) / (double) n);
+            line(x0 + (x1 - x0) * a, y0 + (y1 - y0) * a, x0 + (x1 - x0) * b, y0 + (y1 - y0) * b, w, rgb);
+        }
+    }
+
+    /** A small triangle (up / down) in a 10 x 10 button at (x, y). */
+    private static void triangle(int x, int y, boolean up, int rgb) {
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f((rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F, 1F);
+        Tessellator t = Tessellator.instance;
+        t.startDrawing(GL11.GL_TRIANGLES);
+        if (up) {
+            t.addVertex(x + 5, y + 3, 0);
+            t.addVertex(x + 2.5, y + 7, 0);
+            t.addVertex(x + 7.5, y + 7, 0);
+        } else {
+            t.addVertex(x + 2.5, y + 3, 0);
+            t.addVertex(x + 5, y + 7, 0);
+            t.addVertex(x + 7.5, y + 3, 0);
+        }
+        t.draw();
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+    }
+
+    /** A point's name: «Т3». */
+    private static String wpName(int i) {
+        return Lang.tr("sva.ap.route.wp", Integer.valueOf(i + 1));
+    }
+
+    /** The plan on the map: the legs (flown grey, the active magenta, the next dashed), the points as diamonds with height. */
+    private void drawRouteOnMap(int mapL, int mapT) {
+        if (routeVeh < 0 || draft.isEmpty()) {
+            return;
+        }
+        double s = scale(), ox = mapL + MAP / 2.0, oy = mapT + MAP / 2.0;
+        int act = activeShown(), n = draft.size();
+        GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        net.minecraft.client.gui.ScaledResolution res = new net.minecraft.client.gui.ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+        int f = res.getScaleFactor();
+        GL11.glScissor(mapL * f, mc.displayHeight - (mapT + MAP) * f, MAP * f, MAP * f);
+        double[][] p = new double[n][];
+        for (int i = 0; i < n; i++) {
+            int[] w = draft.pts.get(i);
+            double[] m = MapMath.toMap(w[0] + 0.5, w[1] + 0.5, cx, cz, s);
+            p[i] = new double[] {ox + m[0], oy + m[1]};
+        }
+        Cand k = cand(routeVeh);
+        if (act == 0 && k != null) {
+            double[] m = MapMath.toMap(k.x, k.z, cx, cz, s);
+            line(ox + m[0], oy + m[1], p[0][0], p[0][1], 1.5, MAGENTA);   // direct to the first point
+        }
+        for (int i = 0; i + 1 < n; i++) {
+            int to = i + 1;
+            if (act >= 0 && to < act) {
+                line(p[i][0], p[i][1], p[to][0], p[to][1], 1, DONE);
+            } else if (act >= 0 && to == act) {
+                line(p[i][0], p[i][1], p[to][0], p[to][1], 1.5, MAGENTA);
+            } else {
+                dashed(p[i][0], p[i][1], p[to][0], p[to][1], 1.2, 5, PINK);
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            int col = act < 0 ? PINK : i < act ? DONE : i == act ? MAGENTA : PINK;
+            diamond(p[i][0], p[i][1], i == dragPoint ? 4.5 : 3.5, col);
+            String lab = wpName(i) + "  " + draft.pts.get(i)[2];
+            fontRendererObj.drawStringWithShadow(lab, (int) p[i][0] + 6, (int) p[i][1] - 4, 0xFFFFFF);
+        }
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        rect(mapL, mapT + MAP - 11, MAP, 11, 0xE00E1016);
+        int tx = mapL + 3;
+        for (String h : new String[] {"sva.map.route.hint.add", "sva.map.route.hint.drag", "sva.map.route.hint.del"}) {
+            TextFitSC.draw(fontRendererObj, Lang.tr(h), tx, mapT + MAP - 9, 64, TEXT, 0, 0);
+            tx += 66;
+        }
+    }
+
+    /** The route tab's right panel: the aircraft, the points with their buttons, the totals, the status. */
+    private void drawRouteList(int mx, int my) {
+        int lx = left + LIST_X, ly = top + MAP_Y;
+        frame(lx - 1, ly - 1, LIST_W + 2, 202, LINE, PANEL);
+        Cand k = cand(routeVeh);
+        if (routeVeh < 0 || k == null) {
+            int yy = ly + 8;
+            for (Object l : fontRendererObj.listFormattedStringToWidth(Lang.tr("sva.map.route.none"), LIST_W - 12)) {
+                fontRendererObj.drawString((String) l, lx + 6, yy, MUTED);
+                yy += 10;
+            }
+            return;
+        }
+        String nm = Lang.tr("sva.map.name", new ItemStack(ModContentSVA.vehicle, 1, k.type).getDisplayName(), SkinMath.boardText(k.board));
+        boolean pick = candidates().size() > 1;
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.map.route.title", nm), lx + 4, ly + 3, LIST_W - (pick ? 62 : 34), GOLD, 0, 0);
+        String cnt = draft.size() + "/" + RouteMath.MAX;
+        fontRendererObj.drawString(cnt, lx + LIST_W - 4 - fontRendererObj.getStringWidth(cnt), ly + 3, MUTED);
+        int hy = ly + 14;
+        fontRendererObj.drawString(Lang.tr("sva.map.route.colN"), lx + 4, hy, MUTED);
+        fontRendererObj.drawString(Lang.tr("sva.map.route.colPoint"), lx + 16, hy, MUTED);
+        fontRendererObj.drawString(Lang.tr("sva.map.route.colXZ"), lx + 44, hy, MUTED);
+        fontRendererObj.drawString(Lang.tr("sva.map.route.colAlt"), lx + 108, hy, MUTED);
+        int act = activeShown();
+        boolean ed = editable();
+        for (int i = 0; i < R_ROWS && routeScroll + i < draft.size(); i++) {
+            int n = routeScroll + i, ry = ly + R_TOP + i * R_H;
+            int[] w = draft.pts.get(n);
+            boolean on = n == act, done = act >= 0 && n < act;
+            rect(lx + 1, ry, LIST_W - 2, R_H - 2, on ? 0xFF3A2A44 : i % 2 == 0 ? 0xFF262C37 : 0xFF222832);
+            if (on) {
+                rect(lx + 1, ry, 2, R_H - 2, 0xFF000000 | MAGENTA);
+            }
+            fontRendererObj.drawString(String.valueOf(n + 1), lx + 5, ry + 6, on ? MAGENTA : MUTED);
+            fontRendererObj.drawString(wpName(n), lx + 16, ry + 6, done ? DONE : on ? MAGENTA : 0xFFFFFF);
+            TextFitSC.draw(fontRendererObj, w[0] + " / " + w[1], lx + 40, ry + 6, 56, done ? MUTED : TEXT, 0, 0);
+            TextFitSC.drawCentered(fontRendererObj, String.valueOf(w[2]), lx + 108, ry + 6, 24, AMBER, false, 0, 0);
+            smallButton(lx + 98, ry + 5, "-", ed, mx, my, TEXT);
+            smallButton(lx + 132, ry + 5, "+", ed, mx, my, TEXT);
+            smallButton(lx + 146, ry + 5, "", ed && n > 0, mx, my, TEXT);
+            triangle(lx + 146, ry + 5, true, ed && n > 0 ? TEXT : 0x6A7282);
+            smallButton(lx + 157, ry + 5, "", ed && n < draft.size() - 1, mx, my, TEXT);
+            triangle(lx + 157, ry + 5, false, ed && n < draft.size() - 1 ? TEXT : 0x6A7282);
+            smallButton(lx + 168, ry + 5, "x", ed, mx, my, RED);
+            if (ed) {
+                TextFitSC.hover(lx + 98, ry + 5, 44, 10, Lang.tr("sva.map.route.tip.alt"));
+                TextFitSC.hover(lx + 146, ry + 5, 32, 10, Lang.tr("sva.map.route.tip.order"));
+            }
+        }
+        if (draft.size() > R_ROWS) {
+            int track = R_ROWS * R_H - 4, knob = Math.max(10, track * R_ROWS / draft.size());
+            int pos = (track - knob) * routeScroll / Math.max(1, draft.size() - R_ROWS);
+            rect(lx + LIST_W - 3, ly + R_TOP, 2, track, 0xFF15181E);
+            rect(lx + LIST_W - 3, ly + R_TOP + pos, 2, knob, 0xFF5A6272);
+        }
+        if (draft.isEmpty()) {
+            int yy = ly + R_TOP + 4;
+            for (Object l : fontRendererObj.listFormattedStringToWidth(Lang.tr(ed ? "sva.map.route.empty" : "sva.map.route.emptyView"), LIST_W - 12)) {
+                fontRendererObj.drawString((String) l, lx + 6, yy, MUTED);
+                yy += 10;
+            }
+        }
+        // the totals: the length from the aircraft on, the time at its set / cruising speed; what happens after the last point
+        int fy = ly + R_TOP + R_ROWS * R_H + 4;
+        if (!draft.isEmpty()) {
+            RouteMath.Plan p = draft.copy();
+            p.active = Math.max(0, activeShown());
+            double len = RouteMath.length(p, k.x, k.z);
+            int kmh = kmhFor(k);
+            int sec = (int) Math.round(len / Math.max(1e-3, CruiseMath.fromKmh(kmh)) / 20);
+            String time = Lang.tr("sva.map.route.time", Integer.valueOf(sec / 60), (sec % 60 < 10 ? "0" : "") + sec % 60);
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.map.route.total", Integer.valueOf((int) Math.round(len)), time, Integer.valueOf(kmh)), lx + 4, fy,
+                    LIST_W - 8, MUTED, 0, 0);
+            int[] lastP = draft.pts.get(draft.size() - 1);
+            TextFitSC.draw(fontRendererObj, Lang.tr(runwayByLast(lastP[0], lastP[1]) ? "sva.map.route.after.cap" : "sva.map.route.after.hold"), lx + 4,
+                    fy + 10, LIST_W - 8, CYAN, 0, 0);
+        }
+        String st = !ed ? (shownRoute == null || shownRoute.entity != routeVeh ? "sva.map.loading" : "sva.map.route.readonly")
+                : dirty ? "sva.map.route.unsent" : draft.size() >= RouteMath.MAX ? "sva.map.route.full" : null;
+        if (st != null) {
+            TextFitSC.draw(fontRendererObj, Lang.tr(st), lx + 4, fy + 20, LIST_W - 8, dirty && ed ? AMBER : MUTED, 0, 0);
+        }
+    }
+
+    /** A 10 x 10 button drawn in place (the list's rows scroll - no GuiButton). */
+    private void smallButton(int x, int y, String t, boolean on, int mx, int my, int colour) {
+        boolean hov = on && mx >= x && mx < x + 10 && my >= y && my < y + 10;
+        frame(x, y, 10, 10, hov ? 0xFF7A8496 : LINE, on ? hov ? 0xFF3A4252 : 0xFF2E3542 : 0xFF1E232C);
+        if (t.length() > 0) {
+            TextFitSC.drawCentered(fontRendererObj, t, x, y + 1, 10, on ? colour : 0x6A7282, false, 0, 0);
+        }
+    }
+
+    /** The speed the totals use: the AP's set speed of the aircraft the player drives, else 80 % of the type's top. */
+    private int kmhFor(Cand k) {
+        EntityVehicleSVA v = CruiseClientSVA.driven(mc);
+        if (v != null && v.getEntityId() == k.entity) {
+            int s = CruiseClientSVA.panel(v).kmh;
+            if (s >= AutopilotMath.MIN_KMH) {
+                return s;
+            }
+        }
+        return Math.max(AutopilotMath.MIN_KMH, (int) Math.round(VehicleMath.kmh(VehicleType.byOrdinal(k.type).topSpeed) * 0.8));
+    }
+
+    /** A runway (in the loaded chunks) within RouteMath.HANDOVER of the last point: ЗАХВ takes over there (looked for when it moves). */
+    private boolean runwayByLast(int x, int z) {
+        if (x == rwyKeyX && z == rwyKeyZ) {
+            return rwyByLast;
+        }
+        rwyKeyX = x;
+        rwyKeyZ = z;
+        final World w = mc.theWorld;
+        RunwayMath.Runway r = w == null || ModContentSVA.runway == null ? null : RunwayMath.find(new RunwayMath.World() {
+            @Override
+            public int top(int bx, int bz) {
+                if (!w.blockExists(bx, 64, bz)) {
+                    return -1;
+                }
+                int h = w.getHeightValue(bx, bz);
+                return h <= 0 ? -1 : h - 1;
+            }
+
+            @Override
+            public boolean runway(int bx, int by, int bz) {
+                return w.blockExists(bx, by, bz) && w.getBlock(bx, by, bz) == ModContentSVA.runway;
+            }
+        }, x + 0.5, z + 0.5);
+        rwyByLast = r != null && RouteMath.handOver(true, r.distance(x + 0.5, z + 0.5));
+        return rwyByLast;
     }
 
     private static String age(int sec) {

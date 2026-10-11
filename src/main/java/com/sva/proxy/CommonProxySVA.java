@@ -52,6 +52,10 @@ public class CommonProxySVA {
     public void accessInfo(NetSVA.AccessInfo m) {
     }
 
+    /** D4: a flight plan from the server (client: the map's route tab, the driver's own copy). */
+    public void routeInfo(NetSVA.RouteInfo m) {
+    }
+
     /** Wave 3, ★19: the «Моя техника» rows arrived (client). */
     public void mapInfo(NetSVA.MapInfo m) {
     }

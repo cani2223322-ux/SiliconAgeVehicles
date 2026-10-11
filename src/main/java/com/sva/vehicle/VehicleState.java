@@ -61,6 +61,11 @@ public class VehicleState {
     public int[] routeA, routeB;
     public boolean routeNextB, autoOn;
     public int autoState;
+    /**
+     * Round 2, D4 (★22): the aircraft's flight plan - the «Маршрут» tab's waypoints and the active one (RouteMath); kept in
+     * the vehicle (picked up, it stays in the item), only for the autopilot kinds (plane, jet, tiltrotor).
+     */
+    public RouteMath.Plan plan = new RouteMath.Plan();
     /** Tiltrotor: the mode it is turning to / in (true: airplane) and the nacelles, 0 (vertical) .. TRANSITION_TICKS (airplane). */
     public boolean tiltPlane;
     public int tiltStep;
@@ -406,6 +411,7 @@ public class VehicleState {
         t.setInteger(K_FAILS, fails);
         t.setInteger(K_FAIL_INSTR, failInstr);
         t.setDouble(K_BATTERY, battery);
+        RouteMath.write(plan, t);                               // D4
     }
 
     /** Tiltrotor nacelles 0 (vertical) .. 1 (airplane). */
@@ -489,6 +495,13 @@ public class VehicleState {
         fails = t.hasKey(K_FAILS) ? t.getInteger(K_FAILS) & SystemsMath.F_ALL : fails;
         failInstr = t.hasKey(K_FAIL_INSTR) ? Math.max(0, Math.min(SystemsMath.INSTR_SLOTS - 1, t.getInteger(K_FAIL_INSTR))) : failInstr;
         battery = t.hasKey(K_BATTERY) ? clampNum(t.getDouble(K_BATTERY), 0, SystemsMath.BAT_MAX) : battery;
+        // D4: the flight plan (a missing key - a save from before D4 - keeps the current one: none)
+        if (t.hasKey(RouteMath.K_POINTS)) {
+            plan = RouteMath.read(t);
+        }
+        if (CruiseMath.kind(type.movement, true) != CruiseMath.AUTOPILOT) {
+            plan = new RouteMath.Plan();
+        }
     }
 
     private static int[] point(int[] a) {

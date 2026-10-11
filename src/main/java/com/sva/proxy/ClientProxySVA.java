@@ -182,6 +182,16 @@ public class ClientProxySVA extends CommonProxySVA {
         mapPending = m;
     }
 
+    /** D4: the flight plans received, applied on the client thread (the map's route tab, the driver's copy). */
+    private final java.util.concurrent.ConcurrentLinkedQueue<NetSVA.RouteInfo> routes = new java.util.concurrent.ConcurrentLinkedQueue<NetSVA.RouteInfo>();
+
+    @Override
+    public void routeInfo(NetSVA.RouteInfo m) {
+        if (routes.size() < 16) {
+            routes.add(m);
+        }
+    }
+
     @Override
     public void queueCorrection(NetSVA.Correct m) {
         if (corrections.size() < 16) {
@@ -284,6 +294,16 @@ public class ClientProxySVA extends CommonProxySVA {
         if (mi != null) {
             mapPending = null;
             com.sva.client.GuiMapSVA.receive(mi);                   // ★19
+        }
+        NetSVA.RouteInfo ri;
+        while ((ri = routes.poll()) != null) {
+            // D4: the driver flies his copy of the plan; the map's route tab shows / edits it
+            Minecraft mc = Minecraft.getMinecraft();
+            Entity re = mc.theWorld == null ? null : mc.theWorld.getEntityByID(ri.entity);
+            if (re instanceof EntityVehicleSVA) {                    // (its route target is read only while he drives it)
+                ((EntityVehicleSVA) re).setClientPlan(ri.plan());
+            }
+            com.sva.client.GuiMapSVA.receiveRoute(ri);
         }
         Minecraft mcc = Minecraft.getMinecraft();
         com.sva.client.VehicleKeyBindsSVA.tick(mcc);                 // the menu key; riding: the function keys (raw)

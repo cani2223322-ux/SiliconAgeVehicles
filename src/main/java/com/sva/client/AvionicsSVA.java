@@ -11,6 +11,7 @@ import com.sva.vehicle.CockpitLamps;
 import com.sva.vehicle.CockpitLayout;
 import com.sva.vehicle.CruiseMath;
 import com.sva.vehicle.HighLiftMath;
+import com.sva.vehicle.RouteMath;
 import com.sva.vehicle.RunwayMath;
 import com.sva.vehicle.VehicleType;
 
@@ -28,11 +29,14 @@ import net.minecraft.util.MathHelper;
  * <li>'apanel' - the glare-shield autopilot panel: six windows (АП ВКЛ / ОТКЛ, КУРС, ВЫС, СКОР, ВЕРТ, ЗАХВ ВПП) over six
  * buttons with lamps (the four knobs between them are the model's), the annunciator column on the right (CockpitLamps
  * annunciators: ЗАКР. ВЫП, ПРЕДКР., ВОЗД. ТОРМ, V>120 ЗАКР, СВАЛ.). The values: the driver's own CruiseClientSVA state, a
- * passenger's the synced panel (EntityVehicleSVA.apPanel);</li>
+ * passenger's the synced panel (EntityVehicleSVA.apPanel). Round 2, D4: a seventh window / button МАРШ (the flight plan's
+ * active point «Т3», magenta) on the left of the annunciator column, narrowed for it (the six stay over the model's knobs);</li>
  * <li>'hsi' (and the jet's SCREEN_HSI side screen) - the HSI: the compass card turning with the heading, the set-heading
  * bug, the double cyan pointer to «База» (EntityVehicleSVA.basePoint: the pilot's bed / the spawn), the green course
  * pointer and deviation bar onto the nearest runway (EntityVehicleSVA.runway - the same strip ЗАХВ flies to), windows:
- * the distance to the base, the runway's course and the distance to its threshold;</li>
+ * the distance to the base, the runway's course and the distance to its threshold. D4, МАРШ flying a leg: the course
+ * pointer and the bar magenta on the leg (the bar = the cross-track), the top windows the active point's name / distance
+ * and the leg's course;</li>
  * <li>'flapind' - the flap position: 0 / 10 / 20 / 35 over a 140 deg arc, the needle on the animated flap angle
  * (AnimMath.State.flapPos), the slats' cyan mark;</li>
  * <li>'trimind' - the pitch trim strip НОС ВНИЗ / ВЗЛ / НОС ВВЕРХ: the cosmetic trim AnimMath.trim (the planes' physics has
@@ -46,7 +50,7 @@ import net.minecraft.util.MathHelper;
 final class AvionicsSVA {
 
     private static final int WHITE = 0xEBEDF2, DIMT = 0x6E7480, AMB = 0xFFAC28, AMB_DIM = 0x6A4A18, GRN = 0x46EB78, GRN_DIM = 0x2E5A3A,
-            CYN = 0x5AD7FF, YEL = 0xFFD63C;
+            CYN = 0x5AD7FF, YEL = 0xFFD63C, MAGENTA = 0xEC5ADC;
     /** The mock-up's AP strip in its art pixels (air2_art.ap_layout: 1680 x 220). */
     private static final float AP_W = 1680F, AP_H = 220F;
 
@@ -183,11 +187,14 @@ final class AvionicsSVA {
         face(s, 0.3F);
         col(0x26282E, 1F);                                          // the brushed dark panel
         CockpitInstrumentsSVA.rect(-s.w / 2, -s.h / 2, s.w / 2, s.h / 2, 0F);
-        float lampW = AP_W * 0.2F, gw = (AP_W - lampW - 30) / 6;
+        // the six groups stand where the model's knobs are; D4's МАРШ takes the left of the annunciator column (narrowed)
+        float lampW = AP_W * 0.2F, gw = (AP_W - lampW - 30) / 6, lampX = AP_W - lampW - 6, routeW = lampW * 0.48F;
         boolean blink = (System.currentTimeMillis() / 400) % 2 == 0;
         for (int g = 0; g < AutopilotMath.GROUPS; g++) {
-            float gx = 18 + gw * (g + 0.5F);
-            float x0 = apX(gx - gw * 0.39F, s), x1 = apX(gx + gw * 0.39F, s), y0 = apY(92, s), y1 = apY(22, s);
+            boolean route = g == AutopilotMath.G_ROUTE;
+            float gx = route ? lampX + routeW / 2 : 18 + gw * (g + 0.5F);
+            float gwk = route ? routeW * 0.98F : gw;
+            float x0 = apX(gx - gwk * 0.39F, s), x1 = apX(gx + gwk * 0.39F, s), y0 = apY(92, s), y1 = apY(22, s);
             col(0x101012, 1F);
             CockpitInstrumentsSVA.rect(x0 - s.h * 0.02F, y0 - s.h * 0.02F, x1 + s.h * 0.02F, y1 + s.h * 0.02F, Z0);
             col(0x050607, 1F);
@@ -197,8 +204,8 @@ final class AvionicsSVA {
                 String txt;
                 int c;
                 if (test()) {
-                    txt = g == AutopilotMath.G_AP || g == AutopilotMath.G_CAP ? "888" : "8888";
-                    c = g == AutopilotMath.G_AP || g == AutopilotMath.G_CAP ? GRN : AMB;
+                    txt = g == AutopilotMath.G_AP || g == AutopilotMath.G_CAP || route ? "888" : "8888";
+                    c = g == AutopilotMath.G_AP || g == AutopilotMath.G_CAP ? GRN : route ? MAGENTA : AMB;
                 } else if (logo()) {
                     txt = "SA";
                     c = CockpitInstrumentsSVA.glowRgb;
@@ -208,6 +215,8 @@ final class AvionicsSVA {
                         c = ap.on ? GRN : GRN_DIM;
                     } else if (g == AutopilotMath.G_CAP) {
                         c = held && ap.runway ? (ap.aligned || blink ? GRN : GRN_DIM) : DIMT;
+                    } else if (route) {
+                        c = held && ap.routeN > 0 ? MAGENTA : DIMT;          // D4: the active point in magenta
                     } else {
                         c = held ? AMB : AMB_DIM;
                     }
@@ -215,7 +224,7 @@ final class AvionicsSVA {
                 CockpitInstrumentsSVA.text(fr, txt, (x0 + x1) / 2, (y0 + y1) / 2, (y1 - y0) * 0.62F, (x1 - x0) * 0.9F, c);
             }
             // the button: a dark key with its lamp bar and label (the four knobs beside are the model's)
-            float bx = g == AutopilotMath.G_AP || g == AutopilotMath.G_CAP ? gx : gx - gw * 0.17F, bw = gw * 0.44F;
+            float bx = g == AutopilotMath.G_AP || g == AutopilotMath.G_CAP || route ? gx : gx - gw * 0.17F, bw = gw * 0.44F;
             float b0 = apX(bx - bw / 2, s), b1 = apX(bx + bw / 2, s), by0 = apY(196, s), by1 = apY(118, s);
             col(0x0C0C0E, 1F);
             CockpitInstrumentsSVA.rect(b0 - s.h * 0.015F, by0 - s.h * 0.015F, b1 + s.h * 0.015F, by1 + s.h * 0.015F, Z0);
@@ -229,7 +238,7 @@ final class AvionicsSVA {
                     (by1 - by0) * 0.3F, (b1 - b0) * 0.86F, tint(lit ? 0xFAFAEC : 0xB4B6B0));
         }
         // the annunciator column
-        float lx0 = apX(AP_W - lampW - 6, s), lx1 = apX(AP_W - 22, s);
+        float lx0 = apX(lampX + routeW + 8, s), lx1 = apX(AP_W - 22, s);
         col(0x0E0E10, 1F);
         CockpitInstrumentsSVA.rect(lx0 - s.h * 0.03F, apY(AP_H - 16, s), lx1 + s.h * 0.03F, apY(16, s), Z0);
         int n = Math.max(1, ann.length);
@@ -319,16 +328,32 @@ final class AvionicsSVA {
             tri(ux * Rc * 0.94F, uy * Rc * 0.94F, ux * Rc * 0.58F + vx * R * 0.07F, uy * Rc * 0.58F + vy * R * 0.07F, ux * Rc * 0.58F - vx * R * 0.07F,
                     uy * Rc * 0.58F - vy * R * 0.07F, Z1 + 0.0001F);
         }
-        // the course pointer + deviation bar onto the nearest runway (green)
+        // the course pointer + deviation bar onto the nearest runway (green); round 2, D4: МАРШ flying a leg - onto the leg
+        // (magenta: the course from the previous point to the active one, the bar its cross-track; the first leg: direct to)
         RunwayMath.Runway rw = v.runway();
         AutopilotMath.Capture cap = rw == null ? null : AutopilotMath.capture(rw, v.posX, v.posY, v.posZ, hdg, AutopilotMath.DESCENT, 0);
-        if (cap != null) {
-            float a = (float) Math.toRadians(AutopilotMath.cardAngle(cap.course, hdg));
+        int[] rt = ap.mode(AutopilotMath.M_ROUTE) ? v.routeTarget() : null;
+        boolean leg = rt != null && rt[0] < rt[1];
+        double legCourse = 0, legCross = 0, legDist = 0;
+        if (leg) {
+            double tx = rt[2] + 0.5, tz = rt[3] + 0.5;
+            legDist = AutopilotMath.distance(v.posX, v.posZ, tx, tz);
+            if (rt[5] == Integer.MIN_VALUE) {
+                legCourse = AutopilotMath.bearing(v.posX, v.posZ, tx, tz);
+            } else {
+                legCourse = RouteMath.course(rt[5] + 0.5, rt[6] + 0.5, tx, tz);
+                legCross = RouteMath.crossTrack(rt[5] + 0.5, rt[6] + 0.5, legCourse, v.posX, v.posZ);
+            }
+        }
+        if (cap != null || leg) {
+            int cc = leg ? MAGENTA : GRN;
+            double crsDeg = leg ? legCourse : cap.course, crossNow = leg ? legCross : cap.cross;
+            float a = (float) Math.toRadians(AutopilotMath.cardAngle(crsDeg, hdg));
             ux = (float) Math.sin(a);
             uy = (float) Math.cos(a);
             vx = uy;
             vy = -ux;
-            CockpitInstrumentsSVA.glColor(GRN);
+            CockpitInstrumentsSVA.glColor(cc);
             float lw = R * 0.05F, zz = Z2;
             CockpitInstrumentsSVA.line(ux * Rc * 0.3F, uy * Rc * 0.3F, ux * Rc * 0.66F, uy * Rc * 0.66F, lw, zz);
             tri(ux * Rc * 0.86F, uy * Rc * 0.86F, ux * Rc * 0.64F + vx * R * 0.08F, uy * Rc * 0.64F + vy * R * 0.08F, ux * Rc * 0.64F - vx * R * 0.08F,
@@ -341,8 +366,8 @@ final class AvionicsSVA {
                     ring(vx * dot * k, vy * dot * k, R * 0.025F, R * 0.012F, Z1);
                 }
             }
-            float d = (float) AutopilotMath.cdiDots(cap.cross) * dot;
-            CockpitInstrumentsSVA.glColor(GRN);
+            float d = (float) AutopilotMath.cdiDots(crossNow) * dot;
+            CockpitInstrumentsSVA.glColor(cc);
             CockpitInstrumentsSVA.line(vx * d - ux * Rc * 0.27F, vy * d - uy * Rc * 0.27F, vx * d + ux * Rc * 0.27F, vy * d + uy * Rc * 0.27F, lw, zz);
             CockpitInstrumentsSVA.glColor(tint(WHITE));                 // the TO triangle
             float tx = ux * R * 0.2F + vx * R * 0.2F, ty = uy * R * 0.2F + vy * R * 0.2F;
@@ -359,8 +384,14 @@ final class AvionicsSVA {
         tri(0F, R * 0.83F, -R * 0.045F, R * 0.93F, R * 0.045F, R * 0.93F, Z2);
         // the corner windows: БАЗА distance, the runway's course, its threshold's distance
         boolean t8 = test();
-        window(fr, s, -1, 1, Lang.tr("sva.hsi.base"), t8 ? "8,8" : Double.isNaN(baseDist) ? "--" : AutopilotMath.km(baseDist), CYN);
-        window(fr, s, 1, 1, Lang.tr("sva.hsi.crs"), t8 ? "888" : cap == null ? "---" : String.format("%03d", Integer.valueOf((int) Math.round(cap.course) % 360)), GRN);
+        if (leg && !t8) {
+            // D4: the active point's name and distance, the leg's course (magenta)
+            window(fr, s, -1, 1, Lang.tr("sva.ap.route.wp", Integer.valueOf(rt[0] + 1)), AutopilotMath.km(legDist), MAGENTA);
+            window(fr, s, 1, 1, Lang.tr("sva.hsi.crs"), String.format("%03d", Integer.valueOf((int) Math.round(legCourse) % 360)), MAGENTA);
+        } else {
+            window(fr, s, -1, 1, Lang.tr("sva.hsi.base"), t8 ? "8,8" : Double.isNaN(baseDist) ? "--" : AutopilotMath.km(baseDist), CYN);
+            window(fr, s, 1, 1, Lang.tr("sva.hsi.crs"), t8 ? "888" : cap == null ? "---" : String.format("%03d", Integer.valueOf((int) Math.round(cap.course) % 360)), GRN);
+        }
         window(fr, s, -1, -1, Lang.tr("sva.hsi.rwy"), t8 ? "8,8" : cap == null ? "--" : AutopilotMath.km(Math.max(0, -cap.along)), GRN);
         if (knob) {
             CockpitInstrumentsSVA.text(fr, Lang.tr("sva.hsi.knob"), s.w / 2 - s.w * 0.27F, -s.h / 2 + s.h * 0.05F, s.h * 0.05F, s.w * 0.12F, AMB);
@@ -507,10 +538,12 @@ final class AvionicsSVA {
             return null;
         }
         StringBuilder b = new StringBuilder(Lang.tr("sva.ap.group.ap"));
-        for (int g = AutopilotMath.G_HDG; g <= AutopilotMath.G_CAP; g++) {
+        for (int g = AutopilotMath.G_HDG; g <= AutopilotMath.G_ROUTE; g++) {
             if (ap.mode(AutopilotMath.bit(g))) {
                 b.append(' ').append(Lang.tr("sva.ap.group." + AutopilotMath.GROUP_KEYS[g]));
-                if (g != AutopilotMath.G_CAP) {
+                if (g == AutopilotMath.G_ROUTE) {
+                    b.append(' ').append(GuiAutopilotSVA.value(g, ap));
+                } else if (g != AutopilotMath.G_CAP) {
                     b.append(' ').append(GuiAutopilotSVA.value(g, ap));
                 } else if (ap.runway) {
                     b.append(' ').append(GuiAutopilotSVA.phaseText(ap));

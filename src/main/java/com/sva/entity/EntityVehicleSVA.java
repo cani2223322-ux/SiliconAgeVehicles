@@ -23,6 +23,7 @@ import com.sva.vehicle.Movement;
 import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.PlaneParams;
 import com.sva.vehicle.RoadMath;
+import com.sva.vehicle.RouteMath;
 import com.sva.vehicle.RunwayMath;
 import com.sva.vehicle.SpaceMath;
 import com.sva.vehicle.TiltMath;
@@ -197,6 +198,15 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * one-way state machine evaluated twice a tick lands on the same phase), PH_RWY while ЗАХВ is not flying.
      */
     private int capPhase;
+    /**
+     * Round 2, D4 (★22): the driver's client's copy of the flight plan (the server sends it - NetSVA.RouteInfo - when he
+     * gets in and after each change; its physics advances the active point itself), the guidance this tick (apBegin /
+     * the server's step; null = МАРШ not flying), the server's last driver the plan went to, and «send it again».
+     */
+    private RouteMath.Plan clientPlan = new RouteMath.Plan();
+    private RouteMath.Guide routeNow;
+    private EntityPlayerMP planSentTo;
+    private boolean planDirty;
     /** Stage C, the physics: last tick's speed (СКОР's damping term). */
     private double apPrevSpeed = Double.NaN;
     /** Signed speed along the facing, blocks/tick (physics). */
@@ -777,8 +787,13 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         return new String[] {p.length > 0 ? p[0] : "", p.length > 1 ? p[1] : ""};
     }
 
+    /**
+     * DW_ROUTE: "A;B" of auto-delivery; round 2, D4 - no data watcher id was left - an aircraft adds ";" + its flight
+     * plan's synced target (RouteMath.targetText: the active point, the leg's start, the count) for every rider's HSI / HUD.
+     */
     private String routeText() {
-        return pointText(state.routeA) + ";" + pointText(state.routeB);
+        String r = pointText(state.routeA) + ";" + pointText(state.routeB);
+        return isAircraft() ? r + ";" + RouteMath.targetText(state.plan) : r;
     }
 
     private static String pointText(int[] p) {
@@ -1002,7 +1017,127 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         p.runway = (apModes & AutopilotMath.M_CAP) != 0 && runway != null;
         p.aligned = capAligned;
         p.phase = capPhase;
+        p.routeN = state.plan.size();                       // D4
+        p.routeAct = state.plan.active;
         return p;
+    }
+
+    // ------------------------------------------------------------------ round 2, D4 (★22): the flight plan
+
+    /** An autopilot kind (plane, jet, tiltrotor - its airplane mode or not): has a flight plan. */
+    public boolean isAircraft() {
+        return CruiseMath.kind(getVehicleType().movement, true) == CruiseMath.AUTOPILOT;
+    }
+
+    /** The flight plan this side flies by: the server's (VehicleState), the driver's client's copy (RouteInfo). */
+    public RouteMath.Plan plan() {
+        return worldObj.isRemote ? clientPlan : state.plan;
+    }
+
+    /** Client (NetSVA.RouteInfo): the server's plan for this vehicle. */
+    public void setClientPlan(RouteMath.Plan p) {
+        clientPlan = p == null ? new RouteMath.Plan() : p;
+    }
+
+    /**
+     * МАРШ's guidance now from this side's plan (RouteMath.guide - it advances the active point; null: no plan). The
+     * turn's lead from the speed and the turn rate the physics turns at (PlanePhysicsSVA: turnRate x speed / stall).
+     */
+    public RouteMath.Guide routeGuide() {
+        RouteMath.Plan p = plan();
+        if (p.isEmpty()) {
+            return null;
+        }
+        VehicleType t = getVehicleType();
+        double sp = Math.max(0, worldObj.isRemote ? speed : Math.max(speed, airspeedNow));
+        double stall = t.plane == null ? 0.5 : flightParams(t).stall;
+        double rate = t.turnRate * VehicleMath.clamp(sp / Math.max(1e-6, stall), 0, 1);
+        int was = p.active;
+        RouteMath.Guide g = RouteMath.guide(p, posX, posZ, CruiseMath.heading(rotationYaw), sp, rate);
+        if (g != null && g.switched && worldObj.isRemote && p.active != was) {
+            routeDing = true;                               // the driver's client: a chime for the next point
+        }
+        return g;
+    }
+
+    /** Set by routeGuide on the driver's client when a point is reached (CockpitInstrumentsSVA plays the chime once). */
+    public boolean routeDing;
+
+    /** МАРШ flew through the plan and a runway lies by its last point: ЗАХВ takes over (RouteMath.handOver). */
+    public boolean routeHandOver() {
+        RouteMath.Plan p = plan();
+        if ((apModes & AutopilotMath.M_ROUTE) == 0 || (apModes & AutopilotMath.M_CAP) != 0 || !p.done()) {
+            return false;
+        }
+        RunwayMath.Runway r = runway();
+        int[] last = p.pts.get(p.size() - 1);
+        return r != null && RouteMath.handOver(true, r.distance(last[0] + 0.5, last[1] + 0.5));
+    }
+
+    /**
+     * The plan's synced target {active, size, tx, tz, alt, fx, fz} (RouteMath.parseTarget; fx = Integer.MIN_VALUE on the
+     * first leg) or null: the server and the driver's client from their own plan (it advances there first), other
+     * clients from DW_ROUTE.
+     */
+    public int[] routeTarget() {
+        if (!isAircraft()) {
+            return null;
+        }
+        if (!worldObj.isRemote || riddenByEntity != null && riddenByEntity == SVAMod.proxy.localPlayer() && !clientPlan.isEmpty()) {
+            return RouteMath.parseTarget(RouteMath.targetText(plan()));
+        }
+        String r = dataWatcher.getWatchableObjectString(DW_ROUTE);
+        int a = r.indexOf(';'), k = a < 0 ? -1 : r.indexOf(';', a + 1);
+        return k < 0 ? null : RouteMath.parseTarget(r.substring(k + 1));
+    }
+
+    /**
+     * Server, NetSVA.RouteSet: player p sets the plan (RouteMath.mayEdit - the right to drive an aircraft); the active
+     * point back to the first. The sender (and the driver, next tick) get the plan back. @return accepted
+     */
+    public boolean serverSetPlan(EntityPlayerMP p, int[] flat) {
+        if (!RouteMath.mayEdit(isAircraft(), rightsOf(p))) {
+            msg(p, isAircraft() ? "sva.msg.route.denied" : "sva.msg.route.notAir");
+            return false;
+        }
+        state.plan = RouteMath.sanitize(flat, 0);
+        planDirty = true;
+        syncWatcher();
+        sendPlan(p);
+        msg(p, state.plan.isEmpty() ? "sva.msg.route.cleared" : "sva.msg.route.set", Integer.valueOf(state.plan.size()));
+        return true;
+    }
+
+    /** Server: the plan to player p (the map's «Маршрут» tab asks; the driver gets it on boarding / a change). */
+    public void sendPlan(EntityPlayerMP p) {
+        if (p != null && p.playerNetServerHandler != null) {
+            NetSVA.CHANNEL.sendTo(new NetSVA.RouteInfo(getEntityId(), state.plan, RouteMath.mayEdit(isAircraft(), rightsOf(p))), p);
+        }
+    }
+
+    /** Server, every tick: МАРШ steps with the driver's client's flight (its physics runs there), the plan to a new driver. */
+    private void routeServerTick() {
+        if (!isAircraft()) {
+            return;
+        }
+        if (cruiseNow && (apModes & AutopilotMath.M_ROUTE) != 0) {
+            RouteMath.Guide g = routeGuide();
+            if (g != null && g.switched) {
+                syncWatcher();
+            }
+        }
+        EntityPlayerMP d = riddenByEntity instanceof EntityPlayerMP ? (EntityPlayerMP) riddenByEntity : null;
+        if (d != null && (d != planSentTo || planDirty)) {
+            sendPlan(d);
+        }
+        planSentTo = d;
+        planDirty = false;
+    }
+
+    /** World test: the plan set directly (as the RouteSet packet would, without a player). */
+    public void debugSetPlan(RouteMath.Plan p) {
+        state.plan = p == null ? new RouteMath.Plan() : p;
+        syncWatcher();
     }
 
     /** The HSI's «База» (world x, z) or null: the pilot's bed (overworld), else the world's spawn - synced from the server. */
@@ -1030,7 +1165,13 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** Stage C: the autopilot's step begins (PlanePhysicsSVA) - ЗАХВ's guidance looked up once for the tick. */
     public void apBegin() {
-        capNow = (apModes & AutopilotMath.M_CAP) != 0 ? capture() : null;
+        routeNow = (apModes & AutopilotMath.M_ROUTE) != 0 ? routeGuide() : null;
+        if (routeHandOver()) {
+            apModes |= AutopilotMath.M_CAP;                 // D4: the last point by a runway - ЗАХВ takes over by itself
+        }
+        // D4: while the plan is flown ЗАХВ waits (a runway passed on the way is not captured)
+        boolean capWait = routeNow != null && !routeNow.done;
+        capNow = (apModes & AutopilotMath.M_CAP) != 0 && !capWait ? capture() : null;
         if (capNow != null && capNow.out) {
             capNow = null;
         }
@@ -1046,6 +1187,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (capNow != null) {
             return capNow.heading - 180;
         }
+        if (routeNow != null && !Double.isNaN(routeNow.heading)) {
+            return routeNow.heading - 180;                  // D4: МАРШ - the active leg (after the last point: its course)
+        }
         return (apModes & AutopilotMath.M_HDG) != 0 ? apYaw : Double.NaN;
     }
 
@@ -1054,6 +1198,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (capNow != null && !Double.isNaN(capNow.vy)) {
             // stage C: aligned on the glide slope; stage D1: the PAPI's slope (ГЛИС) / the flare (ВЫРАВН.)
             return VehicleMath.clamp(capNow.vy, -dive, Math.max(0, climb));
+        }
+        if (routeNow != null) {
+            // D4: МАРШ - ВЫС's law toward the leg's height (with ВЕРТ: no faster than the set vertical speed)
+            return AutopilotMath.wantedVy(apModes | AutopilotMath.M_ALT, posY, routeNow.alt, apVs, climb, dive);
         }
         return AutopilotMath.wantedVy(apModes, posY, apAlt, apVs, climb, dive);
     }
@@ -1946,6 +2094,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         int in = autoDrive ? autoIn : input;
         double sysEu = systemsTick(t, motorOn, in, riddenByEntity != null || debugDriver);   // D2: battery, engine, heat, failures
         cruiseNow = !autoDrive && motorOn && cruiseActive(in);
+        routeServerTick();                                          // D4: МАРШ's points, the plan to the driver
         boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
         // aircraft: also while the last tick ended in the air (a driver who got out mid-air - onGround is stale then)
         if (!clientDriven && (motorOn || Math.abs(speed) > 0.0005 || !onGround || ticksExisted < 3 || t.movement.flies && wasAirborne)) {
@@ -2836,7 +2985,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * runway ЗАХВ flies to is shown instead). The hook for stage D4's flight plan (МАРШ).
      */
     public double[] hudWaypoint() {
-        return null;
+        int[] r = routeTarget();
+        if (r == null || r[0] >= r[1] || !apPanel().mode(AutopilotMath.M_ROUTE)) {
+            return null;                                    // D4: МАРШ not set / flown through - the runway, if any
+        }
+        return new double[] {r[2] + 0.5, r[3] + 0.5, r[0] + 1};
     }
 
     /**

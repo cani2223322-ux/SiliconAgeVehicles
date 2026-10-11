@@ -16,7 +16,8 @@ import net.minecraft.client.gui.GuiScreen;
 
 /**
  * Aircraft stage C (★17, mock-up docs/mockups/veh_air2_5_cockpit.png): «Панель автопилота» - the glare-shield panel as a
- * screen (the «Техника» menu's row, key I by default): six groups АП / КУРС / ВЫС / СКОР / ВЕРТ / ЗАХВ, each a window with
+ * screen (the «Техника» menu's row, key I by default): seven groups АП / КУРС / ВЫС / СКОР / ВЕРТ / ЗАХВ / МАРШ (round 2, D4:
+ * the flight plan - its window the active point «Т3», the line under the windows the leg instead of the runway), each a window with
  * its set value over a button with a lamp; КУРС..ВЕРТ have their knob as - / + buttons (Shift: x5) - the mouse wheel over
  * the screen (and in flight while the autopilot holds) turns the last knob touched. ЗАХВ's line says which runway it
  * would capture. The state is the driver's client's (CruiseClientSVA) and goes to the server with the Input packet; a
@@ -24,9 +25,9 @@ import net.minecraft.client.gui.GuiScreen;
  */
 public class GuiAutopilotSVA extends GuiScreen {
 
-    private static final int W = 324, H = 132, COL = 52;
+    private static final int W = 376, H = 132, COL = 52;
     private static final int BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, WIN = 0xFF07080A, GOLD = 0xF2A040, TEXT = 0xD8DCE4,
-            MUTED = 0x8A93A3, GREEN = 0x62E06A, AMBER = 0xFFAC28, DIM_AMBER = 0x7A5A20, CYAN = 0x5EC8F0;
+            MUTED = 0x8A93A3, GREEN = 0x62E06A, AMBER = 0xFFAC28, DIM_AMBER = 0x7A5A20, CYAN = 0x5EC8F0, MAGENTA = 0xEC5ADC, DIM_MAGENTA = 0x6A2E64;
     private static final int B_MODE = 10, B_MINUS = 20, B_PLUS = 30;
 
     private EntityVehicleSVA vehicle;
@@ -136,7 +137,7 @@ public class GuiAutopilotSVA extends GuiScreen {
             boolean held = g == AutopilotMath.G_AP ? p.on : p.mode(AutopilotMath.bit(g));
             String v = value(g, p);
             int col = g == AutopilotMath.G_AP ? (p.on ? GREEN : MUTED) : g == AutopilotMath.G_CAP ? (held && p.runway ? (p.aligned || blink ? GREEN : 0x2E6A34) : MUTED)
-                    : held ? AMBER : DIM_AMBER;
+                    : g == AutopilotMath.G_ROUTE ? (held && p.routeN > 0 ? MAGENTA : DIM_MAGENTA) : held ? AMBER : DIM_AMBER;
             GL11.glPushMatrix();
             int tw = fontRendererObj.getStringWidth(v);
             float k = Math.min(1.6F, (wx1 - wx0 - 4) / (float) Math.max(1, tw));
@@ -151,10 +152,15 @@ public class GuiAutopilotSVA extends GuiScreen {
                 drawRect(x + 4, top + 89, x + COL - 4, top + 90, 0xFFFFD24D);    // the wheel's knob
             }
         }
-        // ЗАХВ's runway line, the hints
+        // ЗАХВ's runway line (D4: МАРШ flying a leg - the leg's line instead), the hints
         RunwayMath.Runway r = vehicle.runway();
+        int[] rt = vehicle.routeTarget();
         String rw;
-        if (r == null) {
+        boolean leg = p.mode(AutopilotMath.M_ROUTE) && rt != null && rt[0] < rt[1];
+        if (leg) {
+            rw = Lang.tr("sva.ap.route.line", Lang.tr("sva.ap.route.wp", Integer.valueOf(rt[0] + 1)), Integer.valueOf(rt[1]),
+                    AutopilotMath.km(AutopilotMath.distance(vehicle.posX, vehicle.posZ, rt[2] + 0.5, rt[3] + 0.5)), Integer.valueOf(rt[4]));
+        } else if (r == null) {
             rw = Lang.tr("sva.ap.rwy.none", Integer.valueOf(RunwayMath.SCAN));
         } else {
             AutopilotMath.Capture c = vehicle.capture();
@@ -165,7 +171,7 @@ public class GuiAutopilotSVA extends GuiScreen {
                 rw += " | " + Lang.tr("sva.ap.papi", Integer.valueOf(c.papi.nominal), c.whites < 0 ? "-" : String.valueOf(c.whites));
             }
         }
-        TextFitSC.draw(fontRendererObj, rw, left + 6, top + 95, W - 12, r == null ? MUTED : GREEN, false, 0, 0);
+        TextFitSC.draw(fontRendererObj, rw, left + 6, top + 95, W - 12, leg ? MAGENTA : r == null ? MUTED : GREEN, false, 0, 0);
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.ap.hint.wheel", Lang.tr("sva.ap.group." + AutopilotMath.GROUP_KEYS[CruiseClientSVA.knob()])),
                 left + 6, top + 107, W - 12, MUTED, false, 0, 0);
         TextFitSC.draw(fontRendererObj, Lang.tr(driver ? "sva.ap.hint.keys" : "sva.vmenu.driverOnly", CruiseClientSVA.keyName()), left + 6, top + 118,
@@ -209,6 +215,9 @@ public class GuiAutopilotSVA extends GuiScreen {
                 return String.format("%03d", Integer.valueOf(p.kmh));
             case AutopilotMath.G_VS:
                 return CruiseClientSVA.vsText(p.vs);
+            case AutopilotMath.G_ROUTE:
+                // D4: the active point «Т3», «КОН» flown through, «--» without a plan
+                return p.routeN <= 0 ? "--" : p.routeDone() ? Lang.tr("sva.ap.route.end") : Lang.tr("sva.ap.route.wp", Integer.valueOf(p.routeAct + 1));
             default:
                 return p.mode(AutopilotMath.M_CAP) && p.runway ? phaseText(p) : "----";
         }

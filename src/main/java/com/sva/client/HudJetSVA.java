@@ -209,7 +209,7 @@ final class HudJetSVA {
                 TEXT_DEG, rgb);
         if (ap != null && ap.on) {
             StringBuilder b = new StringBuilder(Lang.tr("sva.ap.group.ap"));
-            for (int g = AutopilotMath.G_HDG; g <= AutopilotMath.G_CAP; g++) {
+            for (int g = AutopilotMath.G_HDG; g <= AutopilotMath.G_ROUTE; g++) {
                 if (ap.mode(AutopilotMath.bit(g))) {
                     b.append("  ").append(Lang.tr("sva.ap.group." + AutopilotMath.GROUP_KEYS[g]));
                 }

@@ -287,7 +287,7 @@ public class GuiVehicleSVA extends GuiScreen {
                     return v.cruiseKind() == CruiseMath.NONE ? s("sva.vmenu.st.notNow", MUTED) : s("sva.vmenu.st.off", MUTED);
                 }
                 StringBuilder b = new StringBuilder();
-                for (int g = com.sva.vehicle.AutopilotMath.G_HDG; g <= com.sva.vehicle.AutopilotMath.G_CAP; g++) {
+                for (int g = com.sva.vehicle.AutopilotMath.G_HDG; g <= com.sva.vehicle.AutopilotMath.G_ROUTE; g++) {
                     if (ap.mode(com.sva.vehicle.AutopilotMath.bit(g))) {
                         b.append(b.length() > 0 ? " " : "").append(Lang.tr("sva.ap.group." + com.sva.vehicle.AutopilotMath.GROUP_KEYS[g]));
                     }

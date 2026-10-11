@@ -132,6 +132,7 @@ public final class SelfTestSVA {
             SelfTestAirD1SVA.run();                         // aircraft round 2, D1: PAPI, airfield lights, ЗАХВ phases, landing lights
             SelfTestAirD2SVA.run();                         // aircraft round 2, D2: switches, engine start, failures, overhead panel
             SelfTestAirD3SVA.run();                         // aircraft round 2, D3: gear doors and struts, nozzle petals, the jet's HUD
+            SelfTestAirD4SVA.run();                         // aircraft round 2, D4: the flight plan (route maths, leg switching, NBT, rights)
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);

@@ -64,11 +64,30 @@ public final class CruiseClientSVA {
         return v.isDead ? null : v;
     }
 
-    /** Client tick: off when the driver left. */
+    /** Client tick: off when the driver left; D4: the chime of a flight-plan point reached. */
     public static void tick(Minecraft mc) {
         EntityVehicleSVA v = driven(mc);
         if (on && (v == null || v.getEntityId() != vehicleId)) {
             on = false;                                        // got out: nothing to tell
+        }
+        if (v != null && v.routeDing) {
+            v.routeDing = false;
+            if (on && (modes & AutopilotMath.M_ROUTE) != 0) {
+                mc.getSoundHandler().playSound(net.minecraft.client.audio.PositionedSoundRecord.func_147674_a(
+                        new net.minecraft.util.ResourceLocation(EntityVehicleSVA.soundName("ding")), 1.4F));
+            }
+        }
+    }
+
+    /**
+     * D4, the map's «В автопилот» for the vehicle the local player drives: МАРШ on (the AP engaged with the panel's modes
+     * when it can be - else just set, the reason shown).
+     */
+    public static void routeEngage(EntityVehicleSVA v) {
+        prepare(v);
+        modes |= AutopilotMath.M_ROUTE;
+        if (!on) {
+            apButton(v);
         }
     }
 
@@ -152,11 +171,11 @@ public final class CruiseClientSVA {
         engage(v, k, false);
     }
 
-    /** A mode button (AutopilotMath.G_HDG..G_CAP): on / off; its knob becomes the wheel's. */
+    /** A mode button (AutopilotMath.G_HDG..G_ROUTE): on / off; its knob becomes the wheel's (ЗАХВ / МАРШ have none). */
     public static void modeButton(EntityVehicleSVA v, int group) {
         prepare(v);
         modes ^= AutopilotMath.bit(group);
-        if (group != AutopilotMath.G_CAP) {
+        if (group != AutopilotMath.G_CAP && group != AutopilotMath.G_ROUTE) {
             knob = group;
         }
     }
@@ -207,6 +226,9 @@ public final class CruiseClientSVA {
         p.runway = (modes & AutopilotMath.M_CAP) != 0 && v.runway() != null;
         p.aligned = p.on && v.apPanel().aligned;
         p.phase = p.on ? v.apPanel().phase : AutopilotMath.PH_RWY;        // stage D1: the server's ВПП / ГЛИС / ВЫРАВН
+        int[] r = v.routeTarget();                                      // D4: МАРШ's window - the active point
+        p.routeAct = r == null ? 0 : r[0];
+        p.routeN = r == null ? 0 : r[1];
         return p;
     }
 
@@ -240,6 +262,10 @@ public final class CruiseClientSVA {
             wHeld = fwd;
         }
         v.apModes = kind == CruiseMath.AUTOPILOT ? modes : AutopilotMath.DEFAULT;     // stage C (ЗАХВ's landing check)
+        if (kind == CruiseMath.AUTOPILOT && v.routeHandOver()) {
+            modes |= AutopilotMath.M_CAP;                      // D4: the plan ends by a runway - ЗАХВ armed by itself
+            v.apModes = modes;
+        }
         v.apVs = vs / 20;
         int why = v.cruiseBlocked(in | EntityVehicleSVA.IN_CRUISE);
         if (why != 0) {
@@ -315,14 +341,14 @@ public final class CruiseClientSVA {
         frame(px, py, pw, ph);
         fit(fr, Lang.tr("sva.hud.ap.title"), px + 6, py + 5, pw - 12, AMBER, true);
         String[] labels = {Lang.tr("sva.hud.ap.heading"), Lang.tr("sva.hud.ap.alt"), Lang.tr("sva.hud.ap.speed"), Lang.tr("sva.hud.ap.vs"),
-                Lang.tr("sva.hud.ap.cap")};
-        int[] bits = {AutopilotMath.M_HDG, AutopilotMath.M_ALT, AutopilotMath.M_SPD, AutopilotMath.M_VS, AutopilotMath.M_CAP};
-        int[] groups = {AutopilotMath.G_HDG, AutopilotMath.G_ALT, AutopilotMath.G_SPD, AutopilotMath.G_VS, AutopilotMath.G_CAP};
+                Lang.tr("sva.hud.ap.cap"), Lang.tr("sva.hud.ap.route")};
+        int[] bits = {AutopilotMath.M_HDG, AutopilotMath.M_ALT, AutopilotMath.M_SPD, AutopilotMath.M_VS, AutopilotMath.M_CAP, AutopilotMath.M_ROUTE};
+        int[] groups = {AutopilotMath.G_HDG, AutopilotMath.G_ALT, AutopilotMath.G_SPD, AutopilotMath.G_VS, AutopilotMath.G_CAP, AutopilotMath.G_ROUTE};
         AutopilotMath.Panel ap = panel(v);
         String[] values = {String.format("%03d", Integer.valueOf(ap.hdg)), String.valueOf(ap.alt), String.valueOf(ap.kmh), vsText(ap.vs),
-                ap.runway ? GuiAutopilotSVA.phaseText(ap) : "--"};
-        int bw = 30;
-        for (int i = 0; i < 5; i++) {
+                ap.runway ? GuiAutopilotSVA.phaseText(ap) : "--", GuiAutopilotSVA.value(AutopilotMath.G_ROUTE, ap)};
+        int bw = 25;                                                // D4: six boxes (МАРШ added) in the same panel
+        for (int i = 0; i < 6; i++) {
             boolean held = (modes & bits[i]) != 0;
             int bx = px + 6 + i * (bw + 2);
             Gui.drawRect(bx, py + 16, bx + bw, py + 26, held ? BOX_ON : BOX_OFF);
