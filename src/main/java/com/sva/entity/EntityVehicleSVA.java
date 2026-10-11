@@ -1194,19 +1194,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         placeSeats();
     }
 
-    /** Diagnostics for "night vision doesn't work in a vehicle": lines written so far (a few a session). */
-    private static int nvLogged;
-
     private void serverUpdate(VehicleType t) {
-        if (nvLogged < 12 && ticksExisted % 100 == 0 && riddenByEntity instanceof EntityPlayer) {
-            EntityPlayer pl = (EntityPlayer) riddenByEntity;
-            int ex = MathHelper.floor_double(pl.posX), ey = MathHelper.floor_double(pl.posY + 1.62), ez = MathHelper.floor_double(pl.posZ);
-            nvLogged++;
-            org.apache.logging.log4j.LogManager.getLogger("SiliconAgeVehicles").info("[SVA-NV] server: rider y " + pl.posY + " eye block "
-                    + ex + "," + ey + "," + ez + " light " + (ey >= 0 && ey < 256 ? worldObj.getBlockLightValue(ex, ey, ez) : -1)
-                    + " block " + worldObj.getBlock(ex, ey, ez).getUnlocalizedName() + " nightVision "
-                    + pl.isPotionActive(net.minecraft.potion.Potion.nightVision));
-        }
         long now = worldObj.getTotalWorldTime();
         if (!registered || ticksExisted % com.sva.vehicle.MapMath.UPDATE_EVERY == 0) {
             updateRegistry();                                       // ★19: the map's card (and the per-player count)

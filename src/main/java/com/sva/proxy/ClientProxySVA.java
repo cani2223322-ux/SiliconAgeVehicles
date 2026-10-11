@@ -261,13 +261,6 @@ public class ClientProxySVA extends CommonProxySVA {
 
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent e) {
-        clientTickBody(e);
-    }
-
-    /** Night-vision diagnostic lines written so far this session. */
-    private static int nvLogged;
-
-    private void clientTickBody(TickEvent.ClientTickEvent e) {
         if (e.phase != TickEvent.Phase.START) {
             return;
         }
@@ -290,21 +283,6 @@ public class ClientProxySVA extends CommonProxySVA {
             com.sva.client.GuiMapSVA.receive(mi);                   // ★19
         }
         Minecraft mcc = Minecraft.getMinecraft();
-        if (nvLogged < 12 && mcc.thePlayer != null && mcc.thePlayer.ticksExisted % 100 == 0) {
-            // diagnostics for "night vision doesn't work in a vehicle": the client's potion and the light at the eyes
-            Entity rv = mcc.thePlayer.ridingEntity;
-            if (rv instanceof EntityVehicleSVA || rv instanceof EntitySeatSVA) {
-                nvLogged++;
-                net.minecraft.potion.PotionEffect nv = mcc.thePlayer.getActivePotionEffect(net.minecraft.potion.Potion.nightVision);
-                int ex = net.minecraft.util.MathHelper.floor_double(mcc.thePlayer.posX);
-                int ey = net.minecraft.util.MathHelper.floor_double(mcc.thePlayer.posY);
-                int ez = net.minecraft.util.MathHelper.floor_double(mcc.thePlayer.posZ);
-                org.apache.logging.log4j.LogManager.getLogger("SiliconAgeVehicles").info("[SVA-NV] client: nightVision "
-                        + (nv == null ? "none" : nv.getDuration() + " t") + " eye y " + mcc.thePlayer.posY + " light "
-                        + (ey >= 0 && ey < 256 ? mcc.theWorld.getBlockLightValue(ex, ey, ez) : -1)
-                        + " renderView " + (mcc.renderViewEntity == null ? "-" : mcc.renderViewEntity.getClass().getSimpleName()));
-            }
-        }
         com.sva.client.VehicleKeyBindsSVA.tick(mcc);                 // the menu key; riding: the function keys (raw)
         com.sva.client.CruiseClientSVA.tick(mcc);                    // ★4: off when the driver left
         com.sva.client.VehicleSoundsSVA.tick(mcc);                   // ★1: engine loops

@@ -155,12 +155,9 @@ public final class VehicleKeyBindsSVA {
      * tap shorter than a tick (50 ms) is over before tick() polls Keyboard.isKeyDown - the latch still counts it.
      */
     private static final java.util.Set<Integer> TAPPED = new java.util.HashSet<Integer>();
-    private static final org.apache.logging.log4j.Logger KEYLOG = org.apache.logging.log4j.LogManager.getLogger("SiliconAgeVehicles");
     /**
-     * Diagnostic lines written so far this session (riding presses are logged only up to a limit). Only with config
      * vehicles.debugKeys (off by default) - for a «the menu does not open» report.
      */
-    private static int LOGGED;
 
     /** FML bus: every key / mouse button press while no screen is open (vanilla posts these only then). */
     public static final class Taps {
@@ -173,13 +170,6 @@ public final class VehicleKeyBindsSVA {
             TAPPED.add(Integer.valueOf(k));
             Minecraft mc = Minecraft.getMinecraft();
             int menu = KEY_MENU.getKeyCode();
-            boolean riding = mc.thePlayer != null && HudVehicleSVA.vehicleOf(mc.thePlayer) != null;
-            if (com.sva.ConfigSVA.debugKeys && (k == menu || riding && LOGGED < 40)) {
-                // diagnostics for "the menu does not open": the code this keyboard sends, the menu key, the state
-                LOGGED++;
-                KEYLOG.info("[SVA-KEYS] key " + k + " '" + Keyboard.getEventCharacter() + "' menuKey " + menu + " riding "
-                        + riding + " screen " + (mc.currentScreen == null ? "-" : mc.currentScreen.getClass().getName()));
-            }
             if (k == menu) {
                 openMenu(mc);
             } else {
@@ -209,7 +199,6 @@ public final class VehicleKeyBindsSVA {
         if (mc.thePlayer != null && mc.currentScreen == null) {
             mc.displayGuiScreen(new GuiVehicleSVA());
             if (com.sva.ConfigSVA.debugKeys) {
-                KEYLOG.info("[SVA-KEYS] menu opened");
             }
         }
     }
