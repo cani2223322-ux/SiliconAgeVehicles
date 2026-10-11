@@ -784,6 +784,10 @@ public class GuiMapSVA extends GuiScreen {
                 TextFitSC.drawCentered(fontRendererObj, Lang.tr("sva.map.station"), (int) (ox + p[0]) - 30, (int) (oy + p[1]) + 6, 60, TEXT, true, 0, 0);
             }
         }
+        // air-defence wave: the airspace zones pilots see (their type's colour, the name and the band)
+        if (mc.theWorld != null) {
+            AirDefenseClientSVA.drawZones(fontRendererObj, AirDefenseClientSVA.zones(mc.theWorld.provider.dimensionId), ox, oy, cx, cz, s, -1);
+        }
         // the vehicles (this dimension, known place); off the panel: pinned to the edge with the distance
         for (NetSVA.MapInfo.Row r : rows()) {
             if (!showable(r)) {

@@ -66,7 +66,13 @@ public enum VehicleFn {
      * (client.MfdPagesSVA). Any rider may flip his own MFD. ' (Э on a Russian keyboard): free in vanilla, the core and the
      * old letters.
      */
-    MFD_PAGE("mfdPage", "mfdPage", 40, false, false);
+    MFD_PAGE("mfdPage", "mfdPage", 40, false, false),
+    /**
+     * Air-defence wave: «IDENT» - the transponder's identification (the blip flashes 18 s on every radar, the command post
+     * sees who is who; airdefense.XpdrMath). Everything that flies (it has a transponder). \ : free in vanilla, the core
+     * and the old letters. The transponder's mode and code: the menu's «Ответчик» row.
+     */
+    IDENT("ident", "ident", 43, false, true);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -118,6 +124,8 @@ public enum VehicleFn {
                 return SystemsMath.applies(t) || FuelMath.on(t, -1, com.sva.net.ServerConfigSVA.hydrogen());
             case MFD_PAGE:
                 return GlassMath.hasMfd(t);
+            case IDENT:
+                return com.sva.airdefense.XpdrMath.fitted(t);
             default:
                 return true;                                        // cargo, map: every vehicle
         }
@@ -155,6 +163,8 @@ public enum VehicleFn {
                 return EntityVehicleSVA.A_AIRBRAKE;
             case ENGINE:
                 return EntityVehicleSVA.A_ENGINE;
+            case IDENT:
+                return EntityVehicleSVA.A_IDENT;
             default:
                 return -1;
         }

@@ -71,6 +71,9 @@ public class ClientProxySVA extends CommonProxySVA {
         FMLCommonHandler.instance().bus().register(new com.sva.client.VehiclePickSVA());       // clicks on the whole model of big vehicles
         MinecraftForge.EVENT_BUS.register(new Wheel());                            // ★3 / ★4: the mouse wheel while riding
         MinecraftForge.EVENT_BUS.register(new com.sva.client.RunwayLightsSVA());   // stage D1: runway marks / inlaid lights
+        com.sva.client.AirDefenseClientSVA ad = new com.sva.client.AirDefenseClientSVA();   // air-defence wave: messages, zones, RWR
+        MinecraftForge.EVENT_BUS.register(ad);
+        FMLCommonHandler.instance().bus().register(ad);
         FMLCommonHandler.instance().bus().register(this);
         // ★6: headlights light the blocks ahead (client world only; restored on leave / unload)
         com.sva.client.DynamicLightSVA light = new com.sva.client.DynamicLightSVA();
@@ -191,6 +194,11 @@ public class ClientProxySVA extends CommonProxySVA {
         if (routes.size() < 16) {
             routes.add(m);
         }
+    }
+
+    @Override
+    public void adData(int kind, net.minecraft.nbt.NBTTagCompound data) {
+        com.sva.client.AirDefenseClientSVA.receive(kind, data);    // queued, applied on the client thread
     }
 
     @Override

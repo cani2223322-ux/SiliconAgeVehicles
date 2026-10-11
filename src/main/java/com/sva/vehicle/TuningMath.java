@@ -15,13 +15,18 @@ package com.sva.vehicle;
  * - Большие колёса: wheeled ground vehicles only (tracks already step 2 blocks, aircraft have no use);
  * - Усиленный бур: the drill vehicle; Доп. бак: flying types with gas tanks (helicopter... shuttle, ship);
  * - Аккумулятор+ and Люстра фар: every vehicle.
+ * Air-defence wave (kinds 9..11, aircraft only - everything that really flies): «Радиопоглощающее покрытие» (the radars
+ * see it at x0.6 of the range), «Гладкий корпус» (x0.9; not with Броня - the plates are anything but smooth),
+ * «Приёмник облучения» (the RWR: the cockpit's scope, lamp and sound - airdefense.RadarMath).
  */
 public final class TuningMath {
 
     public static final int MOTOR_I = 0, MOTOR_II = 1, BATTERY = 2, ARMOR = 3, LIGHT_HULL = 4, BIG_WHEELS = 5, LIGHT_BAR = 6,
-            DRILL_PLUS = 7, EXTRA_TANK = 8, KINDS = 9;
+            DRILL_PLUS = 7, EXTRA_TANK = 8,
+            /** Air-defence wave: radar-absorbent coating, smooth hull, the radar warning receiver. */
+            RAM_COAT = 9, SMOOTH_HULL = 10, RWR = 11, KINDS = 12;
     /** Item meta -> lang / icon key (APPEND-ONLY with the kinds). */
-    public static final String[] KEYS = {"motor1", "motor2", "battery", "armor", "lightHull", "bigWheels", "lightBar", "drillPlus", "extraTank"};
+    public static final String[] KEYS = {"motor1", "motor2", "battery", "armor", "lightHull", "bigWheels", "lightBar", "drillPlus", "extraTank", "ramCoat", "smoothHull", "rwr"};
     public static final int MAX_SLOTS = 4;
     /** canInstall results. */
     public static final int OK = 0, NO_FIT = 1, CONFLICT = 2, FULL = 3, BAD = 4;
@@ -58,6 +63,10 @@ public final class TuningMath {
                 return t.hasDrill;
             case EXTRA_TANK:
                 return t.movement.flies && t.gases.any();
+            case RAM_COAT:
+            case SMOOTH_HULL:
+            case RWR:
+                return t.movement.flies;
             default:
                 return true;                                // battery, armour, light bar
         }
@@ -68,7 +77,8 @@ public final class TuningMath {
         if (a == b) {
             return true;
         }
-        return engine(a) && engine(b) || a == ARMOR && b == LIGHT_HULL || a == LIGHT_HULL && b == ARMOR;
+        return engine(a) && engine(b) || a == ARMOR && b == LIGHT_HULL || a == LIGHT_HULL && b == ARMOR
+                || a == ARMOR && b == SMOOTH_HULL || a == SMOOTH_HULL && b == ARMOR;
     }
 
     private static boolean engine(int k) {

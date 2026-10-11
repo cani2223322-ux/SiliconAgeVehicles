@@ -361,5 +361,34 @@ public final class WorkbenchRecipesSVA {
         // He loop modules (the cooling), a controller
         block("supercap", new ItemStack(ModContentSVA.supercap), Tier.XV, "PBP", "HEH", "PCP",
                 'P', nbPlate, 'B', battery(5), 'H', heLoop, 'E', part(ComponentType.ENERGY_BLOCK_XV), 'C', controller);
+
+        // ---- air-defence wave (appended: the list index is the sync id)
+        ItemStack bars = new ItemStack(Blocks.iron_bars), compass = new ItemStack(Items.compass), disp = new ItemStack(Blocks.dispenser);
+        // the surveillance radar (HV): an antenna of iron bars on a mast of steel, sensors, the controller, an HV cell
+        block("radarSurvey", new ItemStack(ModContentSVA.radar, 1, com.sva.airdefense.RadarMath.SURVEY), Tier.HV, "BBB", "NCN", "XEX",
+                'B', bars, 'N', sensor, 'C', controller, 'X', casing, 'E', cellHV);
+        // the tracking radar (HV): a dish (aluminium foil round a sensor), the controller, copper coils, an HV cell
+        block("radarTrack", new ItemStack(ModContentSVA.radar, 1, com.sva.airdefense.RadarMath.TRACK), Tier.HV, "FNF", "KCK", "XEX",
+                'F', alFoil, 'N', sensor, 'K', coil, 'C', controller, 'X', casing, 'E', cellHV);
+        // the height finder (MV): a nodding antenna (iron bars, a compass), a sensor, an MV cell
+        block("radarHeight", new ItemStack(ModContentSVA.radar, 1, com.sva.airdefense.RadarMath.HEIGHT), Tier.MV, " B ", "MNM", "XEX",
+                'B', bars, 'M', compass, 'N', sensor, 'X', casing, 'E', cellMV);
+        // the AA gun (MV): twin steel barrels on a dispenser, the motor I turning it, an MV cell
+        block("launcherGun", new ItemStack(ModContentSVA.launcher, 1, com.sva.block.TileEntityLauncherSVA.GUN), Tier.MV, "S S", "DMD", "XEX",
+                'S', steel, 'D', disp, 'M', part(ComponentType.MOTOR_I), 'X', casing, 'E', cellMV);
+        // the missile system (EV): four tubes (dispensers) round a flight computer, titanium casings, the HV energy block
+        block("launcherMissile", new ItemStack(ModContentSVA.launcher, 1, com.sva.block.TileEntityLauncherSVA.MISSILE), Tier.EV, "DFD", "TCT", "DED",
+                'D', disp, 'F', part(ComponentType.FLIGHT_COMPUTER), 'T', tiCasing, 'C', controller, 'E', part(ComponentType.ENERGY_BLOCK_HV));
+        // the command post (MV): screens (glass panes), memory chips, the controller, a note block (the alarm), an MV cell
+        block("commandPost", new ItemStack(ModContentSVA.commandPost), Tier.MV, "GGG", "MCM", "XNE",
+                'G', Blocks.glass_pane, 'M', memory, 'C', controller, 'X', casing, 'N', Blocks.noteblock, 'E', cellMV);
+        // tuning: the radar-absorbent coating (EV - expensive: Nb3Sn plates, polymer, coal blocks), the smooth hull (HV: aluminium,
+        // polymer), the radar warning receiver (HV: two sensors, the controller, a glass pane - the scope)
+        module("tuningRamCoat", tu.stackOf(com.sva.vehicle.TuningMath.RAM_COAT), Tier.EV, "PBP", "NCN", "PBP",
+                'P', polymer, 'B', Blocks.coal_block, 'N', nbPlate, 'C', controller);
+        module("tuningSmoothHull", tu.stackOf(com.sva.vehicle.TuningMath.SMOOTH_HULL), Tier.HV, "PAP", "AFA", "PAP",
+                'P', polymer, 'A', al, 'F', alFoil);
+        module("tuningRwr", tu.stackOf(com.sva.vehicle.TuningMath.RWR), Tier.HV, "NGN", "KCK",
+                'N', sensor, 'G', Blocks.glass_pane, 'K', coil, 'C', controller);
     }
 }

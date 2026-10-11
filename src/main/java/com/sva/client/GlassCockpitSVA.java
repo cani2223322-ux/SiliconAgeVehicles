@@ -807,12 +807,22 @@ final class GlassCockpitSVA {
         }
         col(0x78FF96);
         CockpitInstrumentsSVA.poly(new float[][] {{0F, R * 0.12F}, {-R * 0.1F, -R * 0.08F}, {0F, -R * 0.03F}, {R * 0.1F, -R * 0.08F}}, Z2);
+        // air-defence wave: each emitter - a diamond at its bearing (nearer = closer to the centre) with its letter (О обзорная,
+        // С сопровождение, В высотомер, Р ракета); a lock is orange, a missile red with the outer ring flashing
+        boolean missile = false;
         for (float[] t : CockpitDataSVA.rwrThreat(v)) {
             double a = Math.toRadians(t[0]);
-            float rr = R * (0.33F + 0.5F * Math.max(0F, Math.min(1F, 1F - t[1] / 8000F)));
+            float rr = R * (float) com.sva.airdefense.RadarMath.rwrRadius(t[1]);
             float x = (float) Math.sin(a) * rr, y = (float) Math.cos(a) * rr, q = R * 0.13F;
-            col(0xFF5A46);
+            int kind = (int) t[2];
+            missile |= kind == com.sva.airdefense.RadarMath.T_MISSILE;
+            col(kind == com.sva.airdefense.RadarMath.T_MISSILE ? 0xFF3C32 : kind == com.sva.airdefense.RadarMath.T_LOCK ? 0xFF8C32 : 0xF0C846);
             CockpitInstrumentsSVA.poly(new float[][] {{x, y + q}, {x + q, y}, {x, y - q}, {x - q, y}}, Z2);
+            textC(fr, Lang.tr("sva.ad.rwr.letter." + kind), x, y + q * 1.6F, R * 0.12F, R * 0.3F, 0xFFFFFF);
+        }
+        if (missile && System.currentTimeMillis() / 250 % 2 == 0) {
+            col(0xFF3C32);
+            AvionicsSVA.ring(0F, 0F, R * 0.95F, R * 0.04F, Z2);
         }
         textC(fr, Lang.tr("sva.mfd.rwr.short"), 0F, -R * 0.5F, R * 0.13F, R * 0.8F, 0x6EE68C);
     }
@@ -899,7 +909,7 @@ final class GlassCockpitSVA {
         if (ph != CockpitLamps.PH_DARK && ph != CockpitLamps.PH_LOGO) {
             textC(fr, ph == CockpitLamps.PH_TEST ? "8888" : GlassMath.squawk(CockpitDataSVA.xpdrCode(v)), 0F, h * 0.23F, h * 0.15F, w * 0.82F, AMB);
         }
-        // the modes: ВЫКЛ ОЖИД A C S, the current one green
+        // the modes: ВЫКЛ ДЕЖ A C S, the current one green
         String cur = CockpitDataSVA.xpdrMode(v);
         String[] modes = {"sva.xpdr.mode.off", "sva.xpdr.mode.stby", "sva.xpdr.mode.a", "sva.xpdr.mode.c", "sva.xpdr.mode.s"};
         col(0x0C0C0E);
@@ -920,6 +930,14 @@ final class GlassCockpitSVA {
         boolean reply = ph == CockpitLamps.PH_TEST || ph == CockpitLamps.PH_NORMAL && CockpitDataSVA.xpdrReply(v);
         col(reply ? GRN : 0x1E2A22);
         CockpitInstrumentsSVA.disc(w * 0.3F, -h * 0.38F, h * 0.05F, Z1);
+        // air-defence wave: IDENT lit while it flashes on the radars; the КЛЮЧ ДНЯ lamp under the code
+        boolean ident = ph == CockpitLamps.PH_TEST || ph == CockpitLamps.PH_NORMAL && CockpitDataSVA.xpdrIdent(v);
+        col(ident ? 0x5EC8F0 : 0x1E2630);
+        rect(-w * 0.3F, -h * 0.33F, w * 0.0F, -h * 0.31F, Z1);
+        if (ph == CockpitLamps.PH_NORMAL || ph == CockpitLamps.PH_TEST) {
+            boolean key = ph == CockpitLamps.PH_TEST || CockpitDataSVA.xpdrKeyLamp(v);
+            textC(fr, Lang.tr("sva.ad.xpdr.dayKey"), w * 0.34F, h * 0.04F, h * 0.045F, w * 0.28F, key ? AMB : 0x3A3020);
+        }
         GL11.glPopMatrix();
     }
 

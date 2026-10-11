@@ -152,7 +152,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
              * Hydrogen wave: «Снять» - the battery out into the player's inventory (the engine off, standing; the owner or
              * the «Ремонт» right - the method checks, not actionAllowed).
              */
-            A_BATTERY_OUT = 40;
+            A_BATTERY_OUT = 40,
+            /** Air-defence wave (the pilot): the transponder's IDENT - the blip flashes 18 s on every radar. */
+            A_IDENT = 41;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -5059,7 +5061,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return manage || driver;
         }
         if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS || action >= A_FLAPS_UP && action <= A_AIRBRAKE
-                || action == A_ENGINE || action >= A_SWITCH && action < A_SWITCH + SystemsMath.SWITCHES) {
+                || action == A_ENGINE || action >= A_SWITCH && action < A_SWITCH + SystemsMath.SWITCHES || action == A_IDENT) {
             return driver;                                          // only the pilot turns the nacelles / works the ship / the flaps
         }
         return manage;
@@ -5093,6 +5095,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         actionTicks.put(p.getUniqueID(), Long.valueOf(now));
         VehicleType t = state.type;
+        if (a == A_IDENT) {
+            com.sva.airdefense.AirDefenseSVA.INSTANCE.ident(this);   // air-defence wave
+            return;
+        }
         if (a == A_SORT) {
             msg(p, "sva.msg.cargo.sorted", Integer.valueOf(sortCargo()));
             return;

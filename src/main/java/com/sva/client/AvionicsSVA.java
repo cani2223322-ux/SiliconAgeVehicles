@@ -397,6 +397,21 @@ final class AvionicsSVA {
             tri(tx + ux * R * 0.05F, ty + uy * R * 0.05F, tx - ux * R * 0.02F + vx * R * 0.04F, ty - uy * R * 0.02F + vy * R * 0.04F,
                     tx - ux * R * 0.02F - vx * R * 0.04F, ty - uy * R * 0.02F - vy * R * 0.04F, Z1);
         }
+        // air-defence wave: a forbidden / restricted zone's border ahead within 60 blocks - a dashed line across the card at
+        // its distance (the card's rim = 60 blocks), the zone's name and the blocks to it (AirDefenseClientSVA.hsiZone)
+        Object[] zb = test() ? null : AirDefenseClientSVA.hsiZone(v);
+        if (zb != null) {
+            double zd = ((Double) zb[1]).doubleValue();
+            int zc = ((Integer) zb[2]).intValue() == com.sva.airdefense.ZoneMath.FORBIDDEN ? 0xF05050 : 0xF0B040;
+            float yy = (float) (Rc * 0.85 * Math.min(1, zd / 60)), half = (float) Math.sqrt(Math.max(0, Rc * Rc * 0.81 - yy * yy));
+            CockpitInstrumentsSVA.glColor(zc);
+            int n = 9;
+            for (int k = 0; k < n; k += 2) {
+                float a0 = -half + 2 * half * k / n, a1 = -half + 2 * half * (k + 1) / n;
+                CockpitInstrumentsSVA.line(a0, yy, a1, yy, R * 0.025F, Z2);
+            }
+            CockpitInstrumentsSVA.text(fr, zb[0] + "  " + Math.round(zd), 0F, yy - R * 0.09F, R * 0.08F, R * 0.9F, zc);
+        }
         // the aircraft symbol (yellow) and the lubber line (amber)
         CockpitInstrumentsSVA.glColor(YEL);
         float zz = CockpitInstrumentsSVA.LIFT_HUB - CockpitInstrumentsSVA.LIFT_FACE;

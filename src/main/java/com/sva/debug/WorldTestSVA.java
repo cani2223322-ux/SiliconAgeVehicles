@@ -315,6 +315,20 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // air-defence wave (radars, the command post, launchers, the transponder) - alongside, its own area and owner
+        if (ticks >= WorldTestAirDefenseSVA.START && !airDefense.done) {
+            try {
+                airDefense.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL air defence exception " + t);
+                t.printStackTrace(System.out);
+                airDefense.abort(w);
+            }
+            if (airDefense.done) {
+                maybeSummary();
+            }
+        }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
         if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
             try {
@@ -2117,6 +2131,7 @@ public class WorldTestSVA {
     private final WorldTestAirD4SVA airD4 = new WorldTestAirD4SVA(this);
     private final WorldTestFastChargeSVA fastCharge = new WorldTestFastChargeSVA(this);
     private final WorldTestFuelSVA fuel = new WorldTestFuelSVA(this);
+    private final WorldTestAirDefenseSVA airDefense = new WorldTestAirDefenseSVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
     private String seId;
@@ -2131,7 +2146,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && fuel.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && fuel.done && airDefense.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

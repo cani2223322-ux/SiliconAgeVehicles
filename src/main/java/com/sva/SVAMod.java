@@ -50,5 +50,6 @@ public class SVAMod {
     @Mod.EventHandler
     public void serverStopped(FMLServerStoppedEvent e) {
         com.sva.net.ServerQueueSVA.INSTANCE.clear();
+        com.sva.airdefense.AirDefenseSVA.INSTANCE.clear();          // air-defence wave: nothing kept for the next world
     }
 }

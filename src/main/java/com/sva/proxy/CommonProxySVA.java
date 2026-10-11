@@ -22,6 +22,7 @@ public class CommonProxySVA {
         ConfigSVA.load(new File(e.getModConfigurationDirectory(), "SiliconAgeVehicles.cfg"));
         ModContentSVA.preInit();
         NetSVA.init();
+        com.sva.net.NetADSVA.init();                                // air-defence wave: its own channel
     }
 
     public void init(FMLInitializationEvent e) {
@@ -29,6 +30,7 @@ public class CommonProxySVA {
         NetworkRegistry.INSTANCE.registerGuiHandler(SVAMod.instance, new GuiHandlerSVA());
         FMLCommonHandler.instance().bus().register(ServerQueueSVA.INSTANCE);
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new com.sva.entity.EventsSVA());     // stage E: invisibility
+        FMLCommonHandler.instance().bus().register(com.sva.airdefense.AirDefenseSVA.INSTANCE);         // air-defence wave
     }
 
     public void postInit(FMLPostInitializationEvent e) {
@@ -58,6 +60,10 @@ public class CommonProxySVA {
 
     /** Wave 3, ★19: the «Моя техника» rows arrived (client). */
     public void mapInfo(NetSVA.MapInfo m) {
+    }
+
+    /** Air-defence wave: a NetADSVA.Data payload (client: handed to client.AirDefenseClientSVA on the client thread). */
+    public void adData(int kind, net.minecraft.nbt.NBTTagCompound data) {
     }
 
     /** A server correction for the local driver (applied on the client thread). */

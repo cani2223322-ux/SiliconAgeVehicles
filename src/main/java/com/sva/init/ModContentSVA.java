@@ -57,6 +57,10 @@ public final class ModContentSVA {
     // hydrogen wave: the vehicles' removable batteries, the electrolyte / service kit / jump leads
     public static com.sva.item.ItemBatterySVA battery;
     public static com.sva.item.ItemBatteryToolSVA batteryTool;
+    // air-defence wave: radars, launchers, the command post; ammunition, the code card
+    public static com.sva.block.BlockAirDefenseSVA radar, launcher, commandPost;
+    public static com.sva.item.ItemAmmoSVA ammo;
+    public static com.sva.item.ItemCodeCardSVA codeCard;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -152,6 +156,25 @@ public final class ModContentSVA {
         batteryTool = new com.sva.item.ItemBatteryToolSVA();
         batteryTool.setCreativeTab(TAB);
         GameRegistry.registerItem(batteryTool, "batteryTool");
+        // air-defence wave (radars / launchers / the command post: Engineering Workbench; ammunition, code card: crafting table)
+        radar = new com.sva.block.BlockAirDefenseSVA(com.sva.block.BlockAirDefenseSVA.RADAR);
+        radar.setCreativeTab(TAB);
+        GameRegistry.registerBlock(radar, com.sva.block.ItemBlockAirDefenseSVA.class, "radar");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityRadarSVA.class, ReferenceSVA.MODID + ":radar");
+        launcher = new com.sva.block.BlockAirDefenseSVA(com.sva.block.BlockAirDefenseSVA.LAUNCHER);
+        launcher.setCreativeTab(TAB);
+        GameRegistry.registerBlock(launcher, com.sva.block.ItemBlockAirDefenseSVA.class, "launcher");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityLauncherSVA.class, ReferenceSVA.MODID + ":launcher");
+        commandPost = new com.sva.block.BlockAirDefenseSVA(com.sva.block.BlockAirDefenseSVA.COMMAND_POST);
+        commandPost.setCreativeTab(TAB);
+        GameRegistry.registerBlock(commandPost, com.sva.block.ItemBlockAirDefenseSVA.class, "commandPost");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityCommandPostSVA.class, ReferenceSVA.MODID + ":commandPost");
+        ammo = new com.sva.item.ItemAmmoSVA();
+        ammo.setCreativeTab(TAB);
+        GameRegistry.registerItem(ammo, "adAmmo");
+        codeCard = new com.sva.item.ItemCodeCardSVA();
+        codeCard.setCreativeTab(TAB);
+        GameRegistry.registerItem(codeCard, "codeCard");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);
@@ -179,6 +202,7 @@ public final class ModContentSVA {
                 'X', casing, 'G', component.stackOf(com.sva.item.ComponentType.GAS_TANK, 1), 'R', new ItemStack(ModItems.rubber),
                 'C', controller, 'B', net.minecraft.init.Items.bucket));
         batteryRecipes(casing, coil);
+        airDefenseRecipes(casing, controller, steel);
         com.sva.block.RoadsSVA.recipes();                    // ★11 roads: crafting table, vanilla items
         // components and vehicles: only on the workbench (the stage 1 crafting-table buggy is gone)
         WorkbenchRecipesSVA.register();
@@ -218,6 +242,22 @@ public final class ModContentSVA {
         GameRegistry.addRecipe(new ShapedOreRecipe(batteryTool.stackOf(com.sva.item.ItemBatteryToolSVA.CABLES, 1),
                 "K K", "RDR",
                 'K', coil, 'R', new ItemStack(ModItems.rubber), 'D', net.minecraft.init.Items.redstone));
+    }
+
+    /**
+     * Air-defence wave (crafting table, core items + vanilla): «Снаряды ПВО» x16 - iron ingots, gunpowder x2, the core's
+     * steel ingot (the mock-up: iron + powder); «Зенитная ракета» - a sensor (the seeker) over a controller between steel
+     * casings, gunpowder and blaze powder (the motor); «Карта кодов» x2 - paper x2 and blue dye.
+     */
+    private static void airDefenseRecipes(ItemStack casing, ItemStack controller, ItemStack steel) {
+        GameRegistry.addRecipe(new ShapedOreRecipe(ammo.stackOf(com.sva.item.ItemAmmoSVA.SHELLS, 16),
+                "I I", "GSG", "I I",
+                'I', net.minecraft.init.Items.iron_ingot, 'G', net.minecraft.init.Items.gunpowder, 'S', steel));
+        GameRegistry.addRecipe(new ShapedOreRecipe(ammo.stackOf(com.sva.item.ItemAmmoSVA.MISSILE, 1),
+                " N ", "XCX", "GBG",
+                'N', comp("sensor"), 'X', casing, 'C', controller, 'G', net.minecraft.init.Items.gunpowder, 'B', net.minecraft.init.Items.blaze_powder));
+        GameRegistry.addRecipe(new net.minecraftforge.oredict.ShapelessOreRecipe(new ItemStack(codeCard, 2),
+                net.minecraft.init.Items.paper, net.minecraft.init.Items.paper, new ItemStack(net.minecraft.init.Items.dye, 1, 4)));
     }
 
     /** The core's NaOH bucket (ItemFluidBucketSC.FLUIDS index of "naoh"). */

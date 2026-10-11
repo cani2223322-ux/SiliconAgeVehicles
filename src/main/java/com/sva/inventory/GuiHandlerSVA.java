@@ -7,13 +7,19 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;
 
-/** GUI ids: CARGO (x = the vehicle's entity id), WORKBENCH, CHARGER, GARAGE, SUPERCAP (x, y, z = the block). */
+/** GUI ids: CARGO (x = the vehicle's entity id), WORKBENCH, CHARGER, GARAGE, SUPERCAP, LAUNCHER (x, y, z = the block). */
 public class GuiHandlerSVA implements IGuiHandler {
 
-    public static final int CARGO = 0, WORKBENCH = 1, CHARGER = 2, GARAGE = 3, SUPERCAP = 4;
+    public static final int CARGO = 0, WORKBENCH = 1, CHARGER = 2, GARAGE = 3, SUPERCAP = 4,
+            /** Air-defence wave: a launcher's screen (its ammunition slots and settings). */
+            LAUNCHER = 5;
 
     @Override
     public Object getServerGuiElement(int id, EntityPlayer p, World w, int x, int y, int z) {
+        if (id == LAUNCHER) {
+            net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
+            return te instanceof com.sva.block.TileEntityLauncherSVA ? new ContainerLauncherSVA(p.inventory, (com.sva.block.TileEntityLauncherSVA) te) : null;
+        }
         if (id == SUPERCAP) {
             net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
             return te instanceof com.sva.block.TileEntitySupercapSVA ? new ContainerSupercapSVA((com.sva.block.TileEntitySupercapSVA) te) : null;
@@ -36,6 +42,10 @@ public class GuiHandlerSVA implements IGuiHandler {
 
     @Override
     public Object getClientGuiElement(int id, EntityPlayer p, World w, int x, int y, int z) {
+        if (id == LAUNCHER) {
+            net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
+            return te instanceof com.sva.block.TileEntityLauncherSVA ? new com.sva.client.GuiLauncherSVA(p.inventory, (com.sva.block.TileEntityLauncherSVA) te) : null;
+        }
         if (id == SUPERCAP) {
             net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
             return te instanceof com.sva.block.TileEntitySupercapSVA ? new com.sva.client.GuiSupercapSVA((com.sva.block.TileEntitySupercapSVA) te) : null;

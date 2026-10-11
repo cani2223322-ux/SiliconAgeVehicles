@@ -35,7 +35,9 @@ public class VehicleState {
             K_SWITCHES = "Switches", K_FAILS = "Failures", K_FAIL_INSTR = "FailInstr", K_BATTERY = "Battery",
             // hydrogen wave (FuelMath / BatteryMath): the board battery is in (+ its health, limit, services, cycle EU, deep
             // flag - BatteryMath.K_*), the H2 tank has been set up once (a save without it gets a full tank)
-            K_BAT_IN = "BatIn", K_H2_SEEN = "H2Seen";
+            K_BAT_IN = "BatIn", K_H2_SEEN = "H2Seen",
+            // air-defence wave: the transponder
+            K_XPDR = "Xpdr";
     /** Keys inside K_TRAILER_DATA (also the trailer item's own NBT, ItemTrailerSVA). */
     public static final String T_FLUID = "Fluid", T_AMOUNT = "Amount", T_IN = "In", T_OUT = "Out", T_CARRIED = "Carried", T_ENERGY = "Energy";
 
@@ -116,6 +118,8 @@ public class VehicleState {
     public int batServices;
     /** The H2 tank has been filled for an old save once (K_H2_SEEN). */
     public boolean h2Seen;
+    /** Air-defence wave: the transponder (mode, code, «Ключ дня»); saved under K_XPDR (a missing key: mode C, 7000). */
+    public final com.sva.airdefense.XpdrMath.Xpdr xpdr = new com.sva.airdefense.XpdrMath.Xpdr();
     /** Tests (not saved): 1 - on hydrogen, 0 - on EU whatever the config says; -1 - the server's vehicles.fuelMode. */
     public int fuelForce = -1;
 
@@ -490,6 +494,9 @@ public class VehicleState {
             t.setBoolean(BatteryMath.K_DEEP, batDeep);
         }
         t.setBoolean(K_H2_SEEN, h2Seen || hydrogen());
+        NBTTagCompound x = new NBTTagCompound();
+        xpdr.write(x);
+        t.setTag(K_XPDR, x);
     }
 
     /** Tiltrotor nacelles 0 (vertical) .. 1 (airplane). */
@@ -597,6 +604,9 @@ public class VehicleState {
         }
         if (CruiseMath.kind(type.movement, true) != CruiseMath.AUTOPILOT) {
             plan = new RouteMath.Plan();
+        }
+        if (t.hasKey(K_XPDR)) {
+            xpdr.read(t.getCompoundTag(K_XPDR));                // air-defence wave (an older save: mode C, 7000)
         }
     }
 
