@@ -199,6 +199,21 @@ public final class ObjModelSVA {
     private int[][] baseLists;
     private String[][] baseTiles;
     private int[] sideList, topList, decalList;
+    /**
+     * ★13 (aircraft stage B, WeatherMath) per group: the weathering lists - outer side faces per z zone, painted outer
+     * tops, low / higher outer bottoms (0 = none; wSide[i] null = the group never gets dirty).
+     */
+    private int[][] wSide;
+    private int[] wTop, wLow, wHigh;
+    /** ★14 (MarkMath) per painted group and marking of this model: the outer faces under it (0 = none). */
+    private int[][] markLists;
+    private List<com.sva.vehicle.MarkMath.Mark> marks;
+    /** ★13: the model's spec (null: never weathered), the projection boxes (side x / y, top x / z), the edge strips' footprint. */
+    private com.sva.vehicle.WeatherMath.Spec spec;
+    private float[] wBoxSide, wBoxTop;
+    private boolean[] edgeMask;
+    /** ★13: the wear bucket of the next draws (wear(); style() resets it to clean). */
+    private int wearBucket;
     /** The style render() / renderPart() draw with (style()): livery (-1 none) and board number. */
     private int livery = -1, board = 1;
     /**
@@ -477,6 +492,28 @@ public final class ObjModelSVA {
         topList = new int[n];
         decalList = new int[n];
         float[] dbox = SkinMath.decalBox(name);
+        // ★13 / ★14: which faces are outermost (the whole model, glass too), the weathering's boxes and edge strips
+        spec = com.sva.vehicle.WeatherMath.specOf(name);
+        marks = com.sva.vehicle.MarkMath.marks(name);
+        wSide = new int[n][];
+        wTop = new int[n];
+        wLow = new int[n];
+        wHigh = new int[n];
+        markLists = new int[n][];
+        com.sva.vehicle.WeatherMath.Outer outer = null;
+        if (spec != null || !marks.isEmpty()) {
+            outer = new com.sva.vehicle.WeatherMath.Outer(bbMin, bbMax);
+            for (List<float[]> tris : pending.values()) {
+                for (int t = 0; t + 2 < tris.size(); t += 3) {
+                    outer.add(tris.get(t), tris.get(t + 1), tris.get(t + 2));
+                }
+            }
+        }
+        if (spec != null) {
+            wBoxSide = new float[] {bbMin[0], bbMin[1], bbMax[0], bbMax[1]};
+            wBoxTop = new float[] {bbMin[0], bbMin[2], bbMax[0], bbMax[2]};
+            edgeMask = edgeMask();
+        }
         for (int i = 0; i < n; i++) {
             List<float[]> tris = pending.get(groups.get(i));
             String mat = mats.get(i);
@@ -517,8 +554,118 @@ public final class ObjModelSVA {
                 topList[i] = top.isEmpty() ? 0 : compileList(tris, fn, top, 1, paintBox);
                 decalList[i] = dec.isEmpty() ? 0 : compileList(tris, fn, dec, 2, dbox);
             }
+            if (spec != null && !emissive.get(i).booleanValue() && com.sva.vehicle.WeatherMath.weathered(mat)) {
+                compileWeather(i, tris, fn, outer);
+            }
+            if (!marks.isEmpty() && SkinMath.paintable(mat)) {
+                float[][] seen = new float[count][];                 // the facing seen from outside (null: inside)
+                for (int t = 0; t < count; t++) {
+                    seen[t] = outer.facing(tris.get(t * 3), tris.get(t * 3 + 1), tris.get(t * 3 + 2), fn[t]);
+                }
+                markLists[i] = new int[marks.size()];
+                for (int mk = 0; mk < marks.size(); mk++) {
+                    List<Integer> on = new ArrayList<Integer>();
+                    for (int t = 0; t < count; t++) {
+                        if (seen[t] != null && com.sva.vehicle.MarkMath.on(marks.get(mk), seen[t], tris.get(t * 3), tris.get(t * 3 + 1), tris.get(t * 3 + 2))) {
+                            on.add(Integer.valueOf(t));
+                        }
+                    }
+                    markLists[i][mk] = on.isEmpty() ? 0 : compileMark(tris, seen, on, marks.get(mk));
+                }
+            }
         }
         pending = null;
+    }
+
+    /**
+     * ★13: a group's weathering lists - its outermost faces split by facing: tops (> TOP_NY, painted only: the chips behind
+     * the leading edges) and bottoms (< -TOP_NY; "low" up to the mud line) projected from above / below over the x / z
+     * box, the sides projected over the x / y box, one list per z zone of the spec.
+     */
+    private void compileWeather(int i, List<float[]> tris, float[][] fn, com.sva.vehicle.WeatherMath.Outer outer) {
+        boolean chip = com.sva.vehicle.WeatherMath.chippable(mats.get(i));
+        int zones = spec.zones.length + 1;
+        List<List<Integer>> sides = new ArrayList<List<Integer>>();
+        for (int z = 0; z < zones; z++) {
+            sides.add(new ArrayList<Integer>());
+        }
+        List<Integer> top = new ArrayList<Integer>(), low = new ArrayList<Integer>(), high = new ArrayList<Integer>();
+        float mudLine = bbMin[1] + spec.mudTop + 0.05F;
+        for (int t = 0; t < fn.length; t++) {
+            float[] a = tris.get(t * 3), b = tris.get(t * 3 + 1), c = tris.get(t * 3 + 2);
+            float[] f = outer.facing(a, b, c, fn[t]);
+            if (f == null) {
+                continue;
+            }
+            if (f[1] > SkinMath.TOP_NY) {
+                if (chip) {
+                    top.add(Integer.valueOf(t));
+                }
+            } else if (f[1] < -SkinMath.TOP_NY) {
+                ((a[1] + b[1] + c[1]) / 3F < mudLine ? low : high).add(Integer.valueOf(t));
+            } else {
+                sides.get(com.sva.vehicle.WeatherMath.zone(spec, Math.abs(a[2] + b[2] + c[2]) / 3F)).add(Integer.valueOf(t));
+            }
+        }
+        wSide[i] = new int[zones];
+        for (int z = 0; z < zones; z++) {
+            wSide[i][z] = sides.get(z).isEmpty() ? 0 : compileList(tris, fn, sides.get(z), 1, wBoxSide);
+        }
+        wTop[i] = top.isEmpty() ? 0 : compileList(tris, fn, top, 3, wBoxTop);
+        wLow[i] = low.isEmpty() ? 0 : compileList(tris, fn, low, 3, wBoxTop);
+        wHigh[i] = high.isEmpty() ? 0 : compileList(tris, fn, high, 3, wBoxTop);
+    }
+
+    /** ★13: the leading-edge strips' footprint seen from above (spec.edgeMat at |z| >= edgeMinZ), in the top box's texels. */
+    private boolean[] edgeMask() {
+        if (spec.edgeMat == null) {
+            return null;
+        }
+        int w = SkinMath.overlayW(wBoxTop), h = SkinMath.overlayH(wBoxTop);
+        boolean[] m = new boolean[w * h];
+        float[] uv = new float[2];
+        for (int g = 0; g < groups.size(); g++) {
+            if (!spec.edgeMat.equals(mats.get(g))) {
+                continue;
+            }
+            List<float[]> tris = pending.get(groups.get(g));
+            for (int t = 0; t + 2 < tris.size(); t += 3) {
+                float[] a = tris.get(t), b = tris.get(t + 1), c = tris.get(t + 2);
+                if (Math.abs(a[2] + b[2] + c[2]) / 3F < spec.edgeMinZ) {
+                    continue;
+                }
+                for (int s = 0; s <= 8; s++) {
+                    for (int r = 0; r + s <= 8; r++) {
+                        float fu = s / 8F, fv = r / 8F, fw = 1F - fu - fv;
+                        SkinMath.overlayUv(wBoxTop, a[0] * fw + b[0] * fu + c[0] * fv, a[2] * fw + b[2] * fu + c[2] * fv, uv);
+                        int x = Math.max(0, Math.min(w - 1, (int) (uv[0] * w))), y = Math.max(0, Math.min(h - 1, (int) (uv[1] * h)));
+                        m[y * w + x] = true;
+                    }
+                }
+            }
+        }
+        return m;
+    }
+
+    /** ★14: one display list of the faces under a marking, with its UVs (MarkMath.uv). */
+    private static int compileMark(List<float[]> tris, float[][] fn, List<Integer> which, com.sva.vehicle.MarkMath.Mark mk) {
+        int list = GL11.glGenLists(1);
+        float[] uv = new float[2];
+        GL11.glNewList(list, GL11.GL_COMPILE);
+        GL11.glBegin(GL11.GL_TRIANGLES);
+        for (Integer ti : which) {
+            int t = ti.intValue();
+            for (int k = 0; k < 3; k++) {
+                float[] p = tris.get(t * 3 + k);
+                com.sva.vehicle.MarkMath.uv(mk, p[0], p[1], p[2], fn[t][2], uv);
+                GL11.glTexCoord2f(uv[0], uv[1]);
+                GL11.glNormal3f(p[3], p[4], p[5]);
+                GL11.glVertex3f(p[0], p[1], p[2]);
+            }
+        }
+        GL11.glEnd();
+        GL11.glEndList();
+        return list;
     }
 
     /** The unit face normal of a triangle, turned to agree with its smooth vertex normals (the winding is not reliable). */
@@ -546,7 +693,10 @@ public final class ObjModelSVA {
                 && Math.max(a[1], Math.max(b[1], c[1])) > box[1] && Math.min(a[1], Math.min(b[1], c[1])) < box[3];
     }
 
-    /** One display list of the given triangles; uvMode 0 = tile (box projection), 1 = livery overlay, 2 = decal. */
+    /**
+     * One display list of the given triangles; uvMode 0 = tile (box projection), 1 = livery overlay (side projection over
+     * `box`), 2 = decal, 3 = ★13 projection from above / below over the x / z `box`.
+     */
     private static int compileList(List<float[]> tris, float[][] fn, List<Integer> which, int uvMode, float[] box) {
         int list = GL11.glGenLists(1);
         float[] uv = new float[2];
@@ -561,6 +711,8 @@ public final class ObjModelSVA {
                     SkinMath.uv(axis, p[0], p[1], p[2], uv);
                 } else if (uvMode == 1) {
                     SkinMath.overlayUv(box, p[0], p[1], uv);
+                } else if (uvMode == 3) {
+                    SkinMath.overlayUv(box, p[0], p[2], uv);
                 } else {
                     SkinMath.decalUv(box, p[0], p[1], fn[t][2], uv);
                 }
@@ -578,6 +730,12 @@ public final class ObjModelSVA {
     public void style(int livery, int board) {
         this.livery = livery;
         this.board = board;
+        this.wearBucket = 0;
+    }
+
+    /** ★13: the wear bucket (WeatherMath.bucket) the next draws show; style() resets it to 0 (clean - icons, holograms). */
+    public void wear(int bucket) {
+        this.wearBucket = bucket;
     }
 
     /** ★10 / ★6: the tread scroll and the tail lamps' brightness for the next draws (reset with anim(0, 1)). */
@@ -915,6 +1073,114 @@ public final class ObjModelSVA {
         if (liveried() && SkinMath.paintable(mats.get(i))) {
             drawLivery(i, shade);
         }
+        if (ConfigSVA.markings && livery >= 0 && markLists != null && markLists[i] != null) {
+            drawMarks(i, shade);
+        }
+        if (ConfigSVA.weathering && wearBucket > 0 && wSide != null && wSide[i] != null) {
+            drawWeather(i, shade);
+        }
+    }
+
+    /** GL state of the overlay passes (like drawLivery): blended, polygon offset, no depth writes, lit, shaded. */
+    private static void overlayBegin(float shade) {
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_POLYGON_BIT);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glDepthMask(false);
+        GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
+        GL11.glPolygonOffset(-1F, -4F);
+        GL11.glColor4f(shade, shade, shade, 1F);
+    }
+
+    private static void overlayEnd() {
+        GL11.glDepthMask(true);
+        GL11.glPopAttrib();
+    }
+
+    /** ★14: the markings over a painted group, in MarkMath order (an arrow before its stencil). */
+    private void drawMarks(int i, float shade) {
+        int[] l = markLists[i];
+        int rgb = SkinMath.decalColour(livery, SkinMath.civilStripe(paletteRgb));
+        boolean begun = false;
+        for (int k = 0; k < l.length; k++) {
+            if (l[k] == 0) {
+                continue;
+            }
+            int tex = markTexture(marks.get(k), rgb);
+            if (tex == 0) {
+                continue;
+            }
+            if (!begun) {
+                overlayBegin(shade);
+                begun = true;
+            }
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, tex);
+            GL11.glCallList(l[k]);
+        }
+        if (begun) {
+            overlayEnd();
+        }
+    }
+
+    private int markTexture(com.sva.vehicle.MarkMath.Mark mk, int rgb) {
+        boolean per = com.sva.vehicle.MarkMath.perBoard(mk.key);
+        String key = "mk/" + mk.key + (per ? "/" + board + "/" + (rgb & 0xFFFFFF) : "");
+        int id = LiverySVA.cached(key);
+        if (id < 0) {
+            com.sva.vehicle.MarkMath.Img im = com.sva.vehicle.MarkMath.image(mk.key, board, rgb);
+            if (im == null) {
+                return LiverySVA.store(key, null, 0, 0);
+            }
+            im = com.sva.vehicle.MarkMath.padded(im);
+            id = LiverySVA.store(key, im.px, im.w, im.h);
+        }
+        return id;
+    }
+
+    /** ★13: the weathering over a group at the current wear bucket (sides per zone, tops, bottoms). */
+    private void drawWeather(int i, float shade) {
+        boolean chip = com.sva.vehicle.WeatherMath.chippable(mats.get(i));
+        overlayBegin(shade);
+        int[] sides = wSide[i];
+        for (int z = 0; z < sides.length; z++) {
+            weatherCall(sides[z], chip ? com.sva.vehicle.WeatherMath.SIDE_PAINT : com.sva.vehicle.WeatherMath.SIDE_OTHER, z);
+        }
+        weatherCall(wTop[i], com.sva.vehicle.WeatherMath.TOP_PAINT, 0);
+        weatherCall(wLow[i], com.sva.vehicle.WeatherMath.BOTTOM_LOW, 0);
+        weatherCall(wHigh[i], com.sva.vehicle.WeatherMath.BOTTOM_HIGH, 0);
+        overlayEnd();
+    }
+
+    private void weatherCall(int list, int layer, int zone) {
+        if (list == 0) {
+            return;
+        }
+        int tex = weatherTexture(layer, zone);
+        if (tex != 0) {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, tex);
+            GL11.glCallList(list);
+        }
+    }
+
+    /** ★13: the image of a layer / zone at the current bucket, generated once per model (WeatherMath) and kept. */
+    private int weatherTexture(int layer, int zone) {
+        String key = "w/" + name + "/" + wearBucket + "/" + layer + "/" + zone;
+        int id = LiverySVA.cached(key);
+        if (id >= 0) {
+            return id;
+        }
+        int[] px;
+        boolean side = layer <= com.sva.vehicle.WeatherMath.SIDE_OTHER;
+        float[] box = side ? wBoxSide : wBoxTop;
+        if (side) {
+            px = com.sva.vehicle.WeatherMath.side(spec, box, zone, wearBucket, layer == com.sva.vehicle.WeatherMath.SIDE_PAINT);
+        } else if (layer == com.sva.vehicle.WeatherMath.TOP_PAINT) {
+            px = com.sva.vehicle.WeatherMath.top(spec, box, wearBucket, edgeMask);
+        } else {
+            px = com.sva.vehicle.WeatherMath.bottom(spec, box, wearBucket, layer == com.sva.vehicle.WeatherMath.BOTTOM_LOW);
+        }
+        return LiverySVA.store(key, px, SkinMath.overlayW(box), SkinMath.overlayH(box));
     }
 
     /** Draws a moving part turned by `angle` degrees about its axis through its pivot (same state as render()). */

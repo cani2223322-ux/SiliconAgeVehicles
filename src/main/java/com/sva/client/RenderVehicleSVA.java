@@ -98,6 +98,8 @@ public class RenderVehicleSVA extends Render {
         double rolled = animate ? an.prevRoll + (an.roll - an.prevRoll) * pt : 0;
         // skins: the tier's livery and this vehicle's board number (config vehicles.textures / vehicles.liveries in ObjModelSVA)
         m.style(com.sva.vehicle.SkinMath.livery(vt.tier), v.getBoardNumber());
+        // ★13: the weathering follows the synced hull (getHp / getMaxHp - the garage's repair cleans it)
+        m.wear(com.sva.vehicle.WeatherMath.bucket(v.getHp(), v.getMaxHp(), v.wearOn()));
         // ★10 the tread runs with the distance rolled; ★6 the red tail lamps light up fully while braking
         float tail = ConfigSVA.headlights && v.powered() ? (an.braking() ? 1F : TAIL_DIM) : 1F;
         m.anim((float) (rolled % 1.0), tail);

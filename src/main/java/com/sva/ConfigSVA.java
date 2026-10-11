@@ -24,6 +24,16 @@ public final class ConfigSVA {
     public static boolean textures = true;
     /** Client: liveries by tier (stripe, hazard band, glowing lines) and the side decal (SA emblem, board number, charge hatch). */
     public static boolean liveries = true;
+    /**
+     * Client (aircraft stage B, ★13): weathering that grows with hull wear - exhaust soot, belly oil, chipped paint at the
+     * doors / leading edges, mud on the wheels and the lower body; repairing in the garage cleans it. Off = always clean.
+     */
+    public static boolean weathering = true;
+    /**
+     * Client (★14): service markings - the aircraft's anti-glare panel, walkways and «НЕ НАСТУПАТЬ», rescue / propeller /
+     * jacking stencils, registration, the fin's number and emblem; the drill's «ОПАСНО: БУР». Off = none.
+     */
+    public static boolean markings = true;
     /** Client (★14): the cockpit dials / screens / warning lamps show the vehicle's real readings. On by default. */
     public static boolean liveInstruments = true;
     /** Client (★16): vehicle and trailer items drawn as small 3D models (false: the flat 16x16 icons). On by default. */
@@ -145,6 +155,12 @@ public final class ConfigSVA {
             liveries = c.getBoolean("liveries", v, true,
                     "Client: liveries by tier and the side decal with the SA emblem and board number / "
                             + "Клиент: ливреи по уровню машины и бортовая эмблема SA с номером");
+            weathering = c.getBoolean("weathering", v, true,
+                    "Client: weathering grows with hull wear (soot, oil, chipped paint, mud); a repair cleans it / "
+                            + "Клиент: износ корпуса виден на технике (копоть, масло, сколы, грязь); ремонт её очищает");
+            markings = c.getBoolean("markings", v, true,
+                    "Client: service markings on aircraft (anti-glare panel, walkways, rescue / propeller / jacking stencils, registration) / "
+                            + "Клиент: эксплуатационная маркировка авиации (антибликовая панель, зоны хождения, трафареты, регистрация)");
             liveInstruments = c.getBoolean("liveInstruments", v, true,
                     "Client: cockpit dials, screens and warning lamps show the vehicle's real readings / "
                             + "Клиент: приборы в кабине (стрелки, экраны, лампы) показывают реальные данные машины");

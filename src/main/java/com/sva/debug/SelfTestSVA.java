@@ -128,6 +128,7 @@ public final class SelfTestSVA {
             SelfTestDriveSVA.run();                         // 2026-10-10 fixes: the stall flag in level flight
             SelfTestAirSVA.run();                           // aircraft stage A: flaps, slats, spoilers, the model's tagged parts
             SelfTestAirCSVA.run();                          // aircraft stage C: autopilot modes, runway capture, HSI, cockpit panels
+            SelfTestAirBSVA.run();                          // aircraft stage B: weathering by wear, markings, stencil font
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
