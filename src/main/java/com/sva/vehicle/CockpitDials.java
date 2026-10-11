@@ -52,9 +52,9 @@ public final class CockpitDials {
      * Dials left -> right as the pilot sees them (CockpitLayout's order); a table may be longer than the model's dial
      * count (the rest goes unused), never shorter (self-test). Counts measured from the OBJs (cockpit stage 1, 2026-10):
      * buggy / truck 2 (the cluster: speed, charge), drill 4 (the cluster + the drill console right of it: power, depth),
-     * heli 5 (the co-pilot's cluster on the left: vertical speed, charge; the pilot's panel: altitude, speed, [the attitude
-     * screen], rotor rpm), plane 4 (the six-pack column by column, left -> right, top -> bottom: speed / turn, [attitude] /
-     * [the HSI - stage C, a panel], altitude / vertical speed), jet 1 (the small disc right of the glass panels), tilt 4, shuttle 4, ship 4
+     * heli 1 (cockpit wave, plan-next §6 C+: the airspeed over the radar altimeter panel left of the PFD; the old co-pilot
+     * cluster and pilot's dash are gone), plane 3 (§5 C+: airspeed over vertical speed left of the PFD, the altimeter right of
+     * it - the six-pack, the attitude screen and the HSI are gone), jet 1 (the small disc right of the glass panels), tilt 4, shuttle 4, ship 4
      * (the console under the canopy), hoverbike 0 (one flat screen).
      */
     public static int[] table(VehicleType t) {
@@ -64,9 +64,9 @@ public final class CockpitDials {
             case HOVER:
                 return new int[] {SPEED, CHARGE};
             case HELI:
-                return new int[] {VSPEED, CHARGE, ALT, SPEED, RPM};
+                return new int[] {SPEED};                         // cockpit wave (C+): the airspeed left of the PFD (the РВ is a panel)
             case PLANE:
-                return new int[] {SPEED, TURN, ALT, VSPEED};      // stage C: the HSI took the heading dial's place
+                return new int[] {SPEED, VSPEED, ALT};            // cockpit wave (C+): airspeed over vario left of the PFD, the altimeter right
             case TRUCK:
                 return new int[] {SPEED, CHARGE};
             case DRILL:

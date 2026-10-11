@@ -233,7 +233,14 @@ public final class CockpitInstrumentsSVA {
             }
             drawLamps(fr, l, t, v, pt);
             AvionicsSVA.draw(fr, l, v, t, pt, sweep);                  // stage C: the AP panel, HSI, flap / trim, the gate
-            OverheadPanelSVA.draw(fr, l, v, t);                         // round 2, D2: the overhead switch panel
+            OverheadPanelSVA.draw(fr, l, v, t);                         // round 2, D2: the overhead switch panel (C+: the wall / heli roof)
+            GlassCockpitSVA.Readings rd = new GlassCockpitSVA.Readings();
+            rd.speed = s.speed;
+            rd.vy = s.vy;
+            rd.pitch = s.pitch;
+            rd.roll = s.roll;
+            rd.gearDown = s.gearDown;
+            GlassCockpitSVA.draw(fr, l, v, t, pt, rd);                 // cockpit wave (C+): PFD, MFD, lamp strip, transponder, heli faces
             if (night > 0F && l.floor != null) {
                 floorStrip(l.floor);
             }
@@ -355,6 +362,14 @@ public final class CockpitInstrumentsSVA {
         n.flapWarning = v.flapWarning();
         n.fails = v.failures();                                   // round 2, D2: the failures, the iced pitot
         n.iced = v.pitotIced();
+        // cockpit wave (C+ lamp strips): H2 / battery / generator (CockpitDataSVA stand-ins), the heli's rotor, power, height
+        n.fuel = CockpitDataSVA.h2Frac(v);
+        n.battery = CockpitDataSVA.batPresent(v) ? CockpitDataSVA.batPct(v) / 100F : 0F;
+        n.genOn = CockpitDataSVA.genOn(v);
+        boolean heli = t.movement == Movement.HELI;
+        n.rotor = heli ? GlassCockpitSVA.rotorPct(v) : 100F;
+        n.power = heli ? GlassCockpitSVA.powerPct(v, s.vy) : 0F;
+        n.agl = heli && n.airborne ? GlassCockpitSVA.agl(v) : 99F;
     }
 
     /**
@@ -612,7 +627,7 @@ public final class CockpitInstrumentsSVA {
             boolean low = CockpitLamps.lowCharge(SNAP);
             out.add(new Line(Lang.tr("sva.cockpit.range", range), low ? (blink ? AMBER : 0x806020) : DIM, -1F, null));
         }
-        String[] mode = mode(v, t, s);
+        String[] mode = mode(v, t, s.speed);
         out.add(new Line(Lang.tr("sva.cockpit.mode", mode[0]), Integer.parseInt(mode[1]), -1F, null));
         String trailer = HudVehicleSVA.trailerLine(v);
         if (trailer != null) {
@@ -664,8 +679,8 @@ public final class CockpitInstrumentsSVA {
         return (int) Math.floor(Math.max(0, Math.min(100, p))) + "%";
     }
 
-    /** {text, colour} of the «РЕЖИМ» line. */
-    private static String[] mode(EntityVehicleSVA v, VehicleType t, State s) {
+    /** {text, colour} of the «РЕЖИМ» line (speed: the smoothed ground speed, blocks / tick; also the C+ glass - GlassCockpitSVA). */
+    static String[] mode(EntityVehicleSVA v, VehicleType t, float speed) {
         boolean blink = (System.currentTimeMillis() / 250) % 2 == 0;
         String k;
         int c;
@@ -687,7 +702,7 @@ public final class CockpitInstrumentsSVA {
             } else if (!air) {
                 k = "ground";
                 c = DIM;
-            } else if (heli && s.speed < 0.15F) {
+            } else if (heli && speed < 0.15F) {
                 k = "hover";
                 c = AMBER;
             } else {
@@ -704,8 +719,8 @@ public final class CockpitInstrumentsSVA {
             k = "auto.delivery";
             c = BLUE;
         } else {
-            k = s.speed > 0.02F ? "drive" : "park";
-            c = s.speed > 0.02F ? GREEN : DIM;
+            k = speed > 0.02F ? "drive" : "park";
+            c = speed > 0.02F ? GREEN : DIM;
         }
         return new String[] {Lang.tr("sva.cockpit.mode." + k), String.valueOf(c)};
     }

@@ -38,9 +38,17 @@ public final class CockpitLayout {
 
     /** The materials an instrument can be made of (anything else is ignored, also as an occluder). */
     static final String[] MATS = {"gauge", "needle", "holo", "screen", "ok", "warn", "dashlite", "apanel", "hsi", "flapind", "trimind", "flapgate",
-            "ovhd"};
-    /** Stage C: the named panel materials (veh_real8.py; CockpitInstrumentsSVA draws each by its name); D2 'ovhd' (veh_real10.py). */
-    public static final String[] PANELS = {"apanel", "hsi", "flapind", "trimind", "flapgate", "ovhd"};
+            "ovhd", "lampbar", "pfd", "mfd", "mfdkeys", "xpdr", "rwr", "swpanel", "tach2", "torque", "hoverind", "radalt"};
+    /**
+     * Stage C: the named panel materials (veh_real8.py; CockpitInstrumentsSVA draws each by its name); D2 'ovhd' (veh_real10.py).
+     * Cockpit wave (veh_real12.py, plan-next §5 / §6 - the light plane's and the helicopter's C+ cockpits; client/GlassCockpitSVA
+     * draws them): 'lampbar' (the lamp strip under the glare shield), 'pfd', 'mfd' + 'mfdkeys' (its page keys), 'xpdr' (the
+     * transponder), 'rwr' (the radar-warning scope, round), 'swpanel' (the plane's switch panel on the left wall - OverheadPanelSVA),
+     * the heli's round 'tach2' (rotor / engine), 'torque', 'hoverind' (the drift vector) and 'radalt'; the heli's overhead panel
+     * is 'ovhd' again (3.0 x 5.0 under the roof, every switch on it).
+     */
+    public static final String[] PANELS = {"apanel", "hsi", "flapind", "trimind", "flapgate", "ovhd", "lampbar", "pfd", "mfd", "mfdkeys", "xpdr", "rwr",
+            "swpanel", "tach2", "torque", "hoverind", "radalt"};
     /**
      * Round 2, D2 (★17): the light plane's overhead switch panel - under the canopy's top, forward of the pilot's head; he
      * looks up ~25 deg to it (debug/CockpitCheckSVA checks it from that look, not from the dials' 20 deg down).
@@ -51,8 +59,12 @@ public final class CockpitLayout {
      * pedestal's trim strip in front of which its projection falls) and its "up" is forward (the lever's travel).
      */
     public static final String GATE = "flapgate";
-    /** Smallest dial radius (the round overhead buttons are ~0.019). */
-    public static final float DIAL_MIN_R = 0.025F;
+    /**
+     * Smallest dial radius. The round overhead buttons (~0.019) fail the round test anyway (spheres: their vertices lie
+     * between the centre and the rim). Cockpit wave: 0.015 (was 0.025) - the C+ dials are placed by screen angle: the
+     * plane's vario (4.2 deg) is r 0.0175, the heli's airspeed (5.8 deg) 0.0208; no other model gains a dial.
+     */
+    public static final float DIAL_MIN_R = 0.015F;
     /** Farthest an instrument may be from the driver's eye (model units). */
     public static final float MAX_DIST = 0.95F;
     /**
@@ -63,6 +75,22 @@ public final class CockpitLayout {
     public static final float MIN_FACING = 0.05F;
     /** Smallest screen side (model units). */
     public static final float SCREEN_MIN = 0.03F;
+    /**
+     * Cockpit wave: the C+ cockpits' faces (veh_real12.py) - each its own flat piece with nothing in front, so measured
+     * whole (no free-rectangle cut: the heli's tach lost a sixth of its height to the lamp strip's plane over it) and down
+     * to GLASS_MIN a side (the lamp strips are 2.7 deg = 0.020 tall, the MFD keys 1.2 deg = 0.010).
+     */
+    static final String[] GLASS = {"lampbar", "pfd", "mfd", "mfdkeys", "xpdr", "rwr", "swpanel", "tach2", "torque", "hoverind", "radalt"};
+    public static final float GLASS_MIN = 0.008F;
+
+    static boolean glass(String mat) {
+        for (String g : GLASS) {
+            if (g.equals(mat)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /** A round dial: centre, normal (toward the eye), in-plane up / right, radius, the face plane (depth along n). */
     public static final class Dial {
@@ -429,9 +457,9 @@ public final class CockpitLayout {
                     }
                 }
             } else if (isPanel(k.mat)) {
-                float w = k.width(), h = k.height();
-                if (facing >= MIN_FACING && w >= SCREEN_MIN && h >= SCREEN_MIN && k.d1 - k.d0 <= 0.5F * Math.min(w, h) && l.panel(k.mat) == null) {
-                    Screen s = screen(k, comps);
+                float w = k.width(), h = k.height(), min = glass(k.mat) ? GLASS_MIN : SCREEN_MIN;
+                if (facing >= MIN_FACING && w >= min && h >= min && k.d1 - k.d0 <= 0.5F * Math.min(w, h) && l.panel(k.mat) == null) {
+                    Screen s = glass(k.mat) ? whole(k) : screen(k, comps);
                     if (s != null) {
                         l.panels.add(s);
                     }
@@ -581,6 +609,13 @@ public final class CockpitLayout {
             }
         }
         return new Dial(k.c, k.n, k.up, k.right, r, front);
+    }
+
+    /** Cockpit wave: a C+ face measured whole (its own extents, no occluders). */
+    private static Screen whole(Comp k) {
+        float am = (k.a0 + k.a1) / 2, bm = (k.b0 + k.b1) / 2;
+        float[] c = add(k.c, add(scale(k.right, am), scale(k.up, bm)));
+        return new Screen(k.mat, c, k.n, k.up, k.right, k.a1 - k.a0, k.b1 - k.b0, k.d1);
     }
 
     /** A screen cut to its largest rectangle not covered by the other instrument pieces at or in front of its surface. */

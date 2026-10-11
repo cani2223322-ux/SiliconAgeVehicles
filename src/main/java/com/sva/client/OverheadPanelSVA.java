@@ -23,6 +23,16 @@ import net.minecraft.client.gui.FontRenderer;
  * themselves are set from the «Техника» menu («Пульт» row) and «Запуск двигателя» (EntityVehicleSVA.A_SWITCH /
  * A_ENGINE). A lamp over each switch: lit while the switch is on and the board has power (ГЕН: while it charges); the
  * startup's lamp test lights them all. The painted labels are not lit (they read by day, at night by the glow).
+ * <p>
+ * Cockpit wave (plan-next §5 / §6, veh_real12.py): the light plane's overhead console is gone - its switches are on the
+ * panel on the left wall ('swpanel', turned toward the eye: ПИТАНИЕ / ОБОГРЕВ / ДВИГАТЕЛЬ over СВЕТ - wall()); the
+ * helicopter got the big overhead panel ('ovhd' 3.0 x 5.0 under the roof - heli()): the six status lamps, ПИТАНИЕ (АКБ,
+ * ГЕН under red guards), ДВИГАТЕЛЬ (ЗАПУСК under a red guard + ГОТОВ), ТОПЛИВО Н2 (КРАН, НАСОС), ОБОГРЕВ / ПОС, СВЕТ
+ * (НАВ. ОГНИ, СТРОБ, МАЯЧОК, ФАРА, ПРОЖЕКТОР ВНИЗ), ГРУЗ (ЗАМОК ТРОСА, СБРОС under a guard) and the transponder. There is
+ * no mouse picking in the cockpits: the plane's switches are still set from the «Техника» menu's «Пульт» row; the
+ * helicopter has no board systems (SystemsMath.applies) - its panel SHOWS the state of what exists (the board powered,
+ * the rotor, the nav lights' config, the headlights, a hitched trailer) and draws the rest (КРАН / НАСОС H2, ОБОГРЕВ,
+ * ПРОЖЕКТОР, СБРОС) as visual items until their waves give them a game side.
  */
 @SideOnly(Side.CLIENT)
 final class OverheadPanelSVA {
@@ -38,12 +48,25 @@ final class OverheadPanelSVA {
     private OverheadPanelSVA() {
     }
 
-    /** Draws the panel on the layout's 'ovhd' face, if it has one (config vehicles.avionics). */
+    /** Draws the panels: the plane's wall panel, the heli's overhead one, D2's overhead console (config vehicles.avionics). */
     static void draw(FontRenderer fr, CockpitLayout l, EntityVehicleSVA v, VehicleType t) {
-        CockpitLayout.Screen s = l.panel(CockpitLayout.OVERHEAD);
-        if (s == null || !com.sva.ConfigSVA.avionics || !SystemsMath.applies(t)) {
+        if (!com.sva.ConfigSVA.avionics) {
             return;
         }
+        CockpitLayout.Screen wall = l.panel("swpanel");
+        if (wall != null && SystemsMath.applies(t)) {
+            wall(fr, wall, v, t);
+        }
+        CockpitLayout.Screen s = l.panel(CockpitLayout.OVERHEAD);
+        if (s != null && t.movement == com.sva.vehicle.Movement.HELI) {
+            heli(fr, s, v);
+        } else if (s != null && SystemsMath.applies(t)) {
+            d2(fr, s, v, t);
+        }
+    }
+
+    /** Round 2, D2: the light plane's old overhead console (two rows, eight slots). */
+    private static void d2(FontRenderer fr, CockpitLayout.Screen s, EntityVehicleSVA v, VehicleType t) {
         int phase = CockpitInstrumentsSVA.phase;
         boolean board = v.powered(), dark = phase == CockpitLamps.PH_DARK, test = phase == CockpitLamps.PH_TEST;
         long ms = System.currentTimeMillis();
@@ -192,5 +215,211 @@ final class OverheadPanelSVA {
                 }
             }
         }
+    }
+
+    // ---------------------------------------------------------------- cockpit wave: the switch panels as rows of groups
+
+    /** A panel item: a toggle (guarded or not), or a guarded push button; its lamp (colour, lit) and its label. */
+    private static final int TOG = 0, GTOG = 1, BTN = 2;
+
+    private static final class Item {
+        final int kind;
+        final String label;
+        final boolean on;
+        final int lamp;
+        final boolean lampOn, pressed;
+
+        Item(int kind, String label, boolean on, int lamp, boolean lampOn, boolean pressed) {
+            this.kind = kind;
+            this.label = label;
+            this.on = on;
+            this.lamp = lamp;
+            this.lampOn = lampOn;
+            this.pressed = pressed;
+        }
+    }
+
+    private static Item tog(String key, boolean on, int lamp, boolean lampOn) {
+        return new Item(TOG, Lang.tr(key), on, lamp, lampOn, false);
+    }
+
+    private static Item gtog(String key, boolean on, int lamp, boolean lampOn) {
+        return new Item(GTOG, Lang.tr(key), on, lamp, lampOn, false);
+    }
+
+    private static Item btn(String key, int lamp, boolean lampOn, boolean pressed) {
+        return new Item(BTN, Lang.tr(key), false, lamp, lampOn, pressed);
+    }
+
+    /**
+     * One row of groups between y0 and y1 across x0..x1 (concepts.rows_switches / cab2_art Canvas.switches: each group's
+     * width by its item count): a thin frame with the title on its top edge, per item a lamp, the switch and the label.
+     */
+    private static void row(FontRenderer fr, float x0, float x1, float y0, float y1, String[] titles, Item[][] groups, boolean dark, boolean test) {
+        int n = 0;
+        for (Item[] g : groups) {
+            n += g.length;
+        }
+        float gap = (x1 - x0) * 0.025F, cw = (x1 - x0 - gap * (groups.length - 1)) / Math.max(1, n), ch = y1 - y0;
+        float x = x0;
+        for (int gi = 0; gi < groups.length; gi++) {
+            Item[] g = groups[gi];
+            float gx1 = x + cw * g.length;
+            frame(fr, x, y0, gx1, y1, Lang.tr(titles[gi]), ch * 0.1F);
+            for (int i = 0; i < g.length; i++) {
+                Item it = g[i];
+                float cx = x + cw * (i + 0.5F);
+                float lampY = y1 - ch * 0.22F, swY = y0 + ch * 0.52F, labY = y0 + ch * 0.15F;
+                if (it.lamp != 0) {
+                    lamp(cx, lampY, ch * 0.055F, it.lamp, !dark && (test || it.lampOn));
+                }
+                if (it.kind == BTN) {
+                    float br = Math.min(ch * 0.2F, cw * 0.32F);
+                    col(GUARD);
+                    CockpitInstrumentsSVA.disc(cx, swY, br * 1.25F, 0F);
+                    col(0x141416);
+                    CockpitInstrumentsSVA.disc(cx, swY, br * 1.05F, Z1 * 0.3F);
+                    col(it.pressed ? 0xFF5A3A : 0x9A1A14);
+                    CockpitInstrumentsSVA.disc(cx, swY, br, Z1 * 0.6F);
+                } else {
+                    toggle(cx, swY, ch * 2.0F, it.on, it.kind == GTOG);
+                }
+                CockpitInstrumentsSVA.text(fr, it.label, cx, labY, ch * 0.1F, cw * 0.92F, CockpitInstrumentsSVA.tint(LABEL));
+            }
+            x = gx1 + gap;
+        }
+    }
+
+    /** A group's thin frame, its title on the top edge over a panel-coloured gap. */
+    private static void frame(FontRenderer fr, float x0, float y0, float x1, float y1, String title, float th) {
+        float t = th * 0.12F;
+        col(FRAME);
+        CockpitInstrumentsSVA.rect(x0, y0, x1, y0 + t, Z1 * 0.2F);
+        CockpitInstrumentsSVA.rect(x0, y1 - t, x1, y1, Z1 * 0.2F);
+        CockpitInstrumentsSVA.rect(x0, y0, x0 + t, y1, Z1 * 0.2F);
+        CockpitInstrumentsSVA.rect(x1 - t, y0, x1, y1, Z1 * 0.2F);
+        if (title.length() == 0) {
+            return;
+        }
+        float tw = Math.min((x1 - x0) * 0.8F, fr.getStringWidth(title) * th / 8F);
+        col(PANEL);
+        float xm = (x0 + x1) / 2;
+        CockpitInstrumentsSVA.rect(xm - tw / 2 - th * 0.4F, y1 - th * 0.7F, xm + tw / 2 + th * 0.4F, y1 + th * 0.7F, Z1 * 0.4F);
+        CockpitInstrumentsSVA.text(fr, title, xm, y1, th, (x1 - x0) * 0.8F, CockpitInstrumentsSVA.tint(LABEL));
+    }
+
+    /** The panel's face: the frame, the night glow, the dark plate. Leaves the matrix pushed (rotated by `deg`). */
+    private static void plate(CockpitLayout.Screen s, boolean board, float deg) {
+        CockpitInstrumentsSVA.frame(s.c, s.n, s.up, s.right, s.front + CockpitInstrumentsSVA.LIFT_FACE);
+        if (deg != 0F) {
+            GL11.glRotatef(deg, 0F, 0F, 1F);
+        }
+        if (CockpitInstrumentsSVA.night > 0F && board) {
+            CockpitInstrumentsSVA.glowRect(s.w, s.h, 0.25F * CockpitInstrumentsSVA.night);
+        }
+        col(PANEL);
+        CockpitInstrumentsSVA.rect(-s.w / 2, -s.h / 2, s.w / 2, s.h / 2, 0F);
+    }
+
+    /**
+     * The light plane's wall panel (concept C / C+: the left wall forward of the yoke's horn, turned to the eye): ПИТАНИЕ
+     * (АКБ, ГЕН under guards), ОБОГРЕВ, ДВИГАТЕЛЬ (ГОТОВ + ПУСК) over СВЕТ (НАВ. ОГНИ, СТРОБ, МАЯЧОК, ПОС. ФАРЫ) - the D2
+     * switches (SystemsMath.SW_*), set from the «Техника» menu's «Пульт» row.
+     */
+    private static void wall(FontRenderer fr, CockpitLayout.Screen s, EntityVehicleSVA v, VehicleType t) {
+        boolean board = v.powered();
+        int phase = CockpitInstrumentsSVA.phase;
+        boolean dark = phase == CockpitLamps.PH_DARK, test = phase == CockpitLamps.PH_TEST && board;
+        plate(s, board, 0F);
+        float w = s.w, h = s.h, m = h * 0.04F;
+        int sw = v.switches();
+        boolean gen = SystemsMath.on(sw, SystemsMath.SW_GEN) && board && v.getEnergy() > 0;
+        boolean bat = SystemsMath.on(sw, SystemsMath.SW_BAT), heat = SystemsMath.on(sw, SystemsMath.SW_HEAT);
+        int es = v.engineState();
+        boolean starting = es == SystemsMath.CRANK || es == SystemsMath.WARM, ready = v.engineGated(t) ? es == SystemsMath.RUN : v.isLifting();
+        boolean blink = (System.currentTimeMillis() / 300) % 2 == 0;
+        Item[][] r1 = {{gtog("sva.sys.sw.bat.short", bat, SystemsMath.SW_COLOUR[0], bat && board),
+                gtog("sva.sys.sw.gen.short", SystemsMath.on(sw, SystemsMath.SW_GEN), SystemsMath.SW_COLOUR[1], gen)},
+                {tog("sva.sys.sw.heat.short", heat, SystemsMath.SW_COLOUR[6], heat && board)},
+                {btn("sva.sys.start", starting ? CockpitLamps.AMBER : CockpitLamps.GREEN, board && (ready || starting && blink), es == SystemsMath.CRANK)}};
+        Item[][] r2 = {{lightTog(sw, SystemsMath.SW_NAV, board), lightTog(sw, SystemsMath.SW_STROBE, board), lightTog(sw, SystemsMath.SW_BEACON, board),
+                lightTog(sw, SystemsMath.SW_LAMP, board)}};
+        float rh = (h - 3 * m) / 2;
+        row(fr, -w / 2 + m, w / 2 - m, h / 2 - m - rh, h / 2 - m, new String[] {"sva.sys.group.power", "sva.sys.group.heat", "sva.sys.group.engine"}, r1, dark, test);
+        row(fr, -w / 2 + m, w / 2 - m, -h / 2 + m, -h / 2 + m + rh, new String[] {"sva.sys.group.lights"}, r2, dark, test);
+        GL11.glPopMatrix();
+    }
+
+    private static Item lightTog(int sw, int i, boolean board) {
+        boolean on = SystemsMath.on(sw, i);
+        return tog("sva.sys.sw." + SystemsMath.SW_KEYS[i] + ".short", on, SystemsMath.SW_COLOUR[i], on && board);
+    }
+
+    /**
+     * The helicopter's overhead panel (heli_c2.overhead_console, 3.0 x 5.0; its drawing "up" is the pilot's side - the
+     * layout's frame is turned 180 deg: CockpitLayout lays a ceiling face's up AWAY from the eye). Top -> bottom: the title,
+     * the six status lamps, ПИТАНИЕ + ДВИГАТЕЛЬ, ТОПЛИВО Н2 + ОБОГРЕВ, СВЕТ, СВЕТ + ГРУЗ, the transponder, the note. The
+     * state shown: see the class comment (what has no game side yet is a visual item).
+     */
+    private static void heli(FontRenderer fr, CockpitLayout.Screen s, EntityVehicleSVA v) {
+        boolean board = v.powered();
+        int phase = CockpitInstrumentsSVA.phase;
+        boolean dark = phase == CockpitLamps.PH_DARK, test = phase == CockpitLamps.PH_TEST && board;
+        plate(s, board, 180F);
+        float w = s.w, h = s.h, top = h / 2, m = w * 0.02F;
+        float rot = GlassCockpitSVA.rotorPct(v);
+        boolean ready = board && rot >= 90F, spinning = board && rot > 5F && rot < 90F, blink = (System.currentTimeMillis() / 300) % 2 == 0;
+        boolean bat = CockpitDataSVA.batPresent(v) && board, gen = CockpitDataSVA.genOn(v) && board;
+        boolean h2 = board && CockpitDataSVA.h2Pct(v) > 0;                      // PLACEHOLDER: КРАН / НАСОС follow the board until H2 has valves
+        boolean nav = com.sva.ConfigSVA.navLights, head = VehicleLightsSVA.headlightsOn(v), hook = v.hasTrailer();
+        CockpitInstrumentsSVA.text(fr, Lang.tr("sva.ovhd.title"), 0F, top - h * 0.03F, h * 0.024F, w * 0.8F, CockpitInstrumentsSVA.tint(0xB0B4BE));
+        // the status lamps: 2 rows of 3 (ГЕН ОТКЛ, АКБ РАЗРЯД, НАСОС Н2 / ЗАМОК ЗАКР., ПРОЖЕКТОР, ОБОГРЕВ)
+        String[] keys = {"genOff", "batLow", "pump", "hook", "search", "heat"};
+        int[] cols = {CockpitLamps.AMBER, CockpitLamps.AMBER, CockpitLamps.GREEN, CockpitLamps.GREEN, CockpitLamps.BLUE, CockpitLamps.AMBER};
+        boolean[] lit = {board && !CockpitDataSVA.genOn(v), board && CockpitDataSVA.batPct(v) < 20, h2, board && hook, false, false};
+        float ly1 = top - h * 0.056F, lh = h * 0.05F, lw = (w - 2 * m - 2 * w * 0.02F) / 3;
+        for (int k = 0; k < 6; k++) {
+            float x0 = -w / 2 + m + (k % 3) * (lw + w * 0.02F), y1 = ly1 - (k / 3) * (lh + h * 0.01F);
+            boolean on = !dark && (test || lit[k]);
+            col(0x0C0C0E);
+            CockpitInstrumentsSVA.rect(x0, y1 - lh, x0 + lw, y1, Z1 * 0.3F);
+            col(on ? cols[k] : CockpitLamps.mix(cols[k], 0x101012, 0.84F));
+            CockpitInstrumentsSVA.rect(x0 + lw * 0.03F, y1 - lh * 0.88F, x0 + lw * 0.97F, y1 - lh * 0.12F, Z1 * 0.6F);
+            CockpitInstrumentsSVA.text(fr, Lang.tr("sva.ovhd.lamp." + keys[k]), x0 + lw / 2, y1 - lh / 2, lh * 0.4F, lw * 0.86F,
+                    on ? 0x141008 : CockpitLamps.mix(cols[k], 0x101012, 0.5F));
+        }
+        float rh = h * 0.172F, gap = h * 0.01F, y = top - h * 0.168F;
+        Item[][] r1 = {{gtog("sva.sys.sw.bat.short", bat, SystemsMath.SW_COLOUR[0], bat), gtog("sva.sys.sw.gen.short", gen, SystemsMath.SW_COLOUR[1], gen)},
+                {btn("sva.ovhd.start", spinning ? CockpitLamps.AMBER : CockpitLamps.GREEN, ready || spinning && blink, spinning)}};
+        row(fr, -w / 2 + m, w / 2 - m, y - rh, y, new String[] {"sva.sys.group.power", "sva.sys.group.engine"}, r1, dark, test);
+        y -= rh + gap;
+        Item[][] r2 = {{tog("sva.ovhd.valve", h2, CockpitLamps.GREEN, h2), tog("sva.ovhd.pump", h2, CockpitLamps.GREEN, h2)},
+                {tog("sva.ovhd.heat", false, SystemsMath.SW_COLOUR[6], false)}};
+        row(fr, -w / 2 + m, w / 2 - m, y - rh, y, new String[] {"sva.ovhd.group.fuel", "sva.sys.group.heat"}, r2, dark, test);
+        y -= rh + gap;
+        Item[][] r3 = {{tog("sva.sys.sw.nav.short", nav, SystemsMath.SW_COLOUR[2], nav && board), tog("sva.sys.sw.strobe.short", nav, SystemsMath.SW_COLOUR[3], nav && board),
+                tog("sva.sys.sw.beacon.short", nav, SystemsMath.SW_COLOUR[4], nav && board)}};
+        row(fr, -w / 2 + m, w / 2 - m, y - rh, y, new String[] {"sva.sys.group.lights"}, r3, dark, test);
+        y -= rh + gap;
+        Item[][] r4 = {{tog("sva.ovhd.lamp", head, SystemsMath.SW_COLOUR[5], head && board), tog("sva.ovhd.searchlight", false, CockpitLamps.BLUE, false)},
+                {tog("sva.ovhd.hook", hook, CockpitLamps.GREEN, hook && board), btn("sva.ovhd.release", CockpitLamps.RED, false, false)}};
+        row(fr, -w / 2 + m, w / 2 - m, y - rh, y, new String[] {"sva.sys.group.lights", "sva.ovhd.group.cargo"}, r4, dark, test);
+        y -= rh + gap;
+        // the transponder strip: its title, the code (amber), the mode
+        float ty0 = -h / 2 + h * 0.045F;
+        col(0x1E1F24);
+        CockpitInstrumentsSVA.rect(-w / 2 + m, ty0, w / 2 - m, y, Z1 * 0.3F);
+        float tm = (ty0 + y) / 2, th = y - ty0;
+        CockpitInstrumentsSVA.text(fr, Lang.tr("sva.xpdr.title"), -w * 0.33F, tm + th * 0.22F, th * 0.2F, w * 0.25F, CockpitInstrumentsSVA.tint(LABEL));
+        col(0x040506);
+        CockpitInstrumentsSVA.rect(-w * 0.46F, tm - th * 0.36F, w * 0.08F, tm + th * 0.02F, Z1 * 0.6F);
+        if (!dark && phase != CockpitLamps.PH_LOGO) {
+            CockpitInstrumentsSVA.text(fr, test ? "8888" : com.sva.vehicle.GlassMath.squawk(CockpitDataSVA.xpdrCode(v)), -w * 0.19F, tm - th * 0.17F, th * 0.3F,
+                    w * 0.5F, CockpitLamps.AMBER);
+        }
+        CockpitInstrumentsSVA.text(fr, Lang.tr("sva.xpdr.mode") + " " + Lang.tr(CockpitDataSVA.xpdrMode(v)), w * 0.28F, tm, th * 0.22F, w * 0.36F,
+                board ? CockpitLamps.GREEN : CockpitInstrumentsSVA.tint(LABEL));
+        CockpitInstrumentsSVA.text(fr, Lang.tr("sva.ovhd.note"), 0F, -h / 2 + h * 0.02F, h * 0.016F, w * 0.9F, CockpitInstrumentsSVA.tint(0x9A9EA8));
+        GL11.glPopMatrix();
     }
 }

@@ -58,7 +58,15 @@ public enum VehicleFn {
      * the warm-up); turning: stop. The light plane, the jet, the tiltrotor. ; (Ж on a Russian keyboard): the last key
      * free in vanilla, the core and the old letters.
      */
-    ENGINE("engine", "engine", 39, false, true);
+    ENGINE("engine", "engine", 39, false, true),
+    /**
+     * Cockpit wave (plan-next §5 / §6): «Страница MFD» - the next page of the C+ cockpits' MFD (the light plane: ДВИГ / КАРТА /
+     * МАРШ / СПО, the helicopter: ДВИГ / КАРТА / ГРУЗ / СПО). The cockpits have no mouse picking, so the page keys under the
+     * screen are this key or the «Техника» menu's row; the page is the client's own (no packet), remembered per vehicle
+     * (client.MfdPagesSVA). Any rider may flip his own MFD. ' (Э on a Russian keyboard): free in vanilla, the core and the
+     * old letters.
+     */
+    MFD_PAGE("mfdPage", "mfdPage", 40, false, false);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -107,6 +115,8 @@ public enum VehicleFn {
                 return CruiseMath.kind(t.movement, true) == CruiseMath.AUTOPILOT;
             case ENGINE:
                 return SystemsMath.applies(t);
+            case MFD_PAGE:
+                return GlassMath.hasMfd(t);
             default:
                 return true;                                        // cargo, map: every vehicle
         }
@@ -114,7 +124,7 @@ public enum VehicleFn {
 
     /**
      * The Action packet a press sends on this type (EntityVehicleSVA.A_*), or -1: held functions go in the Input
-     * packet, cruise is the driver's client state, the map and the autopilot panel are screens.
+     * packet, cruise is the driver's client state, the map and the autopilot panel are screens, the MFD page the client's own.
      */
     public int action(VehicleType t) {
         if (!appliesTo(t)) {

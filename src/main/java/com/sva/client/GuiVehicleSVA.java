@@ -195,6 +195,8 @@ public class GuiVehicleSVA extends GuiScreen {
                 return Lang.tr(vehicle != null && vehicle.isAirbrake() ? "sva.vmenu.act.off" : "sva.vmenu.act.on");
             case ENGINE:
                 return Lang.tr(vehicle != null && vehicle.engineState() != SystemsMath.OFF ? "sva.vmenu.act.stop" : "sva.vmenu.act.start");
+            case MFD_PAGE:
+                return Lang.tr("sva.vmenu.act.next");
             default:
                 return "";
         }
@@ -312,6 +314,9 @@ public class GuiVehicleSVA extends GuiScreen {
                 return new Object[] {Lang.tr("sva.sys.engine." + SystemsMath.ENGINE_KEYS[es], Integer.valueOf(pct)),
                         Integer.valueOf(es == SystemsMath.RUN ? GREEN : es == SystemsMath.OFF ? MUTED : AMBER)};
             }
+            case MFD_PAGE:
+                // cockpit wave: the page this client's MFD shows (the keys under the screen in the cockpit)
+                return new Object[] {Lang.tr("sva.mfd.page." + com.sva.vehicle.GlassMath.PAGE_KEYS[MfdPagesSVA.page(v)]), Integer.valueOf(CYAN)};
             default:
                 return null;
         }

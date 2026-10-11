@@ -353,29 +353,23 @@ final class SelfTestAirCSVA {
 
     private static void layout() throws java.io.IOException {
         CockpitLayout l = CockpitLayout.of(VehicleType.PLANE);
-        CockpitLayout.Screen ap = l.panel("apanel"), hsi = l.panel("hsi"), fl = l.panel("flapind"), tr = l.panel("trimind"), gate = l.panel("flapgate");
-        // round 2, D2: + the overhead switch panel ('ovhd') - six
-        boolean all = ap != null && hsi != null && fl != null && tr != null && gate != null && l.panels.size() == 6;
-        check(all, "stage C layout: the light plane's 6 panels found (AP panel, HSI, flap indicator, trim indicator, flap gate; D2 the overhead"
-                + " panel): " + l.panels.size());
+        CockpitLayout.Screen ap = l.panel("apanel"), fl = l.panel("flapind"), tr = l.panel("trimind"), gate = l.panel("flapgate"), pfd = l.panel("pfd");
+        // cockpit wave (C+): the HSI went into the PFD / MFD; the AP bar, the flap indicator, the trim strip and the gate stay -
+        // eleven panels with the glass (debug/SelfTestCockpitSVA checks the new ones)
+        boolean all = ap != null && fl != null && tr != null && gate != null && pfd != null && l.panel("hsi") == null && l.panels.size() == 11;
+        check(all, "stage C layout (C+): the light plane's AP bar, flap indicator, trim indicator, flap gate and the C+ glass found, no HSI: "
+                + l.panels.size());
         if (!all) {
             return;
-        }
-        CockpitLayout.Screen att = null;
-        for (CockpitLayout.Screen s : l.screens) {
-            if (Math.abs(s.w / s.h - 1) < 0.2F && s.w >= CockpitDials.ATT_MIN) {
-                att = s;
-            }
         }
         boolean over = true;
         for (CockpitLayout.Dial d : l.dials) {
             over &= ap.c[1] > d.c[1] + d.r;
         }
-        check(att != null && Math.abs(hsi.c[2] - att.c[2]) < 0.01F && hsi.c[1] < att.c[1] - 0.1F && Math.abs(hsi.w - hsi.h) < 0.005F && hsi.w > 0.1F
-                        && over && ap.w > 0.5F && ap.w / ap.h > 7 && fl.c[2] > 0.2F && tr.c[1] < fl.c[1] && tr.c[0] < fl.c[0] - 0.1F && tr.h > 2 * tr.w
-                        && gate.n[1] > 0.7F && gate.up[0] > 0.9F,
-                "stage C layout: the HSI square under the attitude screen (the old heading dial's place), the AP panel over the six-pack, the flap"
-                        + " indicator right of it (inside the fuselage), the trim strip on the pedestal by its wheel, the gate beside the flap lever (up = forward)");
+        check(over && ap.c[1] > pfd.c[1] + pfd.h / 2 && ap.w > 0.4F && ap.w / ap.h > 7 && fl.c[2] > pfd.c[2] && fl.c[1] < pfd.c[1] && tr.c[1] < fl.c[1]
+                        && tr.c[0] < fl.c[0] - 0.1F && tr.h > 2 * tr.w && gate.n[1] > 0.7F && gate.up[0] > 0.9F,
+                "stage C layout (C+): the wide AP bar over the dials and the PFD, the flap indicator under the altimeter right of the PFD, the trim"
+                        + " strip on the pedestal by its wheel, the gate beside the flap lever (up = forward)");
         ViewCheckSVA.Mesh m = ViewCheckSVA.load(VehicleType.PLANE.model);
         StringBuilder bad = new StringBuilder();
         int n = 0;
@@ -391,8 +385,8 @@ final class SelfTestAirCSVA {
                 }
             }
         }
-        check(n == 6 && bad.length() == 0, "stage C layout: every panel readable from the pilot's camera (hidden at most " + Math.round(worst * 100)
-                + " %, facing, in view; D2's overhead panel looked up at)" + bad);
+        check(n == 11 && bad.length() == 0, "stage C layout (C+): every panel readable from the pilot's camera (hidden at most " + Math.round(worst * 100)
+                + " %, facing, in view)" + bad);
         List<CockpitLayout.Screen> js = CockpitLayout.of(VehicleType.JET).screens;
         int[] jr = CockpitDials.screenRoles(js, true, false, true), jo = CockpitDials.screenRoles(js, true, false, false);
         int hsiN = 0, small = 0;
