@@ -132,6 +132,11 @@ public class HudVehicleSVA {
                 + (regenLine ? 1 : 0);
         int h = 24 + (rows - 1) * 10 + 4;
         int x = 4, y = e.resolution.getScaledHeight() - h - bottomGap(e.resolution.getScaledWidth(), x, x + W);
+        // the chat (bottom left, its last line at height - 48): while it shows messages the panel moves up over them
+        int chat = chatTop(mc, e.resolution.getScaledHeight());
+        if (chat > 0 && y + h > chat - 2) {
+            y = Math.max(2, chat - 2 - h);
+        }
 
         Gui.drawRect(x - 1, y - 1, x + W + 1, y + h + 1, EDGE);
         Gui.drawRect(x, y, x + W, y + h, BG);
@@ -551,6 +556,52 @@ public class HudVehicleSVA {
      * The gap under a bottom panel spanning x0..x1: 4 px, or 40 px (above the hotbar, health and food) when the panel
      * reaches the vanilla bars in the middle (182 px wide) - on narrow screens (scaled width under ~520).
      */
+    private static java.lang.reflect.Field chatLines;
+    private static boolean chatLinesTried;
+
+    /**
+     * The top of the chat's visible messages (scaled px), 0 when it shows none. Vanilla draws the chat from height - 48
+     * upward, 9 px a line: unfocused only the lines younger than 200 ticks, at most chatHeightUnfocused's lines; with
+     * the chat open all of them up to chatHeightFocused. The line list is private (GuiNewChat.drawnChatLines).
+     */
+    private static int chatTop(Minecraft mc, int sh) {
+        net.minecraft.client.gui.GuiNewChat chat = mc.ingameGUI.getChatGUI();
+        if (!chatLinesTried) {
+            chatLinesTried = true;
+            try {
+                chatLines = cpw.mods.fml.relauncher.ReflectionHelper.findField(net.minecraft.client.gui.GuiNewChat.class,
+                        "field_146253_i", "drawnChatLines");
+            } catch (Throwable t) {
+                chatLines = null;                               // unknown layout: the panel stays where it is
+            }
+        }
+        if (chatLines == null || mc.gameSettings.chatVisibility == net.minecraft.entity.player.EntityPlayer.EnumChatVisibility.HIDDEN) {
+            return 0;
+        }
+        java.util.List<?> lines;
+        try {
+            lines = (java.util.List<?>) chatLines.get(chat);
+        } catch (Throwable t) {
+            return 0;
+        }
+        boolean open = chat.getChatOpen();
+        int max = chat.func_146232_i();                         // lines that fit (focused / unfocused height)
+        int now = mc.ingameGUI.getUpdateCounter(), n = 0;
+        for (int i = 0; i < lines.size() && n < max; i++) {
+            net.minecraft.client.gui.ChatLine l = (net.minecraft.client.gui.ChatLine) lines.get(i);
+            if (open || now - l.getUpdatedCounter() < 200) {
+                n++;
+            } else {
+                break;                                          // newest first: the rest are older
+            }
+        }
+        if (n == 0) {
+            return 0;
+        }
+        float scale = chat.func_146244_h();                     // the chat scale option
+        return sh - 48 - (int) Math.ceil(n * 9 * scale) - 2;
+    }
+
     private static int bottomGap(int sw, int x0, int x1) {
         int hl = sw / 2 - 91 - 2, hr = sw / 2 + 91 + 2;
         return x1 + 1 > hl && x0 - 1 < hr ? 40 : 4;
