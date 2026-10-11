@@ -1378,3 +1378,15 @@ sva.msg.engine.noCharge=§cNo charge - the engine can't start.
 sva.msg.engine.always=§7The engine is always ready: the server has vehicles.engineStart off.
 sva.msg.engine.stopped=§7Engine stopped.
 sva.msg.flaps.jammed=§eThe flaps are jammed - a garage repair is needed.
+# aircraft round 2, stage D3: the jet's HUD on the canopy glass
+sva.jethud.kmh=km/h
+sva.jethud.alt=bl
+sva.jethud.thr=THR
+sva.jethud.ab=AB
+sva.jethud.vs=VS
+sva.jethud.g=G
+sva.jethud.rwy=RWY
+sva.jethud.wpt=WPT
+sva.jethud.stall=STALL
+sva.jethud.m=m
+sva.jethud.km=km

@@ -14,8 +14,8 @@ public final class AnimMath {
     public static final float MAX_STEER = 25F;
     /** Gear retracts above this height (blocks over the ground) at RETRACT_SPEED b/t or more; extends below EXTEND_HEIGHT or under EXTEND_SPEED. */
     public static final double RETRACT_HEIGHT = 6, EXTEND_HEIGHT = 4, RETRACT_SPEED = 0.45, EXTEND_SPEED = 0.3;
-    /** The gear's travel takes this many ticks (1 s). */
-    public static final int GEAR_TICKS = 20;
+    /** The gear's travel takes this many ticks (2 s; stage D3 - the doors take GearMath.DOOR_TICKS before / after). */
+    public static final int GEAR_TICKS = GearMath.GEAR_TICKS;
     /** Smoothing of the surfaces / steering / lean per tick (fraction of the gap closed). */
     public static final float SMOOTH = 0.25F;
     /** Strobe: one flash of STROBE_ON ticks every STROBE_PERIOD (1/s); beacons turn once per BEACON_PERIOD. */
@@ -40,6 +40,17 @@ public final class AnimMath {
         /** Gear 0 down .. 1 up and where it is going. */
         public float gear, prevGear;
         public boolean gearUp;
+        /**
+         * Stage D3 (★12, GearMath): the gear doors 0 closed .. 1 open (they open before the legs move, shut after they are
+         * in); doorSeq = vehicles.gearDoors (false: the doors follow the legs). The strut's compression 0 (extended) .. 1,
+         * its speed, last tick's dy and whether the wheels touched (GearMath.strut).
+         */
+        public float door = 1F, prevDoor = 1F;
+        public boolean doorSeq = true;
+        public float strut, prevStrut, strutV, strutDy;
+        public boolean contact;
+        /** Stage D3 (★13, NozzleMath): the jet nozzle's petal angle (deg in from the axis), prev for the lerp. */
+        public float nozzle = NozzleMath.REST_DEG, prevNozzle = NozzleMath.REST_DEG;
         /** Body bob (blocks) and its speed; the hover bike's lean (deg, + = right). */
         public float bob, prevBob, bobV, lean, prevLean;
         /** Smoothed tiltrotor nacelle position (0..1). */
@@ -134,6 +145,7 @@ public final class AnimMath {
             s.roll = s.prevRoll = 0;
             s.steer = s.aileron = s.elevator = s.rudder = s.gear = s.bob = s.bobV = s.lean = 0;
             s.gearUp = false;
+            s.door = s.prevDoor = 1F;
             s.lastDy = dy;
             s.lastFwd = fwd;
             s.inited = true;
@@ -153,10 +165,13 @@ public final class AnimMath {
             s.rudder = smooth(s.rudder, 0);
         }
         if (gearType) {
+            // stage D3: the doors open before the legs move and shut after they are in (GearMath.sequence)
             s.gearUp = gearTarget(s.gearUp, s.height, Math.abs(fwd));
-            s.gear = (float) approach(s.gear, s.gearUp ? 1 : 0, 1.0 / GEAR_TICKS);
+            GearMath.sequence(s, s.gearUp, s.doorSeq);
         } else {
             s.gear = 0;
+            s.prevDoor = s.door;
+            s.door = 1F;
         }
         if (bounce && s.inited) {
             s.bobV += bobJolt(s.lastDy, dy);
@@ -169,6 +184,7 @@ public final class AnimMath {
         if (!s.inited) {
             s.prevSteer = s.steer;
             s.prevGear = s.gear;
+            s.prevDoor = s.door;
             s.inited = true;
         }
     }
@@ -226,6 +242,28 @@ public final class AnimMath {
         if (!animate) {
             s.prevLamp = s.lamp;
         }
+    }
+
+    /**
+     * Stage D3 (★12), one client tick of the struts (after tick()): contact = the wheels on the ground, dy this tick's
+     * vertical motion (b/t); animate off = at the parking stroke (GearMath.strut).
+     */
+    public static void struts(State s, boolean contact, float dy, boolean animate) {
+        GearMath.strut(s, contact, dy, animate);
+    }
+
+    /**
+     * Stage D3 (★13), one client tick of the jet nozzle's petals toward the throttle's / afterburner's diameter
+     * (NozzleMath); animate off = at rest (idle, as modelled).
+     */
+    public static void nozzle(State s, double throttle, boolean ab, boolean running, boolean animate) {
+        s.prevNozzle = s.nozzle;
+        if (!animate) {
+            s.nozzle = s.prevNozzle = NozzleMath.REST_DEG;
+            return;
+        }
+        float target = NozzleMath.petalDeg(running ? NozzleMath.diameter(throttle, ab) : NozzleMath.DIAM_IDLE);
+        s.nozzle = NozzleMath.step(s.nozzle, target);
     }
 
     /**

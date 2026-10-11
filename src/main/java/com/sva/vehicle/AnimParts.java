@@ -33,7 +33,11 @@ public final class AnimParts {
     /** DEVICE kinds (what moves it: the flap position, the slats, the spoilers / the brake - EntityVehicleSVA / AnimMath.State). */
     public static final int FLAP = 0, SLAT = 1, SPOILER = 2, BRAKE = 3,
             /** Stage D1, ★14: a retractable landing light (AnimMath.State.lamp 0 in .. 1 out; AirfieldMath.lampOut). */
-            LAMP = 4;
+            LAMP = 4,
+            /** Stage D3, ★12: a gear door, modelled open - turned by ang1 x (1 - AnimMath.State.door) about its hinge. */
+            DOOR = 5,
+            /** Stage D3, ★13: a jet nozzle petal - turned by (REST_DEG - the petal angle) degrees about its root's tangent. */
+            PETAL = 6;
     /** The static wing skin's tag (no part takes it; ObjModelSVA gives its paint the wing panel tile). */
     public static final String SKIN_TAG = "wing";
     /**
@@ -80,6 +84,16 @@ public final class AnimParts {
         public float[] gearPivot;
         public int gearAxis = Z;
         public float gearAngle, gearLift;
+        /**
+         * Stage D3, ★12 (GearMath): the oleo's stroke (model units at full compression; the piston, the wheel and the lower
+         * torque link slide up the leg by GearMath.travel - 0: the part does not slide), the torque link (+1 upper / -1
+         * lower; turned about `pivot` - its hinge - by +-GearMath.linkTurn with the hinges linkD0 apart at REST, the links
+         * linkLen long, the leg's stroke linkStroke), the light plane's spring leg (flex: swung about x through gearPivot by
+         * GearMath.flex, mirrored on the left).
+         */
+        public float stroke, linkStroke, linkD0, linkLen;
+        public int link;
+        public boolean flex;
         /** SURFACE: which control and the sign (+1: positive command = positive angle about `axis`). */
         public int control;
         public float gain = 1F;
@@ -116,6 +130,25 @@ public final class AnimParts {
             in2 = in;
             axis2 = axis;
             ang2 = deg;
+            return this;
+        }
+
+        Def wheel(float r) {
+            radius = r;
+            axis = Z;
+            return this;
+        }
+
+        Def stroke(float s) {
+            stroke = s;
+            return this;
+        }
+
+        Def link(int which, float d0, float len, float legStroke) {
+            link = which;
+            linkD0 = d0;
+            linkLen = len;
+            linkStroke = legStroke;
             return this;
         }
 
@@ -216,9 +249,10 @@ public final class AnimParts {
                         0.82F, 1.19F, s, 0.194F).minTris = 40;
             }
         }
-        // ---- plane.obj: fixed-looking main gear in spats - wheels (r 0.144) at x 0.547, y 0.144, z +-0.375 inside the paint2
+        // ---- plane.obj: fixed main gear in spats - wheels (r 0.144) at x 0.547, y 0.144, z +-0.375 inside the paint2
         // spats (x 0.359..0.734, y 0..0.325, |z| 0.275..0.475) on a steel strut from the fuselage side (strut top y 0.457,
-        // |z| 0.17). Retracts by folding back 85 deg about z through the strut top: the spat ends lying along the fuselage.
+        // |z| 0.17). Stage D3 (★12, the mock-up keeps the spats): no retraction any more (it folded back 85 deg) - the spring
+        // legs flex out-and-up about the strut top on touchdown (GearMath.flex).
         // The tail wheel (r 0.084, x -1.953, y 0.6) only spins. Control surfaces (cut): ailerons = the outer wing trailing
         // edge (wing x 0.297 TE .. 1.047 LE, y 0.88..1.07, span to 2.5 with the paint2 tip cap from 2.375), elevator halves
         // = the tailplane's trailing edge (x -2.078..-1.641, y 0.656..0.731, |z| 0.062..0.812), rudder = the fin's aft
@@ -227,14 +261,14 @@ public final class AnimParts {
             String side = s > 0 ? "R" : "L";
             Def w = wheel("plane", "gearWheel" + side, new String[] {"rubber", "chrome", "dark", "accent"}, 0.547F, 0.144F, s * 0.375F,
                     0.16F, 0.16F, 0.32F, 0.43F, s, 0.144F);
-            gear(w, new float[] {0.547F, 0.457F, s * 0.17F}, Z, -85F, 0F);
+            flex(w, new float[] {0.547F, 0.457F, s * 0.17F});
             Def leg = box("plane", "gearSpat" + side, GEAR, new String[] {"paint2"}, 0.35F, -0.01F, 0.26F, 0.75F, 0.34F, 0.48F, s,
                     new float[] {0.547F, 0.457F, s * 0.17F});
-            gear(leg, leg.pivot, Z, -85F, 0F);
+            flex(leg, leg.pivot);
             // the strut (x 0.522..0.572) - the wing brace's foot right next to it (x <= 0.446, y 0.42..0.47) stays
             Def strut = box("plane", "gearStrut" + side, GEAR, new String[] {"steel"}, 0.48F, 0.1F, 0.16F, 0.6F, 0.47F, 0.41F, s,
                     new float[] {0.547F, 0.457F, s * 0.17F});
-            gear(strut, strut.pivot, Z, -85F, 0F);
+            flex(strut, strut.pivot);
             // aircraft stage A (veh_real7, scratchpad vehicles/airA/airA.py): the aileron is its own airfoil piece now
             // (73.5 % .. TE, |z| 23.4..37.4 concept, with its three static wicks) hinged at 75 % chord - (0.530, 1.012) at
             // mid-span; tagged, not cut
@@ -278,17 +312,13 @@ public final class AnimParts {
         wheel("plane", "tailWheel", new String[] {"rubber", "dark", "accent"}, -1.953F, 0.6F, 0F, 0.1F, 0.1F, -0.04F, 0.04F, 0, 0.084F);
         surface("plane", "rudder", new String[] {"paint"}, -2.34F, 0.80F, -0.05F, -2.12F, 1.58F, 0.05F, 0,
                 new float[] {-2.12F, 1.1F, 0F}, Y, RUDDER, 1);
-        // ---- jet.obj: main wheels (r 0.124) at x -0.638, y 0.124, z +-0.312 - no visible leg: they rise 0.25 into the
-        // wing root; the nose wheel (r 0.104) at x 1.612, y 0.124 on a steel strut (x 1.59..1.63, up to y 0.374) folds back
-        // 90 deg about z through the strut top into the nose. Surfaces (cut; the wing is 12 triangles): ailerons on the
+        // ---- jet.obj: the gear - see the stage D3 rows below (the old main wheels rose 0.25 into the wing root, the nose
+        // leg folded back into the nose). Surfaces (cut; the wing is 12 triangles): ailerons on the
         // swept trailing edge (root TE x -1.888 at |z| 0.312, tip TE -2.138 at 2.125) behind the hinge x -1.80 for |z|
         // 1.0..1.9; elevators = the tailplane aft of x -2.60 (|z| 0.31..0.88; the tail cone stays: |z| <= 0.31 there);
         // rudders = the twin canted fins aft of x -2.55 (fins y 0.749..1.561, |z| 0.188..0.438).
         for (int s = -1; s <= 1; s += 2) {
             String side = s > 0 ? "R" : "L";
-            Def w = wheel("jet", "gearWheel" + side, new String[] {"rubber", "chrome", "dark", "accent"}, -0.638F, 0.124F, s * 0.312F,
-                    0.14F, 0.14F, 0.26F, 0.37F, s, 0.124F);
-            gear(w, w.pivot, Z, 0F, 0.25F);
             // stage A: the wing is three plates now (veh_real7) - the aileron cut starts outboard of the flap (|z| > 1.25)
             surface("jet", "aileron" + side, new String[] {"paint"}, -2.2F, 0.5F, 1.27F, -1.8F, 0.62F, 1.9F, s,
                     new float[] {-1.8F, 0.561F, 0F}, Z, AILERON, -s);
@@ -305,24 +335,41 @@ public final class AnimParts {
             surface("jet", "rudder" + side, new String[] {"paint"}, -2.85F, 0.76F, 0.17F, -2.55F, 1.57F, 0.46F, s,
                     new float[] {-2.55F, 1.15F, s * 0.3F}, Y, RUDDER, 1);
         }
-        Def nose = wheel("jet", "noseWheel", new String[] {"rubber", "chrome", "dark", "accent"}, 1.612F, 0.124F, 0F, 0.12F, 0.12F,
-                -0.04F, 0.04F, 0, 0.104F);
-        gear(nose, new float[] {1.612F, 0.374F, 0F}, Z, -90F, 0F);
-        Def strut = box("jet", "noseLeg", GEAR, new String[] {"steel"}, 1.57F, 0.1F, -0.04F, 1.66F, 0.39F, 0.04F, 0,
-                new float[] {1.612F, 0.374F, 0F});
-        gear(strut, strut.pivot, Z, -90F, 0F);
+        // stage D3 (★12, veh_real11.py, scratchpad vehicles/airD3/gen_rows.py): the retractable gear - each leg built down
+        // at the parking stroke (GearMath.REST), aft 90 deg about z through its pivot when retracted; the main legs (pivot
+        // x -0.6375, y 0.505, |z| 0.1625) carry the old tyres on a half axle at |z| 0.225, the nose leg (x 1.55) the old nose
+        // tyre moved 0.0625 aft; piston / wheel / lower torque link slide with the stroke (0.075 main, 0.056 nose), the links
+        // fold; the clamshell doors (paint3, modelled open) shut about their hinges under the belly
+        leg("jet", "mainLLeg", GEAR, "mleg", new String[] {"dark", "steel"}, new float[] {-0.6720F, 0.2671F, -0.1968F}, new float[] {-0.6030F, 0.5088F, -0.1283F}, new float[] {-0.6375F, 0.5048F, -0.1625F}, new float[] {-0.6375F, 0.5048F, -0.1625F}, 112);
+        leg("jet", "mainLPiston", GEAR, "mpis", new String[] {"chrome"}, new float[] {-0.6586F, 0.1051F, -0.2634F}, new float[] {-0.6164F, 0.3314F, -0.1415F}, new float[] {-0.6375F, 0.5048F, -0.1625F}, new float[] {-0.6375F, 0.5048F, -0.1625F}, 196).stroke(0.07500F);
+        leg("jet", "mainLWheel", WHEEL, "mwhl", new String[] {"accent", "chrome", "dark", "rubber"}, new float[] {-0.7635F, -0.0024F, -0.2728F}, new float[] {-0.5115F, 0.2495F, -0.1772F}, new float[] {-0.6375F, 0.1236F, -0.2250F}, new float[] {-0.6375F, 0.5048F, -0.1625F}, 864).wheel(0.124F).stroke(0.07500F);
+        leg("jet", "mainLLinkUp", GEAR, "mlku", new String[] {"chrome", "steel"}, new float[] {-0.6204F, 0.2062F, -0.1750F}, new float[] {-0.5321F, 0.3061F, -0.1500F}, new float[] {-0.6094F, 0.2942F, -0.1625F}, new float[] {-0.6375F, 0.5048F, -0.1625F}, 152).link(1, 0.14881F, 0.09865F, 0.07500F);
+        leg("jet", "mainLLinkLow", GEAR, "mlkl", new String[] {"steel"}, new float[] {-0.6204F, 0.1335F, -0.1736F}, new float[] {-0.5376F, 0.2265F, -0.1514F}, new float[] {-0.6094F, 0.1454F, -0.1625F}, new float[] {-0.6375F, 0.5048F, -0.1625F}, 88).stroke(0.07500F).link(-1, 0.14881F, 0.09865F, 0.07500F);
+        leg("jet", "mainRLeg", GEAR, "mleg", new String[] {"dark", "steel"}, new float[] {-0.6720F, 0.2671F, 0.1283F}, new float[] {-0.6030F, 0.5088F, 0.1968F}, new float[] {-0.6375F, 0.5048F, 0.1625F}, new float[] {-0.6375F, 0.5048F, 0.1625F}, 112);
+        leg("jet", "mainRPiston", GEAR, "mpis", new String[] {"chrome"}, new float[] {-0.6586F, 0.1051F, 0.1415F}, new float[] {-0.6164F, 0.3314F, 0.2634F}, new float[] {-0.6375F, 0.5048F, 0.1625F}, new float[] {-0.6375F, 0.5048F, 0.1625F}, 196).stroke(0.07500F);
+        leg("jet", "mainRWheel", WHEEL, "mwhl", new String[] {"accent", "chrome", "dark", "rubber"}, new float[] {-0.7635F, -0.0024F, 0.1772F}, new float[] {-0.5115F, 0.2495F, 0.2728F}, new float[] {-0.6375F, 0.1236F, 0.2250F}, new float[] {-0.6375F, 0.5048F, 0.1625F}, 864).wheel(0.124F).stroke(0.07500F);
+        leg("jet", "mainRLinkUp", GEAR, "mlku", new String[] {"chrome", "steel"}, new float[] {-0.6204F, 0.2062F, 0.1500F}, new float[] {-0.5321F, 0.3061F, 0.1750F}, new float[] {-0.6094F, 0.2942F, 0.1625F}, new float[] {-0.6375F, 0.5048F, 0.1625F}, 152).link(1, 0.14881F, 0.09865F, 0.07500F);
+        leg("jet", "mainRLinkLow", GEAR, "mlkl", new String[] {"steel"}, new float[] {-0.6204F, 0.1335F, 0.1514F}, new float[] {-0.5376F, 0.2265F, 0.1736F}, new float[] {-0.6094F, 0.1454F, 0.1625F}, new float[] {-0.6375F, 0.5048F, 0.1625F}, 88).stroke(0.07500F).link(-1, 0.14881F, 0.09865F, 0.07500F);
+        leg("jet", "noseLeg", GEAR, "nleg", new String[] {"dark", "steel"}, new float[] {1.5155F, 0.2487F, -0.0342F}, new float[] {1.5845F, 0.4588F, 0.0342F}, new float[] {1.5500F, 0.4548F, 0.0000F}, new float[] {1.5500F, 0.4548F, 0.0000F}, 112);
+        leg("jet", "nosePiston", GEAR, "npis", new String[] {"chrome"}, new float[] {1.5289F, 0.1258F, -0.0209F}, new float[] {1.5711F, 0.3055F, 0.0209F}, new float[] {1.5500F, 0.4548F, 0.0000F}, new float[] {1.5500F, 0.4548F, 0.0000F}, 56).stroke(0.05625F);
+        leg("jet", "noseWheel", WHEEL, "nwhl", new String[] {"accent", "chrome", "dark", "rubber"}, new float[] {1.4433F, 0.0169F, -0.0415F}, new float[] {1.6567F, 0.2303F, 0.0415F}, new float[] {1.5500F, 0.1236F, 0.0000F}, new float[] {1.5500F, 0.4548F, 0.0000F}, 864).wheel(0.104F).stroke(0.05625F);
+        leg("jet", "noseLinkUp", GEAR, "nlku", new String[] {"chrome", "steel"}, new float[] {1.5671F, 0.2424F, -0.0125F}, new float[] {1.6187F, 0.2878F, 0.0125F}, new float[] {1.5781F, 0.2759F, 0.0000F}, new float[] {1.5500F, 0.4548F, 0.0000F}, 152).link(1, 0.03981F, 0.03438F, 0.05625F);
+        leg("jet", "noseLinkLow", GEAR, "nlkl", new String[] {"steel"}, new float[] {1.5671F, 0.2242F, -0.0111F}, new float[] {1.6125F, 0.2632F, 0.0111F}, new float[] {1.5781F, 0.2361F, 0.0000F}, new float[] {1.5500F, 0.4548F, 0.0000F}, 88).stroke(0.05625F).link(-1, 0.03981F, 0.03438F, 0.05625F);
+        door("jet", "mdinL", "mdin", new String[] {"paint3"}, new float[] {-1.1939F, 0.2072F, -0.1483F}, new float[] {-0.5334F, 0.2983F, -0.1120F}, new float[] {-0.8638F, 0.2942F, -0.1219F}, new float[] {-1.0000F, -0.0018F, -0.0000F}, 12);
+        door("jet", "mdoutL", "mdout", new String[] {"paint3"}, new float[] {-1.1941F, 0.2826F, -0.3503F}, new float[] {-0.5335F, 0.3744F, -0.2864F}, new float[] {-0.8638F, 0.3699F, -0.2875F}, new float[] {1.0000F, -0.0044F, 0.0000F}, 12);
+        door("jet", "mdinR", "mdin", new String[] {"paint3"}, new float[] {-1.1939F, 0.2071F, 0.1120F}, new float[] {-0.5334F, 0.2983F, 0.1484F}, new float[] {-0.8638F, 0.2941F, 0.1219F}, new float[] {1.0000F, 0.0018F, 0.0000F}, 12);
+        door("jet", "mdoutR", "mdout", new String[] {"paint3"}, new float[] {-1.1941F, 0.2826F, 0.2864F}, new float[] {-0.5335F, 0.3744F, 0.3503F}, new float[] {-0.8638F, 0.3699F, 0.2875F}, new float[] {-1.0000F, 0.0042F, -0.0000F}, 12);
+        door("jet", "ndoorL", "ndoor", new String[] {"paint3"}, new float[] {1.0717F, 0.2663F, -0.0883F}, new float[] {1.6068F, 0.3580F, -0.0699F}, new float[] {1.3372F, 0.3480F, -0.0719F}, new float[] {0.9977F, 0.0685F, 0.0000F}, 12);
+        door("jet", "ndoorR", "ndoor", new String[] {"paint3"}, new float[] {1.0717F, 0.2663F, 0.0699F}, new float[] {1.6068F, 0.3580F, 0.0882F}, new float[] {1.3372F, 0.3480F, 0.0719F}, new float[] {-0.9977F, -0.0684F, -0.0000F}, 12);
         // ★3 the dorsal speed brake behind the canopy (x -11.2..-1.2 concept, on the spine): hinged at its front edge, the
         // aft edge up 45 deg (25 over HighLiftMath.JET.brakeFastSpeed)
         device("jet", "speedBrake", BRAKE, "brake", new String[] {"paint"}, -0.7165F, 0.8852F, -0.1660F, -0.0835F, 0.9132F, 0.1660F, 0,
                 new float[] {-0.0875F, 0.8986F, 0F}, new float[] {0F, 0F, -1F}, 45F, 45F, new float[] {0F, 0F, 0F}).minTris = 192;
-        // ---- tilt.obj: main wheels (r 0.156) at x -0.531, y 0.156, z +-0.375 and the nose wheel (r 0.13) at x 1.594, y 0.156
-        // - they only spin (no retract on the tiltrotor). Ailerons: the wing's trailing edge (wing x 0.094 TE .. 0.844,
+        // ---- tilt.obj: the main gear - see the stage D3 rows below; the nose wheel (r 0.13) at x 1.594, y 0.156 only spins. Ailerons: the wing's trailing edge (wing x 0.094 TE .. 0.844,
         // y 1.02..1.17, |z| 0.312..2.125) behind x 0.25 for |z| 1.2..2.05; elevator: the H-tail plank (x -2.281..-1.781,
         // y 1.875..1.95, |z| <= 0.75) behind x -2.12; rudder: the fin (x -2.219..-1.406, y 0.906..1.906) behind x -2.0.
         for (int s = -1; s <= 1; s += 2) {
             String side = s > 0 ? "R" : "L";
-            wheel("tilt", "gearWheel" + side, new String[] {"rubber", "chrome", "dark", "accent"}, -0.531F, 0.156F, s * 0.375F, 0.17F, 0.17F,
-                    0.31F, 0.44F, s, 0.156F);
             // stage A: the flaperons (veh_real7: one slotted piece 66 % .. TE, |z| 5..31.5, three moving fairings; the wing's
             // chord line at y 17.2 concept - the troop seats' heads stay enclosed, RiderFitSVA) replace the ailerons:
             // 0 / 15 / 25 deg as flaps (drooped 25 by themselves in the vertical mode), +-10 deg as ailerons
@@ -336,6 +383,23 @@ public final class AnimParts {
         }
         wheel("tilt", "noseWheel", new String[] {"rubber", "chrome", "dark", "accent"}, 1.594F, 0.156F, 0F, 0.145F, 0.145F, -0.07F, 0.07F,
                 0, 0.13F);
+        // stage D3 (★12, veh_real11.py): the main legs retract aft into the new side fairings (x -1.4..-0.78, |z| 0.33..0.54,
+        // y 0.27..0.62) closed by two doors each; pivot x -0.531, y 0.444, |z| 0.375, the old tyres on half axles at |z| 0.45;
+        // the nose wheel stays down (no room under the cockpit floor)
+        leg("tilt", "mainLLeg", GEAR, "tleg", new String[] {"dark", "steel"}, new float[] {-0.5657F, 0.2630F, -0.4092F}, new float[] {-0.4968F, 0.4476F, -0.3408F}, new float[] {-0.5312F, 0.4436F, -0.3750F}, new float[] {-0.5312F, 0.4436F, -0.3750F}, 112);
+        leg("tilt", "mainLPiston", GEAR, "tpis", new String[] {"chrome"}, new float[] {-0.5523F, 0.1377F, -0.4884F}, new float[] {-0.5102F, 0.3172F, -0.3540F}, new float[] {-0.5312F, 0.4436F, -0.3750F}, new float[] {-0.5312F, 0.4436F, -0.3750F}, 196).stroke(0.05000F);
+        leg("tilt", "mainLWheel", WHEEL, "twhl", new String[] {"accent", "chrome", "dark", "rubber"}, new float[] {-0.6893F, -0.0020F, -0.5103F}, new float[] {-0.3732F, 0.3141F, -0.3897F}, new float[] {-0.5312F, 0.1561F, -0.4500F}, new float[] {-0.5312F, 0.4436F, -0.3750F}, 864).wheel(0.156F).stroke(0.05000F);
+        leg("tilt", "mainLLinkUp", GEAR, "tlku", new String[] {"chrome", "steel"}, new float[] {-0.5142F, 0.2204F, -0.3875F}, new float[] {-0.4440F, 0.3020F, -0.3625F}, new float[] {-0.5031F, 0.2901F, -0.3750F}, new float[] {-0.5312F, 0.4436F, -0.3750F}, 152).link(1, 0.11213F, 0.07289F, 0.05000F);
+        leg("tilt", "mainLLinkLow", GEAR, "tlkl", new String[] {"steel"}, new float[] {-0.5142F, 0.1661F, -0.3860F}, new float[] {-0.4495F, 0.2405F, -0.3640F}, new float[] {-0.5031F, 0.1780F, -0.3750F}, new float[] {-0.5312F, 0.4436F, -0.3750F}, 88).stroke(0.05000F).link(-1, 0.11213F, 0.07289F, 0.05000F);
+        leg("tilt", "mainRLeg", GEAR, "tleg", new String[] {"dark", "steel"}, new float[] {-0.5657F, 0.2630F, 0.3408F}, new float[] {-0.4968F, 0.4476F, 0.4092F}, new float[] {-0.5312F, 0.4436F, 0.3750F}, new float[] {-0.5312F, 0.4436F, 0.3750F}, 112);
+        leg("tilt", "mainRPiston", GEAR, "tpis", new String[] {"chrome"}, new float[] {-0.5523F, 0.1377F, 0.3540F}, new float[] {-0.5102F, 0.3172F, 0.4884F}, new float[] {-0.5312F, 0.4436F, 0.3750F}, new float[] {-0.5312F, 0.4436F, 0.3750F}, 196).stroke(0.05000F);
+        leg("tilt", "mainRWheel", WHEEL, "twhl", new String[] {"accent", "chrome", "dark", "rubber"}, new float[] {-0.6893F, -0.0020F, 0.3897F}, new float[] {-0.3732F, 0.3141F, 0.5103F}, new float[] {-0.5312F, 0.1561F, 0.4500F}, new float[] {-0.5312F, 0.4436F, 0.3750F}, 864).wheel(0.156F).stroke(0.05000F);
+        leg("tilt", "mainRLinkUp", GEAR, "tlku", new String[] {"chrome", "steel"}, new float[] {-0.5142F, 0.2204F, 0.3625F}, new float[] {-0.4440F, 0.3020F, 0.3875F}, new float[] {-0.5031F, 0.2901F, 0.3750F}, new float[] {-0.5312F, 0.4436F, 0.3750F}, 152).link(1, 0.11213F, 0.07289F, 0.05000F);
+        leg("tilt", "mainRLinkLow", GEAR, "tlkl", new String[] {"steel"}, new float[] {-0.5142F, 0.1661F, 0.3640F}, new float[] {-0.4495F, 0.2405F, 0.3860F}, new float[] {-0.5031F, 0.1780F, 0.3750F}, new float[] {-0.5312F, 0.4436F, 0.3750F}, 88).stroke(0.05000F).link(-1, 0.11213F, 0.07289F, 0.05000F);
+        door("tilt", "tdinL", "tdin", new String[] {"white"}, new float[] {-1.0352F, 0.1696F, -0.3478F}, new float[] {-0.4460F, 0.2713F, -0.3310F}, new float[] {-0.7406F, 0.2673F, -0.3438F}, new float[] {-1.0000F, -0.0000F, -0.0000F}, 12);
+        door("tilt", "tdoutL", "tdout", new String[] {"white"}, new float[] {-1.0352F, 0.1696F, -0.5440F}, new float[] {-0.4460F, 0.2713F, -0.5272F}, new float[] {-0.7406F, 0.2673F, -0.5312F}, new float[] {1.0000F, 0.0000F, 0.0000F}, 12);
+        door("tilt", "tdinR", "tdin", new String[] {"white"}, new float[] {-1.0352F, 0.1696F, 0.3310F}, new float[] {-0.4460F, 0.2713F, 0.3478F}, new float[] {-0.7406F, 0.2673F, 0.3438F}, new float[] {1.0000F, 0.0000F, 0.0000F}, 12);
+        door("tilt", "tdoutR", "tdout", new String[] {"white"}, new float[] {-1.0352F, 0.1696F, 0.5272F}, new float[] {-0.4460F, 0.2713F, 0.5440F}, new float[] {-0.7406F, 0.2673F, 0.5312F}, new float[] {-1.0000F, -0.0000F, -0.0000F}, 12);
         surface("tilt", "elevator", new String[] {"white"}, -2.29F, 1.86F, -0.745F, -2.12F, 1.96F, 0.745F, 0,
                 new float[] {-2.12F, 1.912F, 0F}, Z, ELEVATOR, -1);
         surface("tilt", "rudder", new String[] {"paint"}, -2.23F, 0.95F, -0.05F, -2.0F, 1.89F, 0.05F, 0,
@@ -385,6 +449,22 @@ public final class AnimParts {
         control("plane", "flapLever", new String[] {"aid", "steel"}, new float[] {1.172F, 0.651F, 0.169F}, new float[] {1.230F, 0.755F, 0.212F}, FLAP_LEVER_PIVOT).turn(FLAPS, new float[] {0.000F, 0.000F, 1.000F}, FLAP_LEVER_SWING / 2);
         control("plane", "trimWheel", new String[] {"aid", "black", "dark", "steel"}, new float[] {1.120F, 0.492F, 0.062F}, new float[] {1.255F, 0.631F, 0.0935F}, new float[] {1.1875F, 0.559375F, 0.07875F}).turn(TRIM, new float[] {0.000F, 0.000F, 1.000F}, 120.0F);
         control("plane", "yoke", new String[] {"accent", "dark", "steel"}, new float[] {1.096F, 0.622F, -0.245F}, new float[] {1.204F, 0.726F, 0.054F}, new float[] {1.128F, 0.684F, -0.096F}).turn(ROLL, new float[] {0.800F, -0.600F, 0.000F}, 30.0F).move(PITCH, new float[] {-0.030F, 0.022F, -0.000F});
+        // stage D3 (★13, veh_real11.py): the jet nozzle's 18 petals ('pet0'..'pet17'), each turned about its root's tangent
+        // (0, cos a, -sin a) through its root (ROOT_X, AXIS_Y + R sin a, R cos a), a = k x 20 deg; the box is the whole
+        // ring (the tag picks the petal)
+        for (int k = 0; k < NozzleMath.PETALS; k++) {
+            double a = k * Math.PI * 2 / NozzleMath.PETALS;
+            float sa = (float) Math.sin(a), ca = (float) Math.cos(a);
+            Def d = new Def("jet", "petal" + k, DEVICE, new String[] {"steel"}, new float[] {-3.0F, 0.33F, -0.23F}, new float[] {-2.82F, 0.79F, 0.23F},
+                    new float[] {NozzleMath.ROOT_X, NozzleMath.AXIS_Y + NozzleMath.R_ROOT * sa, NozzleMath.R_ROOT * ca});
+            d.tag = "pet" + k;
+            d.device = PETAL;
+            d.axis1 = new float[] {0F, ca, -sa};
+            d.ang1 = 1F;
+            d.move = new float[] {0F, 0F, 0F};
+            d.minTris = 12;
+            add(d);
+        }
         for (List<Def> l : TABLE.values()) {
             ALL.addAll(l);
         }
@@ -428,6 +508,48 @@ public final class AnimParts {
         Def d = box(model, name, CONTROL, groups, min[0], min[1], min[2], max[0], max[1], max[2], 0, pivot);
         d.minTris = 100;
         return d;
+    }
+
+    /** Stage D3: a fixed spring leg's part (the light plane) - flexes about x through its root (GearMath.flex). */
+    private static void flex(Def d, float[] root) {
+        d.gearPivot = root;
+        d.flex = true;
+    }
+
+    /**
+     * Stage D3: a retractable leg's tagged part (gen_rows.py): box = the tag's triangles on that side, pivot = the wheel's
+     * axle / the torque link's hinge / the leg's pivot; retracts aft 90 deg about z through legPivot.
+     */
+    private static Def leg(String model, String name, int kind, String tag, String[] groups, float[] min, float[] max, float[] pivot, float[] legPivot,
+            int tris) {
+        Def d = new Def(model, name, kind, groups, min, max, pivot);
+        d.tag = tag;
+        d.minTris = tris;
+        gear(d, legPivot, Z, -90F, 0F);
+        add(d);
+        return d;
+    }
+
+    /** Stage D3: a gear door (tagged, modelled open): closed by -90 deg about `axis` through its hinge point. */
+    private static Def door(String model, String name, String tag, String[] groups, float[] min, float[] max, float[] pivot, float[] axis, int tris) {
+        Def d = new Def(model, name, DEVICE, groups, min, max, pivot);
+        d.tag = tag;
+        d.device = DOOR;
+        d.axis1 = axis;
+        d.ang1 = -90F;
+        d.move = new float[] {0F, 0F, 0F};
+        d.minTris = tris;
+        add(d);
+        return d;
+    }
+
+    private static void add(Def d) {
+        List<Def> l = TABLE.get(d.model);
+        if (l == null) {
+            l = new ArrayList<Def>();
+            TABLE.put(d.model, l);
+        }
+        l.add(d);
     }
 
     private static void gear(Def d, float[] pivot, int axis, float angle, float lift) {

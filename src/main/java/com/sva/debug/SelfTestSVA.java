@@ -131,6 +131,7 @@ public final class SelfTestSVA {
             SelfTestAirBSVA.run();                          // aircraft stage B: weathering by wear, markings, stencil font
             SelfTestAirD1SVA.run();                         // aircraft round 2, D1: PAPI, airfield lights, ЗАХВ phases, landing lights
             SelfTestAirD2SVA.run();                         // aircraft round 2, D2: switches, engine start, failures, overhead panel
+            SelfTestAirD3SVA.run();                         // aircraft round 2, D3: gear doors and struts, nozzle petals, the jet's HUD
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -2624,14 +2625,15 @@ public final class SelfTestSVA {
 
     /** Gear retract / extend, surface and steering deflection, blink timing, brake detection, config off = at rest. */
     private static void animLogic() {
-        // gear: retracts high and fast, stays in the band between, extends low or slow; the travel takes 1 s
+        // gear: retracts high and fast, stays in the band between, extends low or slow; the travel takes 2 s after the doors'
+        // half second (stage D3: GearMath.sequence - the doors open first)
         check(com.sva.vehicle.AnimMath.gearTarget(false, 10, 0.8) && com.sva.vehicle.AnimMath.gearTarget(true, 5, 0.8)
                 && !com.sva.vehicle.AnimMath.gearTarget(false, 5, 0.8) && !com.sva.vehicle.AnimMath.gearTarget(true, 3, 0.8)
                 && !com.sva.vehicle.AnimMath.gearTarget(true, 10, 0.2), "anim: gear retracts > 6 blocks and fast, extends < 4 or slow (hysteresis)");
         com.sva.vehicle.AnimMath.State s = new com.sva.vehicle.AnimMath.State();
         s.height = 10;
         int up = -1;
-        for (int i = 0; i < 40; i++) {
+        for (int i = 0; i < 80; i++) {
             com.sva.vehicle.AnimMath.tick(s, 0.8F, 0F, 0F, 2F, 3F, false, Float.NaN, false, true, true, false, false, Double.NaN, true);
             if (up < 0 && s.gear >= 1F) {
                 up = i + 1;
@@ -2639,14 +2641,16 @@ public final class SelfTestSVA {
         }
         s.height = 2;
         int down = -1;
-        for (int i = 0; i < 40; i++) {
+        for (int i = 0; i < 80; i++) {
             com.sva.vehicle.AnimMath.tick(s, 0.8F, 0F, 0F, 2F, 3F, true, Float.NaN, false, true, true, false, false, Double.NaN, true);
             if (down < 0 && s.gear <= 0F) {
                 down = i + 1;
             }
         }
-        check(Math.abs(up - com.sva.vehicle.AnimMath.GEAR_TICKS) <= 1 && Math.abs(down - com.sva.vehicle.AnimMath.GEAR_TICKS) <= 1,
-                "anim: gear travel up " + up + " / down " + down + " ticks (" + com.sva.vehicle.AnimMath.GEAR_TICKS + ")");
+        int seq = com.sva.vehicle.GearMath.DOOR_TICKS + com.sva.vehicle.AnimMath.GEAR_TICKS;
+        check(Math.abs(up - com.sva.vehicle.AnimMath.GEAR_TICKS) <= 1 && Math.abs(down - seq) <= 1,
+                "anim: gear travel up " + up + " (the doors are open while down) / down " + down + " ticks (doors " + com.sva.vehicle.GearMath.DOOR_TICKS + " + legs "
+                        + com.sva.vehicle.AnimMath.GEAR_TICKS + ")");
         // control surfaces: full turn -> full deflection, clamped at 20 deg, signs; elevator from the climb
         float M = com.sva.vehicle.AnimMath.MAX_SURFACE;
         check(com.sva.vehicle.AnimMath.aileronTarget(1.8F, 1.8F) == M && com.sva.vehicle.AnimMath.aileronTarget(-50F, 1.8F) == -M

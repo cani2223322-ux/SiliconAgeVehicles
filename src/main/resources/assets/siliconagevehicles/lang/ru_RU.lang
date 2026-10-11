@@ -1378,3 +1378,15 @@ sva.msg.engine.noCharge=§cНет заряда - двигатель не зап�
 sva.msg.engine.always=§7Двигатель всегда готов: на сервере выключена настройка vehicles.engineStart.
 sva.msg.engine.stopped=§7Двигатель остановлен.
 sva.msg.flaps.jammed=§eЗакрылки заклинило - нужен ремонт в гараже.
+# aircraft round 2, stage D3: the jet's HUD on the canopy glass
+sva.jethud.kmh=км/ч
+sva.jethud.alt=бл
+sva.jethud.thr=РУД
+sva.jethud.ab=ФОРС
+sva.jethud.vs=ВЕРТ
+sva.jethud.g=G
+sva.jethud.rwy=ВПП
+sva.jethud.wpt=ТОЧКА
+sva.jethud.stall=СВАЛИВАНИЕ
+sva.jethud.m=м
+sva.jethud.km=км

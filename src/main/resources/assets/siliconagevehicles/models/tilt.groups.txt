@@ -1,6 +1,7 @@
 # material r g b emissive(1 = drawn without lighting)
 accent 70 225 150 1
 belt 200 60 40 0
+black 4 3 8 0
 cabin 255 236 200 1
 carpet 32 32 36 0
 chrome 70 72 78 0

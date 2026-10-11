@@ -250,8 +250,8 @@ final class SelfTestAirSVA {
                 }
             }
             for (AnimParts.Def d : defs) {
-                if (d.kind != AnimParts.DEVICE) {
-                    continue;
+                if (d.kind != AnimParts.DEVICE || d.device == AnimParts.DOOR || d.device == AnimParts.PETAL) {
+                    continue;                                       // stage D3's gear doors / nozzle petals: SelfTestAirD3SVA
                 }
                 devices++;
                 float l = (float) Math.sqrt(d.axis1[0] * d.axis1[0] + d.axis1[1] * d.axis1[1] + d.axis1[2] * d.axis1[2]);

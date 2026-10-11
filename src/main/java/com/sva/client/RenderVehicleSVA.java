@@ -6,6 +6,7 @@ import com.sva.ConfigSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.vehicle.AnimMath;
 import com.sva.vehicle.AnimParts;
+import com.sva.vehicle.GearMath;
 import com.sva.vehicle.Movement;
 import com.sva.vehicle.TrailerMath;
 
@@ -22,6 +23,10 @@ import net.minecraft.util.ResourceLocation;
  * client's AnimMath.State (EntityVehicleSVA.anim). ★6 / ★7: the lights (VehicleLightsSVA) in the same model frame.
  * Aircraft stage A: the high-lift devices (AnimParts DEVICE) - flaps travel with the synced setting, slats and spoilers /
  * the jet's dorsal brake with their state, the tiltrotor's flaperons droop in the vertical mode and work as ailerons.
+ * Round 2, stage D3: the gear doors (DEVICE DOOR) shut after the legs are in; the legs' pistons, wheels and torque links
+ * follow the strut (GearMath; the airframe settles on it, the wheels stay on the ground), the light plane's spring legs
+ * flex; the jet's nozzle petals (DEVICE PETAL) follow the throttle and its flame grows with shock diamonds on the
+ * afterburner (NozzleMath); the jet's HUD on the canopy glass in the pilot's own view (HudJetSVA).
  */
 public class RenderVehicleSVA extends Render {
 
@@ -94,6 +99,12 @@ public class RenderVehicleSVA extends Render {
             GL11.glTranslatef(0F, -ATTITUDE_Y * 0.5F, 0F);
         }
         GL11.glTranslatef(0F, bob, 0F);
+        // stage D3 (★12): the strut's compression; the airframe sinks by what is over the parking stroke - the wheels' parts
+        // slide back up by the same (legTransform), so they stay on the ground. Not in the own cockpit view.
+        float comp = animate ? AnimMath.lerp(an.prevStrut, an.strut, pt) : GearMath.REST;
+        if (!ownView && animate && GearMath.struts(vt)) {
+            GL11.glTranslatef(0F, -GearMath.sink(vt, comp), 0F);
+        }
         float shade = v.isWrecked() ? 0.45F : 1F;
         double rolled = animate ? an.prevRoll + (an.roll - an.prevRoll) * pt : 0;
         // skins: the tier's livery and this vehicle's board number (config vehicles.textures / vehicles.liveries in ObjModelSVA)
@@ -149,6 +160,7 @@ public class RenderVehicleSVA extends Render {
                     GL11.glPushMatrix();
                     GL11.glTranslatef(0F, -bob, 0F);                           // wheels stay on the ground
                     gearTransform(d, gear);
+                    legTransform(d, comp);
                     if (d.steer && steer != 0F) {
                         // + steer = right: a negative turn about +y swings the wheel's front to +z (right)
                         GL11.glTranslatef(d.pivot[0], d.pivot[1], d.pivot[2]);
@@ -167,6 +179,7 @@ public class RenderVehicleSVA extends Render {
                 } else if (p.kind == ObjModelSVA.Part.GEAR) {
                     GL11.glPushMatrix();
                     gearTransform(p.def, gear);
+                    legTransform(p.def, comp);
                     m.renderPart(p, 0F, shade);
                     GL11.glPopMatrix();
                 } else if (p.kind == ObjModelSVA.Part.SURFACE) {
@@ -244,7 +257,9 @@ public class RenderVehicleSVA extends Render {
         }
         m.anim(0F, 1F);
         m.cabin(-1F, 0);
-        if (v.isBoosting() && vt.gases.boostGas != null && vt.movement == Movement.PLANE && shade >= 1F) {
+        if (vt == com.sva.vehicle.VehicleType.JET && ConfigSVA.jetNozzle && shade >= 1F) {
+            jetFlame(v, an, pt, animate);                              // stage D3: the flame with the petals' exit
+        } else if (v.isBoosting() && vt.gases.boostGas != null && vt.movement == Movement.PLANE && shade >= 1F) {
             // the jet's afterburner: a flickering flame cone out of the nozzle (EntityVehicleSVA adds flame particles)
             float flicker = 0.85F + 0.15F * (float) Math.sin((v.ticksExisted + pt) * 2.3F);
             ObjModelSVA.renderFlame(EntityVehicleSVA.NOZZLE_X, EntityVehicleSVA.NOZZLE_Y, EntityVehicleSVA.NOZZLE_R, 0.9F, flicker);
@@ -258,6 +273,9 @@ public class RenderVehicleSVA extends Render {
         }
         // ★6 / ★7: headlight beams, nav lights, beacons, brake glow (in this model frame)
         VehicleLightsSVA.render(v, vt, pt, gear, ownView);
+        if (ownView && vt == com.sva.vehicle.VehicleType.JET && ConfigSVA.jetHud && shade >= 1F) {
+            HudJetSVA.render(v, vt, pt);                               // stage D3, ★18: the HUD on the canopy glass
+        }
         if (ownView) {
             eyeClip(false);
         }
@@ -384,6 +402,13 @@ public class RenderVehicleSVA extends Render {
         if (d.device == AnimParts.LAMP) {
             return AnimMath.lerp(an.prevLamp, an.lamp, pt);
         }
+        if (d.device == AnimParts.DOOR) {
+            return 1F - AnimMath.lerp(an.prevDoor, an.door, pt);              // stage D3: modelled open, shut by ang1
+        }
+        if (d.device == AnimParts.PETAL) {
+            // stage D3: modelled at REST_DEG in from the axis; + opens (vehicles.jetNozzle off: as modelled)
+            return ConfigSVA.jetNozzle ? com.sva.vehicle.NozzleMath.REST_DEG - AnimMath.lerp(an.prevNozzle, an.nozzle, pt) : 0F;
+        }
         com.sva.vehicle.HighLiftMath.Spec s = com.sva.vehicle.HighLiftMath.spec(vt);
         if (s == null) {
             return 0F;
@@ -408,6 +433,57 @@ public class RenderVehicleSVA extends Render {
             default:
                 return 0F;
         }
+    }
+
+    /**
+     * Stage D3: a leg's part at strut compression c - the light plane's spring legs swing about x through their root
+     * (mirrored on the left), a sliding part (piston, wheel, lower torque link) moves up the leg by the travel, a torque
+     * link turns about its hinge (the upper one forward, the lower one back) - inside the retraction's frame.
+     */
+    private static void legTransform(AnimParts.Def d, float c) {
+        if (d.flex) {
+            float a = GearMath.flex(c) * (d.gearPivot[2] < 0F ? -1F : 1F);
+            if (a != 0F) {
+                float[] q = d.gearPivot;
+                GL11.glTranslatef(q[0], q[1], q[2]);
+                GL11.glRotatef(a, 1F, 0F, 0F);
+                GL11.glTranslatef(-q[0], -q[1], -q[2]);
+            }
+        }
+        if (d.stroke != 0F) {
+            GL11.glTranslatef(0F, GearMath.travel(c, d.stroke), 0F);
+        }
+        if (d.link != 0) {
+            float a = GearMath.linkTurn(d.linkD0, d.linkLen, d.linkStroke, c) * d.link;
+            if (a != 0F) {
+                GL11.glTranslatef(d.pivot[0], d.pivot[1], d.pivot[2]);
+                GL11.glRotatef(a, 0F, 0F, 1F);
+                GL11.glTranslatef(-d.pivot[0], -d.pivot[1], -d.pivot[2]);
+            }
+        }
+    }
+
+    /**
+     * Stage D3 (★13): the jet's flame out of the petals' exit (NozzleMath) - the idle glow (the D2 light-off flash right
+     * after the catch), longer and bluer with the throttle, the afterburner's long cone with its shock diamonds, flickering.
+     */
+    private static void jetFlame(EntityVehicleSVA v, AnimMath.State an, float pt, boolean animate) {
+        com.sva.vehicle.VehicleType vt = v.getVehicleType();
+        boolean ab = v.isBoosting() && vt.gases.boostGas != null;
+        if (!ab && !v.isLifting()) {
+            return;
+        }
+        float deg = animate ? AnimMath.lerp(an.prevNozzle, an.nozzle, pt) : com.sva.vehicle.NozzleMath.REST_DEG;
+        float r = com.sva.vehicle.NozzleMath.exitRadius(deg) * 0.9F;
+        double thr = v.getThrottle();
+        float len = com.sva.vehicle.NozzleMath.flameLen(thr, ab);
+        if (!ab && v.engineState() == com.sva.vehicle.SystemsMath.WARM && v.engineTicks() < 10) {
+            len = Math.max(len, 0.45F);                                // round 2, D2: the light-off flash
+        }
+        float t = v.ticksExisted + pt;
+        float flicker = 0.85F + 0.15F * (float) Math.sin(t * com.sva.vehicle.NozzleMath.FLICKER);
+        ObjModelSVA.renderJetFlame(EntityVehicleSVA.NOZZLE_X, EntityVehicleSVA.NOZZLE_Y, r, len, flicker, ab ? 0F : com.sva.vehicle.NozzleMath.flameBlue(thr),
+                ab, t);
     }
 
     /** ★10: a retracting part at gear position g (0 down .. 1 up): turned about its gear pivot, then lifted. */

@@ -1262,6 +1262,62 @@ public final class ObjModelSVA {
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
+    /**
+     * Round 2, stage D3 (★13, NozzleMath): the jet's flame out of the nozzle exit at (x, y, 0), radius r, `len` long
+     * (additive, full bright, no depth writes): an outer cone orange at idle turning blue-white with the throttle
+     * (blue 0..1), a bright core; on the afterburner (ab) a hot orange-white cone with NozzleMath.DIAMONDS shock diamonds -
+     * double cones along the axis, shrinking downstream, each flickering on its own phase (t: ticks + partial).
+     */
+    public static void renderJetFlame(float x, float y, float r, float len, float flicker, float blue, boolean ab, float t) {
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_LIGHTING_BIT);
+        float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+        GL11.glDepthMask(false);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        float[] outer = ab ? new float[] {1F, 0.72F, 0.42F} : new float[] {1F - 0.45F * blue, 0.55F + 0.13F * blue, 0.15F + 0.85F * blue};
+        float l = len * flicker;
+        cone(x, y, r * 1.05F, l, outer, ab ? 0.8F : 0.7F);
+        cone(x, y, r * 0.5F, l * 0.6F, new float[] {0.75F, 0.85F, 1F}, 0.8F);
+        if (ab) {
+            for (int k = 0; k < com.sva.vehicle.NozzleMath.DIAMONDS; k++) {
+                float[] dm = com.sva.vehicle.NozzleMath.diamond(k);
+                float sz = r * dm[1] * (0.9F + 0.1F * (float) Math.sin(t * com.sva.vehicle.NozzleMath.FLICKER + k * 1.7F));
+                float cx = x - l * dm[0], hl = sz * 1.3F, rr = sz * 0.8F;
+                for (int sgn = -1; sgn <= 1; sgn += 2) {
+                    GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+                    GL11.glColor4f(1F, 0.97F, 0.88F, 0.9F);
+                    GL11.glVertex3f(cx + sgn * hl, y, 0F);
+                    for (int i = 0; i <= 12; i++) {
+                        double a = i * Math.PI * 2 / 12;
+                        GL11.glColor4f(1F, 0.85F, 0.6F, 0.25F);
+                        GL11.glVertex3f(cx, y + (float) Math.cos(a) * rr, (float) Math.sin(a) * rr);
+                    }
+                    GL11.glEnd();
+                }
+            }
+        }
+        GL11.glDepthMask(true);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
+        GL11.glPopAttrib();
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /** A flame cone from the exit ring (radius r at x) to its tip `len` aft: colour c with alpha a at the ring, fading out at the tip. */
+    private static void cone(float x, float y, float r, float len, float[] c, float a) {
+        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+        GL11.glColor4f(c[0], c[1], c[2], 0F);
+        GL11.glVertex3f(x - len, y, 0F);
+        for (int k = 0; k <= 16; k++) {
+            double ang = k * Math.PI * 2 / 16;
+            GL11.glColor4f(c[0], c[1], c[2], a);
+            GL11.glVertex3f(x, y + (float) Math.cos(ang) * r, (float) Math.sin(ang) * r);
+        }
+        GL11.glEnd();
+    }
+
     /** The translucent motion-blur disc of a fast-spinning part (radius p.disc, across its axis through the pivot). */
     public static void renderDisc(Part p, float alpha) {
         if (p.disc <= 0 || alpha <= 0) {

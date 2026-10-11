@@ -2756,7 +2756,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         float dy = (float) (posY - prevPosY);
         float yawRate = MathHelper.wrapAngleTo180_float(rotationYaw - prevRotationYaw);
         boolean flies = t.movement.flies;
-        if (flies && (ticksExisted & 3) == 0) {
+        // stage D3: every tick near the ground (the struts feel the touchdown), every 4 ticks higher up
+        if (flies && ((ticksExisted & 3) == 0 || anim.height < 3)) {
             anim.height = heightAboveGround(10);
         } else if (!flies) {
             anim.height = 0;
@@ -2767,7 +2768,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             steerIn = ((animIn & IN_RIGHT) != 0 ? 1F : 0F) - ((animIn & IN_LEFT) != 0 ? 1F : 0F);
             brakeIn = !flies && ((animIn & IN_BRAKE) != 0 || (animIn & IN_BACK) != 0 && fwd > 0.02F);
         }
-        boolean gearType = t.movement == Movement.PLANE || t == VehicleType.SHUTTLE;
+        // stage D3 (★12): the jet's and the tiltrotor's legs retract behind doors, the shuttle's draw up; the light plane's
+        // gear is fixed now (spring legs)
+        boolean gearType = com.sva.vehicle.GearMath.retracts(t);
+        anim.doorSeq = ConfigSVA.gearDoors && t != VehicleType.SHUTTLE;
         boolean ground = !flies || anim.height < 0.6;
         boolean bounce = t.movement == Movement.GROUND || t.movement == Movement.CRAWLER;
         double tilt = t.movement == Movement.TILT ? getTiltPos() : Double.NaN;
@@ -2794,6 +2798,16 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             cl = dy / 0.15F;
         }
         com.sva.vehicle.AnimMath.controls(anim, cp, cr, cyw, cl, (float) getThrottle(), ConfigSVA.animations);
+        if (com.sva.vehicle.GearMath.struts(t)) {
+            // stage D3 (★12): the oleo struts / spring legs - the touchdown's sink, the bumps while rolling
+            com.sva.vehicle.AnimMath.struts(anim, !flies || anim.height < com.sva.vehicle.GearMath.CONTACT, dy,
+                    ConfigSVA.animations && ConfigSVA.gearStruts);
+        }
+        if (t == VehicleType.JET) {
+            // stage D3 (★13): the nozzle's petals follow the throttle (idle open, full dry narrowest, afterburner wide)
+            com.sva.vehicle.AnimMath.nozzle(anim, getThrottle(), isBoosting() && t.gases.boostGas != null, isLifting(),
+                    ConfigSVA.animations && ConfigSVA.jetNozzle);
+        }
         if (HighLiftMath.spec(t) != null) {
             // aircraft stage A: the flaps / slats / spoilers follow the synced state (RenderVehicleSVA's DEVICE parts)
             com.sva.vehicle.AnimMath.highLift(anim, getFlaps(), slatsOut(), spoilersUp(), ConfigSVA.animations);
@@ -2810,6 +2824,19 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             com.sva.vehicle.AnimMath.landingLamp(anim, false, on ? flapDeg : 0F, on && anim.height >= 0.6, on ? dy : 1F,
                     ConfigSVA.animations);
         }
+    }
+
+    /** World test (stage D3): one tick of the part animations as the client runs it (AnimMath state, gear, struts). */
+    public void debugAnimTick() {
+        animTick(getVehicleType());
+    }
+
+    /**
+     * Stage D3 (★18): the flight-plan waypoint the jet's HUD shows the distance to - {x, z, number}; null = none (the
+     * runway ЗАХВ flies to is shown instead). The hook for stage D4's flight plan (МАРШ).
+     */
+    public double[] hudWaypoint() {
+        return null;
     }
 
     /**

@@ -140,6 +140,20 @@ public final class ConfigSVA {
      * flap, a dead instrument; the garage's repair clears them. Off = no failures (and none at a start).
      */
     public static boolean failures = true;
+    /**
+     * Client (aircraft round 2, stage D3, ★12): the jet's and the tiltrotor's gear doors open before the legs move and shut
+     * after they are in (GearMath.sequence); off = the doors follow the legs at once.
+     */
+    public static boolean gearDoors = true;
+    /**
+     * Client (stage D3, ★12): the oleo struts compress on touchdown and on bumps (jet, tiltrotor; the light plane's spring
+     * legs flex) and the airframe settles on them; off = the gear stays at its parking stroke.
+     */
+    public static boolean gearStruts = true;
+    /** Client (stage D3, ★13): the jet nozzle's petals follow the throttle; the afterburner flame with shock diamonds. */
+    public static boolean jetNozzle = true;
+    /** Client (stage D3, ★18): the jet's head-up display on the canopy glass (first-person pilot view). */
+    public static boolean jetHud = true;
     /** Fast charging (2026-10-10): the station's «Форсаж» mode. */
     public static boolean stationBoost = true;
     /** A core (or IC2) energy storage touching the station feeds the vehicle directly. */
@@ -299,6 +313,18 @@ public final class ConfigSVA {
             failures = c.getBoolean("failures", v, true,
                     "Aircraft failures over 60 % wear: engine power loss, a jammed flap, a dead instrument; the garage repairs them / "
                             + "Отказы авиации при износе выше 60 %: потеря тяги, заклинивший закрылок, отказ прибора; ремонт в гараже снимает их");
+            gearDoors = c.getBoolean("gearDoors", v, true,
+                    "Jet / tiltrotor gear doors open before the legs move and shut after them (client) / "
+                            + "Створки шасси реактивного и конвертоплана открываются до уборки ног и закрываются после (клиент)");
+            gearStruts = c.getBoolean("gearStruts", v, true,
+                    "Oleo struts compress on touchdown and bumps, the light plane's spring legs flex (client) / "
+                            + "Амортизаторы обжимаются при касании и на кочках, рессорные стойки лёгкого самолёта пружинят (клиент)");
+            jetNozzle = c.getBoolean("jetNozzle", v, true,
+                    "Jet nozzle petals follow the throttle; afterburner flame with shock diamonds (client) / "
+                            + "Лепестки сопла реактивного следуют за РУД; факел форсажа с ромбами (клиент)");
+            jetHud = c.getBoolean("jetHud", v, true,
+                    "Jet head-up display on the canopy glass in the pilot's view (client) / "
+                            + "Индикатор на стекле фонаря реактивного в виде пилота (клиент)");
             regenEfficiency = num(c, "regenEfficiency", v, 0.2F, 0F, 0.5F,
                     "Share of the motion energy recovered (0..0.5; aircraft at most 0.3) / Доля возвращаемой энергии движения (0..0,5; авиация не больше 0,3)");
             drill = c.getBoolean("drill", v, true,
