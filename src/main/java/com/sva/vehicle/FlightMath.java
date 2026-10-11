@@ -71,6 +71,11 @@ public final class FlightMath {
 
     /** The same under `m` (HELI / PLANE rules; the tiltrotor by its mode). */
     public static double maxClimb(VehicleType t, Movement m, boolean powered, double speed, double y) {
+        return maxClimb(t, m, t.plane, powered, speed, y);
+    }
+
+    /** Stage A: a plane's by the PlaneParams it flies with now (HighLiftMath.params: the flaps' / slats' lower stall). */
+    public static double maxClimb(VehicleType t, Movement m, PlaneParams p, boolean powered, double speed, double y) {
         if (!powered) {
             return 0;
         }
@@ -78,7 +83,7 @@ public final class FlightMath {
         if (m == Movement.HELI) {
             c = t.movement == Movement.HELI ? t.climb : HeliMath.CLIMB;     // the tiltrotor's vertical mode: the heli's
         } else if (m == Movement.PLANE) {
-            c = speed >= t.plane.stall * 0.8 ? Math.max(t.plane.climb, t.plane.rotateVy) : 0;
+            c = speed >= p.stall * 0.8 ? Math.max(p.climb, p.rotateVy) : 0;
         } else {
             c = 0;
         }
@@ -91,7 +96,11 @@ public final class FlightMath {
     }
 
     public static boolean mustDescend(VehicleType t, Movement m, boolean powered, double speed) {
-        return !powered || m == Movement.PLANE && speed < t.plane.stall * 0.6;
+        return mustDescend(t, m, t.plane, powered, speed);
+    }
+
+    public static boolean mustDescend(VehicleType t, Movement m, PlaneParams p, boolean powered, double speed) {
+        return !powered || m == Movement.PLANE && speed < p.stall * 0.6;
     }
 
     /** Horizontal reach a tick the server allows: top speed (x the afterburner) x SPEED_MARGIN, at most SPEED_CAP. */
@@ -116,6 +125,12 @@ public final class FlightMath {
     /** The same under `m` (the tiltrotor: PLANE rules in its airplane mode, HELI otherwise). */
     public static boolean moveAllowed(VehicleType t, Movement m, double horizontal, double dy, long dt, double yNew, boolean powered,
                                       boolean wasAirborne, boolean airborneNew, double speed) {
+        return moveAllowed(t, m, t.plane, horizontal, dy, dt, yNew, powered, wasAirborne, airborneNew, speed);
+    }
+
+    /** Stage A: with the PlaneParams the driver's client flies with (the same synced flaps / slats - HighLiftMath.params). */
+    public static boolean moveAllowed(VehicleType t, Movement m, PlaneParams p, double horizontal, double dy, long dt, double yNew,
+                                      boolean powered, boolean wasAirborne, boolean airborneNew, double speed) {
         // unpowered it only glides: the reach follows the airspeed (at least the type's glide speed - the speed
         // measure lags), not the top speed - no free flight at full speed losing MUST_SINK a tick
         double base = powered ? maxReach(t) : Math.min(maxReach(t), Math.max(speed, glideSpeed(t, m)) * 1.1);
@@ -126,7 +141,7 @@ public final class FlightMath {
         if (dy < -(1.5 * dt + 1)) {
             return false;
         }
-        double up = maxClimb(t, m, powered, speed, yNew) * dt + 0.1;
+        double up = maxClimb(t, m, p, powered, speed, yNew) * dt + 0.1;
         if (!wasAirborne) {
             up = Math.max(up, 1.1 * dt + 0.3);              // a block step from the ground, as on wheels
         }
@@ -136,7 +151,7 @@ public final class FlightMath {
         if (dy > 0.05 && yNew > CEILING + 0.5) {
             return false;
         }
-        return !(airborneNew && mustDescend(t, m, powered, speed) && dy > -MUST_SINK * dt);
+        return !(airborneNew && mustDescend(t, m, p, powered, speed) && dy > -MUST_SINK * dt);
     }
 
     /** Steady airspeed without power under `m`: a plane's glide, a helicopter's autorotation (HeliMath.AUTO_FWD). */

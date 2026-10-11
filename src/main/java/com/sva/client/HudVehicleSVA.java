@@ -341,7 +341,9 @@ public class HudVehicleSVA {
         boolean tilt = t.movement == Movement.TILT;
         boolean heli = t.movement == Movement.HELI || tilt && !v.planeNow();
         boolean afterRow = t.gases.boostGas != null && !heli;      // the afterburner: jet, shuttle, tiltrotor in plane mode
-        int extraRows = (tilt ? 1 : 0) + (afterRow ? 1 : 0);
+        // aircraft stage A: «Закрылки 20 гр. · предкр. · ТОРМОЗ» (the light plane, the jet, the tiltrotor in airplane mode)
+        boolean hlRow = !heli && com.sva.vehicle.HighLiftMath.spec(t) != null;
+        int extraRows = (tilt ? 1 : 0) + (afterRow ? 1 : 0) + (hlRow ? 1 : 0);
         shownVy = shownVy * 0.7 + (v.posY - v.prevPosY) * 0.3;
         long now = mc.theWorld.getTotalWorldTime();
         boolean blink = (now / 8) % 2 == 0;
@@ -438,6 +440,31 @@ public class HudVehicleSVA {
             fit(fr, line, px + 6, ry, pw - 12, col, true);
             ry += 11;
         }
+        if (hlRow) {
+            com.sva.vehicle.HighLiftMath.Spec hs = com.sva.vehicle.HighLiftMath.spec(t);
+            String line;
+            int col;
+            if (v.flapWarning()) {
+                // the protection: «V>120 ЗАКР» blinking (a refused / blown-back setting)
+                line = Lang.tr("sva.hud.hl.warn", Integer.valueOf(com.sva.vehicle.HighLiftMath.limitKmh(hs, v.getFlaps() + 1)));
+                col = blink ? WARN : 0x803030;
+            } else {
+                StringBuilder sb = new StringBuilder(Lang.tr(hs.flaperons ? "sva.hud.hl.flaperons" : "sva.hud.hl.flaps",
+                        Integer.valueOf(Math.round(v.getFlapAngle()))));
+                if (v.slatsOut()) {
+                    sb.append(" \u00b7 ").append(Lang.tr("sva.hud.hl.slats"));
+                }
+                if (v.isAirbrake()) {
+                    sb.append(" \u00b7 ").append(Lang.tr("sva.hud.hl.airbrake"));
+                } else if (v.groundSpoilersUp()) {
+                    sb.append(" \u00b7 ").append(Lang.tr("sva.hud.hl.rollout"));
+                }
+                line = sb.toString();
+                col = v.isAirbrake() ? ORANGE : v.getFlaps() > 0 ? AMBER : DIM;
+            }
+            fit(fr, line, px + 6, ry, pw - 12, col, true);
+            ry += 11;
+        }
         float cost = v.getCostNow();
         String eu = fmt(Math.round(cost));
         boolean air = v.airborneAt(v.posX, v.posY, v.posZ);
@@ -471,7 +498,7 @@ public class HudVehicleSVA {
             ry += 11;
         } else {
             double vmax = PlaneMath.maxSpeed(t, t.gases.boostMul);
-            double stallV = t.plane.stall;
+            double stallV = v.stallSpeed();                     // stage A: lowered by the flaps / slats
             fit(fr, Lang.tr("sva.hud.stallMin", Integer.valueOf(VehicleMath.kmh(stallV))), px + 6, ry, pw - 12, DIM, false);
             ry += 11;
             int bx = px + 6, bw = pw - 12;

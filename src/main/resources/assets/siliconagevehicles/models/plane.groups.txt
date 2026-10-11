@@ -17,6 +17,7 @@ green 50 255 90 1
 hazard 128 128 128 0
 holo 90 220 255 1
 lamp 255 248 220 1
+lestrip 168 172 180 0
 needle 255 70 40 1
 ok 60 255 120 1
 paint 232 234 238 0

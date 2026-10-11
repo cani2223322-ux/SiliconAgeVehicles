@@ -131,6 +131,8 @@ public class GuiVehicleSVA extends GuiScreen {
                 return driver ? CruiseClientSVA.isOn() : vehicle.isCruiseOn();
             case MODE:
                 return type.longRange && !type.hasDrill && vehicle.isLongRangeOn();
+            case AIRBRAKE:
+                return vehicle.spoilersUp();
             default:
                 return false;
         }
@@ -152,6 +154,12 @@ public class GuiVehicleSVA extends GuiScreen {
             case CARGO:
             case MAP:
                 return Lang.tr("sva.vmenu.act.open");
+            case FLAPS_UP:
+                return Lang.tr("sva.vmenu.act.retract");
+            case FLAPS_DOWN:
+                return Lang.tr("sva.vmenu.act.extend");
+            case AIRBRAKE:
+                return Lang.tr(vehicle != null && vehicle.isAirbrake() ? "sva.vmenu.act.off" : "sva.vmenu.act.on");
             default:
                 return "";
         }
@@ -219,6 +227,29 @@ public class GuiVehicleSVA extends GuiScreen {
             }
             case CARGO:
                 return new Object[] {Lang.tr("sva.vmenu.st.cargo", Integer.valueOf(v.getCargoUsed()), Integer.valueOf(v.cargoCapacity())), Integer.valueOf(TEXT)};
+            case FLAPS_UP: {
+                // aircraft stage A: the setting; the overspeed warning in red
+                com.sva.vehicle.HighLiftMath.Spec hs = com.sva.vehicle.HighLiftMath.spec(type);
+                if (v.flapWarning() && hs != null) {
+                    return new Object[] {Lang.tr("sva.vmenu.st.flapsWarn", Integer.valueOf(com.sva.vehicle.HighLiftMath.limitKmh(hs, v.getFlaps() + 1))),
+                            Integer.valueOf(RED)};
+                }
+                return new Object[] {Lang.tr("sva.vmenu.st.flaps", Integer.valueOf(Math.round(v.getFlapAngle()))),
+                        Integer.valueOf(v.getFlaps() > 0 ? AMBER : MUTED)};
+            }
+            case FLAPS_DOWN: {
+                // «Предкрылки: АВТО» - the slats' state (the tiltrotor has none: where its flaperons work)
+                com.sva.vehicle.HighLiftMath.Spec hs = com.sva.vehicle.HighLiftMath.spec(type);
+                if (hs == null || !hs.slats) {
+                    return s("sva.vmenu.st.flaperons", MUTED);
+                }
+                return v.slatsOut() ? s("sva.vmenu.st.slatsOut", CYAN) : s("sva.vmenu.st.slatsIn", MUTED);
+            }
+            case AIRBRAKE:
+                if (v.isAirbrake()) {
+                    return s("sva.vmenu.st.on", AMBER);
+                }
+                return v.groundSpoilersUp() ? s("sva.vmenu.st.rollout", AMBER) : s("sva.vmenu.st.off", MUTED);
             default:
                 return null;
         }

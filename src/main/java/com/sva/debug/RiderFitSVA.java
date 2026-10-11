@@ -118,7 +118,7 @@ public final class RiderFitSVA {
     }
 
     /** Does the ray from o along d hit any triangle? */
-    private static boolean hits(float[][] tris, double ox, double oy, double oz, float[] d) {
+    static boolean hits(float[][] tris, double ox, double oy, double oz, float[] d) {
         for (float[] t : tris) {
             double e1x = t[3] - t[0], e1y = t[4] - t[1], e1z = t[5] - t[2];
             double e2x = t[6] - t[0], e2y = t[7] - t[1], e2z = t[8] - t[2];

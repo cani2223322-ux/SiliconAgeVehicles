@@ -15,9 +15,11 @@ import com.sva.vehicle.CruiseMath;
 import com.sva.vehicle.DrillMath;
 import com.sva.vehicle.FlightMath;
 import com.sva.vehicle.HeliMath;
+import com.sva.vehicle.HighLiftMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.Movement;
 import com.sva.vehicle.PlaneMath;
+import com.sva.vehicle.PlaneParams;
 import com.sva.vehicle.RoadMath;
 import com.sva.vehicle.SpaceMath;
 import com.sva.vehicle.TiltMath;
@@ -83,7 +85,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // wave 3 (★15): the hitched trailer's kind and contents (trailerString - parsed on clients)
             DW_TRAILER = 9,
             // wave 4 (★15 рекуперация): EU/t recovered this tick + the server's efficiency (RegenMath.pack)
-            DW_REGEN = 8;
+            DW_REGEN = 8,
+            // aircraft stage A (★1-★3): flap setting, airbrake, ground spoilers, slats, overspeed warning (HighLiftMath.pack)
+            DW_HILIFT = 7;
     private static final int TUNE_ON = 1 << 20;
     /** DW_TUNE bits: the server's vehicles.cruise / vehicles.autopilot (★4 - the driver's client follows the server). */
     private static final int TUNE_CRUISE = 1 << 21, TUNE_AP = 1 << 22;
@@ -91,7 +95,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     private static final int TUNE_LOCKS = 1 << 23;
     /** Entity NBT (beside NBT_ROOT - never in the item): the bore on, the plane's throttle, why auto-delivery stopped / paused, the jump portal. */
     private static final String K_DRILL_ON = "SVADrillOn", K_THROTTLE = "SVAThrottle", K_AUTO_REASON = "SVAAutoReason",
-            K_PORTAL_TICKS = "SVAPortalTicks", K_PORTAL = "SVAPortal";
+            K_PORTAL_TICKS = "SVAPortalTicks", K_PORTAL = "SVAPortal",
+            /** Stage A: the flap setting and the pilot's airbrake (as the throttle: the entity's, not the item's). */
+            K_FLAPS = "SVAFlaps", K_AIRBRAKE = "SVAAirbrake";
     /** «Передать владельца»: the new owner must be online within this many blocks of the vehicle. */
     public static final double TRANSFER_RANGE = 16;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
@@ -122,7 +128,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
              */
             A_TANK_REFUEL = 20, A_TANK_DUMP = 21, A_PLATFORM_LOAD = 22, A_PLATFORM_UNLOAD = 23,
             /** The cargo screen's «Машина» tab, «Доступ» (owner / op - canManage): the access screen without a key card. */
-            A_ACCESS = 24;
+            A_ACCESS = 24,
+            /** Aircraft stage A (the pilot): «Закрылки −» (retract a step), «Закрылки +» (extend), «Воздушный тормоз». */
+            A_FLAPS_UP = 25, A_FLAPS_DOWN = 26, A_AIRBRAKE = 27;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -187,6 +195,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     // server, aircraft: in the air now / last tick, unpowered in the air, stalling, measured vertical speed, EU this tick
     private boolean wasAirborne, autoNow, stallNow;
     private double lastDy;
+    /**
+     * Aircraft stage A (HighLiftMath), server: the flap setting, the pilot's airbrake, the ground spoilers (up by
+     * themselves at a touch-down), the slats (automatic), the overspeed warning's ticks left. Synced in DW_HILIFT.
+     */
+    private int flaps, flapWarn;
+    private boolean airbrake, groundSpoilers, slats;
     private float costNow;
     /** Wave 4 (★15 рекуперация, RegenMath): the server's recovery pool (EU spent, not saved - a reload just empties it), EU/t recovered this tick. */
     private double regenPool;
@@ -302,6 +316,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.addObject(DW_TUNE, Integer.valueOf(0));
         dataWatcher.addObject(DW_TRAILER, "");
         dataWatcher.addObject(DW_REGEN, Integer.valueOf(0));
+        dataWatcher.addObject(DW_HILIFT, Integer.valueOf(0));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -852,7 +867,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         // the server judges the airspeed it measured last tick (a driver's client's: its own, capped) - its per-tick
         // `speed` read 0 on a tick without a Move and cancelled the autopilot as a stall
         double air = worldObj.isRemote ? Math.max(0, speed) : airspeedNow;
-        return CruiseMath.autopilotCancel(keys, charge, PlaneMath.stalled(t.plane, air), !onGround,
+        return CruiseMath.autopilotCancel(keys, charge, PlaneMath.stalled(flightParams(t), air), !onGround,
                 hasLift() && canThrust());
     }
 
@@ -984,6 +999,171 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         return riddenByEntity != null && riddenByEntity == SVAMod.proxy.localPlayer();
     }
 
+    // ------------------------------------------------------------------ aircraft stage A: flaps, slats, spoilers
+
+    private int hiLiftBits() {
+        return dataWatcher.getWatchableObjectInt(DW_HILIFT);
+    }
+
+    private boolean remote() {
+        return worldObj != null && worldObj.isRemote;
+    }
+
+    /** The flap setting (0 .. the type's last; 0 without high-lift devices). Server: now; clients: synced. Stage C's indicator. */
+    public int getFlaps() {
+        return remote() ? hiLiftBits() & HighLiftMath.P_FLAPS : flaps;
+    }
+
+    /** The flap setting's nominal deflection (deg; the tiltrotor's flaperons in airplane mode). */
+    public float getFlapAngle() {
+        HighLiftMath.Spec s = HighLiftMath.spec(getVehicleType());
+        return s == null ? 0F : s.angles[Math.min(getFlaps(), s.last())];
+    }
+
+    /** The pilot's «Воздушный тормоз» is on. */
+    public boolean isAirbrake() {
+        return remote() ? (hiLiftBits() & HighLiftMath.P_AIRBRAKE) != 0 : airbrake;
+    }
+
+    /** The spoilers / the jet's speed brake are up: the pilot's airbrake or the ground spoilers after a touch-down. */
+    public boolean spoilersUp() {
+        return isAirbrake() || groundSpoilersUp();
+    }
+
+    /** The ground spoilers alone (up by themselves at a touch-down at low throttle). */
+    public boolean groundSpoilersUp() {
+        return remote() ? (hiLiftBits() & HighLiftMath.P_GROUND) != 0 : groundSpoilers;
+    }
+
+    /** The automatic slats are out. */
+    public boolean slatsOut() {
+        return remote() ? (hiLiftBits() & HighLiftMath.P_SLATS) != 0 : slats;
+    }
+
+    /** The flaps' overspeed warning («V>120 ЗАКР»): a refused / blown-back setting a moment ago. */
+    public boolean flapWarning() {
+        return remote() ? (hiLiftBits() & HighLiftMath.P_WARN) != 0 : flapWarn > 0;
+    }
+
+    /** The jet's speed brake opens only part way now (over its speed). */
+    public boolean brakeLimited() {
+        HighLiftMath.Spec s = HighLiftMath.spec(getVehicleType());
+        return remote() ? (hiLiftBits() & HighLiftMath.P_FAST) != 0 : s != null && HighLiftMath.brakeDeg(s, airspeedNow) < s.brakeDeg;
+    }
+
+    /** The stall speed now (b/t): the type's, lowered by the flaps / slats (the HUD's mark). */
+    public double stallSpeed() {
+        return flightParams(getVehicleType()).stall;
+    }
+
+    /**
+     * The PlaneParams the aeroplane physics flies with now (both sides alike - the client from the synced bits): the
+     * type's own (flaps 0, slats in, nothing up - the old flight exactly), or HighLiftMath.params with the flaps, the
+     * slats, the airbrake (in the air) and the ground spoilers (on the ground; the pilot's airbrake there works as them).
+     */
+    public PlaneParams flightParams(VehicleType t) {
+        HighLiftMath.Spec s = HighLiftMath.spec(t);
+        if (s == null || t.plane == null) {
+            return t.plane;
+        }
+        boolean ab = isAirbrake(), air = !onGround;
+        return HighLiftMath.params(s, t.plane, getFlaps(), slatsOut(), ab && air, !air && (ab || groundSpoilersUp()));
+    }
+
+    /**
+     * Server, aircraft, once a tick (flightTick, before wasAirborne moves on): the protection blows the flaps back over
+     * their speed (warning + beep), the slats follow the airspeed / angle of attack, the pilot's airbrake retracts over
+     * half throttle, the ground spoilers come up at a touch-down at low throttle and go down on the throttle / stopped.
+     * Off (config vehicles.highLift false) or a type without devices: all retracted - the old flight.
+     */
+    private void highLiftTick(VehicleType t, boolean air, boolean plane, double dy) {
+        HighLiftMath.Spec s = HighLiftMath.spec(t);
+        if (s == null || !ConfigSVA.highLift) {
+            flaps = flapWarn = 0;
+            airbrake = groundSpoilers = slats = false;
+            return;
+        }
+        double as = airspeedNow;
+        if (flapWarn > 0) {
+            flapWarn--;
+        }
+        int f = HighLiftMath.blowBack(s, flaps, as);
+        if (f != flaps) {
+            flaps = f;
+            flapWarn = HighLiftMath.WARN_TICKS;
+            oneShot("ding", 0.5F, 1.8F);                            // the overspeed beep
+            oneShot("door", 0.3F, 1.7F);                            // the flap motor
+            tellRiders("sva.msg.flaps.blowBack");
+        }
+        slats = plane && HighLiftMath.slats(s, slats, as, HighLiftMath.aoa(t.plane.stall, as, dy), flaps);
+        boolean ab = HighLiftMath.airbrakeHeld(airbrake, throttle);
+        if (airbrake && !ab) {
+            oneShot("door", 0.25F, 1.9F);
+        }
+        airbrake = ab;
+        boolean gs = plane && HighLiftMath.groundSpoilers(s, groundSpoilers, wasAirborne, air, throttle, as);
+        if (gs && !groundSpoilers) {
+            oneShot("door", 0.3F, 1.5F);                            // the spoilers come up on the roll-out
+        }
+        groundSpoilers = gs;
+    }
+
+    /** Server: «Закрылки +» / «−» from the pilot (serverAction): a step, or refused over the next setting's speed. */
+    private void flapCommand(EntityPlayer p, HighLiftMath.Spec s, int dir) {
+        if (!ConfigSVA.highLift) {
+            msg(p, "sva.msg.highLift.disabled");
+            return;
+        }
+        int r = HighLiftMath.flapStep(s, flaps, dir, airspeedNow);
+        if (r == HighLiftMath.REFUSED_SPEED) {
+            flapWarn = HighLiftMath.WARN_TICKS;
+            oneShot("ding", 0.5F, 1.8F);
+            msg(p, "sva.msg.flaps.overspeed", Integer.valueOf(Math.round(s.angles[flaps + 1])), Integer.valueOf(HighLiftMath.limitKmh(s, flaps + 1)));
+        } else if (r >= 0) {
+            flaps = r;
+            oneShot("door", 0.3F, 1.7F);                            // the flap motor (a step takes 1.5 s)
+        }
+        syncWatcher();
+    }
+
+    /** Server: «Воздушный тормоз» from the pilot - on / off (not over half throttle: it would retract at once). */
+    private void airbrakeCommand(EntityPlayer p) {
+        if (!ConfigSVA.highLift) {
+            msg(p, "sva.msg.highLift.disabled");
+            return;
+        }
+        if (!airbrake && throttle > HighLiftMath.AIRBRAKE_RETRACT) {
+            msg(p, "sva.msg.airbrake.throttle", Integer.valueOf((int) Math.round(HighLiftMath.AIRBRAKE_RETRACT * 100)));
+            return;
+        }
+        airbrake = !airbrake;
+        oneShot("door", 0.3F, airbrake ? 1.5F : 1.9F);
+        syncWatcher();
+    }
+
+    /** World test: set the high-lift state directly (flaps, the pilot's airbrake, the ground spoilers). */
+    public void debugHighLift(int flapSetting, boolean brake, boolean ground) {
+        flaps = flapSetting;
+        airbrake = brake;
+        groundSpoilers = ground;
+        syncWatcher();
+    }
+
+    /** World test: the pilot's flap key as the server takes it at `airspeed` (no chat). Returns the setting after it. */
+    public int debugFlapKey(int dir, double airspeed) {
+        HighLiftMath.Spec s = HighLiftMath.spec(getVehicleType());
+        if (s == null) {
+            return -1;
+        }
+        int r = HighLiftMath.flapStep(s, flaps, dir, airspeed);
+        if (r >= 0) {
+            flaps = r;
+        } else if (r == HighLiftMath.REFUSED_SPEED) {
+            flapWarn = HighLiftMath.WARN_TICKS;
+        }
+        return flaps;
+    }
+
     /** Server: the airspeed the stall / flying-move rules judged this tick (PlaneMath.reportedAirspeed for a driver's client). */
     public double airspeedNow() {
         return airspeedNow;
@@ -1092,6 +1272,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 | (ConfigSVA.cruise ? TUNE_CRUISE : 0) | (ConfigSVA.autopilot ? TUNE_AP : 0) | (ConfigSVA.locks ? TUNE_LOCKS : 0)));
         dataWatcher.updateObject(DW_TRAILER, trailerString());
         dataWatcher.updateObject(DW_REGEN, Integer.valueOf(com.sva.vehicle.RegenMath.pack(regenNow, ConfigSVA.regenEfficiency, ConfigSVA.regen)));
+        dataWatcher.updateObject(DW_HILIFT, Integer.valueOf(HighLiftMath.pack(flaps, airbrake, groundSpoilers, slats, flapWarn > 0,
+                HighLiftMath.spec(t) != null && HighLiftMath.brakeDeg(HighLiftMath.spec(t), airspeedNow) < HighLiftMath.spec(t).brakeDeg)));
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
             dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
@@ -1385,7 +1567,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         autoNow = air && !lifting && !isHeld();
         // the stall by the airspeed the flying physics really has (the client's when it drives - PlaneMath.reportedAirspeed;
         // the measured EMA blinked under the stall in level flight whenever a Move came a tick late)
-        stallNow = plane && air && PlaneMath.stalled(t.plane, clientDriven ? airspeedNow : v);
+        stallNow = plane && air && PlaneMath.stalled(flightParams(t), clientDriven ? airspeedNow : v);
         if (autoNow && !wasAuto && ticksExisted > 5) {
             tellRiders(plane ? "sva.msg.glide" : "sva.msg.autorotation");
         }
@@ -1395,11 +1577,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         for (Entity r : riders()) {
             r.fallDistance = 0;                                     // seated: no fall damage; off in the air - a normal fall
         }
+        highLiftTick(t, air, plane, dy);
         wasAirborne = air;
         lastDy = stepDy;
         if (plane) {
             double thr = lifting ? Math.max(throttle, PlaneMath.throttleFloor(t, v)) : 0;
-            return PlaneMath.cost(t, thr, air, dy, posY, fill, working);
+            return PlaneMath.cost(t, flightParams(t), thr, air, dy, posY, fill, working);
         }
         return tilt ? HeliMath.vtolCost(t, air, v, dy, fill, working) : HeliMath.cost(t, air, v, dy, fill, working);
     }
@@ -1700,7 +1883,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 : canThrust() ? VehicleMath.maxSpeed(t, state.energy) * tuneSpeed() * Math.max(roadSpeedMul(t),
                 RoadMath.speedMul(com.sva.block.BlockRoadSVA.surfaceAt(worldObj, x, y, z), t.movement)) : coast;   // coasting only; ★11 roads
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
-        boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), bh, by, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z),
+        boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), flightParams(t), bh, by, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z),
                 clientAirspeed(clientSpeed, bh / dt))           // not the bare EMA: it halved on a tick without a Move (and
                                                                 // a Move after a refused one must count what it covers)
                 : moveAllowed(bh, by, dt, limit, CrawlerMath.climbLimit(stepHeight));             // ★8: big wheels step 1.5
@@ -1891,7 +2074,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             lerpSteps = 0;
             // the pilot's stall warnings follow the own physics (the speed PlanePhysicsSVA drops the nose by), not the
             // synced flag a tick or two late
-            localStall = planeNow() && t.plane != null && airborneAt(posX, posY, posZ) && PlaneMath.stalled(t.plane, Math.max(0, speed));
+            localStall = planeNow() && t.plane != null && airborneAt(posX, posY, posZ) && PlaneMath.stalled(flightParams(t), Math.max(0, speed));
             boolean targets = (in & IN_CRUISE) != 0
                     && ((float) cruiseSpeed != sentCruise[0] || (float) apYaw != sentCruise[1] || (float) apAlt != sentCruise[2]);
             if (in != lastSentInput || targets || ++inputTimer >= KEEPALIVE) {
@@ -2045,6 +2228,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             cl = dy / 0.15F;
         }
         com.sva.vehicle.AnimMath.controls(anim, cp, cr, cyw, cl, (float) getThrottle(), ConfigSVA.animations);
+        if (HighLiftMath.spec(t) != null) {
+            // aircraft stage A: the flaps / slats / spoilers follow the synced state (RenderVehicleSVA's DEVICE parts)
+            com.sva.vehicle.AnimMath.highLift(anim, getFlaps(), slatsOut(), spoilersUp(), ConfigSVA.animations);
+        }
     }
 
     /**
@@ -3402,8 +3589,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (action == A_DRILL_TOGGLE || action == A_DRILL_MODE || action >= A_MODE_SET && action < A_MODE_SET + DrillMath.MODES) {
             return manage || driver;
         }
-        if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS) {
-            return driver;                                          // only the pilot turns the nacelles / works the ship
+        if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS || action >= A_FLAPS_UP && action <= A_AIRBRAKE) {
+            return driver;                                          // only the pilot turns the nacelles / works the ship / the flaps
         }
         return manage;
     }
@@ -3502,6 +3689,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             state.routeNextB = false;
             setAuto(false);
             msg(p, "sva.msg.route.cleared");
+        } else if ((a == A_FLAPS_UP || a == A_FLAPS_DOWN) && HighLiftMath.spec(t) != null) {
+            flapCommand(p, HighLiftMath.spec(t), a == A_FLAPS_DOWN ? 1 : -1);
+        } else if (a == A_AIRBRAKE && HighLiftMath.spec(t) != null && HighLiftMath.spec(t).airbrake) {
+            airbrakeCommand(p);
         } else if (a == A_FLIGHT_MODE && t.movement == Movement.TILT) {
             int r = toggleFlightMode();
             msg(p, r == TiltMath.OK ? (state.tiltPlane ? "sva.msg.tilt.toPlane" : "sva.msg.tilt.toVertical") : "sva.msg.tilt.no." + r,
@@ -3875,6 +4066,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         drillOn = t.hasDrill && tag.getBoolean(K_DRILL_ON) && DrillLogicSVA.isHead(state.drillHead);
         double thr = tag.getDouble(K_THROTTLE);
         throttle = Double.isNaN(thr) ? 0 : Math.max(0, Math.min(1, thr));
+        HighLiftMath.Spec hl = HighLiftMath.spec(t);
+        flaps = hl == null ? 0 : Math.max(0, Math.min(hl.last(), tag.getByte(K_FLAPS)));
+        airbrake = hl != null && hl.airbrake && tag.getBoolean(K_AIRBRAKE);
         autoReason = state.autoState == AutoDelivery.STOPPED || AutoDelivery.driving(state.autoState)
                 ? Math.max(0, Math.min(7, tag.getByte(K_AUTO_REASON))) : AutoDelivery.R_NONE;
         if (t.singular && tag.hasKey(K_PORTAL) && tag.getInteger(K_PORTAL_TICKS) > 0) {
@@ -3893,6 +4087,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         tag.setTag(NBT_ROOT, st);
         tag.setBoolean(K_DRILL_ON, drillOn);
         tag.setDouble(K_THROTTLE, throttle);
+        tag.setByte(K_FLAPS, (byte) flaps);
+        tag.setBoolean(K_AIRBRAKE, airbrake);
         tag.setByte(K_AUTO_REASON, (byte) autoReason);
         if (portalTicks > 0 && portalTarget != null) {
             NBTTagCompound pt = new NBTTagCompound();

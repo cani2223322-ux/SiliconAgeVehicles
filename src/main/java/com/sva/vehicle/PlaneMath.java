@@ -60,13 +60,22 @@ public final class PlaneMath {
      * the top speed are the type's (VehicleType.plane).
      */
     public static double accel(VehicleType t, double speed, double thr, boolean air, boolean runway, double mul) {
+        return accel(t, t.plane, speed, thr, air, runway, mul);
+    }
+
+    /**
+     * Aircraft stage A: with the PlaneParams the high-lift devices give (HighLiftMath.params): the drag on the top-speed
+     * term (flaps, airbrake, ground spoilers), the rolling friction x p.brake (ground spoilers). The type's own params =
+     * the formula above exactly (x1.0).
+     */
+    public static double accel(VehicleType t, PlaneParams p, double speed, double thr, boolean air, boolean runway, double mul) {
         double top = t.topSpeed * mul;
         double r = speed / top;
-        double a = t.plane.thrust * mul * (VehicleMath.clamp(thr, 0, 1) - r * r);
+        double a = p.thrust * mul * (VehicleMath.clamp(thr, 0, 1) - p.drag * r * r);
         if (!air) {
             a *= runway ? 1 : GROUND_EFF;
             if (thr <= 0 && speed > 0) {
-                a -= ROLL;
+                a -= ROLL * p.brake;
             }
         }
         return a;
@@ -75,6 +84,11 @@ public final class PlaneMath {
     /** Wheel brakes a tick (on the ground at zero throttle with S held). */
     public static double brake(boolean runway) {
         return runway ? BRAKE_RUNWAY : BRAKE;
+    }
+
+    /** Stage A: x p.brake - the ground spoilers dump the lift and the brakes grip (the roll-out x HighLiftMath.ROLLOUT). */
+    public static double brake(PlaneParams p, boolean runway) {
+        return brake(runway) * p.brake;
     }
 
     /** How much climb the airspeed allows (0 at the stall speed, the full CLIMB from 0.25 b/t over it) - the light plane. */
@@ -115,9 +129,23 @@ public final class PlaneMath {
             if (up) {
                 target *= 0.5;
             }
+            if (p.airbrake) {
+                target *= 2;                                    // stage A: the airbrake steepens the glide
+            }
             return FlightMath.approach(Math.min(vy, -GLIDE_START), target, VACC);
         }
         double target;
+        if (p.airbrake) {
+            // stage A, «Воздушный тормоз»: a steep descent - no keys sinks, «down» dives harder, Space climbs at half
+            if (up && !down) {
+                target = y >= FlightMath.CEILING ? -0.05 : climbCapacity(p, speed) * FlightMath.ceilingFactor(y) * HighLiftMath.AIRBRAKE_CLIMB;
+            } else if (down && !up) {
+                target = -p.dive * HighLiftMath.AIRBRAKE_DIVE;
+            } else {
+                target = -p.dive * HighLiftMath.AIRBRAKE_SINK;
+            }
+            return FlightMath.approach(vy, target, VACC);
+        }
         if (up && !down) {
             target = y >= FlightMath.CEILING ? -0.05 : climbCapacity(p, speed) * FlightMath.ceilingFactor(y);
         } else if (down && !up) {
@@ -135,15 +163,22 @@ public final class PlaneMath {
 
     /** The same with the afterburner factor (1 = none). */
     public static double airAccel(VehicleType t, double speed, double thr, double vy, boolean up, boolean powered, double mul) {
-        PlaneParams p = t.plane;
+        return airAccel(t, t.plane, speed, thr, vy, up, powered, mul);
+    }
+
+    /** Stage A: with the high-lift params; the airbrake's descent gains no speed (the climb's toll stays). */
+    public static double airAccel(VehicleType t, PlaneParams p, double speed, double thr, double vy, boolean up, boolean powered, double mul) {
         if (!powered) {
             if (stalled(p, speed)) {
                 return STALL_GAIN;
             }
             double a = speed < p.glideSpeed ? GLIDE_ACC : -GLIDE_ACC;
+            if (p.airbrake) {
+                a = -GLIDE_ACC;                                 // the airbrake bleeds it toward the stall
+            }
             return up ? a - 0.006 : a;                          // a flare bleeds speed
         }
-        double a = accel(t, speed, thr, true, false, mul) - vy * CLIMB_DRAG;
+        double a = accel(t, p, speed, thr, true, false, mul) - (p.airbrake ? Math.max(0, vy) : vy) * CLIMB_DRAG;
         return stalled(p, speed) ? a + STALL_GAIN : a;
     }
 
@@ -157,6 +192,11 @@ public final class PlaneMath {
      * run) and climbing, cruiseCost in level flight; at Y >= CRUISE_Y in the air x CRUISE_MUL; x the cargo factor.
      */
     public static double cost(VehicleType t, double thr, boolean airborne, double vy, double y, double fill, boolean working) {
+        return cost(t, t.plane, thr, airborne, vy, y, fill, working);
+    }
+
+    /** Stage A: x p.cost (the flaps: the mock-up's x1.1 / x1.25 / x1.5); the climb share by the type's own climb rate. */
+    public static double cost(VehicleType t, PlaneParams p, double thr, boolean airborne, double vy, double y, double fill, boolean working) {
         if (!working) {
             return 0;
         }
@@ -165,7 +205,7 @@ public final class PlaneMath {
         if (airborne && y >= FlightMath.CRUISE_Y) {
             c *= FlightMath.CRUISE_MUL;
         }
-        return c * FlightMath.cargoMul(fill);
+        return c * FlightMath.cargoMul(fill) * p.cost;
     }
 
     /**
@@ -213,12 +253,17 @@ public final class PlaneMath {
 
     /** Ground run (blocks) from standstill to the type's lift-off speed holding W, as the physics steps it. Infinite if it never gets there. */
     public static double takeoffDistance(VehicleType t, boolean runway) {
+        return takeoffDistance(t, t.plane, runway);
+    }
+
+    /** Stage A: with the high-lift params (the flaps' lift-off speed and drag). */
+    public static double takeoffDistance(VehicleType t, PlaneParams p, boolean runway) {
         double v = 0, thr = 0, d = 0;
         for (int i = 0; i < 4000; i++) {
             thr = throttleStep(thr, true, false, true);
-            v = Math.max(0, v + accel(t, v, thr, false, runway));
+            v = Math.max(0, v + accel(t, p, v, thr, false, runway, 1));
             d += v;
-            if (v >= t.plane.liftOff) {
+            if (v >= p.liftOff) {
                 return d;
             }
         }

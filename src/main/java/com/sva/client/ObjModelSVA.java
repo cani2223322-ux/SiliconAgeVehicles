@@ -31,6 +31,10 @@ import net.minecraft.util.ResourceLocation;
  * lists - the side-projected overlay (sides / tops) and the decal faces. Everything goes through drawGroup(), so the
  * moving parts (renderPart / renderNacelle / renderPulse) and the cockpit clip passes (renderShellClipped) get the same
  * look. Both options off = no texture bound, the groups.txt colours: the original flat look.
+ * Aircraft stage A: "# part TAG" comment lines (export_obj.py) tag the faces of a moving piece up to "# part -" (or the
+ * next group): only the AnimParts rows with that tag take them (AnimParts.Def.takesTag), the older parts never. Painted
+ * wing skin (the tag "wing" and the wing's own moving pieces) goes to "material~w" groups - the same material, drawn with
+ * the wing panel tile (SkinMath.WING_TILE: rivet rows along the spars, rib seams).
  */
 public final class ObjModelSVA {
 
@@ -53,7 +57,9 @@ public final class ObjModelSVA {
                 /** ★10 (vehicle/AnimParts): wheels (spin, steer, retract), landing gear legs (retract), control surfaces. */
                 WHEEL = com.sva.vehicle.AnimParts.WHEEL, GEAR = com.sva.vehicle.AnimParts.GEAR, SURFACE = com.sva.vehicle.AnimParts.SURFACE,
                 /** Cockpit stage 1: the cabin controls (steering wheels, cyclic, collective, yoke, throttle, pedals). */
-                CONTROL = com.sva.vehicle.AnimParts.CONTROL;
+                CONTROL = com.sva.vehicle.AnimParts.CONTROL,
+                /** Aircraft stage A: flaps, slats, spoilers, the jet's speed brake (tagged). */
+                DEVICE = com.sva.vehicle.AnimParts.DEVICE;
         /** ★10: the animated part's data (wheel radius, steering, gear travel, surface control); null for the older parts. */
         public com.sva.vehicle.AnimParts.Def def;
         /** NACELLE: the point the rotor swings forward about (model units). */
@@ -308,6 +314,8 @@ public final class ObjModelSVA {
             List<float[]> v = new ArrayList<float[]>(), vn = new ArrayList<float[]>();
             List<float[]> cur = null;
             String curName = "default";
+            String curTag = null;                                              // stage A: "# part TAG"
+            String suffix = "";                                                // "~w": painted wing skin
             List<Part> parts = parts();
             r = new BufferedReader(new InputStreamReader(open(name + ".obj"), "UTF-8"), 1 << 16);
             try {
@@ -325,11 +333,18 @@ public final class ObjModelSVA {
                     } else if (line.startsWith("g ") || line.startsWith("o ") || line.startsWith("usemtl ")) {
                         String g = line.substring(line.indexOf(' ') + 1).trim();
                         curName = g;
+                        curTag = null;
+                        suffix = "";
                         cur = pending.get(g);
                         if (cur == null) {
                             cur = new ArrayList<float[]>();
                             pending.put(g, cur);
                         }
+                    } else if (line.startsWith("# part ")) {
+                        String tg = line.substring(7).trim();
+                        curTag = "-".equals(tg) || tg.length() == 0 ? null : tg;
+                        suffix = SkinMath.paintable(curName) && SkinMath.wingSkin(curTag) ? SkinMath.WING_SUFFIX : "";
+                        cur = partList(curName + suffix);
                     } else if (line.startsWith("f ")) {
                         if (cur == null) {
                             cur = new ArrayList<float[]>();
@@ -347,6 +362,10 @@ public final class ObjModelSVA {
                             List<float[]> to = cur;
                             boolean clipped = false;
                             for (Part pt : parts) {
+                                if (pt.def == null ? curTag != null && !com.sva.vehicle.AnimParts.SKIN_TAG.equals(curTag)
+                                        : !pt.def.takesTag(curTag)) {
+                                    continue;                                  // stage A: a tagged piece is its rows' only
+                                }
                                 if (pt.def != null && pt.def.cut) {
                                     // ★10 control surface: the triangles crossing the box are clipped by it - the piece
                                     // inside moves with the surface, the pieces outside stay
@@ -357,7 +376,7 @@ public final class ObjModelSVA {
                                     float[][] in = com.sva.vehicle.AnimParts.clipBox(new float[][] {poly[0], poly[i], poly[i + 1]},
                                             pt.def.min, pt.def.max, outside);
                                     if (in != null) {
-                                        fan(in, partList("#" + pt.name + "/" + curName));
+                                        fan(in, partList("#" + pt.name + "/" + curName + suffix));
                                     }
                                     for (float[][] o : outside) {
                                         fan(o, cur);
@@ -367,7 +386,7 @@ public final class ObjModelSVA {
                                 }
                                 if (pt.holds(curName, (poly[0][0] + poly[i][0] + poly[i + 1][0]) / 3F,
                                         (poly[0][1] + poly[i][1] + poly[i + 1][1]) / 3F, (poly[0][2] + poly[i][2] + poly[i + 1][2]) / 3F)) {
-                                    String key = "#" + pt.name + "/" + curName;
+                                    String key = "#" + pt.name + "/" + curName + suffix;
                                     to = pending.get(key);
                                     if (to == null) {
                                         to = new ArrayList<float[]>();
@@ -398,6 +417,9 @@ public final class ObjModelSVA {
         for (String g : pending.keySet()) {
             groups.add(g);
             String mat = g.startsWith("#") ? g.substring(g.indexOf('/') + 1) : g;     // a part keeps its material's colour
+            if (mat.endsWith(SkinMath.WING_SUFFIX)) {
+                mat = mat.substring(0, mat.length() - SkinMath.WING_SUFFIX.length());   // stage A: the wing skin's material
+            }
             mats.add(mat);
             if (SkinMath.paintable(mat)) {
                 for (float[] p : pending.get(g)) {                                 // the painted shell's side bbox
@@ -458,12 +480,16 @@ public final class ObjModelSVA {
         for (int i = 0; i < n; i++) {
             List<float[]> tris = pending.get(groups.get(i));
             String mat = mats.get(i);
+            boolean wing = groups.get(i).endsWith(SkinMath.WING_SUFFIX);
             int count = tris.size() / 3;
             float[][] fn = new float[count][];
             Map<String, List<Integer>> byTile = new LinkedHashMap<String, List<Integer>>();
             for (int t = 0; t < count; t++) {
                 fn[t] = faceNormal(tris.get(t * 3), tris.get(t * 3 + 1), tris.get(t * 3 + 2));
                 String tile = SkinMath.tile(mat, SkinMath.axis(fn[t][0], fn[t][1], fn[t][2]), fn[t][1], emissive.get(i).booleanValue());
+                if (wing && "paint".equals(tile)) {
+                    tile = SkinMath.WING_TILE;                                  // stage A: the wing panel tile
+                }
                 String key = tile == null ? "" : tile;
                 List<Integer> l = byTile.get(key);
                 if (l == null) {
@@ -705,6 +731,12 @@ public final class ObjModelSVA {
         GL11.glPopAttrib();
     }
 
+    /** A group's name for the shell / glass tests: a part's "#..." as it is, a base group by its material (stage A's "~w"). */
+    private String baseName(int i) {
+        String g = groups.get(i);
+        return g.startsWith("#") ? g : mats.get(i);
+    }
+
     /** Glass groups: drawn after the opaque ones, see-through. */
     public static boolean isGlass(String group) {
         return com.sva.vehicle.CockpitView.isGlass(group);       // shared with the server-side view check
@@ -750,7 +782,7 @@ public final class ObjModelSVA {
         boolean seeThrough = shellAlpha < 1F;
         boolean clip = !seeThrough && windows != null && windows.length > 0;
         for (int i = 0; i < groups.size(); i++) {
-            String g = groups.get(i);
+            String g = baseName(i);
             if (isGlass(g) || g.startsWith("#") || (seeThrough || clip) && isShell(g)) {
                 continue;
             }
@@ -766,7 +798,7 @@ public final class ObjModelSVA {
             GL11.glDepthMask(false);
             GL11.glDisable(GL11.GL_CULL_FACE);
             for (int i = 0; i < groups.size(); i++) {
-                if (!isShell(groups.get(i))) {
+                if (!isShell(baseName(i))) {
                     continue;
                 }
                 float[] c = colourOf(i);
@@ -783,7 +815,7 @@ public final class ObjModelSVA {
             GL11.glDepthMask(false);
             GL11.glDisable(GL11.GL_CULL_FACE);
             for (int i = 0; i < groups.size(); i++) {
-                if (!isGlass(groups.get(i))) {
+                if (!isGlass(baseName(i))) {
                     continue;
                 }
                 float[] c = colourOf(i);
@@ -825,7 +857,7 @@ public final class ObjModelSVA {
                 GL11.glEnable(GL11.GL_CLIP_PLANE0 + b);
             }
             for (int i = 0; i < groups.size(); i++) {
-                if (isShell(groups.get(i))) {
+                if (isShell(baseName(i))) {
                     drawGroup(i, shade);
                 }
             }

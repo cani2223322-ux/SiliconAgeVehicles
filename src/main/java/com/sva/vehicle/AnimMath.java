@@ -55,6 +55,11 @@ public final class AnimMath {
          */
         public float ctlPitch, prevCtlPitch, ctlRoll, prevCtlRoll, ctlYaw, prevCtlYaw, ctlLift, prevCtlLift, ctlThrottle = -1F,
                 prevCtlThrottle = -1F;
+        /**
+         * Aircraft stage A (highLift()): the flap position in settings (fractional while moving, 1.5 s a step), the slats
+         * and the spoilers / the jet's speed brake 0..1 - following the synced state; prev* for the partial-tick lerp.
+         */
+        public float flapPos, prevFlapPos, slat, prevSlat, spoiler, prevSpoiler;
 
         /** A CONTROL input (AnimParts.STEER..THROTTLE) at partial tick pt, -1..1. */
         public float control(int in, float pt) {
@@ -173,6 +178,25 @@ public final class AnimMath {
         s.ctlYaw = smooth(s.ctlYaw, clamp(yaw, -1, 1));
         s.ctlLift = smooth(s.ctlLift, clamp(lift, -1, 1));
         s.ctlThrottle = smooth(s.ctlThrottle, clamp(throttle01, 0, 1) * 2F - 1F);
+    }
+
+    /**
+     * Aircraft stage A, one client tick of the high-lift devices (after tick()): the flaps travel toward the synced setting
+     * one HighLiftMath.FLAP_TICKS-th of a step a tick, the slats / spoilers toward in / out; animate off = they jump.
+     */
+    public static void highLift(State s, int flaps, boolean slats, boolean spoilers, boolean animate) {
+        s.prevFlapPos = s.flapPos;
+        s.prevSlat = s.slat;
+        s.prevSpoiler = s.spoiler;
+        if (!animate) {
+            s.flapPos = s.prevFlapPos = flaps;
+            s.slat = s.prevSlat = slats ? 1F : 0F;
+            s.spoiler = s.prevSpoiler = spoilers ? 1F : 0F;
+            return;
+        }
+        s.flapPos = HighLiftMath.flapPos(s.flapPos, flaps);
+        s.slat = HighLiftMath.level(s.slat, slats, HighLiftMath.SLAT_TICKS);
+        s.spoiler = HighLiftMath.level(s.spoiler, spoilers, HighLiftMath.SPOILER_TICKS);
     }
 
     /**

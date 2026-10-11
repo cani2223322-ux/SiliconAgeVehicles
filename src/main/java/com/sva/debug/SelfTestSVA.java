@@ -126,6 +126,7 @@ public final class SelfTestSVA {
             SelfTestKeysSVA.run();                          // the «Техника» menu: function keys, migration, Controls
             SelfTestFastChargeSVA.run();                    // fast charging: module, boost, shared platforms, storages, supercap
             SelfTestDriveSVA.run();                         // 2026-10-10 fixes: the stall flag in level flight
+            SelfTestAirSVA.run();                           // aircraft stage A: flaps, slats, spoilers, the model's tagged parts
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -2354,8 +2355,8 @@ public final class SelfTestSVA {
 
     // ---- ★6 / ★7 / ★10: lights and part animations (vehicle/AnimParts, AnimMath, VehicleLights)
 
-    /** models/NAME.obj as triangles: {group, float[9] positions}. */
-    private static java.util.List<Object[]> objTris(String model) throws java.io.IOException {
+    /** models/NAME.obj as triangles: {group, float[9] positions, the "# part" tag (stage A) or null}. */
+    static java.util.List<Object[]> objTris(String model) throws java.io.IOException {
         java.io.InputStream in = SelfTestSVA.class.getResourceAsStream("/assets/siliconagevehicles/models/" + model + ".obj");
         java.util.List<Object[]> out = new java.util.ArrayList<Object[]>();
         if (in == null) {
@@ -2363,7 +2364,7 @@ public final class SelfTestSVA {
         }
         java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(in, "UTF-8"), 1 << 16);
         java.util.List<float[]> v = new java.util.ArrayList<float[]>();
-        String g = "default";
+        String g = "default", tag = null;
         try {
             String line;
             while ((line = r.readLine()) != null) {
@@ -2372,6 +2373,10 @@ public final class SelfTestSVA {
                     v.add(new float[] {Float.parseFloat(p[1]), Float.parseFloat(p[2]), Float.parseFloat(p[3])});
                 } else if (line.startsWith("g ")) {
                     g = line.substring(2).trim();
+                    tag = null;
+                } else if (line.startsWith("# part ")) {
+                    String tg = line.substring(7).trim();
+                    tag = "-".equals(tg) ? null : tg;
                 } else if (line.startsWith("f ")) {
                     String[] p = line.substring(2).trim().split("\\s+");
                     for (int i = 1; i + 1 < p.length; i++) {
@@ -2380,7 +2385,7 @@ public final class SelfTestSVA {
                         for (int k = 0; k < 3; k++) {
                             System.arraycopy(v.get(Integer.parseInt(p[idx[k]].split("/")[0]) - 1), 0, t, k * 3, 3);
                         }
-                        out.add(new Object[] {g, t});
+                        out.add(new Object[] {g, t, tag});
                     }
                 }
             }
@@ -2411,7 +2416,9 @@ public final class SelfTestSVA {
                 float[] t = (float[]) o[1];
                 float[] a = {t[0], t[1], t[2]}, b = {t[3], t[4], t[5]}, c = {t[6], t[7], t[8]};
                 boolean in;
-                if (d.cut) {
+                if (!d.takesTag((String) o[2])) {
+                    in = false;                                     // stage A: a tagged piece is only its rows'
+                } else if (d.cut) {
                     in = d.takes(g) && d.overlaps(a, b, c)
                             && com.sva.vehicle.AnimParts.clipBox(new float[][] {a, b, c}, d.min, d.max, new java.util.ArrayList<float[][]>()) != null;
                 } else {
@@ -2433,7 +2440,8 @@ public final class SelfTestSVA {
                 check(far >= d.radius * 0.85F && far <= d.radius * 1.2F, "anim parts: " + d.model + " " + d.name + " spins about its axle (farthest "
                         + far + " ~ r " + d.radius + ")");
             }
-            if (d.kind == com.sva.vehicle.AnimParts.SURFACE) {
+            if (d.kind == com.sva.vehicle.AnimParts.SURFACE && d.cut) {
+                // a cut surface's box face is its hinge (stage A's tagged pieces hinge inside their box: the nose ahead of it)
                 boolean hinge = d.axis == 1 || d.axis == 2 ? d.pivot[0] == d.min[0] || d.pivot[0] == d.max[0] : false;
                 check(hinge && Math.abs(d.gain) == 1F, "anim parts: " + d.model + " " + d.name + " hinges on its box face x " + d.pivot[0]);
             }
@@ -2461,7 +2469,9 @@ public final class SelfTestSVA {
             float l = 0, r = 0, el = 0;
             int ne = 0, nr = 0;
             for (com.sva.vehicle.AnimParts.Def d : com.sva.vehicle.AnimParts.of(m)) {
-                if (d.kind != com.sva.vehicle.AnimParts.SURFACE) {
+                // stage A: the tiltrotor's flaperons (DEVICE + ailMix) are its ailerons; the plane's elevator wicks ride along
+                boolean flaperon = d.kind == com.sva.vehicle.AnimParts.DEVICE && d.ailMix != 0F;
+                if (d.kind != com.sva.vehicle.AnimParts.SURFACE && !flaperon || d.name.contains("Wicks")) {
                     continue;
                 }
                 if (d.control == com.sva.vehicle.AnimParts.AILERON) {

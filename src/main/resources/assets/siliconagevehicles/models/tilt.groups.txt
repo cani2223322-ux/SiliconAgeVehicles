@@ -12,6 +12,7 @@ glass 14 20 28 0
 hazard 128 128 128 0
 holo 90 220 255 1
 leather 110 62 36 0
+lestrip 168 172 180 0
 needle 255 70 40 1
 net 30 30 34 0
 ok 60 255 120 1

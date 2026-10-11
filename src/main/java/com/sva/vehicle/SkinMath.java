@@ -202,17 +202,34 @@ public final class SkinMath {
         if ("hazard".equals(mat) || "solar".equals(mat) || "wood".equals(mat) || "stone".equals(mat)) {
             return mat;
         }
+        if ("lestrip".equals(mat)) {
+            return "lestrip";                                   // ★9 the leading-edge strip: bright brushed metal, never painted
+        }
         return "metal";
+    }
+
+    /**
+     * ★9 (aircraft stage A): the painted wing skin's tile - the paint tile's seams plus rivet rows along the spars (u
+     * columns 9 and 13 - on the light plane's wing at ~62 % / ~25 % chord: box UVs u = x, export_obj's centring puts the
+     * plane's x 0 at concept x 4.75) and rib seams every 4 texels (v = z: every quarter model unit).
+     */
+    public static final String WING_TILE = "paint_wing";
+    /** ObjModelSVA's group-name suffix for the painted wing skin ("paint~w"). */
+    public static final String WING_SUFFIX = "~w";
+
+    /** Is a "# part" tag painted wing skin (the static skin and the wing's moving pieces - not the jet's spine brake)? */
+    public static boolean wingSkin(String tag) {
+        return tag != null && !"brake".equals(tag) && !"elev".equals(tag);
     }
 
     /** Every tile tile() can return (the self-test checks each PNG is in the jar). */
     public static final String[] TILES = {"paint", "paint_smooth", "metal", "steel", "chrome", "rubber", "tread", "dark", "dark_plate",
             "dark_grille", "fabric", "leather", "carpet", "glass", "hazard", "solar", "lamp", "wood", "stone", "alcantara", "velvet", "carbon",
-            "mat", "darkglass", "headliner"};
+            "mat", "darkglass", "headliner", WING_TILE, "lestrip"};
 
     /** The tile actually bound for a livery: the Singular paint has seams but no rivets. */
     public static String tileFor(int livery, String tile) {
-        return livery == SINGULAR && "paint".equals(tile) ? "paint_smooth" : tile;
+        return livery == SINGULAR && ("paint".equals(tile) || WING_TILE.equals(tile)) ? "paint_smooth" : tile;
     }
 
     // ------------------------------------------------------------------ ★7 interior trim by tier (config vehicles.interiorTrim)

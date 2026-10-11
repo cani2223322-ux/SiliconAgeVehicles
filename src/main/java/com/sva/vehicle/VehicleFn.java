@@ -38,7 +38,15 @@ public enum VehicleFn {
     /** «Багажник»: the cargo / bunker screen from any seat (owner / the «Багажник» right - the server checks). L. */
     CARGO("cargo", "cargo", 38, false, false),
     /** «Карта техники» (GuiMapSVA). M. */
-    MAP("map", "map", 50, false, false);
+    MAP("map", "map", 50, false, false),
+    /**
+     * Aircraft stage A (HighLiftMath; the light plane, the jet, the tiltrotor's flaperons): «Закрылки −» [ retracts a
+     * step, «Закрылки +» ] extends one (refused over the next setting's speed), «Воздушный тормоз» U - the spoilers / the
+     * jet's dorsal brake (not the tiltrotor). [ ] U: free in vanilla, the core (K R P H J G) and the old letters.
+     */
+    FLAPS_UP("flapsUp", "flapsUp", 26, false, true),
+    FLAPS_DOWN("flapsDown", "flapsDown", 27, false, true),
+    AIRBRAKE("airbrake", "airbrake", 22, false, true);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -78,6 +86,11 @@ public enum VehicleFn {
                 return t.singular;
             case CRUISE:
                 return CruiseMath.kind(t.movement, false) != CruiseMath.NONE || CruiseMath.kind(t.movement, true) != CruiseMath.NONE;
+            case FLAPS_UP:
+            case FLAPS_DOWN:
+                return HighLiftMath.spec(t) != null;
+            case AIRBRAKE:
+                return HighLiftMath.spec(t) != null && HighLiftMath.spec(t).airbrake;
             default:
                 return true;                                        // cargo, map: every vehicle
         }
@@ -107,6 +120,12 @@ public enum VehicleFn {
                 return EntityVehicleSVA.A_INVIS;
             case CARGO:
                 return EntityVehicleSVA.A_CARGO;
+            case FLAPS_UP:
+                return EntityVehicleSVA.A_FLAPS_UP;
+            case FLAPS_DOWN:
+                return EntityVehicleSVA.A_FLAPS_DOWN;
+            case AIRBRAKE:
+                return EntityVehicleSVA.A_AIRBRAKE;
             default:
                 return -1;
         }
@@ -116,6 +135,9 @@ public enum VehicleFn {
     public String nameKey(VehicleType t) {
         if (this == MODE && t != null) {
             return t.hasDrill ? "sva.fn.mode.drill" : t.movement == Movement.TILT ? "sva.fn.mode.tilt" : t.longRange ? "sva.fn.mode.long" : "sva.fn.mode";
+        }
+        if ((this == FLAPS_UP || this == FLAPS_DOWN) && t == VehicleType.TILT) {
+            return "sva.fn." + key + ".tilt";                    // «Флапероны −» / «+»
         }
         return "sva.fn." + key;
     }

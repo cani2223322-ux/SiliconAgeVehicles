@@ -1,6 +1,7 @@
 # material r g b emissive(1 = drawn without lighting)
 accent 90 190 255 1
 belt 200 60 40 0
+black 4 3 8 0
 canopy 60 40 10 0
 chrome 70 72 78 0
 copper 190 100 50 0

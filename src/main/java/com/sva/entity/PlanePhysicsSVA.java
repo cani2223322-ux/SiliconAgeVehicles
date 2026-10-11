@@ -15,6 +15,10 @@ import com.sva.vehicle.VehicleType;
  * the jet's afterburner («Форсаж» at full throttle, EntityVehicleSVA.afterburnerMul) multiplies thrust and top speed,
  * never past FlightMath.SPEED_CAP. Wave 1 (★4): with the autopilot engaged (IN_CRUISE, in the air) the heading and the
  * height are held by CruiseMath instead of A/D / Space / «Снижение» (any of W/S/A/D switches it off on the client).
+ * Aircraft stage A: the numbers come from EntityVehicleSVA.flightParams - the type's PlaneParams with the synced
+ * flaps / slats / airbrake / ground spoilers applied (HighLiftMath.params; all retracted = the type's own object): the
+ * stall, the lift-off speed, the drag, the brakes, the airbrake's descent. The autopilot holds the height with them
+ * (the flaps' lower stall gives it more climb at a low speed; the airbrake only adds drag under the autopilot).
  */
 public final class PlanePhysicsSVA {
 
@@ -25,7 +29,7 @@ public final class PlanePhysicsSVA {
         boolean fwd = (in & EntityVehicleSVA.IN_FWD) != 0, back = (in & EntityVehicleSVA.IN_BACK) != 0,
                 left = (in & EntityVehicleSVA.IN_LEFT) != 0, right = (in & EntityVehicleSVA.IN_RIGHT) != 0,
                 up = (in & EntityVehicleSVA.IN_BRAKE) != 0, down = (in & (EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BOOST)) != 0;
-        PlaneParams p = t.plane;
+        PlaneParams p = v.flightParams(t);
         boolean powered = v.hasLift() && v.canThrust();
         boolean air = !v.onGround;
         v.throttle = PlaneMath.throttleStep(v.throttle, fwd, back, powered);
@@ -38,15 +42,15 @@ public final class PlanePhysicsSVA {
             // ★4 autopilot: the height held by steering the vertical speed (CruiseMath), the throttle as the pilot left it
             double climb = PlaneMath.climbCapacity(p, speed) * FlightMath.ceilingFactor(v.posY);
             vy = CruiseMath.holdVy(v.motionY, v.apAlt, v.posY, climb, p.dive, PlaneMath.VACC);
-            speed += PlaneMath.airAccel(t, speed, thr, vy, vy > 0, powered, mul);
+            speed += PlaneMath.airAccel(t, p, speed, thr, vy, vy > 0, powered, mul);
         } else if (air) {
             vy = PlaneMath.airVy(p, speed, v.motionY, up, down, powered, v.posY);
-            speed += PlaneMath.airAccel(t, speed, thr, vy, up, powered, mul);
+            speed += PlaneMath.airAccel(t, p, speed, thr, vy, up, powered, mul);
         } else {
             boolean runway = v.onRunway();
-            speed += PlaneMath.accel(t, speed, thr, false, runway, mul);
+            speed += PlaneMath.accel(t, p, speed, thr, false, runway, mul);
             if (back && thr <= 0) {
-                speed -= PlaneMath.brake(runway);
+                speed -= PlaneMath.brake(p, runway);
             }
             speed = Math.max(0, speed);
             vy = up && powered && speed >= p.liftOff ? p.rotateVy : -0.08;

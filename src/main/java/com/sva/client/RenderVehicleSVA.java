@@ -20,6 +20,8 @@ import net.minecraft.util.ResourceLocation;
  * front ones steer, the crawlers' tread texture runs, control surfaces deflect, landing gear retracts, the heli's rotor
  * disc tilts a little more than the body, the hover bike bobs and leans, ground vehicles bounce on bumps; all from the
  * client's AnimMath.State (EntityVehicleSVA.anim). ★6 / ★7: the lights (VehicleLightsSVA) in the same model frame.
+ * Aircraft stage A: the high-lift devices (AnimParts DEVICE) - flaps travel with the synced setting, slats and spoilers /
+ * the jet's dorsal brake with their state, the tiltrotor's flaperons droop in the vertical mode and work as ailerons.
  */
 public class RenderVehicleSVA extends Render {
 
@@ -169,6 +171,20 @@ public class RenderVehicleSVA extends Render {
                     AnimParts.Def d = p.def;
                     float cmd = d.control == AnimParts.AILERON ? ail : d.control == AnimParts.ELEVATOR ? elev : rud;
                     m.renderPart(p, cmd * d.gain, shade);
+                } else if (p.kind == ObjModelSVA.Part.DEVICE) {
+                    // aircraft stage A: turned by ang1 x level about axis1 through the pivot, moved by move x level
+                    AnimParts.Def d = p.def;
+                    float level = animate ? deviceLevel(v, vt, d, an, pt) : 0F;
+                    float extra = animate && d.ailMix != 0F ? d.gain * d.ailMix * ail / AnimMath.MAX_SURFACE : 0F;
+                    GL11.glPushMatrix();
+                    if (level != 0F || extra != 0F) {
+                        GL11.glTranslatef(d.move[0] * level, d.move[1] * level, d.move[2] * level);
+                        GL11.glTranslatef(d.pivot[0], d.pivot[1], d.pivot[2]);
+                        GL11.glRotatef(d.ang1 * level + extra, d.axis1[0], d.axis1[1], d.axis1[2]);
+                        GL11.glTranslatef(-d.pivot[0], -d.pivot[1], -d.pivot[2]);
+                    }
+                    m.renderPart(p, 0F, shade);
+                    GL11.glPopMatrix();
                 } else if (p.kind == ObjModelSVA.Part.CONTROL) {
                     // cockpit stage 1: steering wheel / cyclic / collective / yoke / throttle / pedals follow their input
                     AnimParts.Def d = p.def;
@@ -348,6 +364,36 @@ public class RenderVehicleSVA extends Render {
         }
         int c = f == null ? 0xFFFFFF : f.getColor() & 0xFFFFFF;
         return c == 0xFFFFFF ? 0xC8C8C8 : c;
+    }
+
+    /**
+     * Aircraft stage A: a DEVICE part's level (its deflection over the Def's reference one): flaps - the angle of the
+     * travelling flap position (the tiltrotor's flaperons drooped by the nacelle position), slats / spoilers 0..1, the
+     * jet's brake 0..1 of 45 deg (25 deg fast).
+     */
+    static float deviceLevel(EntityVehicleSVA v, com.sva.vehicle.VehicleType vt, AnimParts.Def d, AnimMath.State an, float pt) {
+        com.sva.vehicle.HighLiftMath.Spec s = com.sva.vehicle.HighLiftMath.spec(vt);
+        if (s == null) {
+            return 0F;
+        }
+        switch (d.device) {
+            case AnimParts.FLAP: {
+                float a = s.angleAt(AnimMath.lerp(an.prevFlapPos, an.flapPos, pt));
+                if (s.flaperons) {
+                    double tp = an.tilt >= 0 ? an.prevTilt + (an.tilt - an.prevTilt) * pt : v.getTiltPos();
+                    a = com.sva.vehicle.HighLiftMath.flaperonAngle(s, a, tp);
+                }
+                return a / d.refDeg;
+            }
+            case AnimParts.SLAT:
+                return AnimMath.lerp(an.prevSlat, an.slat, pt);
+            case AnimParts.SPOILER:
+                return AnimMath.lerp(an.prevSpoiler, an.spoiler, pt);
+            case AnimParts.BRAKE:
+                return AnimMath.lerp(an.prevSpoiler, an.spoiler, pt) * (v.brakeLimited() ? s.brakeFastDeg / s.brakeDeg : 1F);
+            default:
+                return 0F;
+        }
     }
 
     /** ★10: a retracting part at gear position g (0 down .. 1 up): turned about its gear pivot, then lifted. */

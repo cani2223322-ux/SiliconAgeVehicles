@@ -16,13 +16,24 @@ import java.util.Map;
  * Every number below was measured from the exported OBJ (connected components of the material, see the comments).
  * The table goes in FRONT of ObjModelSVA's older parts (rotors, trailer, bore): first match wins, so the truck's trailer
  * wheels are wheels (drawn with the trailer only) and not part of the plain trailer part.
+ * Aircraft stage A: tagged parts. export_obj.py writes "# part TAG" before the faces of a moving piece (veh_real7: the
+ * slotted flaps, slats, spoilers, the plane's ailerons and static wicks, the jet's slats / flaps / dorsal brake, the
+ * tiltrotor's flaperons); a Def with a `tag` takes only triangles under that tag (its box then just picks the side), and
+ * no untagged Def takes them - a slotted flap's nose sits under the wing's cove, no box could tell them apart. The tag
+ * "wing" (SKIN_TAG) only marks the static wing skin (its panel tile) and is no part's.
  */
 public final class AnimParts {
 
     /** Part kinds (the same numbers as ObjModelSVA.Part's - ROTOR 0 .. RINGS 5 are the older ones). */
     public static final int WHEEL = 6, GEAR = 7, SURFACE = 8,
             /** Cockpit stage 1: a moving control in the cabin (steering wheel, cyclic, collective, yoke, throttle, pedals). */
-            CONTROL = 9;
+            CONTROL = 9,
+            /** Aircraft stage A: a high-lift device (flap, slat, spoiler, the jet's speed brake) - tagged, see the DEVICE rows. */
+            DEVICE = 10;
+    /** DEVICE kinds (what moves it: the flap position, the slats, the spoilers / the brake - EntityVehicleSVA / AnimMath.State). */
+    public static final int FLAP = 0, SLAT = 1, SPOILER = 2, BRAKE = 3;
+    /** The static wing skin's tag (no part takes it; ObjModelSVA gives its paint the wing panel tile). */
+    public static final String SKIN_TAG = "wing";
     /**
      * CONTROL inputs (AnimMath.State): STEER = the front wheels' angle / MAX_STEER, PITCH (+ = pull back, nose up), ROLL
      * (+ = right), YAW (+ = right), LIFT (+ = collective up), THROTTLE (the 0..1 throttle as -1..1: the lever's middle at
@@ -60,6 +71,16 @@ public final class AnimParts {
         public boolean cut;
         /** Self-test: at least this many triangles must fall in (cut: be clipped into) the box. */
         public int minTris = 8;
+        /** Stage A: only the triangles exported under "# part TAG" (null: only untagged / skin-tagged triangles). */
+        public String tag;
+        /**
+         * DEVICE: FLAP / SLAT / SPOILER / BRAKE. Turned by ang1 x level about axis1 through `pivot` and moved by move x level,
+         * level = the deflection / refDeg (flaps: the angle of the setting over the reference one the motion was fitted at;
+         * slats 0..1; spoilers / brake 0..1 of refDeg). ailMix (the tiltrotor's flaperons): + gain x ailMix x the aileron
+         * command / AnimMath.MAX_SURFACE degrees on top.
+         */
+        public int device = -1;
+        public float refDeg = 1F, ailMix;
         /**
          * CONTROL: turned by in1 x ang1 degrees about axis1 (a unit vector, through `pivot`), then by in2 x ang2 about
          * axis2, and moved by inMove x move (model units); -1 = no such input. Signs: + input turns the right-hand way.
@@ -111,6 +132,11 @@ public final class AnimParts {
         /** The centre test (non-cut parts). */
         public boolean holds(String group, float x, float y, float z) {
             return takes(group) && x >= min[0] && x <= max[0] && y >= min[1] && y <= max[1] && z >= min[2] && z <= max[2];
+        }
+
+        /** Stage A: may this Def take a triangle exported under `triTag` (null = untagged)? Its own tag only; untagged Defs the rest. */
+        public boolean takesTag(String triTag) {
+            return tag == null ? triTag == null || SKIN_TAG.equals(triTag) : tag.equals(triTag);
         }
 
         /** The triangle's bounding box overlaps the part's box (a cut part clips it). */
@@ -193,10 +219,37 @@ public final class AnimParts {
             Def strut = box("plane", "gearStrut" + side, GEAR, new String[] {"steel"}, 0.48F, 0.1F, 0.16F, 0.6F, 0.47F, 0.41F, s,
                     new float[] {0.547F, 0.457F, s * 0.17F});
             gear(strut, strut.pivot, Z, -85F, 0F);
-            surface("plane", "aileron" + side, new String[] {"paint"}, 0.29F, 0.85F, 1.14F, 0.46F, 1.10F, 2.37F, s,
-                    new float[] {0.46F, 0.96F, 0F}, Z, AILERON, -s);
+            // aircraft stage A (veh_real7, scratchpad vehicles/airA/airA.py): the aileron is its own airfoil piece now
+            // (73.5 % .. TE, |z| 23.4..37.4 concept, with its three static wicks) hinged at 75 % chord - (0.530, 1.012) at
+            // mid-span; tagged, not cut
+            Def ail = surface("plane", "aileron" + side, new String[] {"dark", "paint"}, 0.2864F, 0.9750F, 1.4585F, 0.5692F, 1.0444F, 2.3415F, s,
+                    new float[] {0.5304F, 1.0115F, 0F}, Z, AILERON, -s);
+            ail.cut = false;
+            ail.tag = "ail";
+            ail.minTris = 380;
             surface("plane", "elevator" + side, new String[] {"paint"}, -2.09F, 0.64F, 0.08F, -1.93F, 0.75F, 0.83F, s,
                     new float[] {-1.93F, 0.694F, 0F}, Z, ELEVATOR, -1);
+            // the elevator's two static wicks (dark, behind its trailing edge) turn with it
+            Def wick = surface("plane", "elevatorWicks" + side, new String[] {"dark"}, -2.1244F, 0.6872F, 0.5255F, -2.0105F, 0.7003F, 0.7619F, s,
+                    new float[] {-1.93F, 0.694F, 0F}, Z, ELEVATOR, -1);
+            wick.cut = false;
+            wick.tag = "elev";
+            wick.minTris = 40;
+            // ★1 the slotted flap (66 % .. TE, |z| 4.2..23 concept, with its three moving track fairings): back and down -
+            // fitted to the concept's section kinematics (hinge 70 % chord, 6.5 % under it, 35 deg + 2 % / -0.8 % chord):
+            // 33.5 deg about the hinge line + (-0.013, -0.008) at 35 deg, 0.005 off the concept
+            device("plane", "flap" + side, FLAP, "flap", new String[] {"paint"}, 0.2191F, 0.9056F, 0.2585F, 0.6043F, 1.0214F, 1.4415F, s,
+                    new float[] {0.5357F, 0.9129F, 0.85F}, new float[] {0.0219F, 0.0482F, 0.9986F}, 33.54F, 35F,
+                    new float[] {-0.0130F, -0.0084F, -0.0033F}).minTris = 690;
+            // ★2 the slat (nose 0..12 % with its metal strip, |z| 16.2..37.4): 17 deg nose down about 12 % chord, forward /
+            // down 4.5 / 2.8 % chord
+            device("plane", "slat" + side, SLAT, "slat", new String[] {"lestrip", "paint"}, 0.8683F, 0.9339F, 1.0085F, 1.0099F, 1.0538F, 2.3415F, s,
+                    new float[] {0.8962F, 1.0001F, 1.675F}, new float[] {0.0416F, -0.0394F, -0.9984F}, 17.03F, 1F,
+                    new float[] {0.0266F, -0.0165F, -0.0004F}).minTris = 408;
+            // ★3 two spoiler panels a side (45..65.5 % chord, |z| 7.6..19.8): the trailing edge up 50 deg about the front edge
+            device("plane", "spoiler" + side, SPOILER, "spoil", new String[] {"paint"}, 0.5570F, 0.9907F, 0.4710F, 0.7117F, 1.0435F, 1.2415F, s,
+                    new float[] {0.7059F, 1.0249F, 0.8562F}, new float[] {0.0055F, -0.0247F, -0.9997F}, 48.68F, 50F,
+                    new float[] {0.0012F, 0.0011F, 0.0012F}).minTris = 192;
         }
         wheel("plane", "tailWheel", new String[] {"rubber", "dark", "accent"}, -1.953F, 0.6F, 0F, 0.1F, 0.1F, -0.04F, 0.04F, 0, 0.084F);
         surface("plane", "rudder", new String[] {"paint"}, -2.34F, 0.80F, -0.05F, -2.12F, 1.58F, 0.05F, 0,
@@ -212,8 +265,17 @@ public final class AnimParts {
             Def w = wheel("jet", "gearWheel" + side, new String[] {"rubber", "chrome", "dark", "accent"}, -0.638F, 0.124F, s * 0.312F,
                     0.14F, 0.14F, 0.26F, 0.37F, s, 0.124F);
             gear(w, w.pivot, Z, 0F, 0.25F);
-            surface("jet", "aileron" + side, new String[] {"paint"}, -2.2F, 0.5F, 1.0F, -1.8F, 0.62F, 1.9F, s,
+            // stage A: the wing is three plates now (veh_real7) - the aileron cut starts outboard of the flap (|z| > 1.25)
+            surface("jet", "aileron" + side, new String[] {"paint"}, -2.2F, 0.5F, 1.27F, -1.8F, 0.62F, 1.9F, s,
                     new float[] {-1.8F, 0.561F, 0F}, Z, AILERON, -s);
+            // ★1 the plain flaps (paint3, |z| 5..20 concept, chord 3) hinged at their front edge: 0 / 20 / 40 deg
+            device("jet", "flap" + side, FLAP, "flap", new String[] {"paint3"}, -1.9777F, 0.5289F, 0.3085F, -1.7391F, 0.5932F, 1.2540F, s,
+                    new float[] {-1.7F, 0.5548F, 0.3125F}, new float[] {-0.1366F, 0F, 0.9906F}, 40F, 40F, new float[] {0F, 0F, 0F}).minTris = 12;
+            // ★2 the slats along the span (|z| 12..34, with the accent leading edge): 16 deg nose down about the hinge line,
+            // 1.3 forward along the chord and 0.35 down (concept units)
+            device("jet", "slat" + side, SLAT, "slat", new String[] {"accent", "paint"}, -1.7509F, 0.5258F, 0.7322F, 0.0846F, 0.5963F, 2.1428F, s,
+                    new float[] {-0.0806F, 0.5548F, 0.75F}, new float[] {0.7788F, 0F, -0.6273F}, 16F, 1F,
+                    new float[] {0.0510F, -0.0219F, 0.0633F}).minTris = 44;
             surface("jet", "elevator" + side, new String[] {"paint"}, -2.92F, 0.52F, 0.31F, -2.6F, 0.61F, 0.89F, s,
                     new float[] {-2.6F, 0.564F, 0F}, Z, ELEVATOR, -1);
             surface("jet", "rudder" + side, new String[] {"paint"}, -2.85F, 0.76F, 0.17F, -2.55F, 1.57F, 0.46F, s,
@@ -225,6 +287,10 @@ public final class AnimParts {
         Def strut = box("jet", "noseLeg", GEAR, new String[] {"steel"}, 1.57F, 0.1F, -0.04F, 1.66F, 0.39F, 0.04F, 0,
                 new float[] {1.612F, 0.374F, 0F});
         gear(strut, strut.pivot, Z, -90F, 0F);
+        // ★3 the dorsal speed brake behind the canopy (x -11.2..-1.2 concept, on the spine): hinged at its front edge, the
+        // aft edge up 45 deg (25 over HighLiftMath.JET.brakeFastSpeed)
+        device("jet", "speedBrake", BRAKE, "brake", new String[] {"paint"}, -0.7165F, 0.8852F, -0.1660F, -0.0835F, 0.9132F, 0.1660F, 0,
+                new float[] {-0.0875F, 0.8986F, 0F}, new float[] {0F, 0F, -1F}, 45F, 45F, new float[] {0F, 0F, 0F}).minTris = 192;
         // ---- tilt.obj: main wheels (r 0.156) at x -0.531, y 0.156, z +-0.375 and the nose wheel (r 0.13) at x 1.594, y 0.156
         // - they only spin (no retract on the tiltrotor). Ailerons: the wing's trailing edge (wing x 0.094 TE .. 0.844,
         // y 1.02..1.17, |z| 0.312..2.125) behind x 0.25 for |z| 1.2..2.05; elevator: the H-tail plank (x -2.281..-1.781,
@@ -233,8 +299,16 @@ public final class AnimParts {
             String side = s > 0 ? "R" : "L";
             wheel("tilt", "gearWheel" + side, new String[] {"rubber", "chrome", "dark", "accent"}, -0.531F, 0.156F, s * 0.375F, 0.17F, 0.17F,
                     0.31F, 0.44F, s, 0.156F);
-            surface("tilt", "aileron" + side, new String[] {"white"}, 0.08F, 1.0F, 1.2F, 0.25F, 1.2F, 2.05F, s,
-                    new float[] {0.25F, 1.094F, 0F}, Z, AILERON, -s);
+            // stage A: the flaperons (veh_real7: one slotted piece 66 % .. TE, |z| 5..31.5, three moving fairings; the wing's
+            // chord line at y 17.2 concept - the troop seats' heads stay enclosed, RiderFitSVA) replace the ailerons:
+            // 0 / 15 / 25 deg as flaps (drooped 25 by themselves in the vertical mode), +-10 deg as ailerons
+            Def fl = device("tilt", "flaperon" + side, FLAP, "flap", new String[] {"white"}, 0.0158F, 1.0039F, 0.3085F, 0.4012F, 1.1069F, 1.9728F, s,
+                    new float[] {0.3302F, 0.9985F, 1.1406F}, new float[] {0.0138F, 0.0045F, 0.9999F}, 25F, 25F,
+                    new float[] {-0.0099F, -0.0040F, -0.0004F});
+            fl.minTris = 744;
+            fl.ailMix = 10F;
+            fl.control = AILERON;
+            fl.gain = -s;
         }
         wheel("tilt", "noseWheel", new String[] {"rubber", "chrome", "dark", "accent"}, 1.594F, 0.156F, 0F, 0.145F, 0.145F, -0.07F, 0.07F,
                 0, 0.13F);
@@ -332,7 +406,7 @@ public final class AnimParts {
         d.gearLift = lift;
     }
 
-    private static void surface(String model, String name, String[] groups, float x0, float y0, float z0, float x1, float y1, float z1, int s,
+    private static Def surface(String model, String name, String[] groups, float x0, float y0, float z0, float x1, float y1, float z1, int s,
             float[] pivot, int axis, int control, float gain) {
         Def d = box(model, name, SURFACE, groups, x0, y0, z0, x1, y1, z1, s, pivot);
         d.axis = axis;
@@ -340,6 +414,26 @@ public final class AnimParts {
         d.gain = gain;
         d.cut = true;
         d.minTris = 2;
+        return d;
+    }
+
+    /**
+     * Stage A: a tagged high-lift device, numbers for the RIGHT side (s = 1; s = -1 mirrors: the box and the pivot's /
+     * the move's z, the axis as a mirrored rotation (-x, -y, z); s = 0 as given). deg / move at the reference deflection ref.
+     */
+    private static Def device(String model, String name, int kind, String tag, String[] groups, float x0, float y0, float z0, float x1,
+            float y1, float z1, int s, float[] pivot, float[] axis, float deg, float ref, float[] move) {
+        boolean m = s < 0;
+        Def d = box(model, name, DEVICE, groups, x0, y0, z0, x1, y1, z1, s,
+                new float[] {pivot[0], pivot[1], m ? -pivot[2] : pivot[2]});
+        d.tag = tag;
+        d.device = kind;
+        d.axis1 = m ? new float[] {-axis[0], -axis[1], axis[2]} : axis;
+        d.ang1 = deg;
+        d.refDeg = ref;
+        d.move = new float[] {move[0], move[1], m ? -move[2] : move[2]};
+        d.minTris = 8;
+        return d;
     }
 
     /**

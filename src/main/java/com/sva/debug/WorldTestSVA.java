@@ -212,6 +212,20 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // aircraft stage A (flaps, spoilers, protection, airbrake) - alongside, its own area and owner
+        if (ticks >= WorldTestAirSVA.START && !air.done) {
+            try {
+                air.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL air exception " + t);
+                t.printStackTrace(System.out);
+                air.abort(w);
+            }
+            if (air.done) {
+                maybeSummary();
+            }
+        }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
         if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
             try {
@@ -2006,6 +2020,7 @@ public class WorldTestSVA {
     private final WorldTestWave3SVA wave3 = new WorldTestWave3SVA(this);
     private final WorldTestRegenSVA regen = new WorldTestRegenSVA(this);
     private final WorldTestDriveSVA drive = new WorldTestDriveSVA(this);
+    private final WorldTestAirSVA air = new WorldTestAirSVA(this);
     private final WorldTestFastChargeSVA fastCharge = new WorldTestFastChargeSVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
@@ -2021,7 +2036,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

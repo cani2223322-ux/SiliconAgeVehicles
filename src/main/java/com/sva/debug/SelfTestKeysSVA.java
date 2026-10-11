@@ -78,13 +78,22 @@ final class SelfTestKeysSVA {
                 bad.append(" menu=reserved");
             }
         }
-        check(bad.length() == 0 && VehicleFn.values().length == 11 && VehicleFn.MENU_DEFAULT == 41,
-                "keys: 11 functions, every default a real key, all different, none the menu's ` and none vanilla's / the core's" + bad);
+        check(bad.length() == 0 && VehicleFn.values().length == 14 && VehicleFn.MENU_DEFAULT == 41,
+                "keys: 14 functions, every default a real key, all different, none the menu's ` and none vanilla's / the core's" + bad);
         int[] old = {33, 45, 48, 49, 47, 21, 44, 46, 24, 38, 50};       // F X B N V Y Z C O L M - the old KeyBindings' defaults
         boolean same = true;
         for (VehicleFn f : VehicleFn.values()) {
-            same &= f.defaultKey == old[f.ordinal()];
+            same &= f.ordinal() >= old.length || f.defaultKey == old[f.ordinal()];
         }
+        // aircraft stage A: «Закрылки −» [ «Закрылки +» ] «Воздушный тормоз» U, pressed (Action packets), the pilot's
+        check(VehicleFn.FLAPS_UP.defaultKey == 26 && VehicleFn.FLAPS_DOWN.defaultKey == 27 && VehicleFn.AIRBRAKE.defaultKey == 22
+                        && !VehicleFn.FLAPS_UP.hold && VehicleFn.FLAPS_DOWN.driverOnly && VehicleFn.AIRBRAKE.driverOnly
+                        && VehicleFn.FLAPS_DOWN.appliesTo(VehicleType.PLANE) && VehicleFn.FLAPS_DOWN.appliesTo(VehicleType.JET)
+                        && VehicleFn.FLAPS_DOWN.appliesTo(VehicleType.TILT) && !VehicleFn.FLAPS_DOWN.appliesTo(VehicleType.HELI)
+                        && VehicleFn.AIRBRAKE.appliesTo(VehicleType.PLANE) && VehicleFn.AIRBRAKE.appliesTo(VehicleType.JET)
+                        && !VehicleFn.AIRBRAKE.appliesTo(VehicleType.TILT) && !VehicleFn.AIRBRAKE.appliesTo(VehicleType.BUGGY)
+                        && "sva.fn.flapsDown.tilt".equals(VehicleFn.FLAPS_DOWN.nameKey(VehicleType.TILT)),
+                "keys: stage A flaps [ / ] and airbrake U - plane, jet, tiltrotor (flaperons, no airbrake), nothing else");
         check(same && VehicleFn.BOOST.hold && VehicleFn.DOWN.hold && !VehicleFn.MODE.hold && !VehicleFn.CARGO.driverOnly
                         && !VehicleFn.MAP.driverOnly && VehicleFn.JUMP.driverOnly && VehicleFn.byKey("mode") == VehicleFn.MODE
                         && "drillMode".equals(VehicleFn.MODE.oldId) && "jumpTarget".equals(VehicleFn.TARGET.oldId),

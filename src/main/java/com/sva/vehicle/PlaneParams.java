@@ -12,6 +12,13 @@ public final class PlaneParams {
     public final double thrust;
     /** Climb rate at full airspeed, reached this far over the stall (climbBand); dive, stall sink and lift-off climb rates. */
     public final double climb, climbBand, dive, stallSink, rotateVy;
+    /**
+     * Aircraft stage A (HighLiftMath.params - flaps, slats, spoilers): the drag on the top-speed term (thrust x (throttle -
+     * drag x r^2)), the EU factor, the wheel brakes' / rolling friction's factor on the ground, the airbrake's descent in
+     * the air. 1 / 1 / 1 / false for the types' own numbers: the flight as before.
+     */
+    public final double drag, cost, brake;
+    public final boolean airbrake;
 
     /** The Light Plane (stage B): PlaneMath's constants. */
     public static final PlaneParams LIGHT = new PlaneParams(PlaneMath.STALL, PlaneMath.LIFT_OFF, PlaneMath.GLIDE_SPEED, PlaneMath.THRUST,
@@ -35,5 +42,30 @@ public final class PlaneParams {
         this.dive = dive;
         this.stallSink = stallSink;
         this.rotateVy = rotateVy;
+        this.drag = 1;
+        this.cost = 1;
+        this.brake = 1;
+        this.airbrake = false;
+    }
+
+    private PlaneParams(PlaneParams b, double stall, double liftOff, double drag, double cost, double brake, boolean airbrake) {
+        this.stall = stall;
+        this.liftOff = liftOff;
+        this.glideSpeed = b.glideSpeed;
+        this.thrust = b.thrust;
+        this.climb = b.climb;
+        this.climbBand = b.climbBand;
+        this.dive = b.dive;
+        this.stallSink = b.stallSink;
+        this.rotateVy = b.rotateVy;
+        this.drag = drag;
+        this.cost = cost;
+        this.brake = brake;
+        this.airbrake = airbrake;
+    }
+
+    /** Stage A: a copy with the high-lift devices' stall / lift-off speeds, drag, EU and brake factors, the airbrake. */
+    public PlaneParams derive(double stall, double liftOff, double drag, double cost, double brake, boolean airbrake) {
+        return new PlaneParams(this, stall, liftOff, drag, cost, brake, airbrake);
     }
 }
