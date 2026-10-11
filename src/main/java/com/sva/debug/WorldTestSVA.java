@@ -65,6 +65,9 @@ public class WorldTestSVA {
             return;
         }
         ticks++;
+        // round 2, D2: the tests from before the engine start fly at once - every aircraft's engine runs whenever it may
+        // and no failure comes at random (WorldTestAirD2SVA flies its own planes through the real sequence)
+        EntityVehicleSVA.testInstantEngine = true;
         World w = DimensionManager.getWorld(0);
         if (w == null) {
             return;
@@ -251,6 +254,20 @@ public class WorldTestSVA {
                 airD1.abort(w);
             }
             if (airD1.done) {
+                maybeSummary();
+            }
+        }
+        // aircraft round 2, D2 (engine start, switches, failures, the garage's repair) - alongside, its own area and owner
+        if (ticks >= WorldTestAirD2SVA.START && !airD2.done) {
+            try {
+                airD2.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL air D2 exception " + t);
+                t.printStackTrace(System.out);
+                airD2.abort(w);
+            }
+            if (airD2.done) {
                 maybeSummary();
             }
         }
@@ -2051,6 +2068,7 @@ public class WorldTestSVA {
     private final WorldTestAirSVA air = new WorldTestAirSVA(this);
     private final WorldTestAirCSVA airC = new WorldTestAirCSVA(this);
     private final WorldTestAirD1SVA airD1 = new WorldTestAirD1SVA(this);
+    private final WorldTestAirD2SVA airD2 = new WorldTestAirD2SVA(this);
     private final WorldTestFastChargeSVA fastCharge = new WorldTestFastChargeSVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
@@ -2066,7 +2084,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

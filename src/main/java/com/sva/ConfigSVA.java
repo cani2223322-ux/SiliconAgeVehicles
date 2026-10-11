@@ -129,6 +129,17 @@ public final class ConfigSVA {
      * or low on the approach and shine at night; off = they stay retracted.
      */
     public static boolean landingLamps = true;
+    /**
+     * Server (aircraft round 2, stage D2, ★6): the light plane's, the jet's and the tiltrotor's engine has to be started
+     * (АКБ on, «ЗАПУСК» or pushing forward - the starter, the catch, the warm-up); off = the motor is ready whenever
+     * powered, as before (the overhead switches still work).
+     */
+    public static boolean engineStart = true;
+    /**
+     * Server (stage D2, ★7): worn aircraft (over 60 % wear) may suffer failures in flight - engine power loss, a jammed
+     * flap, a dead instrument; the garage's repair clears them. Off = no failures (and none at a start).
+     */
+    public static boolean failures = true;
     /** Fast charging (2026-10-10): the station's «Форсаж» mode. */
     public static boolean stationBoost = true;
     /** A core (or IC2) energy storage touching the station feeds the vehicle directly. */
@@ -282,6 +293,12 @@ public final class ConfigSVA {
             landingLamps = c.getBoolean("landingLamps", v, true,
                     "The light plane's retractable landing lights under the wing (client) / "
                             + "Выпускные посадочные фары под крылом лёгкого самолёта (клиент)");
+            engineStart = c.getBoolean("engineStart", v, true,
+                    "Aircraft engine start: battery on + START (or forward) - starter, catch, warm-up; false = ready whenever powered (plane, jet, tiltrotor) / "
+                            + "Запуск двигателя авиации: АКБ + ЗАПУСК (или вперёд) - стартер, «схватил», прогрев; false - готов сразу, как раньше (самолёт, реактивный, конвертоплан)");
+            failures = c.getBoolean("failures", v, true,
+                    "Aircraft failures over 60 % wear: engine power loss, a jammed flap, a dead instrument; the garage repairs them / "
+                            + "Отказы авиации при износе выше 60 %: потеря тяги, заклинивший закрылок, отказ прибора; ремонт в гараже снимает их");
             regenEfficiency = num(c, "regenEfficiency", v, 0.2F, 0F, 0.5F,
                     "Share of the motion energy recovered (0..0.5; aircraft at most 0.3) / Доля возвращаемой энергии движения (0..0,5; авиация не больше 0,3)");
             drill = c.getBoolean("drill", v, true,

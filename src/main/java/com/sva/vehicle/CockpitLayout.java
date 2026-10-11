@@ -27,7 +27,8 @@ import java.util.Map;
  * <li>LAMP: a small "warn" component (the stall / warning lamp).</li>
  * <li>PANEL (aircraft stage C): a flat named face - 'apanel' (the light plane's glare-shield autopilot panel), 'hsi', 'flapind'
  * (the flap position indicator, round), 'trimind' (the pitch trim strip), 'flapgate' (the flap lever's marks plate on the
- * quadrant, tilted to the pilot: its "up" is forward) - measured like a screen; client/AvionicsSVA draws each by its name.</li>
+ * quadrant, tilted to the pilot: its "up" is forward), 'ovhd' (round 2, D2: the overhead switch panel, client/OverheadPanelSVA)
+ * - measured like a screen; client/AvionicsSVA draws each by its name.</li>
  * </ul>
  * Only pieces near the driver's eye (MAX_DIST model units; the dashes are 0.35..0.6 away) and facing it count: the ship's
  * passenger side panels, the holo table and the jet's tail panel stay decoration. No Minecraft classes: the dedicated
@@ -36,9 +37,15 @@ import java.util.Map;
 public final class CockpitLayout {
 
     /** The materials an instrument can be made of (anything else is ignored, also as an occluder). */
-    static final String[] MATS = {"gauge", "needle", "holo", "screen", "ok", "warn", "dashlite", "apanel", "hsi", "flapind", "trimind", "flapgate"};
-    /** Stage C: the named panel materials (veh_real8.py; CockpitInstrumentsSVA draws each by its name). */
-    public static final String[] PANELS = {"apanel", "hsi", "flapind", "trimind", "flapgate"};
+    static final String[] MATS = {"gauge", "needle", "holo", "screen", "ok", "warn", "dashlite", "apanel", "hsi", "flapind", "trimind", "flapgate",
+            "ovhd"};
+    /** Stage C: the named panel materials (veh_real8.py; CockpitInstrumentsSVA draws each by its name); D2 'ovhd' (veh_real10.py). */
+    public static final String[] PANELS = {"apanel", "hsi", "flapind", "trimind", "flapgate", "ovhd"};
+    /**
+     * Round 2, D2 (★17): the light plane's overhead switch panel - under the canopy's top, forward of the pilot's head; he
+     * looks up ~25 deg to it (debug/CockpitCheckSVA checks it from that look, not from the dials' 20 deg down).
+     */
+    public static final String OVERHEAD = "ovhd";
     /**
      * Stage C: the flap lever's marks plate - low on the quadrant, in no face's plane (screen() doesn't count it over the
      * pedestal's trim strip in front of which its projection falls) and its "up" is forward (the lever's travel).

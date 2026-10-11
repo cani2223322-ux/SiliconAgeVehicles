@@ -17,6 +17,7 @@ import com.sva.vehicle.DrillMath;
 import com.sva.vehicle.FlightMath;
 import com.sva.vehicle.HeliMath;
 import com.sva.vehicle.HighLiftMath;
+import com.sva.vehicle.SystemsMath;
 import com.sva.vehicle.HoverMath;
 import com.sva.vehicle.Movement;
 import com.sva.vehicle.PlaneMath;
@@ -91,7 +92,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // aircraft stage A (★1-★3): flap setting, airbrake, ground spoilers, slats, overspeed warning (HighLiftMath.pack)
             DW_HILIFT = 7,
             // aircraft stage C (★17 / ★19): the autopilot panel (AutopilotMath.pack / pack2) and the HSI's «База» point
-            DW_AP = 6, DW_AP2 = 5, DW_BASE_X = 4, DW_BASE_Z = 3;
+            DW_AP = 6, DW_AP2 = 5, DW_BASE_X = 4, DW_BASE_Z = 3,
+            // aircraft round 2, D2 (★6 / ★7 / ★17): the board systems' word (SystemsMath.pack) - the last free id (0 / 1 are Entity's)
+            DW_SYS = 2;
     private static final int TUNE_ON = 1 << 20;
     /** DW_TUNE bits: the server's vehicles.cruise / vehicles.autopilot (★4 - the driver's client follows the server). */
     private static final int TUNE_CRUISE = 1 << 21, TUNE_AP = 1 << 22;
@@ -101,7 +104,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     private static final String K_DRILL_ON = "SVADrillOn", K_THROTTLE = "SVAThrottle", K_AUTO_REASON = "SVAAutoReason",
             K_PORTAL_TICKS = "SVAPortalTicks", K_PORTAL = "SVAPortal",
             /** Stage A: the flap setting and the pilot's airbrake (as the throttle: the entity's, not the item's). */
-            K_FLAPS = "SVAFlaps", K_AIRBRAKE = "SVAAirbrake";
+            K_FLAPS = "SVAFlaps", K_AIRBRAKE = "SVAAirbrake",
+            /** D2: the engine's state and the pitot's ice (the entity's - picked up, the engine is off and the ice gone). */
+            K_ENGINE = "SVAEngine", K_ICE = "SVAIce";
     /** «Передать владельца»: the new owner must be online within this many blocks of the vehicle. */
     public static final double TRANSFER_RANGE = 16;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
@@ -134,7 +139,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             /** The cargo screen's «Машина» tab, «Доступ» (owner / op - canManage): the access screen without a key card. */
             A_ACCESS = 24,
             /** Aircraft stage A (the pilot): «Закрылки −» (retract a step), «Закрылки +» (extend), «Воздушный тормоз». */
-            A_FLAPS_UP = 25, A_FLAPS_DOWN = 26, A_AIRBRAKE = 27;
+            A_FLAPS_UP = 25, A_FLAPS_DOWN = 26, A_AIRBRAKE = 27,
+            /**
+             * Aircraft round 2, D2 (the pilot): «Запуск двигателя» - start (off) / stop (turning); an overhead switch -
+             * A_SWITCH + SystemsMath.SW_* (30..36) toggles it.
+             */
+            A_ENGINE = 28, A_SWITCH = 30;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -287,10 +297,28 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     public final com.sva.vehicle.AnimMath.State anim = new com.sva.vehicle.AnimMath.State();
     /** Client: the local driver's keys this tick (-1: someone else drives / nobody). */
     private int animIn = -1;
-    /** Client: the vehicle has charge and is not a wreck - its lights work (VehicleLightsSVA, DynamicLightSVA). */
+    /**
+     * Client: the vehicle has charge and is not a wreck - its lights work (VehicleLightsSVA, DynamicLightSVA). D2: an
+     * aircraft with the board systems also needs АКБ on and the battery not flat (the instruments go dark with it).
+     */
     public boolean powered() {
-        return getEnergy() > 0 && !isWrecked();
+        return getEnergy() > 0 && !isWrecked() && (!SystemsMath.applies(getVehicleType()) || boardOn());
     }
+
+    // aircraft round 2, D2 (SystemsMath), server: the engine, its no-pilot timer, the failure roll's timer, the pitot's ice
+    private final SystemsMath.Engine engine = new SystemsMath.Engine();
+    private int noPilot, failTimer, ice, autoWait;
+    /** Ticks before the auto-start tries again after it could not crank (or misfired). */
+    private static final int AUTO_RETRY = 60;
+    private boolean heatingNow, coldNow;
+    /**
+     * World tests: every aircraft's engine is running whenever it may (the tests from before D2 fly at once) and no
+     * failure is rolled at random - unless the vehicle's own debugEngineManual says it goes through the real sequence.
+     */
+    public static boolean testInstantEngine;
+    public boolean debugEngineManual;
+    // D2, client: the engine state seen last tick and the ticks in it (the warm-up's power ramp, the HUD, the puff)
+    private int engineSeen = -1, engineSeenTicks;
 
     /** Client: seat entities that found this body (positioned here each tick). */
     final List<EntitySeatSVA> clientSeats = new ArrayList<EntitySeatSVA>();
@@ -349,6 +377,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.addObject(DW_AP2, Integer.valueOf(0));
         dataWatcher.addObject(DW_BASE_X, Integer.valueOf(Integer.MIN_VALUE));
         dataWatcher.addObject(DW_BASE_Z, Integer.valueOf(Integer.MIN_VALUE));
+        dataWatcher.addObject(DW_SYS, Integer.valueOf(SystemsMath.ALL_ON));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -1110,6 +1139,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return;
         }
         state.hp = Math.min(state.maxHp(), state.hp + amount);
+        if (state.hp >= state.maxHp()) {
+            state.fails = 0;                                        // D2: the hull whole again - the failures mended too
+        }
         syncWatcher();
     }
 
@@ -1122,6 +1154,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     /** Wave 2, ★7 (the garage finished a job): the hull whole, and for «Чинить всё» the engine cooled down. */
     public void garageRepaired(boolean all) {
         state.hp = state.maxHp();
+        state.fails = 0;                                            // D2 (★7): the failures repaired
+        ice = 0;
         if (all) {
             state.heat = 0;
             state.heatStop = false;
@@ -1145,6 +1179,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         boolean motor = riddenByEntity != null || debugDriver;
         if (!motor || isWrecked() || isHeatStopped() || getEnergy() <= 0) {
             return false;
+        }
+        if (engineGated(t) && !SystemsMath.lifts(engineState())) {
+            return false;                                           // D2: the engine is off / cranking
         }
         return t.gases.liftGas == null || getGas(t.gases.liftGas) > 0;      // aircraft fly on EU alone
     }
@@ -1254,7 +1291,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (flapWarn > 0) {
             flapWarn--;
         }
-        int f = HighLiftMath.blowBack(s, flaps, as);
+        int f = (state.fails & SystemsMath.F_FLAP) != 0 ? flaps : HighLiftMath.blowBack(s, flaps, as);   // D2: jammed - stays
         if (f != flaps) {
             flaps = f;
             flapWarn = HighLiftMath.WARN_TICKS;
@@ -1279,6 +1316,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     private void flapCommand(EntityPlayer p, HighLiftMath.Spec s, int dir) {
         if (!ConfigSVA.highLift) {
             msg(p, "sva.msg.highLift.disabled");
+            return;
+        }
+        if ((state.fails & SystemsMath.F_FLAP) != 0) {
+            oneShot("ding", 0.5F, 0.9F);
+            msg(p, "sva.msg.flaps.jammed");                         // D2 (★7): «ЗАКР. ЗАКЛИН.» until the garage
             return;
         }
         int r = HighLiftMath.flapStep(s, flaps, dir, airspeedNow);
@@ -1332,6 +1374,308 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     }
 
     /** Server: the airspeed the stall / flying-move rules judged this tick (PlaneMath.reportedAirspeed for a driver's client). */
+    // ------------------------------------------------------------------ aircraft round 2, D2: board systems
+
+    /** The synced board word (SystemsMath.pack). */
+    private int sysWord() {
+        return dataWatcher.getWatchableObjectInt(DW_SYS);
+    }
+
+    /** The overhead switches (SystemsMath.SW_* bits). Server: the state's; clients: synced. */
+    public int switches() {
+        return remote() ? SystemsMath.switches(sysWord()) : state.switches;
+    }
+
+    public boolean switchOn(int i) {
+        return SystemsMath.on(switches(), i);
+    }
+
+    /** The board has power: АКБ on and the battery not flat. */
+    public boolean boardOn() {
+        return remote() ? switchOn(SystemsMath.SW_BAT) && SystemsMath.batteryPct(sysWord()) > 0 : SystemsMath.electric(state.switches, state.battery);
+    }
+
+    /** The battery 0..100 %. */
+    public int batteryPct() {
+        return remote() ? SystemsMath.batteryPct(sysWord()) : (int) Math.round(state.battery * 100 / SystemsMath.BAT_MAX);
+    }
+
+    /** The engine's state (SystemsMath.OFF .. RUN); a type without the board systems: RUN. */
+    public int engineState() {
+        if (!SystemsMath.applies(getVehicleType())) {
+            return SystemsMath.RUN;
+        }
+        return remote() ? SystemsMath.engine(sysWord()) : engine.state;
+    }
+
+    /** Ticks in the engine's current state (server: the machine's; clients: counted since the synced state changed). */
+    public int engineTicks() {
+        return remote() ? engineSeenTicks : engine.ticks;
+    }
+
+    /** The start sequence must be flown (vehicles.engineStart on the server, the type has the board systems). */
+    public boolean engineGated(VehicleType t) {
+        return SystemsMath.applies(t) && (remote() ? (sysWord() & SystemsMath.P_CFG_ENGINE) != 0 : ConfigSVA.engineStart);
+    }
+
+    /** The failures (SystemsMath.F_*). */
+    public int failures() {
+        return remote() ? SystemsMath.fails(sysWord()) : state.fails;
+    }
+
+    /** The failed instrument's slot (meaningful with F_INSTR; the client takes it modulo its dials). */
+    public int failedInstrument() {
+        return remote() ? SystemsMath.instr(sysWord()) : state.failInstr;
+    }
+
+    /** The windscreen's frost 0..3 (ОБОГРЕВ off in the cold). */
+    public int frost() {
+        return remote() ? SystemsMath.frostLevel(sysWord()) : SystemsMath.frost(ice);
+    }
+
+    /** The pitot iced: the airspeed indicator frozen. */
+    public boolean pitotIced() {
+        return remote() ? (sysWord() & SystemsMath.P_ICED) != 0 : SystemsMath.iced(ice);
+    }
+
+    /** ОБОГРЕВ working now (on, the board on, in the cold). */
+    public boolean heating() {
+        return remote() ? (sysWord() & SystemsMath.P_HEATING) != 0 : heatingNow;
+    }
+
+    /** The air is cold here (over SystemsMath.COLD_Y or in falling snow). */
+    public boolean coldAir() {
+        return remote() ? (sysWord() & SystemsMath.P_COLD) != 0 : coldNow;
+    }
+
+    /** The master caution «ВНИМАНИЕ». */
+    public boolean caution() {
+        return SystemsMath.caution(failures(), pitotIced());
+    }
+
+    /**
+     * The engine's power factor now: the warm-up's ramp x a failed engine's ENGINE_POWER (1 for a type without the board
+     * systems; vehicles.engineStart off: only the failure).
+     */
+    public double enginePower() {
+        VehicleType t = getVehicleType();
+        if (!SystemsMath.applies(t)) {
+            return 1;
+        }
+        float p = engineGated(t) ? SystemsMath.power(engineState(), engineTicks(), SystemsMath.warmTicks(t)) : 1F;
+        return p * SystemsMath.failPower(failures());
+    }
+
+    /** A light of this kind (VehicleLights.*) is switched on (aircraft: its overhead switch; others: always). */
+    public boolean lightOn(int kind) {
+        return SystemsMath.lightOn(SystemsMath.applies(getVehicleType()), switches(), kind);
+    }
+
+    /**
+     * Server, once a tick before the physics (serverUpdate): the board systems - the battery, the engine's machine
+     * (auto-start from the keys, the crank / catch / warm-up, stops), the heat and the ice, the failure roll.
+     * @return EU the board took this tick (ГЕН's charging, the heat) - added to the tick's cost
+     */
+    private double systemsTick(VehicleType t, boolean motorOn, int in, boolean pilot) {
+        if (!SystemsMath.applies(t)) {
+            return 0;
+        }
+        boolean cells = state.energy > 0 && !isWrecked();
+        boolean air = wasAirborne;
+        boolean busy = pilot || engine.state != SystemsMath.OFF;
+        // the engine: no pilot for IDLE_STOP ticks - stopped; auto-start from the keys; the world tests' instant engine
+        noPilot = pilot ? 0 : noPilot + 1;
+        if (noPilot > SystemsMath.IDLE_STOP && engine.state != SystemsMath.OFF) {
+            engine.stop();
+        }
+        boolean gated = ConfigSVA.engineStart;
+        if (!gated || testInstantEngine && !debugEngineManual) {
+            if (engine.state != SystemsMath.RUN && pilot && cells && SystemsMath.on(state.switches, SystemsMath.SW_BAT)) {
+                engine.run();
+            }
+        } else if (autoWait > 0) {
+            autoWait--;
+        } else if (pilot && SystemsMath.autoStart(engine.state, state.switches, (in & IN_FWD) != 0, (in & IN_BRAKE) != 0,
+                t.movement == Movement.TILT && !state.tiltPlane)) {
+            int r0 = engine.start(state.switches, state.battery, cells);
+            engineResult(r0, null);
+            if (r0 != SystemsMath.R_STARTED) {
+                autoWait = AUTO_RETRY;                              // a flat battery / no charge: said once, tried again in 3 s
+            }
+        }
+        boolean windmill = air && airspeedNow > (t.plane != null ? t.plane.stall : 0.5);
+        double misfire = ConfigSVA.failures && !(testInstantEngine && !debugEngineManual)
+                ? SystemsMath.MISFIRE_K * SystemsMath.chancePerMinute(wear()) : 0;
+        int r = engine.tick(state.switches, state.battery, cells, SystemsMath.crankTicks(t, windmill), SystemsMath.warmTicks(t), rand.nextDouble(), misfire);
+        if (r != SystemsMath.R_NONE) {
+            engineResult(r, null);
+            if (r == SystemsMath.R_MISFIRE || r == SystemsMath.R_STALLED) {
+                autoWait = AUTO_RETRY;
+            }
+        }
+        // the battery
+        double before = state.battery;
+        state.battery = SystemsMath.batteryStep(before, state.switches, cells, busy, engine.state == SystemsMath.CRANK, chargeTicks > 0);
+        double eu = SystemsMath.batteryEu(before, state.battery, state.switches, cells, chargeTicks > 0);
+        // the heat: in the cold it costs EU (the board on, someone aboard / the engine turning); off - the pitot ices
+        int x = MathHelper.floor_double(posX), z = MathHelper.floor_double(posZ);
+        coldNow = SystemsMath.cold(posY, worldObj.isRaining() && worldObj.getBiomeGenForCoords(x, z).getEnableSnow()
+                && worldObj.canBlockSeeTheSky(x, MathHelper.floor_double(posY + 1), z));
+        boolean board = SystemsMath.electric(state.switches, state.battery);
+        heatingNow = coldNow && board && busy && SystemsMath.on(state.switches, SystemsMath.SW_HEAT);
+        if (heatingNow) {
+            eu += t.cruiseCost * SystemsMath.HEAT_EU_SHARE;
+        }
+        ice = busy ? SystemsMath.iceStep(ice, coldNow, heatingNow) : SystemsMath.iceStep(ice, false, false);
+        // the failures: a roll a minute of flight with the engine running (two at most); not in the world tests
+        if (ConfigSVA.failures && ConfigSVA.wear && air && SystemsMath.lifts(engine.state) && !(testInstantEngine && !debugEngineManual)) {
+            if (++failTimer >= SystemsMath.CHECK_TICKS) {
+                failTimer = 0;
+                if (rand.nextDouble() < SystemsMath.chancePerMinute(wear())) {
+                    fail(SystemsMath.pick(rand.nextDouble(), state.fails, HighLiftMath.spec(t) != null), rand.nextInt(SystemsMath.INSTR_SLOTS));
+                }
+            }
+        }
+        return eu * Math.max(0, ConfigSVA.consumption);
+    }
+
+    /** Wear 0..1 (1 - hp / max). */
+    private double wear() {
+        return 1 - state.hp / Math.max(1F, state.maxHp());
+    }
+
+    /** Server: a failure comes on (F_* bit, the instrument's slot): the riders are told, the master caution sounds. */
+    private void fail(int f, int slot) {
+        if (f == 0 || (state.fails & f) != 0) {
+            return;
+        }
+        state.fails |= f;
+        if (f == SystemsMath.F_INSTR) {
+            state.failInstr = Math.max(0, Math.min(SystemsMath.INSTR_SLOTS - 1, slot));
+        }
+        oneShot("ding", 0.6F, 0.7F);
+        tellRiders(f == SystemsMath.F_ENGINE ? "sva.msg.fail.engine" : f == SystemsMath.F_FLAP ? "sva.msg.fail.flap" : "sva.msg.fail.instr");
+        syncWatcher();
+    }
+
+    /** A vanilla one-shot at the vehicle (the starter's relay, the catch's bang) - only with vehicles.sounds. */
+    private void vanillaShot(String name, float volume, float pitch) {
+        if (ConfigSVA.sounds) {
+            worldObj.playSoundAtEntity(this, name, volume, pitch);
+        }
+    }
+
+    /** Server: what a start / the engine's tick came to - sounds, a chat line to the pilot (p, else the riders). */
+    private void engineResult(int r, EntityPlayer p) {
+        boolean jet = SystemsMath.jet(state.type);
+        switch (r) {
+            case SystemsMath.R_STARTED:
+                vanillaShot("random.click", 0.5F, 1.3F);                // the starter's relay
+                break;
+            case SystemsMath.R_CATCH:
+                vanillaShot(jet ? "mob.ghast.fireball" : "random.explode", jet ? 0.5F : 0.3F, jet ? 0.8F : 1.8F);
+                break;
+            case SystemsMath.R_READY:
+                oneShot("ding", 0.35F, 1.6F);
+                break;
+            case SystemsMath.R_MISFIRE:
+                vanillaShot("random.explode", 0.2F, 2.0F);
+                tellOrMsg(p, "sva.msg.engine.misfire");
+                break;
+            case SystemsMath.R_STALLED:
+                vanillaShot("random.click", 0.4F, 0.7F);
+                tellOrMsg(p, "sva.msg.engine.lowBattery");
+                break;
+            case SystemsMath.R_NO_MASTER:
+                vanillaShot("random.click", 0.3F, 0.8F);
+                tellOrMsg(p, "sva.msg.engine.noMaster");
+                break;
+            case SystemsMath.R_LOW_BATTERY:
+                vanillaShot("random.click", 0.3F, 0.8F);
+                tellOrMsg(p, "sva.msg.engine.lowBattery");
+                break;
+            case SystemsMath.R_NO_CHARGE:
+                tellOrMsg(p, "sva.msg.engine.noCharge");
+                break;
+            default:
+                break;
+        }
+        syncWatcher();
+    }
+
+    private void tellOrMsg(EntityPlayer p, String key) {
+        if (p != null) {
+            msg(p, key);
+        } else {
+            tellRiders(key);
+        }
+    }
+
+    /** Server: «Запуск двигателя» from the pilot (serverAction): off - start; turning - stop. */
+    private void engineCommand(EntityPlayer p) {
+        if (!ConfigSVA.engineStart) {
+            msg(p, "sva.msg.engine.always");
+            return;
+        }
+        if (engine.state == SystemsMath.OFF) {
+            boolean cells = state.energy > 0 && !isWrecked();
+            int r = engine.start(state.switches, state.battery, cells);
+            engineResult(r, p);
+        } else {
+            engine.stop();
+            vanillaShot("random.click", 0.4F, 0.9F);
+            msg(p, "sva.msg.engine.stopped");
+            syncWatcher();
+        }
+    }
+
+    /** Server: an overhead switch flipped by the pilot (serverAction). АКБ off stops the engine (its tick does). */
+    private void switchCommand(EntityPlayer p, int i) {
+        state.switches = SystemsMath.toggle(state.switches, i);
+        vanillaShot("random.click", 0.35F, SystemsMath.on(state.switches, i) ? 1.6F : 1.2F);
+        if (i == SystemsMath.SW_BAT && !SystemsMath.on(state.switches, i) && engine.state != SystemsMath.OFF) {
+            engine.stop();
+        }
+        syncWatcher();
+    }
+
+    /** World test: the engine's state set directly (SystemsMath.OFF .. RUN). */
+    public void debugEngine(int st) {
+        if (st == SystemsMath.OFF) {
+            engine.stop();
+        } else if (st == SystemsMath.RUN) {
+            engine.run();
+        } else {
+            engine.state = st;
+            engine.ticks = 0;
+        }
+        syncWatcher();
+    }
+
+    /** World test: «Запуск двигателя» as the server takes it (no chat). Returns the start's SystemsMath.R_*. */
+    public int debugStart() {
+        int r = engine.start(state.switches, state.battery, state.energy > 0 && !isWrecked());
+        syncWatcher();
+        return r;
+    }
+
+    /** World test: a switch set. */
+    public void debugSwitch(int i, boolean on) {
+        if (SystemsMath.on(state.switches, i) != on) {
+            state.switches = SystemsMath.toggle(state.switches, i);
+            if (i == SystemsMath.SW_BAT && !on) {
+                engine.stop();
+            }
+        }
+        syncWatcher();
+    }
+
+    /** World test: a failure injected (F_* bits; the instrument's slot 0). */
+    public void debugFail(int f) {
+        state.fails |= f & SystemsMath.F_ALL;
+        syncWatcher();
+    }
+
     public double airspeedNow() {
         return airspeedNow;
     }
@@ -1441,6 +1785,13 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.updateObject(DW_REGEN, Integer.valueOf(com.sva.vehicle.RegenMath.pack(regenNow, ConfigSVA.regenEfficiency, ConfigSVA.regen)));
         dataWatcher.updateObject(DW_HILIFT, Integer.valueOf(HighLiftMath.pack(flaps, airbrake, groundSpoilers, slats, flapWarn > 0,
                 HighLiftMath.spec(t) != null && HighLiftMath.brakeDeg(HighLiftMath.spec(t), airspeedNow) < HighLiftMath.spec(t).brakeDeg)));
+        if (SystemsMath.applies(t)) {
+            dataWatcher.updateObject(DW_SYS, Integer.valueOf(SystemsMath.pack(state.switches, engine.state, state.fails, state.failInstr,
+                    state.battery, SystemsMath.frost(ice), (ConfigSVA.engineStart ? SystemsMath.P_CFG_ENGINE : 0)
+                            | (ConfigSVA.failures ? SystemsMath.P_CFG_FAILS : 0) | (heatingNow ? SystemsMath.P_HEATING : 0)
+                            | (coldNow ? SystemsMath.P_COLD : 0) | (SystemsMath.iced(ice) ? SystemsMath.P_ICED : 0)
+                            | (SystemsMath.on(state.switches, SystemsMath.SW_GEN) && state.energy > 0 ? SystemsMath.P_CHARGING : 0))));
+        }
         if (CruiseMath.kind(t.movement, true) == CruiseMath.AUTOPILOT) {
             // aircraft stage C: the autopilot panel for every rider (the server's judgement) and the HSI's «База»
             boolean cap = cruiseNow && (apModes & AutopilotMath.M_CAP) != 0;
@@ -1593,6 +1944,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             input = 0;                                              // keys went stale: let go
         }
         int in = autoDrive ? autoIn : input;
+        double sysEu = systemsTick(t, motorOn, in, riddenByEntity != null || debugDriver);   // D2: battery, engine, heat, failures
         cruiseNow = !autoDrive && motorOn && cruiseActive(in);
         boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
         // aircraft: also while the last tick ended in the air (a driver who got out mid-air - onGround is stale then)
@@ -1698,6 +2050,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             cost = SpaceMath.ANCHOR_EU * Math.max(0, ConfigSVA.consumption);
             load = 0;
         }
+        cost += sysEu;
         costNow = (float) cost;
         state.energy = Math.max(0, state.energy - cost);
         regenTick(t, motorOn, in, emaBefore, moved, fill, cost);    // wave 4 (★15): braking / downhill / windmilling
@@ -1743,6 +2096,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (wasAirborne && !air && ticksExisted > 5) {
             double impact = Math.max(0, -Math.min(stepDy, lastDy));
             double dmg = plane ? PlaneMath.landingDamage(t.plane, state.maxHp(), impact, v, lifting) : heliLandingDamage(t, impact, !lifting);
+            if (ConfigSVA.wear && (state.fails & SystemsMath.F_ENGINE) != 0 && SystemsMath.applies(t)) {
+                dmg += SystemsMath.LANDING_WEAR * state.maxHp();     // D2 (★7): a landing on a failed engine
+            }
             if (dmg > 0) {
                 damageHull((float) dmg);
                 oneShot("impact", 0.8F, 0.7F);
@@ -2355,6 +2711,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (tilt && lift) {
             target = Math.max(target, 36F);                         // the proprotors spin in both modes
         }
+        if (SystemsMath.applies(t) && engineState() == SystemsMath.CRANK) {
+            target = Math.max(target, SystemsMath.CRANK_SPIN);      // D2: the starter turns it slowly
+        }
+        engineEffects(t);
         if (isBoosting() && t.gases.boostGas != null && t.movement == Movement.PLANE) {
             afterburnerFlame(t);
         }
@@ -2446,18 +2806,18 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             }
             HighLiftMath.Spec hs = HighLiftMath.spec(t);
             float flapDeg = hs == null ? 0F : hs.angleAt(anim.flapPos);
-            boolean on = ConfigSVA.landingLamps;
-            com.sva.vehicle.AnimMath.landingLamp(anim, on && landingLampSwitch(), on ? flapDeg : 0F, on && anim.height >= 0.6, on ? dy : 1F,
+            boolean on = ConfigSVA.landingLamps && landingLampSwitch();         // D2: «ПОС. ФАРЫ» off - in
+            com.sva.vehicle.AnimMath.landingLamp(anim, false, on ? flapDeg : 0F, on && anim.height >= 0.6, on ? dy : 1F,
                     ConfigSVA.animations);
         }
     }
 
     /**
-     * Stage D1, ★14: the landing lights' switch - always off for now (they follow the flaps and the approach); stage D2's
-     * overhead panel («ПОС. ФАРЫ») sets it (synced) and this returns it.
+     * Stage D1, ★14 / D2 ★17: the overhead «ПОС. ФАРЫ» switch (synced). ON (the default) = the landing lights work as in
+     * D1 - out with the flaps / low on the approach, beams at night; OFF = they stay in and dark.
      */
     public boolean landingLampSwitch() {
-        return false;
+        return lightOn(com.sva.vehicle.VehicleLights.HEAD);
     }
 
     /**
@@ -2480,6 +2840,43 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                         x, y, z, (rand.nextDouble() - 0.5) * 0.3, 0.15, (rand.nextDouble() - 0.5) * 0.3);
             }
         }
+    }
+
+    /**
+     * Client, D2: the engine's state seen (ticks counted for the warm-up ramp / the HUD), a puff of smoke from the
+     * exhaust when it catches, a smoke trail from the cowling (the jet: the nozzle) while it has failed and turns.
+     */
+    private void engineEffects(VehicleType t) {
+        if (!SystemsMath.applies(t)) {
+            return;
+        }
+        int st = engineState();
+        if (st != engineSeen) {
+            if (engineSeen == SystemsMath.CRANK && st == SystemsMath.WARM && ConfigSVA.animations) {
+                double[] p = exhaust(t);
+                for (int i = 0; i < 12; i++) {
+                    worldObj.spawnParticle(SystemsMath.jet(t) ? "flame" : "largesmoke", p[0] + (rand.nextDouble() - 0.5) * 0.5, p[1] + rand.nextDouble() * 0.3,
+                            p[2] + (rand.nextDouble() - 0.5) * 0.5, (rand.nextDouble() - 0.5) * 0.05, 0.04, (rand.nextDouble() - 0.5) * 0.05);
+                }
+            }
+            engineSeen = st;
+            engineSeenTicks = 0;
+        } else {
+            engineSeenTicks++;
+        }
+        if ((failures() & SystemsMath.F_ENGINE) != 0 && SystemsMath.lifts(st) && ConfigSVA.animations && ticksExisted % 2 == 0) {
+            double[] p = exhaust(t);
+            worldObj.spawnParticle(ticksExisted % 6 == 0 ? "largesmoke" : "smoke", p[0], p[1], p[2], 0, 0.03, 0);
+        }
+    }
+
+    /** World position of the exhaust / cowling (model units: the plane's cowling x 1.85, y 0.72; the jet's nozzle; the tiltrotor's left nacelle). */
+    private double[] exhaust(VehicleType t) {
+        double mx = t == VehicleType.JET ? NOZZLE_X : t == VehicleType.TILT ? 0.6 : 1.85;
+        double my = t == VehicleType.JET ? NOZZLE_Y : t == VehicleType.TILT ? 1.35 : 0.72;
+        double mz = t == VehicleType.TILT ? -2.2 : 0;
+        double[] w = toWorld((mx - t.modelOffsetX) * t.modelScale, mz * t.modelScale);
+        return new double[] {posX + w[0], posY + my * t.modelScale, posZ + w[1]};
     }
 
     /** Jet nozzle in model units (jet.obj's thruster disc: x -2.975, y 0.561, radius 0.175). */
@@ -3815,7 +4212,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (action == A_DRILL_TOGGLE || action == A_DRILL_MODE || action >= A_MODE_SET && action < A_MODE_SET + DrillMath.MODES) {
             return manage || driver;
         }
-        if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS || action >= A_FLAPS_UP && action <= A_AIRBRAKE) {
+        if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS || action >= A_FLAPS_UP && action <= A_AIRBRAKE
+                || action == A_ENGINE || action >= A_SWITCH && action < A_SWITCH + SystemsMath.SWITCHES) {
             return driver;                                          // only the pilot turns the nacelles / works the ship / the flaps
         }
         return manage;
@@ -3919,6 +4317,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             flapCommand(p, HighLiftMath.spec(t), a == A_FLAPS_DOWN ? 1 : -1);
         } else if (a == A_AIRBRAKE && HighLiftMath.spec(t) != null && HighLiftMath.spec(t).airbrake) {
             airbrakeCommand(p);
+        } else if (a == A_ENGINE && SystemsMath.applies(t)) {
+            engineCommand(p);
+        } else if (a >= A_SWITCH && a < A_SWITCH + SystemsMath.SWITCHES && SystemsMath.applies(t)) {
+            switchCommand(p, a - A_SWITCH);
         } else if (a == A_FLIGHT_MODE && t.movement == Movement.TILT) {
             int r = toggleFlightMode();
             msg(p, r == TiltMath.OK ? (state.tiltPlane ? "sva.msg.tilt.toPlane" : "sva.msg.tilt.toVertical") : "sva.msg.tilt.no." + r,
@@ -4295,6 +4697,14 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         HighLiftMath.Spec hl = HighLiftMath.spec(t);
         flaps = hl == null ? 0 : Math.max(0, Math.min(hl.last(), tag.getByte(K_FLAPS)));
         airbrake = hl != null && hl.airbrake && tag.getBoolean(K_AIRBRAKE);
+        if (SystemsMath.applies(t)) {
+            // D2: a running engine keeps running over a reload (a pilot who logged out mid-flight); a start in progress starts over
+            int es = tag.getByte(K_ENGINE);
+            if (es == SystemsMath.RUN || es == SystemsMath.WARM) {
+                engine.run();
+            }
+            ice = Math.max(0, Math.min(SystemsMath.ICE_TICKS, tag.getInteger(K_ICE)));
+        }
         autoReason = state.autoState == AutoDelivery.STOPPED || AutoDelivery.driving(state.autoState)
                 ? Math.max(0, Math.min(7, tag.getByte(K_AUTO_REASON))) : AutoDelivery.R_NONE;
         if (t.singular && tag.hasKey(K_PORTAL) && tag.getInteger(K_PORTAL_TICKS) > 0) {
@@ -4315,6 +4725,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         tag.setDouble(K_THROTTLE, throttle);
         tag.setByte(K_FLAPS, (byte) flaps);
         tag.setBoolean(K_AIRBRAKE, airbrake);
+        tag.setByte(K_ENGINE, (byte) engine.state);
+        tag.setInteger(K_ICE, ice);
         tag.setByte(K_AUTO_REASON, (byte) autoReason);
         if (portalTicks > 0 && portalTarget != null) {
             NBTTagCompound pt = new NBTTagCompound();

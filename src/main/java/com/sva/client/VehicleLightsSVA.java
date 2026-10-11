@@ -59,7 +59,7 @@ public final class VehicleLightsSVA {
     public static boolean headlightsOn(EntityVehicleSVA v) {
         VehicleType t = v.getVehicleType();
         return ConfigSVA.headlights && v.powered() && VehicleLights.hasHead(t.model) && (!t.movement.flies || v.anim.height < LANDING_HEIGHT)
-                && darkness(v) > 0.05F;
+                && v.lightOn(VehicleLights.HEAD) && darkness(v) > 0.05F;
     }
 
     /** ★8: the beam length of the vehicle being drawn x this («Люстра фар»: 2). */
@@ -168,6 +168,9 @@ public final class VehicleLightsSVA {
     }
 
     private static boolean shown(VehicleLights.Light l, EntityVehicleSVA v, float gear) {
+        if (!v.lightOn(l.kind)) {
+            return false;                                     // round 2, D2: the aircraft's overhead switch is off
+        }
         if (l.has(VehicleLights.F_TRAILER) && !v.hasTrailer()) {
             return false;
         }

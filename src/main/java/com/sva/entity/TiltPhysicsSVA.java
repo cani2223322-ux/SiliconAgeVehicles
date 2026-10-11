@@ -41,6 +41,9 @@ public final class TiltPhysicsSVA {
             v.rotationYaw += steer * t.turnRate * 0.6;
             double target = HeliMath.targetVy(up, down, v.posY);
             vy = air || target > 0 ? HeliMath.poweredVy(v.motionY, up, down, v.posY) : -0.08;
+            if (vy > 0) {
+                vy *= v.enginePower();                                // D2: the warm-up / a failed engine climbs slower
+            }
             if (toPlane) {
                 v.throttle = Math.max(v.throttle, TiltMath.CONVERT_THROTTLE);   // holds the conversion speed once it is a plane
             }

@@ -35,6 +35,9 @@ public final class PlanePhysicsSVA {
         v.throttle = PlaneMath.throttleStep(v.throttle, fwd, back, powered);
         double thr = v.throttle;
         double mul = v.afterburnerMul(in);                    // the jet's afterburner (1 = off)
+        // round 2, D2: the engine's power (the warm-up's ramp, a failed engine x0.6) scales the throttle the thrust sees -
+        // a weaker engine accelerates slower and tops out lower (thrust x (thr - drag x r^2))
+        double pw = v.enginePower();
         double speed = Math.max(0, v.speed);
         double vy;
         boolean auto = air && v.cruiseActive(in);
@@ -49,13 +52,13 @@ public final class PlanePhysicsSVA {
             double want = v.apWantedVy(climb, p.dive);
             vy = Double.isNaN(want) ? PlaneMath.airVy(p, speed, v.motionY, false, false, powered, v.posY)
                     : FlightMath.approach(v.motionY, want, PlaneMath.VACC);
-            speed += PlaneMath.airAccel(t, p, speed, thr, vy, vy > 0, powered, mul);
+            speed += PlaneMath.airAccel(t, p, speed, thr * pw, vy, vy > 0, powered, mul);
         } else if (air) {
             vy = PlaneMath.airVy(p, speed, v.motionY, up, down, powered, v.posY);
-            speed += PlaneMath.airAccel(t, p, speed, thr, vy, up, powered, mul);
+            speed += PlaneMath.airAccel(t, p, speed, thr * pw, vy, up, powered, mul);
         } else {
             boolean runway = v.onRunway();
-            speed += PlaneMath.accel(t, p, speed, thr, false, runway, mul);
+            speed += PlaneMath.accel(t, p, speed, thr * pw, false, runway, mul);
             if (back && thr <= 0) {
                 speed -= PlaneMath.brake(p, runway);
             }

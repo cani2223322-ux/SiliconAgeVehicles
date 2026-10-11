@@ -78,8 +78,8 @@ final class SelfTestKeysSVA {
                 bad.append(" menu=reserved");
             }
         }
-        check(bad.length() == 0 && VehicleFn.values().length == 15 && VehicleFn.MENU_DEFAULT == 41,
-                "keys: 15 functions, every default a real key, all different, none the menu's ` and none vanilla's / the core's" + bad);
+        check(bad.length() == 0 && VehicleFn.values().length == 16 && VehicleFn.MENU_DEFAULT == 41,
+                "keys: 16 functions, every default a real key, all different, none the menu's ` and none vanilla's / the core's" + bad);
         int[] old = {33, 45, 48, 49, 47, 21, 44, 46, 24, 38, 50};       // F X B N V Y Z C O L M - the old KeyBindings' defaults
         boolean same = true;
         for (VehicleFn f : VehicleFn.values()) {

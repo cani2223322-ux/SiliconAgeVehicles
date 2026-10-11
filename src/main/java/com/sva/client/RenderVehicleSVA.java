@@ -248,6 +248,13 @@ public class RenderVehicleSVA extends Render {
             // the jet's afterburner: a flickering flame cone out of the nozzle (EntityVehicleSVA adds flame particles)
             float flicker = 0.85F + 0.15F * (float) Math.sin((v.ticksExisted + pt) * 2.3F);
             ObjModelSVA.renderFlame(EntityVehicleSVA.NOZZLE_X, EntityVehicleSVA.NOZZLE_Y, EntityVehicleSVA.NOZZLE_R, 0.9F, flicker);
+        } else if (vt == com.sva.vehicle.VehicleType.JET && shade >= 1F && v.isLifting()) {
+            // round 2, D2: the nozzle glows at idle - a short hot cone; right after the light-off (the first half second of
+            // the warm-up) a longer flash
+            boolean lightOff = v.engineState() == com.sva.vehicle.SystemsMath.WARM && v.engineTicks() < 10;
+            float flicker = 0.85F + 0.15F * (float) Math.sin((v.ticksExisted + pt) * 2.3F);
+            ObjModelSVA.renderFlame(EntityVehicleSVA.NOZZLE_X, EntityVehicleSVA.NOZZLE_Y, EntityVehicleSVA.NOZZLE_R * 0.8F,
+                    lightOff ? 0.45F : 0.1F, flicker);
         }
         // ★6 / ★7: headlight beams, nav lights, beacons, brake glow (in this model frame)
         VehicleLightsSVA.render(v, vt, pt, gear, ownView);

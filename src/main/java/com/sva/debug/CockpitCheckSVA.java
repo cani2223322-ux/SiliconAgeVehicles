@@ -185,8 +185,10 @@ public final class CockpitCheckSVA {
                     pts.add(at(s.c, s.n, s.right, s.up, a * 0.225 * s.w, b * 0.225 * s.h, s.front + LIFT));
                 }
             }
+            // round 2, D2: the overhead panel is read looking up at it (the head turned to it - no view cone), as a
+            // passengers' panel is; hidden samples and the facing are checked the same
             out.add(check(t, m, all, String.format(java.util.Locale.ROOT, "panel %s (%.3f x %.3f)", s.mat, Double.valueOf(s.w), Double.valueOf(s.h)),
-                    s.c, s.n, pts));
+                    s.c, s.n, pts, CockpitLayout.OVERHEAD.equals(s.mat)));
         }
         return out;
     }
@@ -200,11 +202,16 @@ public final class CockpitCheckSVA {
     }
 
     private static Inst check(VehicleType t, ViewCheckSVA.Mesh m, int[] all, String what, float[] c, float[] n, List<double[]> pts) {
+        return check(t, m, all, what, c, n, pts, false);
+    }
+
+    /** turned: the pilot turns his head to it (the overhead panel) - looked at straight, no view cone. */
+    private static Inst check(VehicleType t, ViewCheckSVA.Mesh m, int[] all, String what, float[] c, float[] n, List<double[]> pts, boolean turned) {
         Inst r = new Inst();
         r.what = what;
-        r.seat = seatOf(t, c);
+        r.seat = turned ? 0 : seatOf(t, c);
         double[] e = CockpitView.eye(t, r.seat);
-        boolean pass = passenger(t, c);
+        boolean pass = turned || passenger(t, c);
         double[] look = pass ? ViewCheckSVA.norm(ViewCheckSVA.sub(new double[] {c[0], c[1], c[2]}, e)) : ViewCheckSVA.dir(0, LOOK_PITCH);
         double[] cam = ViewCheckSVA.cameraAt(t, e, look);
         double[] toEye = ViewCheckSVA.norm(ViewCheckSVA.sub(e, new double[] {c[0], c[1], c[2]}));

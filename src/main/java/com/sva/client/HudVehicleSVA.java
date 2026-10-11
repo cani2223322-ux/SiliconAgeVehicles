@@ -72,6 +72,9 @@ public class HudVehicleSVA {
         FontRenderer fr = mc.fontRenderer;
         double dx = v.posX - v.prevPosX, dz = v.posZ - v.prevPosZ;
         shownSpeed = shownSpeed * 0.7 + Math.sqrt(dx * dx + dz * dz) * 0.3;
+        if (mc.gameSettings.thirdPersonView == 0 && v.frost() > 0) {
+            frost(e.resolution.getScaledWidth(), e.resolution.getScaledHeight(), v.frost());   // D2: ОБОГРЕВ off in the cold
+        }
 
         boolean wear = v.wearOn();
         int energy = v.getEnergy();
@@ -343,7 +346,9 @@ public class HudVehicleSVA {
         boolean afterRow = t.gases.boostGas != null && !heli;      // the afterburner: jet, shuttle, tiltrotor in plane mode
         // aircraft stage A: «Закрылки 20 гр. · предкр. · ТОРМОЗ» (the light plane, the jet, the tiltrotor in airplane mode)
         boolean hlRow = !heli && com.sva.vehicle.HighLiftMath.spec(t) != null;
-        int extraRows = (tilt ? 1 : 0) + (afterRow ? 1 : 0) + (hlRow ? 1 : 0);
+        // round 2, D2: the board systems - the engine start, the failures, the battery
+        boolean sysRow = com.sva.vehicle.SystemsMath.applies(t);
+        int extraRows = (tilt ? 1 : 0) + (afterRow ? 1 : 0) + (hlRow ? 1 : 0) + (sysRow ? 1 : 0);
         shownVy = shownVy * 0.7 + (v.posY - v.prevPosY) * 0.3;
         long now = mc.theWorld.getTotalWorldTime();
         boolean blink = (now / 8) % 2 == 0;
@@ -396,6 +401,10 @@ public class HudVehicleSVA {
             status = Lang.tr("sva.hud.status.autoReady");
         } else if (v.posY >= FlightMath.CEILING - 2) {
             status = Lang.tr("sva.hud.status.ceiling");
+            sc = AMBER;
+        } else if (sysRow && v.engineGated(t) && (v.engineState() == com.sva.vehicle.SystemsMath.CRANK
+                || v.engineState() == com.sva.vehicle.SystemsMath.WARM)) {
+            status = Lang.tr("sva.hud.status.starting");               // D2: «Запуск двигателя...»
             sc = AMBER;
         }
         if (status != null) {
@@ -463,6 +472,11 @@ public class HudVehicleSVA {
                 col = v.isAirbrake() ? ORANGE : v.getFlaps() > 0 ? AMBER : DIM;
             }
             fit(fr, line, px + 6, ry, pw - 12, col, true);
+            ry += 11;
+        }
+        if (sysRow) {
+            String[] line = systemsLine(v, t, blink);
+            fit(fr, line[0], px + 6, ry, pw - 12, Integer.parseInt(line[1]), true);
             ry += 11;
         }
         float cost = v.getCostNow();
@@ -538,6 +552,83 @@ public class HudVehicleSVA {
                 Long.valueOf((long) sec / 60 % 60), Long.valueOf((long) sec % 60)) : String.format("%d:%02d", Long.valueOf((long) sec / 60), Long.valueOf((long) sec % 60));
         fit(fr, Lang.tr("sva.hud.flightTime", Integer.valueOf((int) Math.floor(energy * 100.0 / v.getMaxEnergy())), left), px + 6, ry, pw - 12, TEXT, false);
         return py;
+    }
+
+    /**
+     * Round 2, D2: the board systems' line of the flight panel - the engine off («Двигатель выкл. - ; или W»), starting
+     * («Запуск 40 %»), the failures («ОТКАЗ: двигатель, закрылки» blinking red), the board dark («АКБ ВЫКЛ»), else the
+     * battery and ГЕН / ОБОГРЕВ («АКБ 100 % · ГЕН · обогрев»). {text, colour}.
+     */
+    static String[] systemsLine(EntityVehicleSVA v, VehicleType t, boolean blink) {
+        int es = v.engineState(), fails = v.failures();
+        boolean gated = v.engineGated(t);
+        String text;
+        int c;
+        if (!v.switchOn(com.sva.vehicle.SystemsMath.SW_BAT)) {
+            text = Lang.tr("sva.hud.sys.noMaster", VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.ENGINE));
+            c = blink ? WARN : 0x803030;
+        } else if (fails != 0 || v.pitotIced()) {
+            StringBuilder b = new StringBuilder();
+            int[] bits = {com.sva.vehicle.SystemsMath.F_ENGINE, com.sva.vehicle.SystemsMath.F_FLAP, com.sva.vehicle.SystemsMath.F_INSTR};
+            String[] keys = {"engine", "flap", "instr"};
+            for (int k = 0; k < 3; k++) {
+                if ((fails & bits[k]) != 0) {
+                    b.append(b.length() > 0 ? ", " : "").append(Lang.tr("sva.hud.sys.fail." + keys[k]));
+                }
+            }
+            if (v.pitotIced()) {
+                b.append(b.length() > 0 ? ", " : "").append(Lang.tr("sva.hud.sys.iced"));
+            }
+            text = Lang.tr("sva.hud.sys.fails", b.toString());
+            c = blink ? WARN : 0xC04030;
+        } else if (gated && es == com.sva.vehicle.SystemsMath.OFF) {
+            text = Lang.tr("sva.hud.sys.off", VehicleKeyBindsSVA.name(com.sva.vehicle.VehicleFn.ENGINE));
+            c = DIM;
+        } else if (gated && es != com.sva.vehicle.SystemsMath.RUN) {
+            int pct = Math.round(100 * com.sva.vehicle.SystemsMath.progress(es, v.engineTicks(), com.sva.vehicle.SystemsMath.crankTicks(t, false),
+                    com.sva.vehicle.SystemsMath.warmTicks(t)));
+            text = Lang.tr(es == com.sva.vehicle.SystemsMath.CRANK ? "sva.hud.sys.crank" : "sva.hud.sys.warm", Integer.valueOf(pct));
+            c = AMBER;
+        } else {
+            StringBuilder b = new StringBuilder(Lang.tr("sva.hud.sys.battery", Integer.valueOf(v.batteryPct())));
+            b.append(" \u00b7 ").append(Lang.tr(v.switchOn(com.sva.vehicle.SystemsMath.SW_GEN) ? "sva.hud.sys.gen" : "sva.hud.sys.noGen"));
+            if (v.heating()) {
+                b.append(" \u00b7 ").append(Lang.tr("sva.hud.sys.heat"));
+            } else if (v.coldAir()) {
+                b.append(" \u00b7 ").append(Lang.tr("sva.hud.sys.cold"));
+            }
+            text = b.toString();
+            c = !v.switchOn(com.sva.vehicle.SystemsMath.SW_GEN) || v.batteryPct() < 20 ? AMBER : DIM;
+        }
+        return new String[] {text, String.valueOf(c)};
+    }
+
+    /**
+     * Round 2, D2: the windscreen frosting over (ОБОГРЕВ off in the cold, level 1..3): a white rime creeping in from the
+     * screen's edges - the first-person view only, translucent so the instruments still read.
+     */
+    private static void frost(int sw, int sh, int level) {
+        float a = 0.18F * level;
+        int band = Math.max(8, Math.min(sw, sh) * (2 + 3 * level) / 24);
+        org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_BLEND);
+        org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_TEXTURE_2D);
+        org.lwjgl.opengl.GL11.glBlendFunc(org.lwjgl.opengl.GL11.GL_SRC_ALPHA, org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA);
+        org.lwjgl.opengl.GL11.glShadeModel(org.lwjgl.opengl.GL11.GL_SMOOTH);
+        org.lwjgl.opengl.GL11.glBegin(org.lwjgl.opengl.GL11.GL_QUADS);
+        int[][] edges = {{0, 0, sw, 0, sw, band, 0, band}, {0, sh, sw, sh, sw, sh - band, 0, sh - band},
+                {0, 0, 0, sh, band, sh, band, 0}, {sw, 0, sw, sh, sw - band, sh, sw - band, 0}};
+        for (int[] q : edges) {
+            org.lwjgl.opengl.GL11.glColor4f(0.86F, 0.93F, 1F, a);
+            org.lwjgl.opengl.GL11.glVertex2f(q[0], q[1]);
+            org.lwjgl.opengl.GL11.glVertex2f(q[2], q[3]);
+            org.lwjgl.opengl.GL11.glColor4f(0.86F, 0.93F, 1F, 0F);
+            org.lwjgl.opengl.GL11.glVertex2f(q[4], q[5]);
+            org.lwjgl.opengl.GL11.glVertex2f(q[6], q[7]);
+        }
+        org.lwjgl.opengl.GL11.glEnd();
+        org.lwjgl.opengl.GL11.glShadeModel(org.lwjgl.opengl.GL11.GL_FLAT);
+        org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_TEXTURE_2D);
+        org.lwjgl.opengl.GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
     /**

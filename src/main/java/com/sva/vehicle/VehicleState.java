@@ -30,7 +30,9 @@ public class VehicleState {
             // wave 2: the tuning slots (TuningMath kinds, -1 empty) and the access list / lock (AccessMath)
             K_TUNING = "Tuning", K_ACCESS = "Access",
             // wave 3 (★15): the hitched trailer's kind (TrailerMath) and its contents (the tank, the carried vehicle, the charger)
-            K_TRAILER_TYPE = "TrailerType", K_TRAILER_DATA = "TrailerData";
+            K_TRAILER_TYPE = "TrailerType", K_TRAILER_DATA = "TrailerData",
+            // aircraft round 2, D2 (SystemsMath): the overhead switches, the failures (+ the failed instrument's slot), the battery
+            K_SWITCHES = "Switches", K_FAILS = "Failures", K_FAIL_INSTR = "FailInstr", K_BATTERY = "Battery";
     /** Keys inside K_TRAILER_DATA (also the trailer item's own NBT, ItemTrailerSVA). */
     public static final String T_FLUID = "Fluid", T_AMOUNT = "Amount", T_IN = "In", T_OUT = "Out", T_CARRIED = "Carried", T_ENERGY = "Energy";
 
@@ -88,6 +90,13 @@ public class VehicleState {
      */
     public double energyHeld;
     public final int[] gasHeld = new int[Gas.values().length];
+    /**
+     * Aircraft round 2, D2 (SystemsMath; only meaningful for SystemsMath.applies types): the overhead switches (all on
+     * for a new vehicle and one saved before D2), the failures F_* with the failed instrument's slot, the battery units.
+     * They go with the item (picked up, the switches stay as left; the failures stay until the garage).
+     */
+    public int switches = SystemsMath.ALL_ON, fails, failInstr;
+    public double battery = SystemsMath.BAT_MAX;
 
     public VehicleState(VehicleType type) {
         this.type = type;
@@ -393,6 +402,10 @@ public class VehicleState {
         NBTTagCompound a = new NBTTagCompound();
         access.write(a);
         t.setTag(K_ACCESS, a);
+        t.setInteger(K_SWITCHES, switches);
+        t.setInteger(K_FAILS, fails);
+        t.setInteger(K_FAIL_INSTR, failInstr);
+        t.setDouble(K_BATTERY, battery);
     }
 
     /** Tiltrotor nacelles 0 (vertical) .. 1 (airplane). */
@@ -471,6 +484,11 @@ public class VehicleState {
         jumpCooldown = type.singular ? Math.max(0, Math.min(SpaceMath.JUMP_COOLDOWN, t.getInteger(K_JUMP_CD))) : 0;
         anchor = type.singular && t.getBoolean(K_ANCHOR);
         invisible = type.singular && t.getBoolean(K_INVIS);
+        // D2: a missing key keeps the current value (a save from before D2: every switch on, no failures, a full battery)
+        switches = t.hasKey(K_SWITCHES) ? SystemsMath.sanitize(t.getInteger(K_SWITCHES)) : switches;
+        fails = t.hasKey(K_FAILS) ? t.getInteger(K_FAILS) & SystemsMath.F_ALL : fails;
+        failInstr = t.hasKey(K_FAIL_INSTR) ? Math.max(0, Math.min(SystemsMath.INSTR_SLOTS - 1, t.getInteger(K_FAIL_INSTR))) : failInstr;
+        battery = t.hasKey(K_BATTERY) ? clampNum(t.getDouble(K_BATTERY), 0, SystemsMath.BAT_MAX) : battery;
     }
 
     private static int[] point(int[] a) {

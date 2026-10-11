@@ -113,7 +113,8 @@ public final class DynamicLightSVA {
             double d2 = v.getDistanceSqToEntity(player);
             boolean own = HudVehicleSVA.vehicleOf(Minecraft.getMinecraft().thePlayer) == v;
             double range = ConfigSVA.dynamicLightRange;
-            if (v.isDead || !own && (ConfigSVA.dynamicLightVehicles <= 0 || d2 > range * range) || !v.powered() || !VehicleLights.hasHead(v.getVehicleType().model)) {
+            if (v.isDead || !own && (ConfigSVA.dynamicLightVehicles <= 0 || d2 > range * range) || !v.powered() || !VehicleLights.hasHead(v.getVehicleType().model)
+                    || !v.lightOn(VehicleLights.HEAD)) {
                 continue;
             }
             double key = own ? -1 : d2;

@@ -47,6 +47,8 @@ public final class SoundMath {
         /** Rotor / propeller rate, deg/tick (EntityVehicleSVA.rotorRate). */
         public double rotor;
         public boolean boost, drilling, accelerating;
+        /** Round 2, D2: the engine start's progress 0..1 (SystemsMath.progress), -1 when not starting. */
+        public double spool = -1;
     }
 
     /** The layers a type plays. */
@@ -119,6 +121,10 @@ public final class SoundMath {
                 double load = Math.max(c01(in.throttle), sf);
                 vol = in.engine ? 0.22 + 0.2 * load : 0;           // autorotation: the blades only
                 pitch = 0.85 + 0.3 * load;
+                if (in.spool >= 0) {
+                    vol = Math.max(vol, 0.08 + 0.2 * in.spool);     // D2: the start's spool-up whine
+                    pitch = 0.5 + 0.4 * in.spool;
+                }
                 break;
             }
             case PROP: {
@@ -131,6 +137,10 @@ public final class SoundMath {
                 double thr = c01(in.throttle);
                 vol = in.engine ? 0.35 + 0.45 * thr : 0;
                 pitch = 0.7 + 0.6 * thr + 0.1 * sf;
+                if (in.spool >= 0) {
+                    vol = 0.1 + 0.3 * in.spool;                     // D2: spool-up - the whine's pitch = the turbine's speed
+                    pitch = 0.5 + 0.25 * in.spool;
+                }
                 break;
             }
             case AFTER:

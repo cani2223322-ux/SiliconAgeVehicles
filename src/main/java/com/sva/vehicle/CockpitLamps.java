@@ -39,9 +39,16 @@ public final class CockpitLamps {
      * airbrake / spoilers up), «V>120 ЗАКР» (red, blinking: the flaps' overspeed - the next setting's limit), and STALL.
      */
     public static final int FLAPS_EXT = 20, SLATS = 21, AIRBRAKE = 22, FLAP_LIMIT = 23;
+    /**
+     * Aircraft round 2, D2 (★7, mock-up veh_air3_2_start_fail.png): the failure annunciators - «ОТКАЗ ДВИГ.» (red), «ЗАКР.
+     * ЗАКЛИН.» (amber), «ПРИБОР» (amber: a dead instrument or the iced pitot), «ВНИМАНИЕ» (the master caution, red,
+     * blinking while any is on). The light plane's on its overhead panel, the jet's / tiltrotor's as screen lines.
+     */
+    public static final int ENG_FAIL = 24, FLAP_JAM = 25, INSTR_FAIL = 26, CAUTION = 27;
     /** Lang key part per role: sva.cockpit.lamp.KEY (the label under the lamp; "" = no label). */
     public static final String[] KEYS = {"", "master", "left", "right", "head", "handbrake", "overheat", "wear", "autorot", "lowCharge",
-            "gen", "nav", "vortex", "cargo", "door", "mode0", "mode1", "mode2", "stall", "autop", "flapsExt", "slats", "airbrake", "flapLimit"};
+            "gen", "nav", "vortex", "cargo", "door", "mode0", "mode1", "mode2", "stall", "autop", "flapsExt", "slats", "airbrake", "flapLimit",
+            "engFail", "flapJam", "instrFail", "caution"};
 
     // colours (0xRRGGBB, mock-up veh_cab_5_controls.png)
     public static final int RED = 0xFF4636, AMBER = 0xFFC23A, GREEN = 0x46E07A, BLUE = 0x6AD4FF, ORANGE = 0xFF8A2A;
@@ -105,6 +112,14 @@ public final class CockpitLamps {
         return new int[] {FLAPS_EXT, SLATS, AIRBRAKE, FLAP_LIMIT, STALL};
     }
 
+    /** D2: the failure annunciators of a type with the board systems (SystemsMath.applies); the flap lamp only with flaps. */
+    public static int[] failureLamps(VehicleType t) {
+        if (!SystemsMath.applies(t)) {
+            return new int[0];
+        }
+        return HighLiftMath.spec(t) != null ? new int[] {ENG_FAIL, FLAP_JAM, INSTR_FAIL, CAUTION} : new int[] {ENG_FAIL, INSTR_FAIL, CAUTION};
+    }
+
     /** A role's lit colour (0xRRGGBB). */
     public static int colour(int role) {
         switch (role) {
@@ -120,6 +135,8 @@ public final class CockpitLamps {
             case SLATS:
                 return BLUE;
             case AIRBRAKE:
+            case FLAP_JAM:
+            case INSTR_FAIL:
                 return AMBER;
             case WEAR:
             case AUTOROT:
@@ -154,6 +171,9 @@ public final class CockpitLamps {
         /** Stage C: the flap setting, the flaps still travelling, the slats out, the airbrake / spoilers up, the overspeed warning. */
         public int flaps;
         public boolean flapsMoving, slatsOut, airbrake, flapWarning;
+        /** D2: the failures (SystemsMath.F_*), the pitot iced. */
+        public int fails;
+        public boolean iced;
     }
 
     /** The overheating warning (the HUD's: over HOT % or stopped). */
@@ -173,7 +193,7 @@ public final class CockpitLamps {
 
     /** The master warning (the stage-1 lamps' rule). */
     public static boolean master(Snapshot s) {
-        return s.stalling || s.autorotating || overheat(s) || lowCharge(s);
+        return s.stalling || s.autorotating || overheat(s) || lowCharge(s) || SystemsMath.caution(s.fails, s.iced);
     }
 
     /** A lamp's state (OFF / ON / BLINK); an unpowered vehicle's lamps are all off. */
@@ -224,6 +244,14 @@ public final class CockpitLamps {
                 return s.airbrake ? ON : OFF;
             case FLAP_LIMIT:
                 return s.flapWarning ? BLINK : OFF;
+            case ENG_FAIL:
+                return (s.fails & SystemsMath.F_ENGINE) != 0 ? ON : OFF;
+            case FLAP_JAM:
+                return (s.fails & SystemsMath.F_FLAP) != 0 ? ON : OFF;
+            case INSTR_FAIL:
+                return (s.fails & SystemsMath.F_INSTR) != 0 || s.iced ? ON : OFF;
+            case CAUTION:
+                return SystemsMath.caution(s.fails, s.iced) ? BLINK : OFF;
             default:
                 return OFF;                                        // buttons, the door (never)
         }

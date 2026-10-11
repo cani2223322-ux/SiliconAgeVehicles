@@ -52,7 +52,13 @@ public enum VehicleFn {
      * like the map: no packet - the modes ride in the Input packet). I: free in vanilla, the core and the old letters.
      * A passenger may open it too (read-only).
      */
-    AP_PANEL("apPanel", "apPanel", 23, false, false);
+    AP_PANEL("apPanel", "apPanel", 23, false, false),
+    /**
+     * Aircraft round 2, D2 (★6, SystemsMath): «Запуск двигателя» - the engine off: start (АКБ on: the starter, the catch,
+     * the warm-up); turning: stop. The light plane, the jet, the tiltrotor. ; (Ж on a Russian keyboard): the last key
+     * free in vanilla, the core and the old letters.
+     */
+    ENGINE("engine", "engine", 39, false, true);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -99,6 +105,8 @@ public enum VehicleFn {
                 return HighLiftMath.spec(t) != null && HighLiftMath.spec(t).airbrake;
             case AP_PANEL:
                 return CruiseMath.kind(t.movement, true) == CruiseMath.AUTOPILOT;
+            case ENGINE:
+                return SystemsMath.applies(t);
             default:
                 return true;                                        // cargo, map: every vehicle
         }
@@ -134,6 +142,8 @@ public enum VehicleFn {
                 return EntityVehicleSVA.A_FLAPS_DOWN;
             case AIRBRAKE:
                 return EntityVehicleSVA.A_AIRBRAKE;
+            case ENGINE:
+                return EntityVehicleSVA.A_ENGINE;
             default:
                 return -1;
         }

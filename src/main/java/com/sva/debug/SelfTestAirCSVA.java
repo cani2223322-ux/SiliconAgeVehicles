@@ -354,8 +354,10 @@ final class SelfTestAirCSVA {
     private static void layout() throws java.io.IOException {
         CockpitLayout l = CockpitLayout.of(VehicleType.PLANE);
         CockpitLayout.Screen ap = l.panel("apanel"), hsi = l.panel("hsi"), fl = l.panel("flapind"), tr = l.panel("trimind"), gate = l.panel("flapgate");
-        boolean all = ap != null && hsi != null && fl != null && tr != null && gate != null && l.panels.size() == 5;
-        check(all, "stage C layout: the light plane's 5 panels found (AP panel, HSI, flap indicator, trim indicator, flap gate): " + l.panels.size());
+        // round 2, D2: + the overhead switch panel ('ovhd') - six
+        boolean all = ap != null && hsi != null && fl != null && tr != null && gate != null && l.panels.size() == 6;
+        check(all, "stage C layout: the light plane's 6 panels found (AP panel, HSI, flap indicator, trim indicator, flap gate; D2 the overhead"
+                + " panel): " + l.panels.size());
         if (!all) {
             return;
         }
@@ -389,8 +391,8 @@ final class SelfTestAirCSVA {
                 }
             }
         }
-        check(n == 5 && bad.length() == 0, "stage C layout: every panel readable from the pilot's camera (hidden at most " + Math.round(worst * 100)
-                + " %, facing, in view)" + bad);
+        check(n == 6 && bad.length() == 0, "stage C layout: every panel readable from the pilot's camera (hidden at most " + Math.round(worst * 100)
+                + " %, facing, in view; D2's overhead panel looked up at)" + bad);
         List<CockpitLayout.Screen> js = CockpitLayout.of(VehicleType.JET).screens;
         int[] jr = CockpitDials.screenRoles(js, true, false, true), jo = CockpitDials.screenRoles(js, true, false, false);
         int hsiN = 0, small = 0;

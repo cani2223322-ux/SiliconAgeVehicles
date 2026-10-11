@@ -24,6 +24,7 @@ lamp 255 248 220 1
 lestrip 168 172 180 0
 needle 255 70 40 1
 ok 60 255 120 1
+ovhd 14 16 20 1
 paint 232 234 238 0
 paint2 226 96 26 0
 paint3 30 76 160 0

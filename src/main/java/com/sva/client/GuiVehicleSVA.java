@@ -14,7 +14,9 @@ import com.sva.init.ModContentSVA;
 import com.sva.vehicle.CruiseMath;
 import com.sva.vehicle.KeyBindMath;
 import com.sva.vehicle.SkinMath;
+import com.sva.net.NetSVA;
 import com.sva.vehicle.SpaceMath;
+import com.sva.vehicle.SystemsMath;
 import com.sva.vehicle.TuningMath;
 import com.sva.vehicle.VehicleFn;
 import com.sva.vehicle.VehicleType;
@@ -42,7 +44,11 @@ public class GuiVehicleSVA extends GuiScreen {
     private static final int BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, TRACK = 0xFF0E1014, GOLD = 0xF2A040, CYAN = 0x5EC8F0,
             TEXT = 0xD8DCE4, MUTED = 0x8A93A3, GREEN = 0x62E06A, RED = 0xF06060, AMBER = 0xF0B040, VIOLET = 0xC85AFF;
     private static final int MAX_W = 340, MIN_W = 250, KEY_W = 58, ACT_W = 60;
-    private static final int B_ACT = 100, B_KEY = 200, B_RESET_ALL = 1;
+    private static final int B_ACT = 100, B_KEY = 200, B_RESET_ALL = 1,
+            /** Round 2, D2 (★17): the overhead switches' buttons (B_SW + SystemsMath.SW_*), a row under the status strip. */
+            B_SW = 300;
+    /** D2: the switch row's height (aircraft with the board systems). */
+    private static final int SW_ROW = 15;
 
     private EntityVehicleSVA vehicle;
     private VehicleType type;
@@ -75,7 +81,7 @@ public class GuiVehicleSVA extends GuiScreen {
             }
         }
         w = Math.max(MIN_W, Math.min(MAX_W, width - 8));
-        stripH = vehicle == null ? 24 : 36;
+        stripH = vehicle == null ? 24 : 36 + (swRow() ? SW_ROW : 0);
         int fixed = 18 + stripH + 12 + 20;                       // title, strip, the column heads, the footer
         rowH = Math.max(12, Math.min(15, (height - 8 - fixed) / Math.max(1, rows.size())));
         h = fixed + rows.size() * rowH + 4;
@@ -93,7 +99,24 @@ public class GuiVehicleSVA extends GuiScreen {
             buttonList.add(new GuiCargoSVA.Dark(B_KEY + f.ordinal(), left + w - 6 - KEY_W, y, KEY_W, bh, "", null));
         }
         buttonList.add(new GuiCargoSVA.Dark(B_RESET_ALL, left + w - 6 - 96, top + h - 17, 96, 13, Lang.tr("sva.vmenu.resetAll"), null));
+        if (swRow()) {
+            // D2: «Пульт» - the seven overhead switches (the same packet as the cockpit's would be: Action A_SWITCH + i)
+            int sy = top + 19 + 36, lw = 34, bw = (w - 12 - lw) / SystemsMath.SWITCHES;
+            for (int i = 0; i < SystemsMath.SWITCHES; i++) {
+                buttonList.add(new GuiCargoSVA.Dark(B_SW + i, left + 6 + lw + i * bw, sy, bw - 2, SW_ROW - 3, "", null));
+            }
+        }
         refresh();
+    }
+
+    /** A key-binding button (B_KEY .. under B_SW). */
+    private static boolean isKey(int id) {
+        return id >= B_KEY && id < B_SW;
+    }
+
+    /** D2: the vehicle has the overhead switches (the light plane, the jet, the tiltrotor). */
+    private boolean swRow() {
+        return vehicle != null && SystemsMath.applies(type);
     }
 
     // ------------------------------------------------------------------ rows
@@ -101,7 +124,14 @@ public class GuiVehicleSVA extends GuiScreen {
     private void refresh() {
         for (Object o : buttonList) {
             GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
-            if (b.id >= B_KEY) {
+            if (b.id >= B_SW) {
+                int i = b.id - B_SW;
+                boolean on = vehicle != null && vehicle.switchOn(i);
+                b.displayString = Lang.tr("sva.sys.sw." + SystemsMath.SW_KEYS[i] + ".short");
+                b.enabled = driver;
+                b.active = on;
+                b.activeColor = 0xFF000000 | SystemsMath.SW_COLOUR[i];
+            } else if (isKey(b.id)) {
                 VehicleFn f = VehicleFn.values()[b.id - B_KEY];
                 int[] k = VehicleKeyBindsSVA.get(f);
                 b.active = f == capturing;
@@ -133,6 +163,8 @@ public class GuiVehicleSVA extends GuiScreen {
                 return type.longRange && !type.hasDrill && vehicle.isLongRangeOn();
             case AIRBRAKE:
                 return vehicle.spoilersUp();
+            case ENGINE:
+                return vehicle.engineState() != SystemsMath.OFF;
             default:
                 return false;
         }
@@ -161,6 +193,8 @@ public class GuiVehicleSVA extends GuiScreen {
                 return Lang.tr("sva.vmenu.act.extend");
             case AIRBRAKE:
                 return Lang.tr(vehicle != null && vehicle.isAirbrake() ? "sva.vmenu.act.off" : "sva.vmenu.act.on");
+            case ENGINE:
+                return Lang.tr(vehicle != null && vehicle.engineState() != SystemsMath.OFF ? "sva.vmenu.act.stop" : "sva.vmenu.act.start");
             default:
                 return "";
         }
@@ -265,6 +299,19 @@ public class GuiVehicleSVA extends GuiScreen {
                     return s("sva.vmenu.st.on", AMBER);
                 }
                 return v.groundSpoilersUp() ? s("sva.vmenu.st.rollout", AMBER) : s("sva.vmenu.st.off", MUTED);
+            case ENGINE: {
+                // D2: «выкл.» / «стартер 20 %» / «прогрев 60 %» / «работает»; a failed engine red
+                int es = v.engineState();
+                if (!v.engineGated(type)) {
+                    return s("sva.vmenu.st.engineAlways", MUTED);
+                }
+                if ((v.failures() & SystemsMath.F_ENGINE) != 0 && SystemsMath.lifts(es)) {
+                    return s("sva.vmenu.st.engineFail", RED);
+                }
+                int pct = Math.round(100 * SystemsMath.progress(es, v.engineTicks(), SystemsMath.crankTicks(type, false), SystemsMath.warmTicks(type)));
+                return new Object[] {Lang.tr("sva.sys.engine." + SystemsMath.ENGINE_KEYS[es], Integer.valueOf(pct)),
+                        Integer.valueOf(es == SystemsMath.RUN ? GREEN : es == SystemsMath.OFF ? MUTED : AMBER)};
+            }
             default:
                 return null;
         }
@@ -311,6 +358,9 @@ public class GuiVehicleSVA extends GuiScreen {
             }
         } else {
             drawStrip(sy);
+            if (swRow()) {
+                fontRendererObj.drawString(Lang.tr("sva.vmenu.panel"), left + 6, sy + 36 + 2, MUTED);     // D2: «Пульт»
+            }
         }
         drawRect(left + 3, listY - 13, left + w - 3, listY - 12, LINE);
         int nameW = nameWidth(), stateX = left + 6 + nameW + 4, stateW = left + w - 6 - KEY_W - 4 - ACT_W - 4 - stateX;
@@ -350,7 +400,11 @@ public class GuiVehicleSVA extends GuiScreen {
             if (!b.visible) {
                 continue;
             }
-            if (b.id >= B_KEY) {
+            if (b.id >= B_SW) {
+                if (vehicle != null) {
+                    TextFitSC.hover(b.xPosition, b.yPosition, b.width, b.height, switchTip(b.id - B_SW));
+                }
+            } else if (isKey(b.id)) {
                 TextFitSC.hover(b.xPosition, b.yPosition, b.width, b.height, keyTip(VehicleFn.values()[b.id - B_KEY]));
             } else if (b.id >= B_ACT) {
                 VehicleFn f = VehicleFn.values()[b.id - B_ACT];
@@ -457,6 +511,21 @@ public class GuiVehicleSVA extends GuiScreen {
         return l;
     }
 
+    /** D2: a switch button's tip - its name and state, what it does, the battery (АКБ / ГЕН), «только водитель». */
+    private List<String> switchTip(int i) {
+        List<String> l = new ArrayList<String>();
+        String k = "sva.sys.sw." + SystemsMath.SW_KEYS[i];
+        l.add("\u00a7e" + Lang.tr(k) + ": " + Lang.tr(vehicle.switchOn(i) ? "sva.vmenu.st.on" : "sva.vmenu.st.off"));
+        l.add(Lang.tr(k + ".tip"));
+        if (i == SystemsMath.SW_BAT || i == SystemsMath.SW_GEN) {
+            l.add("\u00a77" + Lang.tr("sva.sys.battery", Integer.valueOf(vehicle.batteryPct())));
+        }
+        if (!driver) {
+            l.add("\u00a7c" + Lang.tr("sva.vmenu.driverOnly"));
+        }
+        return l;
+    }
+
     private List<String> keyTip(VehicleFn f) {
         List<String> l = new ArrayList<String>();
         l.add("§e" + Lang.tr("sva.vmenu.key.current", VehicleKeyBindsSVA.describe(VehicleKeyBindsSVA.get(f))));
@@ -488,12 +557,19 @@ public class GuiVehicleSVA extends GuiScreen {
 
     @Override
     protected void actionPerformed(GuiButton b) {
+        if (b.id >= B_SW) {
+            if (vehicle != null && driver) {
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(vehicle.getEntityId(), EntityVehicleSVA.A_SWITCH + b.id - B_SW));
+            }
+            refresh();
+            return;
+        }
         if (b.id == B_RESET_ALL) {
             for (VehicleFn f : VehicleFn.values()) {
                 VehicleKeyBindsSVA.reset(f);
             }
             capturing = null;
-        } else if (b.id >= B_KEY) {
+        } else if (isKey(b.id)) {
             VehicleFn f = VehicleFn.values()[b.id - B_KEY];
             capturing = capturing == f ? null : f;
         } else if (b.id >= B_ACT) {
@@ -549,7 +625,7 @@ public class GuiVehicleSVA extends GuiScreen {
         if (button == 1) {
             for (Object o : buttonList) {
                 GuiButton b = (GuiButton) o;
-                if (b.id >= B_KEY && b.visible && x >= b.xPosition && y >= b.yPosition && x < b.xPosition + b.width && y < b.yPosition + b.height) {
+                if (isKey(b.id) && b.visible && x >= b.xPosition && y >= b.yPosition && x < b.xPosition + b.width && y < b.yPosition + b.height) {
                     VehicleKeyBindsSVA.reset(VehicleFn.values()[b.id - B_KEY]);
                     capturing = null;
                     mc.getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(new ResourceLocation("gui.button.press"), 1.0F));
@@ -562,7 +638,7 @@ public class GuiVehicleSVA extends GuiScreen {
             boolean onKey = false;
             for (Object o : buttonList) {
                 GuiButton b = (GuiButton) o;
-                onKey |= b.id >= B_KEY && x >= b.xPosition && y >= b.yPosition && x < b.xPosition + b.width && y < b.yPosition + b.height;
+                onKey |= isKey(b.id) && x >= b.xPosition && y >= b.yPosition && x < b.xPosition + b.width && y < b.yPosition + b.height;
             }
             if (!onKey) {
                 capturing = null;                               // a click elsewhere: cancelled

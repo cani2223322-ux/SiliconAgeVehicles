@@ -293,3 +293,33 @@
   Фара: слой сборки veh_real9.py (крышка + корпус + ободок + линза с тегом 'llamp', ниша 'black'; |z| 13, 24..40% хорды),
   AnimParts DEVICE kind LAMP (105 гр. вокруг заднего шарнира), AnimMath.State.lamp, VehicleLights F_LAMP (луч 15 гр. вниз),
   конфиг vehicles.landingLamps. Для D2: EntityVehicleSVA.landingLampSwitch() - пока false, тумблер «ПОС. ФАРЫ» должен его вернуть.
+- Раунд 2, этап D2 (2026-10-11; макеты veh_air3_2_start_fail.png, veh_air3_4_cockpit.png): ★6 запуск двигателя, ★7 отказы при
+  износе, ★17 верхний пульт. Логика - vehicle/SystemsMath (чистая, самотест SelfTestAirD2SVA); только самолёт / реактивный /
+  конвертоплан (SystemsMath.applies: Movement.PLANE / TILT) - вертолёт, космос и наземные как раньше.
+  Тумблеры SW_BAT..SW_HEAT (7 бит, VehicleState.switches, NBT Switches; по умолчанию и у старых сохранений ВСЕ ВКЛ): огни -
+  SystemsMath.lightSwitch (RED/GREEN/WHITE - НАВ, STROBE, BEACON, HEAD - ПОС. ФАРЫ; EntityVehicleSVA.lightOn -> VehicleLightsSVA.shown,
+  headlightsOn, DynamicLightSVA); landingLampSwitch() = ПОС. ФАРЫ: ВКЛ - правило D1 (закрылки / заход), ВЫКЛ - фары убраны.
+  АКБ: powered() = заряд && не обломки && АКБ && батарея > 0 (приборы, лампы, огни); батарея VehicleState.battery 0..1000 (NBT
+  Battery): ГЕН +2 / тик за 2 EU (из основного запаса), без ГЕН борт (пилот или двигатель) -1000/12000 в тик (10 мин), стартер -1 / тик,
+  станция +5; пуск только от 50. Двигатель SystemsMath.Engine OFF -> CRANK (30 тиков, реактивный 60, в воздухе 1/3) -> WARM (60, реактивный 40;
+  мощность 0,3 -> 1) -> RUN; hasLift() требует WARM/RUN (engineGated: vehicles.engineStart); тяга - PlanePhysicsSVA throttle x
+  enginePower() (прогрев x отказ 0,6), конвертоплан в вертикали - подъём x enginePower. Автозапуск: W (конвертоплан в вертикали - и
+  Пробел) при OFF и АКБ; при неудаче - повтор через 60 тиков. Стоп: АКБ выкл., нет EU, «Стоп», 200 тиков без пилота. Состояние
+  двигателя - NBT сущности SVAEngine (WARM/RUN восстанавливаются как RUN). Осечка изношенного: 4 x шанс отказа в минуту.
+  ОБОГРЕВ: холод = Y > 150 или снегопад над машиной; ВКЛ - 5% cruiseCost в тик; ВЫКЛ в холоде - лёд 600 тиков -> ПВД (указатель
+  скорости встаёт, лампа ПРИБОР), иней на стекле (HUD, 3 ступени); тает вдвое быстрее (NBT SVAIce).
+  Отказы: шанс в минуту 0,08 x ((износ - 0,6) / 0,4)^2, проверка раз в 1200 тиков в воздухе с работающим двигателем; доли 45 / 25 / 30
+  (двигатель / закрылки - только с механизацией / прибор), не больше двух; F_ENGINE - мощность 0,6, дым из-под капота (клиент),
+  посадка +5% износа; F_FLAP - flapCommand отказывает, blowBack не работает; F_INSTR - слот 0..7 (клиент: по модулю числа
+  приборов), стрелка застывает + флажок «ОТКАЗ». VehicleState.fails / failInstr (NBT Failures / FailInstr); garageRepaired и
+  repairHull до полного - сбрасывают. Лампы CockpitLamps ENG_FAIL / FLAP_JAM / INSTR_FAIL / CAUTION (MASTER учитывает отказы).
+  Синхронизация - DW 2 (последний свободный id): SystemsMath.pack (тумблеры, двигатель, отказы, слот, батарея %, иней, флаги
+  настроек / обогрева / холода / льда). Action A_ENGINE = 28, A_SWITCH = 30..36 (только пилот); VehicleFn.ENGINE (клавиша ;),
+  меню «Техника»: строка «Пульт» с 7 кнопками-тумблерами и строка «Запуск двигателя». Конфиги vehicles.engineStart, vehicles.failures.
+  Модель: слой сборки veh_real10.py - пульт 'ovhd' под фонарём (центр концепта 11,9 / 17,05 / -0,3, лицо 3,0 x 1,5, на 0,005 модельных
+  единиц ниже стекла, 24 гр. вверх от глаза, к глазу 7 гр.; стойка к верху фонаря); рисует client/OverheadPanelSVA (тумблеры
+  нарисованы, не CONTROL-детали). CockpitCheckSVA читает 'ovhd' взглядом на него (CockpitLayout.OVERHEAD), не из позы «20 гр. вниз».
+  Мировой тест WorldTestAirD2SVA (WorldTestSVA.testInstantEngine: старые тесты летают сразу, отказы не случайны).
+  Для D3 (шасси / сопло / ИЛС реактивного): ИЛС нужны данные АП и полёта - EntityVehicleSVA.apPanel(), capture(), runway(),
+  stallSpeed(), airspeedNow(), getThrottle(), isBoosting(); запуск - engineState() / engineTicks() / enginePower(); сопло уже
+  светится на малом газе (RenderVehicleSVA, renderFlame 0,1).

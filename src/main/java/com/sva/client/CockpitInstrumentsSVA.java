@@ -182,15 +182,21 @@ public final class CockpitInstrumentsSVA {
                 java.util.Arrays.fill(s.shown, Float.NaN);
             }
             float sweep = CockpitLamps.sweep(sec);
+            int dead = deadDial(v, t, l, table);
             for (int i = 0; i < l.dials.size(); i++) {
                 int kind = table[i % table.length];
                 float min = CockpitDials.min(kind, t), max = CockpitDials.max(kind, t, v.cargoCapacity());
-                if (phase == CockpitLamps.PH_NORMAL) {
+                if (i == dead && !Float.isNaN(s.shown[i])) {
+                    // round 2, D2 (★7): a dead instrument (or the iced pitot's airspeed) - the needle stays where it stopped
+                } else if (phase == CockpitLamps.PH_NORMAL) {
                     s.shown[i] = CockpitDials.follow(s.shown[i], value(kind, v, t, s, pt), dt);
                 } else {
                     s.shown[i] = min + (max - min) * sweep;          // ★11: at rest, then 0 -> max -> 0
                 }
                 drawDial(fr, l.dials.get(i), kind, s.shown[i], min, max);
+                if (i == dead && phase != CockpitLamps.PH_DARK) {
+                    failFlag(fr, l.dials.get(i));
+                }
             }
             int[] roles = CockpitDials.screenRoles(l.screens, t.movement.flies, t.hasDrill, AvionicsSVA.jetHsi(t));
             int[] small = CockpitDials.smallTable(t);
@@ -227,6 +233,7 @@ public final class CockpitInstrumentsSVA {
             }
             drawLamps(fr, l, t, v, pt);
             AvionicsSVA.draw(fr, l, v, t, pt, sweep);                  // stage C: the AP panel, HSI, flap / trim, the gate
+            OverheadPanelSVA.draw(fr, l, v, t);                         // round 2, D2: the overhead switch panel
             if (night > 0F && l.floor != null) {
                 floorStrip(l.floor);
             }
@@ -346,6 +353,51 @@ public final class CockpitInstrumentsSVA {
         n.slatsOut = v.slatsOut();
         n.airbrake = v.spoilersUp();
         n.flapWarning = v.flapWarning();
+        n.fails = v.failures();                                   // round 2, D2: the failures, the iced pitot
+        n.iced = v.pitotIced();
+    }
+
+    /**
+     * Round 2, D2 (★7): the dial that has failed - the failure's slot modulo the dials, or (none failed) the airspeed
+     * dial while the pitot is iced; -1 when none.
+     */
+    private static int deadDial(EntityVehicleSVA v, VehicleType t, CockpitLayout l, int[] table) {
+        if (l.dials.isEmpty() || !com.sva.vehicle.SystemsMath.applies(t)) {
+            return -1;
+        }
+        if ((v.failures() & com.sva.vehicle.SystemsMath.F_INSTR) != 0) {
+            return v.failedInstrument() % l.dials.size();
+        }
+        if (v.pitotIced()) {
+            for (int i = 0; i < l.dials.size(); i++) {
+                if (table[i % table.length] == CockpitDials.SPEED) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /** D2: the red-and-white striped «ОТКАЗ» flag across a dead dial (the mock-up's), tilted like a real one. */
+    private static void failFlag(FontRenderer fr, CockpitLayout.Dial d) {
+        float r = d.r;
+        frame(d.c, d.n, d.up, d.right, d.front + LIFT_HUB + 0.0005F);
+        GL11.glRotatef(18F, 0F, 0F, 1F);
+        float w = r * 0.62F, h = r * 0.2F, y0 = -r * 0.42F;
+        GL11.glColor4f(0.95F, 0.95F, 0.95F, 1F);
+        rect(-w, y0 - h, w, y0 + h, 0F);
+        GL11.glColor4f(0.86F, 0.12F, 0.1F, 1F);
+        int n = 7;
+        for (int k = 0; k < n; k++) {
+            float x0 = -w + 2 * w * k / n, x1 = x0 + w / n;
+            poly(new float[][] {{x0, y0 - h}, {x1, y0 - h}, {x1 + h * 0.6F, y0 + h}, {x0 + h * 0.6F, y0 + h}}, 0.0002F);
+        }
+        GL11.glColor4f(0.86F, 0.12F, 0.1F, 1F);
+        rect(-w * 0.55F, y0 - h * 0.7F, w * 0.55F, y0 + h * 0.7F, 0.0003F);
+        textLift = 0.0006F;
+        text(fr, Lang.tr("sva.cockpit.failFlag"), 0F, y0, h * 1.1F, w * 1.0F, 0xFFFFFF);
+        textLift = LIFT_MARK - LIFT_FACE;
+        GL11.glPopMatrix();
     }
 
     /** Stage C: the autopilot panel this client shows - the driver's own state, a passenger's the synced one. */
@@ -512,6 +564,26 @@ public final class CockpitInstrumentsSVA {
         }
         if (SNAP.cargoFull) {
             out.add(new Line(Lang.tr("sva.cockpit.ev.cargoFull"), BLUE, -1F, null));
+        }
+        if (com.sva.vehicle.SystemsMath.applies(t)) {
+            // round 2, D2: the engine start («ЗАПУСК 40 %»), the failures as lines (the jet / tiltrotor have no overhead
+            // panel: their «ВНИМАНИЕ» is the MASTER lamp)
+            long ms = System.currentTimeMillis();
+            int es = v.engineState();
+            if (v.engineGated(t) && es != com.sva.vehicle.SystemsMath.RUN) {
+                int pctS = Math.round(100 * com.sva.vehicle.SystemsMath.progress(es, v.engineTicks(), com.sva.vehicle.SystemsMath.crankTicks(t, false),
+                        com.sva.vehicle.SystemsMath.warmTicks(t)));
+                out.add(new Line(Lang.tr("sva.cockpit.engine." + com.sva.vehicle.SystemsMath.ENGINE_KEYS[es], Integer.valueOf(pctS)),
+                        es == com.sva.vehicle.SystemsMath.OFF ? DIM : AMBER, -1F, null));
+            }
+            for (int role : CockpitLamps.failureLamps(t)) {
+                int st = CockpitLamps.state(role, SNAP);
+                if (st == CockpitLamps.OFF) {
+                    continue;
+                }
+                int c = CockpitLamps.colour(role);
+                out.add(new Line(Lang.tr("sva.cockpit.lamp." + CockpitLamps.KEYS[role]), CockpitLamps.lit(st, ms) ? c : CockpitLamps.mix(c, 0, 0.5F), -1F, null));
+            }
         }
         if (ConfigSVA.avionics && com.sva.vehicle.HighLiftMath.spec(t) != null) {
             // stage C: the lit annunciators as lines (the jet / tiltrotor have no annunciator column)
