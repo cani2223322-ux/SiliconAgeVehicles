@@ -54,6 +54,31 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
         return "sva.ad.radar." + RadarMath.KEYS[kind()];
     }
 
+    /**
+     * The model (multiblock wave): power; lock - the tracking radar holds a target / the others see something; alarm -
+     * the owner's command post within link range raised it. The tracking radar's dish turns to its first target.
+     */
+    @Override
+    protected int stateBits() {
+        int s = super.stateBits();
+        if (powered && !contacts.isEmpty()) {
+            s |= ST_LOCK;
+        }
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        if (kp != null && kp.isAlarm()) {
+            s |= ST_ALARM;
+        }
+        return s;
+    }
+
+    @Override
+    protected int targetId() {
+        if (!powered || kind() != RadarMath.TRACK || contacts.isEmpty()) {
+            return -1;
+        }
+        return contacts.keySet().iterator().next().intValue();
+    }
+
     /** The last scan's contacts (the command post reads them). */
     public Map<Integer, AirDefenseSVA.Contact> contacts() {
         return contacts;
@@ -82,7 +107,7 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
     public void scan(int k) {
         long now = worldObj.getTotalWorldTime();
         scanNo++;
-        double ax = xCoord + 0.5, ay = yCoord + 1.5, az = zCoord + 0.5;
+        double ax = xCoord + 0.5, ay = yCoord + com.sva.airdefense.AdShapeMath.antennaHeight(shape(), struct == MULTI), az = zCoord + 0.5;
         double weather = RadarMath.weatherMul(worldObj.isRaining(), worldObj.isThundering());
         List<EntityVehicleSVA> seen = new ArrayList<EntityVehicleSVA>();
         for (Object o : worldObj.loadedEntityList) {

@@ -1,0 +1,14 @@
+# ad_track: mat NAME r g b emissive texture(- none) | pivot PART x y z | point NAME x y z (blocks, model space)
+mat accent 255 255 255 0 ad_accent
+mat concrete 150 150 146 0 ad_concrete
+mat dark 40 42 48 0 ad_dark
+mat lamp 255 255 255 1 -
+mat olive 92 104 78 0 ad_olive
+mat olive2 64 72 56 0 ad_olive2
+mat reflc 190 194 200 0 ad_reflc
+mat rubber 26 26 28 0 -
+mat steel 120 124 132 0 ad_steel
+mat window 90 215 255 1 ad_scr_list
+pivot az -0.4375 0.0000 0.4375
+pivot el -0.4375 1.5000 0.4375
+bounds -1.000 0.000 -1.000 1.000 2.305 1.387

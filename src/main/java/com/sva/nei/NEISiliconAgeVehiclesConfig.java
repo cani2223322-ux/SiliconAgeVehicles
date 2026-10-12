@@ -16,7 +16,7 @@ import net.minecraft.client.gui.inventory.GuiContainer;
  * NEI plugin entry point - NEI finds it by its class name (NEI*Config) in any loaded jar, so it is only ever
  * touched when NEI is installed (nothing else in the addon refers to com.sva.nei). Registers the Engineering
  * Workbench page, the workbench screen's arrow as the «recipes» click area, and the «?» ghost overlay / fill.
- * Nothing to hide: the addon has no technical items (the seats are entities without an item).
+ * Hidden: the air-defence structures' invisible part block (multiblock wave; the seats are entities without an item).
  */
 public class NEISiliconAgeVehiclesConfig implements IConfigureNEI {
 
@@ -37,6 +37,9 @@ public class NEISiliconAgeVehiclesConfig implements IConfigureNEI {
         rects.add(new TemplateRecipeHandler.RecipeTransferRect(new Rectangle(GuiWorkbenchSVA.ARROW_X - 5, GuiWorkbenchSVA.ARROW_Y - 11,
                 GuiWorkbenchSVA.ARROW_W, GuiWorkbenchSVA.ARROW_H), WorkbenchRecipeHandlerSVA.ID));
         TemplateRecipeHandler.RecipeTransferRectHandler.registerRectsToGuis(guis, rects);
+        if (com.sva.init.ModContentSVA.adPart != null) {
+            API.hideItem(new net.minecraft.item.ItemStack(com.sva.init.ModContentSVA.adPart, 1, net.minecraftforge.oredict.OreDictionary.WILDCARD_VALUE));
+        }
     }
 
     @Override

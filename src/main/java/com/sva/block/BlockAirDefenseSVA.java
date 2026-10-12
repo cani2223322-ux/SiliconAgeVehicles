@@ -1,9 +1,11 @@
 package com.sva.block;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import com.sva.ConfigSVA;
 import com.sva.ReferenceSVA;
+import com.sva.airdefense.AdShapeMath;
 import com.sva.airdefense.AirDefenseDataSVA;
 import com.sva.airdefense.AirDefenseSVA;
 import com.sva.airdefense.RadarMath;
@@ -26,7 +28,8 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.IIcon;
-import net.minecraft.util.MathHelper;
+import net.minecraft.util.AxisAlignedBB;
+import net.minecraft.world.Explosion;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 
@@ -38,6 +41,13 @@ import net.minecraft.world.World;
  * radar tells its state in the chat, the launcher opens its screen (Shift+RMB with ammunition: loads it), the command
  * post opens its screen (with a code card in hand: prints today's code on it). Broken: the launcher drops its ammunition,
  * the post's zones are gone. The command post gives a redstone signal 15 on every side while its alarm is on.
+ *
+ * Multiblock wave (2026-10-12): the block is the master of a structure the size of the mock-ups (AdShapeMath; the
+ * survey radar and the missile system 3x3, the tracking radar, the height finder and the gun 2x2, the command post 2x1),
+ * the rest filled with BlockAdPartSVA parts. build() puts it all in (ItemBlockAirDefenseSVA after room() said the cells
+ * are free; the world tests), breaking any block of it takes the whole down and drops the one item here in breakBlock
+ * (not through getDrops - so a part broken, an explosion or a creative break all come through the same path: one item,
+ * none in creative). Drawn by client/RenderAirDefenseSVA (the TESR), not as a cube.
  */
 public class BlockAirDefenseSVA extends BlockContainer {
 
@@ -50,6 +60,7 @@ public class BlockAirDefenseSVA extends BlockContainer {
     public BlockAirDefenseSVA(int kind) {
         super(Material.iron);
         this.kind = kind;
+        setLightOpacity(0);
         setHardness(4.0F);
         setResistance(15.0F);
         setStepSound(soundTypeMetal);
@@ -71,12 +82,100 @@ public class BlockAirDefenseSVA extends BlockContainer {
         return kind == COMMAND_POST ? 0 : meta;
     }
 
+    // ------------------------------------------------------------------ the multiblock
+
+    /** A cell one may build in: loaded, inside the world, replaceable (air, grass, snow...), no living thing in a FULL one. */
+    private static boolean free(World w, int x, int y, int z, int type) {
+        if (y < 0 || y > 255 || !w.blockExists(x, y, z)) {
+            return false;
+        }
+        Block b = w.getBlock(x, y, z);
+        if (!b.isReplaceable(w, x, y, z) || b instanceof BlockAdPartSVA || b instanceof BlockAirDefenseSVA) {
+            return false;
+        }
+        return type != AdShapeMath.FULL || w.checkNoEntityCollision(AxisAlignedBB.getBoundingBox(x, y, z, x + 1, y + 1, z + 1));
+    }
+
+    /** The first cell (other than the master's) that is not free, {x, y, z}, or null: room for the structure. */
+    public static int[] room(World w, int x, int y, int z, int shape, int facing) {
+        int[][] c = AdShapeMath.worldCells(shape, facing);
+        for (int i = 1; i < c.length; i++) {
+            if (!free(w, x + c[i][0], y + c[i][1], z + c[i][2], c[i][3])) {
+                return new int[] {x + c[i][0], y + c[i][1], z + c[i][2]};
+            }
+        }
+        return null;
+    }
+
+    /** A legacy single block in this facing: AdShapeMath.legacy over its cells (WAIT while one isn't loaded). */
+    public static int legacyDecision(World w, int x, int y, int z, int shape, int facing) {
+        int[][] c = AdShapeMath.worldCells(shape, facing);
+        boolean loaded = true, free = true;
+        for (int i = 1; i < c.length; i++) {
+            int cx = x + c[i][0], cy = y + c[i][1], cz = z + c[i][2];
+            if (cy >= 0 && cy <= 255 && !w.blockExists(cx, cy, cz)) {
+                loaded = false;
+            } else if (!free(w, cx, cy, cz, c[i][3])) {
+                free = false;
+            }
+        }
+        return AdShapeMath.legacy(loaded, free);
+    }
+
+    /**
+     * Puts a whole structure in: the master (meta = the radar / launcher kind; the command post's = its screen's side as
+     * before), its state MULTI and facing, then the parts. The caller has checked room(). @return false if the master
+     * could not be set
+     */
+    public static boolean build(World w, int x, int y, int z, BlockAirDefenseSVA block, int meta, int facing) {
+        int m = block.kind == COMMAND_POST ? AdShapeMath.sideFromFacing(facing) : meta;
+        if (!w.setBlock(x, y, z, block, m, 3)) {
+            return false;
+        }
+        TileEntity te = w.getTileEntity(x, y, z);
+        if (!(te instanceof TileEntityAirDefenseSVA)) {
+            return false;
+        }
+        buildParts(w, x, y, z, (TileEntityAirDefenseSVA) te, facing);
+        return true;
+    }
+
+    /** The parts around a master (a new one, or a legacy one converting): linked to it, the state MULTI. */
+    public static void buildParts(World w, int x, int y, int z, TileEntityAirDefenseSVA master, int facing) {
+        master.initStructure(facing, TileEntityAirDefenseSVA.MULTI);
+        int[][] c = AdShapeMath.worldCells(master.shape(), facing);
+        for (int i = 1; i < c.length; i++) {
+            int cx = x + c[i][0], cy = y + c[i][1], cz = z + c[i][2];
+            w.setBlock(cx, cy, cz, com.sva.init.ModContentSVA.adPart, c[i][3], 2);
+            TileEntity te = w.getTileEntity(cx, cy, cz);
+            if (te instanceof TileEntityAdPartSVA) {
+                ((TileEntityAdPartSVA) te).link(x, y, z, master.getTier());
+            }
+        }
+        for (int i = 0; i < c.length; i++) {
+            w.notifyBlocksOfNeighborChange(x + c[i][0], y + c[i][1], z + c[i][2], i == 0 ? master.getBlockType() : com.sva.init.ModContentSVA.adPart);
+        }
+        w.markBlockForUpdate(x, y, z);
+    }
+
+    /** Takes the parts of a master down (its breakBlock): only parts that are its own. */
+    private static void removeParts(World w, int x, int y, int z, TileEntityAirDefenseSVA master) {
+        int[][] c = master.cells();
+        for (int i = 1; i < c.length; i++) {
+            int cx = x + c[i][0], cy = y + c[i][1], cz = z + c[i][2];
+            if (cy < 0 || cy > 255 || !w.blockExists(cx, cy, cz) || !(w.getBlock(cx, cy, cz) instanceof BlockAdPartSVA)) {
+                continue;
+            }
+            TileEntity te = w.getTileEntity(cx, cy, cz);
+            if (te instanceof TileEntityAdPartSVA && ((TileEntityAdPartSVA) te).masterX() == x && ((TileEntityAdPartSVA) te).masterY() == y
+                    && ((TileEntityAdPartSVA) te).masterZ() == z) {
+                w.setBlockToAir(cx, cy, cz);
+            }
+        }
+    }
+
     @Override
     public void onBlockPlacedBy(World w, int x, int y, int z, EntityLivingBase e, ItemStack s) {
-        if (kind == COMMAND_POST) {
-            int f = MathHelper.floor_double(e.rotationYaw * 4.0F / 360.0F + 0.5D) & 3;
-            w.setBlockMetadataWithNotify(x, y, z, f == 0 ? 2 : f == 1 ? 5 : f == 2 ? 3 : 4, 2);
-        }
         TileEntity te = w.getTileEntity(x, y, z);
         if (w.isRemote || !(te instanceof TileEntityAirDefenseSVA) || !(e instanceof EntityPlayer)) {
             return;
@@ -87,6 +186,7 @@ public class BlockAirDefenseSVA extends BlockContainer {
         int node = kind == RADAR ? AirDefenseDataSVA.N_RADAR : AirDefenseDataSVA.N_LAUNCHER;
         if (max > 0 && d != null && kind != COMMAND_POST && d.count(p.getCommandSenderName(), node) >= max && !p.capabilities.isCreativeMode) {
             p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.limit", Integer.valueOf(max)));
+            ((TileEntityAirDefenseSVA) te).noDrop = true;          // the item comes back below, not as a drop
             w.setBlockToAir(x, y, z);
             ItemStack back = s.copy();
             back.stackSize = 1;
@@ -159,10 +259,41 @@ public class BlockAirDefenseSVA extends BlockContainer {
     }
 
     @Override
+    public void onBlockHarvested(World w, int x, int y, int z, int meta, EntityPlayer p) {
+        TileEntity te = w.getTileEntity(x, y, z);
+        if (te instanceof TileEntityAirDefenseSVA && p != null && p.capabilities.isCreativeMode) {
+            ((TileEntityAirDefenseSVA) te).noDrop = true;
+        }
+        super.onBlockHarvested(w, x, y, z, meta, p);
+    }
+
+    /** The item comes from breakBlock (one for the whole structure), never from the harvest / an explosion's roll. */
+    @Override
+    public ArrayList<ItemStack> getDrops(World w, int x, int y, int z, int meta, int fortune) {
+        return new ArrayList<ItemStack>();
+    }
+
+    @Override
+    public boolean canDropFromExplosion(Explosion e) {
+        return false;
+    }
+
+    @Override
+    public int getMobilityFlag() {
+        return 2;                                               // pistons: immovable
+    }
+
+    @Override
     public void breakBlock(World w, int x, int y, int z, Block b, int meta) {
         TileEntity te = w.getTileEntity(x, y, z);
         if (!w.isRemote && te instanceof TileEntityAirDefenseSVA) {
-            ((TileEntityAirDefenseSVA) te).removed();
+            TileEntityAirDefenseSVA t = (TileEntityAirDefenseSVA) te;
+            t.dismantling = true;
+            if (!t.noDrop) {
+                dropBlockAsItem(w, x, y, z, new ItemStack(this, 1, damageDropped(meta)));
+            }
+            removeParts(w, x, y, z, t);
+            t.removed();
             if (te instanceof TileEntityLauncherSVA) {
                 TileEntityLauncherSVA l = (TileEntityLauncherSVA) te;
                 for (int i = 0; i < l.getSizeInventory(); i++) {
@@ -193,7 +324,22 @@ public class BlockAirDefenseSVA extends BlockContainer {
         return te instanceof TileEntityCommandPostSVA && ((TileEntityCommandPostSVA) te).isAlarm() ? 15 : 0;
     }
 
-    // ------------------------------------------------------------------ looks
+    // ------------------------------------------------------------------ looks: the model (client/RenderAirDefenseSVA)
+
+    @Override
+    public int getRenderType() {
+        return -1;
+    }
+
+    @Override
+    public boolean isOpaqueCube() {
+        return false;
+    }
+
+    @Override
+    public boolean renderAsNormalBlock() {
+        return false;
+    }
 
     @Override
     @SideOnly(Side.CLIENT)

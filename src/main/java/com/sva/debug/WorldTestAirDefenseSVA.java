@@ -180,9 +180,14 @@ final class WorldTestAirDefenseSVA {
         return v;
     }
 
+    /**
+     * Multiblock wave: placed whole (BlockAirDefenseSVA.build, the front to the north - the structure grows south and east
+     * of (x, z): the post x..x+1, the survey radar x-1..x+1 / z..z+2, the 2x2s x..x+1 / z..z+1, the missile system x-1..x+1 /
+     * z..z+2 - none overlapping at the spacing below).
+     */
     @SuppressWarnings("unchecked")
     private <T extends TileEntity> T block(World w, int x, int z, net.minecraft.block.Block bl, int meta, Class<T> c) {
-        w.setBlock(x, Y + 1, z, bl, meta, 3);
+        com.sva.block.BlockAirDefenseSVA.build(w, x, Y + 1, z, (com.sva.block.BlockAirDefenseSVA) bl, meta, 2);
         TileEntity te = w.getTileEntity(x, Y + 1, z);
         if (te instanceof TileEntityAirDefenseSVA) {
             ((TileEntityAirDefenseSVA) te).setOwnerName(OWNER_NAME);
@@ -302,6 +307,11 @@ final class WorldTestAirDefenseSVA {
         }
         held.clear();
         hold.clear();
+        for (TileEntityAirDefenseSVA te : new TileEntityAirDefenseSVA[] {kp, survey, track, height, gun, sam}) {
+            if (te != null) {
+                te.noDrop = true;                                   // cleared below: no items left lying about
+            }
+        }
         if (x0 != 0 || z0 != 0) {
             for (int x = x0 - 6; x <= x0 + 14; x++) {
                 for (int y = Y + 1; y <= Y + 14; y++) {

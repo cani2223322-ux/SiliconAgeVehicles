@@ -212,6 +212,12 @@ public final class ConfigSVA {
     public static float adDamage = 1F;
     /** «Ключ дня»: the command post's day code and the code cards. */
     public static boolean adDayKey = true;
+    /** Multiblock wave (client): the structures as 3D models (off: plain textured boxes over the footprint). */
+    public static boolean adModels = true;
+    /** ... with their 512 px textures (off: the flat material colours). */
+    public static boolean adModelTextures = true;
+    /** ... with their small details (bolts, rungs, louvres) only this near (blocks). */
+    public static int adModelDetailDistance = 64;
 
     private ConfigSVA() {
     }
@@ -451,6 +457,12 @@ public final class ConfigSVA {
         adLaunchLog = c.getBoolean("launchLog", a, true, "Write launches and bursts to logs/airdefense.log / Журнал пусков в logs/airdefense.log");
         adDamage = num(c, "damageMultiplier", a, 1F, 0F, 10F, "Air-defence damage to vehicles x this / Урон по технике x");
         adDayKey = c.getBoolean("dayKey", a, true, "The day key: the command post's day code and the code cards / Ключ дня");
+        adModels = c.getBoolean("models", a, true,
+                "Client: radars, launchers and the command post as 3D models (off: plain boxes) / Клиент: 3D-модели РЛС, ПУ и КП");
+        adModelTextures = c.getBoolean("modelTextures", a, true,
+                "Client: the models' detailed textures (off: flat colours) / Клиент: подробные текстуры моделей ПВО");
+        adModelDetailDistance = c.getInt("modelDetailDistance", a, 64, 0, 512,
+                "Client: the models' small details drawn only this near (blocks) / Клиент: мелкие детали моделей ПВО ближе (блоков)");
     }
 
     /** NaN / infinity -> default, else clamped into [min, max] (pure; the self-test checks it). */

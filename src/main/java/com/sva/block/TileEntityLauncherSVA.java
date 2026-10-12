@@ -93,6 +93,48 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         return radius <= 0 ? maxRange() : Math.min(radius, maxRange());
     }
 
+    /**
+     * The model (multiblock wave): power; lock - engaging somebody; empty - no ammunition (the red lamp of mock-up *3
+     * «Пустые ПУ светят красной лампой»); alarm - an engagement at the warning shot / fire stage or the command post's alarm.
+     * The mount turns to the engagement furthest along; the missile system shows its rounds on the rails.
+     */
+    @Override
+    protected int stateBits() {
+        int s = super.stateBits();
+        int top = -1;
+        for (long[] st : eng.values()) {
+            top = Math.max(top, (int) st[1]);
+        }
+        if (powered && top >= RoeMath.ST_MESSAGE) {
+            s |= ST_LOCK;
+        }
+        if (ammo() == 0) {
+            s |= ST_EMPTY;
+        }
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        if (top >= RoeMath.ST_WARN || kp != null && kp.isAlarm()) {
+            s |= ST_ALARM;
+        }
+        return s;
+    }
+
+    @Override
+    protected int targetId() {
+        int best = -1, top = -1;
+        for (Map.Entry<Integer, long[]> en : eng.entrySet()) {
+            if (en.getValue()[1] > top) {
+                top = (int) en.getValue()[1];
+                best = en.getKey().intValue();
+            }
+        }
+        return powered ? best : -1;
+    }
+
+    @Override
+    protected int ammoShown() {
+        return kind() == MISSILE ? Math.min(com.sva.airdefense.AdShapeMath.TUBES, ammo()) : Math.min(1, ammo());
+    }
+
     /** Engaged target ids (world tests). */
     public Map<Integer, long[]> engagements() {
         return eng;
@@ -326,6 +368,7 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
             AirDefenseSVA.INSTANCE.fire(pr);
         }
         worldObj.playSoundEffect(ax, ay, az, "fireworks.blast_far", 3F, 0.6F);
+        shotEvent(EV_BURST, 0);                                     // the model's recoil + muzzle flash
         return true;
     }
 
@@ -362,6 +405,7 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         pr.launcher = key();
         AirDefenseSVA.INSTANCE.fire(pr);
         worldObj.playSoundEffect(ax, ay, az, "fireworks.launch", 4F, 0.5F);
+        shotEvent(EV_LAUNCH, 0);                                    // the model: a tube empties until the reload
         return true;
     }
 
@@ -387,6 +431,7 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
             AirDefenseSVA.INSTANCE.fire(pr);
         }
         worldObj.playSoundEffect(ax, ay, az, "fireworks.blast_far", 3F, 0.8F);
+        shotEvent(EV_BURST, 1);
     }
 
     /** A hit (AirDefenseSVA): a missile's goes to the log. */

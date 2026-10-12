@@ -460,17 +460,25 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         return clientAlarm;
     }
 
+    /** The model (multiblock wave): power; lock - tracks on the picture; alarm - the alarm (the beacon, the blinking lamp). */
     @Override
-    public net.minecraft.network.Packet getDescriptionPacket() {
-        NBTTagCompound t = new NBTTagCompound();
-        t.setBoolean("A", alarm);
-        return new net.minecraft.network.play.server.S35PacketUpdateTileEntity(xCoord, yCoord, zCoord, 0, t);
+    protected int stateBits() {
+        int s = super.stateBits();
+        if (powered && !tracks().isEmpty()) {
+            s |= ST_LOCK;
+        }
+        return alarm ? s | ST_ALARM : s;
     }
 
     @Override
-    public void onDataPacket(net.minecraft.network.NetworkManager net, net.minecraft.network.play.server.S35PacketUpdateTileEntity pkt) {
+    protected void writeSync(NBTTagCompound t) {
+        t.setBoolean("A", alarm);
+    }
+
+    @Override
+    protected void readSync(NBTTagCompound t) {
         boolean was = clientAlarm;
-        clientAlarm = pkt.func_148857_g().getBoolean("A");
+        clientAlarm = t.getBoolean("A");
         if (was != clientAlarm && worldObj != null) {
             worldObj.markBlockRangeForRenderUpdate(xCoord, yCoord, zCoord, xCoord, yCoord, zCoord);
         }

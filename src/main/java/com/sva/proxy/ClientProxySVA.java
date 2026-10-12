@@ -39,6 +39,11 @@ public class ClientProxySVA extends CommonProxySVA {
                 new com.sva.client.RenderGarageSVA());                  // wave 2, ★7: the repair hologram
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityAirfieldSVA.class,
                 new com.sva.client.RenderAirfieldSVA());                // stage D1: PAPI, approach lights
+        // multiblock wave: the air-defence structures as models (one renderer, on the master)
+        com.sva.client.RenderAirDefenseSVA ad = new com.sva.client.RenderAirDefenseSVA();
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityRadarSVA.class, ad);
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityLauncherSVA.class, ad);
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityCommandPostSVA.class, ad);
         // ★11: road signs, traffic light, guard rail - boxes in the chunk mesh
         com.sva.block.RoadsSVA.renderId = RenderingRegistry.getNextAvailableRenderId();
         RenderingRegistry.registerBlockHandler(new com.sva.client.RenderRoadSVA(com.sva.block.RoadsSVA.renderId));
@@ -64,6 +69,12 @@ public class ClientProxySVA extends CommonProxySVA {
                 new com.sva.client.RenderItemVehicleSVA(false));
         net.minecraftforge.client.MinecraftForgeClient.registerItemRenderer(com.sva.init.ModContentSVA.trailer,
                 new com.sva.client.RenderItemVehicleSVA(true));
+        // multiblock wave: the air-defence items as their models (airdefense.models = false: the block icons)
+        com.sva.client.RenderItemAirDefenseSVA adItem = new com.sva.client.RenderItemAirDefenseSVA();
+        for (net.minecraft.block.Block b : new net.minecraft.block.Block[] {com.sva.init.ModContentSVA.radar, com.sva.init.ModContentSVA.launcher,
+                com.sva.init.ModContentSVA.commandPost}) {
+            net.minecraftforge.client.MinecraftForgeClient.registerItemRenderer(net.minecraft.item.Item.getItemFromBlock(b), adItem);
+        }
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new com.sva.client.RiderAttitudeSVA());   // riders lean with the body
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
