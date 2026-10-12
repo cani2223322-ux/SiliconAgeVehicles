@@ -1,0 +1,19 @@
+# ad_kp: mat NAME r g b emissive texture(- none) | pivot PART x y z | point NAME x y z (blocks, model space)
+mat accent 255 255 255 0 ad_accent
+mat beacon 255 170 40 1 -
+mat concrete 150 150 146 0 ad_concrete
+mat dark 40 42 48 0 ad_dark
+mat lamp 255 255 255 1 -
+mat mesh 150 156 164 0 ad_mesh
+mat olive 92 104 78 0 ad_olive
+mat olive2 64 72 56 0 ad_olive2
+mat redl 255 50 40 1 -
+mat rubber 26 26 28 0 -
+mat scr_list 255 255 255 1 ad_scr_list
+mat scr_log 255 255 255 1 ad_scr_log
+mat scr_map 255 255 255 1 ad_scr_map
+mat steel 120 124 132 0 ad_steel
+mat window 90 215 255 1 ad_scr_list
+pivot rot 0.0000 0.0000 -0.8125
+point beacon -0.1875 1.9125 -0.8125
+bounds -0.525 0.000 -1.094 0.500 2.750 1.011

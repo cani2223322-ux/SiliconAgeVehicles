@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.sc.manual.Lang;
 import com.sc.util.TooltipSC;
+import com.sva.airdefense.AdShapeMath;
 import com.sva.airdefense.BallisticsMath;
 import com.sva.airdefense.RadarMath;
 import com.sva.vehicle.VehicleType;
@@ -14,8 +15,15 @@ import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.world.World;
 
-/** Air-defence wave: the radars' / launchers' / command post's item - one per meta, TooltipSC tooltips (summary + Shift / Ctrl). */
+/**
+ * Air-defence wave: the radars' / launchers' / command post's item - one per meta, TooltipSC tooltips (summary + Shift / Ctrl).
+ * Multiblock wave: placing it puts the whole structure in (BlockAirDefenseSVA.build) facing the player, the clicked block
+ * the master in its front row; with a cell taken (a block, a mob or a player in the way, an unloaded chunk, the world's top)
+ * nothing is placed and the chat says how much room it needs.
+ */
 public class ItemBlockAirDefenseSVA extends ItemBlock {
 
     public ItemBlockAirDefenseSVA(Block b) {
@@ -26,6 +34,33 @@ public class ItemBlockAirDefenseSVA extends ItemBlock {
 
     private int kind() {
         return field_150939_a instanceof BlockAirDefenseSVA ? ((BlockAirDefenseSVA) field_150939_a).kind : 0;
+    }
+
+    @Override
+    public boolean placeBlockAt(ItemStack stack, EntityPlayer p, World w, int x, int y, int z, int side, float hx, float hy, float hz, int meta) {
+        if (!(field_150939_a instanceof BlockAirDefenseSVA)) {
+            return false;
+        }
+        BlockAirDefenseSVA b = (BlockAirDefenseSVA) field_150939_a;
+        int facing = AdShapeMath.facingFromYaw(p == null ? 0F : p.rotationYaw);
+        int shape = AdShapeMath.shape(b.kind, meta);
+        int[] blocked = BlockAirDefenseSVA.room(w, x, y, z, shape, facing);
+        if (blocked != null) {
+            if (!w.isRemote && p != null) {
+                p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.noRoom", Integer.valueOf(AdShapeMath.W[shape]),
+                        Integer.valueOf(AdShapeMath.D[shape]), Integer.valueOf(AdShapeMath.layers(shape)), Integer.valueOf(blocked[0]),
+                        Integer.valueOf(blocked[1]), Integer.valueOf(blocked[2])));
+            }
+            return false;
+        }
+        if (!BlockAirDefenseSVA.build(w, x, y, z, b, meta, facing)) {
+            return false;
+        }
+        if (w.getBlock(x, y, z) == b) {
+            b.onBlockPlacedBy(w, x, y, z, p, stack);
+            b.onPostBlockPlaced(w, x, y, z, w.getBlockMetadata(x, y, z));
+        }
+        return true;
     }
 
     @Override
@@ -51,6 +86,9 @@ public class ItemBlockAirDefenseSVA extends ItemBlock {
     public void addInformation(ItemStack s, EntityPlayer p, List list, boolean adv) {
         int k = kind();
         int m = s.getItemDamage();
+        int shape = AdShapeMath.shape(k, m);                        // multiblock wave: its size first
+        list.add(Lang.tr("sva.tooltip.ad.size", Integer.valueOf(AdShapeMath.W[shape]), Integer.valueOf(AdShapeMath.D[shape]),
+                Integer.valueOf(AdShapeMath.layers(shape))));
         if (k == BlockAirDefenseSVA.RADAR) {
             int r = RadarMath.validKind(m) ? m : 0;
             String key = RadarMath.KEYS[r];

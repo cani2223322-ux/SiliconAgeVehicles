@@ -59,6 +59,8 @@ public final class ModContentSVA {
     public static com.sva.item.ItemBatteryToolSVA batteryTool;
     // air-defence wave: radars, launchers, the command post; ammunition, the code card
     public static com.sva.block.BlockAirDefenseSVA radar, launcher, commandPost;
+    /** Multiblock wave: the invisible parts of the air-defence structures (no item of its own in the tab). */
+    public static com.sva.block.BlockAdPartSVA adPart;
     public static com.sva.item.ItemAmmoSVA ammo;
     public static com.sva.item.ItemCodeCardSVA codeCard;
 
@@ -169,6 +171,9 @@ public final class ModContentSVA {
         commandPost.setCreativeTab(TAB);
         GameRegistry.registerBlock(commandPost, com.sva.block.ItemBlockAirDefenseSVA.class, "commandPost");
         GameRegistry.registerTileEntity(com.sva.block.TileEntityCommandPostSVA.class, ReferenceSVA.MODID + ":commandPost");
+        adPart = new com.sva.block.BlockAdPartSVA();
+        GameRegistry.registerBlock(adPart, "adPart");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityAdPartSVA.class, ReferenceSVA.MODID + ":adPart");
         ammo = new com.sva.item.ItemAmmoSVA();
         ammo.setCreativeTab(TAB);
         GameRegistry.registerItem(ammo, "adAmmo");
