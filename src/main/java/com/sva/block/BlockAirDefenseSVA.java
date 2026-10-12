@@ -48,6 +48,10 @@ import net.minecraft.world.World;
  * are free; the world tests), breaking any block of it takes the whole down and drops the one item here in breakBlock
  * (not through getDrops - so a part broken, an explosion or a creative break all come through the same path: one item,
  * none in creative). Drawn by client/RenderAirDefenseSVA (the TESR), not as a cube.
+ *
+ * Upgrades wave (2026-10-12): RMB on a radar opens its equipment screen (GuiHandlerSVA.AD_EQUIP: the PPI scope, the state,
+ * the upgrade slots); the command post's «Оборудование» tab and the way back go through NetADSVA (AD_EQUIP / KP_OPEN).
+ * Broken, every block drops its upgrade modules loose (in creative too, as the launcher's ammunition).
  */
 public class BlockAirDefenseSVA extends BlockContainer {
 
@@ -242,12 +246,12 @@ public class BlockAirDefenseSVA extends BlockContainer {
                 return true;
             }
             if (p instanceof EntityPlayerMP) {
-                k.addViewer(p);
-                net.minecraft.nbt.NBTTagCompound snap = k.snapshot();
-                snap.setBoolean("Open", true);
-                snap.setBoolean("Owner", k.isOwner(p));
-                NetADSVA.send((EntityPlayerMP) p, NetADSVA.D_KP, snap);
+                openKp(k, (EntityPlayerMP) p);
             }
+            return true;
+        }
+        if (realPlayer(p)) {
+            p.openGui(com.sva.SVAMod.instance, com.sva.inventory.GuiHandlerSVA.AD_EQUIP, w, x, y, z);
             return true;
         }
         TileEntityRadarSVA r = (TileEntityRadarSVA) te;
@@ -256,6 +260,20 @@ public class BlockAirDefenseSVA extends BlockContainer {
                 new ChatComponentTranslation(r.isPowered() ? "sva.ad.st.powered" : "sva.ad.st.noPower"), Integer.valueOf(r.contacts().size()),
                 kp == null ? new ChatComponentTranslation("sva.ad.st.noKp") : kp.name()));
         return true;
+    }
+
+    /** The command post's screen for a player (RMB, the way back from its equipment screen). */
+    public static void openKp(TileEntityCommandPostSVA k, EntityPlayerMP p) {
+        k.addViewer(p);
+        net.minecraft.nbt.NBTTagCompound snap = k.snapshot();
+        snap.setBoolean("Open", true);
+        snap.setBoolean("Owner", k.isOwner(p));
+        NetADSVA.send(p, NetADSVA.D_KP, snap);
+    }
+
+    /** A connected player (not a FakePlayer of a machine or a test): a container screen can be opened for him. */
+    public static boolean realPlayer(EntityPlayer p) {
+        return p instanceof EntityPlayerMP && !(p instanceof net.minecraftforge.common.util.FakePlayer) && ((EntityPlayerMP) p).playerNetServerHandler != null;
     }
 
     @Override
@@ -294,6 +312,7 @@ public class BlockAirDefenseSVA extends BlockContainer {
             }
             removeParts(w, x, y, z, t);
             t.removed();
+            t.dropUpgrades(w, x, y, z);
             if (te instanceof TileEntityLauncherSVA) {
                 TileEntityLauncherSVA l = (TileEntityLauncherSVA) te;
                 for (int i = 0; i < l.getSizeInventory(); i++) {

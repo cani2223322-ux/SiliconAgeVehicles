@@ -6,6 +6,13 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
+- **ПВО: внутренние окна и модули Silicon Age.** У РЛС, установок и КП - по 4 слота улучшений основного мода (как у его машин), у каждого - своё окно.
+  - *Модули:* универсальный модуль трансформатора (любое напряжение LV..SV, не взрывается, хватит одного), трансформаторный (+1 уровень входа за модуль), энергонакопитель (+10 000 EU буфера за модуль), ускоритель (РЛС - обзор чаще, зенитка - очереди чаще, ракетный комплекс - перезарядка быстрее: x0,7 за модуль, расход x1,6; не чаще 5 / 2 / 10 тиков, лишние ускорители не тратят энергию), экономайзер (расход и выстрелы x0,8, до 4), форсаж - только РЛС (дальность x1,15, расход x1,75, до 4), подтягиватель - только ПУ (берёт снаряды и ракеты из сундуков у любого блока установки, 16 за 4 тика). Остальные модули в слот не встают. Модули складываются (до 16 одного вида).
+  - *Окно РЛС* (ПКМ по любому блоку): маленький индикатор кругового обзора с текущими целями (свои / друзья / чужие), питание, энергия, вход, расход EU/t, тип, дальность и интервал обзора с модулями, свой КП, 4 слота.
+  - *Окно ПУ:* к боезапасу добавлены 4 слота модулей, строка "очередь раз в ... с" / "перезарядка ... с" и вход с расходом.
+  - *КП:* новая вкладка "Оборудование" - окно с энергией, входом, слотами модулей и инвентарём; "К экрану КП" возвращает назад. Остальные вкладки не изменились.
+  - Модули хранятся отдельно (воронки и трубы их не трогают), при разрушении сооружения выпадают; после смены трансформатора сооружение заново заявляется в энергосеть IC2 (все его блоки).
+  - Настройка `airdefense.upgrades` (вкл.; выкл. - модули не действуют и не ставятся). В подсказке блока - какие модули подходят (Shift).
 - **Чёткие приборы кабины для 2K / 4K.** Надписи и шкалы в кабинах больше не мыльные и не "пиксельные" на больших экранах.
   - *Шрифт:* все надписи приборов (PFD, страницы MFD, табло ламп - "ОТКАЗ ДВИГ.", "ЗАКР. ЗАКЛИН.", "МАЛО ТОПЛ." и др., цифры планки автопилота, HSI, ответчик, СПО, пульт на стенке и потолочный пульт, экраны и лампы всей техники) рисуются сглаженным шрифтом с кириллицей вместо пиксельного 8 px. Шрифт собирается при первом входе в кабину в фоне, без подвисания; пока он готовится - обычный шрифт.
   - *Шкалы:* шкалы стрелочных приборов (риски, цифры, название, единицы) и шкалы тахометра и мощности вертолёта запекаются в сглаженную текстуру; стрелки по-прежнему двигаются геометрией. Название прибора теперь над осью стрелки (раньше наезжало на крайние цифры шкалы). Круглые приборы стали глаже (64 сегмента).
@@ -128,6 +135,13 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Исправлено: в HUD «Сингулярного корабля» вместо текста показывался ключ «sva.hud.jump.why.1» - добавлены все недостающие причины, почему прыжок недоступен.
 
 ### English
+- **Air defence: internal screens and Silicon Age modules.** Radars, launchers and the command post get 4 upgrade slots for the core mod's modules (as its machines) and a screen each.
+  - *Modules:* the Universal Transformer (any voltage LV..SV, never blows up, one is enough), Transformer (+1 input tier each), Energy Storage (+10 000 EU of buffer each), Overclocker (radars scan more often, the gun bursts more often, the missile system reloads faster: x0.7 each, use x1.6; at least 5 / 2 / 10 ticks, overclockers past that cost nothing), Economizer (use and shots x0.8, up to 4), Overdrive - radars only (range x1.15, use x1.75, up to 4), Puller - launchers only (takes shells and missiles from chests by any block of it, 16 per 4 ticks). Other modules don't fit. Modules stack (up to 16 of a kind count).
+  - *Radar screen* (RMB on any of its blocks): a small PPI scope with the current contacts (own / friends / foreign), power, energy, input, EU/t, kind, range and scan interval with the modules, its command post, the 4 slots.
+  - *Launcher screen:* 4 module slots beside the ammunition, a "burst every ... s" / "reload ... s" line, the input and the use.
+  - *Command post:* a new "Equipment" tab - a screen with the energy, the input, the module slots and the inventory; "Back to the post" returns. The other tabs are unchanged.
+  - The modules are kept apart (hoppers and pipes don't reach them) and drop when the structure is broken; after a transformer change the structure re-announces itself (every block) to the IC2 energy net.
+  - Config `airdefense.upgrades` (on; off - modules do nothing and don't go in). The block's tooltip lists the modules that fit (Shift).
 - **Sharp cockpit instruments for 2K / 4K.** Cockpit text and dial faces no longer look blurry or blocky on big screens.
   - *Font:* every instrument text (the PFD, the MFD pages, the lamp strips - "ENG FAIL", "FLAP JAM", "LOW FUEL"..., the autopilot bar's digits, the HSI, the transponder, the RWR, the wall and overhead panels, every vehicle's screens and lamps) is drawn with an anti-aliased font with Cyrillic instead of the 8 px pixel font. The font is built in the background the first time you get in - no stutter; the vanilla font is used meanwhile.
   - *Dials:* the static parts of the round dials (ticks, numbers, name, unit) and the helicopter's tach and power scales are baked into an anti-aliased texture; the needles still move as geometry. The dial's name now sits over the hub (it used to run into the end numbers). Round instruments are smoother (64 sides).

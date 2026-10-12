@@ -47,6 +47,8 @@ import net.minecraft.world.chunk.Chunk;
  * rectangle's first corner, RMB - its second corner.</li>
  * <li>«Настройки» - the post's name, the day key and its secret (the owner), the own codes (up to 8), the Mode S white list
  * («23:Имя, 07»), the access list (the owner).</li>
+ * <li>«Оборудование» (upgrades wave) - not a page here: it asks the server to open the post's equipment screen
+ * (GuiAdEquipSVA - a container: energy, tier, the upgrade slots, the inventory), whose «К экрану КП» comes back.</li>
  * </ul>
  */
 public class GuiCommandPostSVA extends GuiScreen {
@@ -153,8 +155,8 @@ public class GuiCommandPostSVA extends GuiScreen {
         top = Math.max(1, (height - H) / 2);
         buttonList.clear();
         fields.clear();
-        String[] tabs = {"map", "zones", "settings"};
-        for (int i = 0; i < 3; i++) {
+        String[] tabs = {"map", "zones", "settings", "equip"};
+        for (int i = 0; i < tabs.length; i++) {
             GuiCargoSVA.Dark b = new GuiCargoSVA.Dark(B_TAB + i, left + 6 + i * 64, top + 18, 62, 12, Lang.tr("sva.ad.kp.tab." + tabs[i]), null);
             b.tab = true;
             buttonList.add(b);
@@ -267,6 +269,10 @@ public class GuiCommandPostSVA extends GuiScreen {
     protected void actionPerformed(GuiButton b) {
         if (b.id >= B_TAB && b.id < B_TAB + 3) {
             setTab(b.id - B_TAB);
+            return;
+        }
+        if (b.id == B_TAB + 3) {
+            NetADSVA.cmd(NetADSVA.AD_EQUIP, kx, ky, kz, 0, null);     // the server opens the equipment screen (a container)
             return;
         }
         switch (b.id) {

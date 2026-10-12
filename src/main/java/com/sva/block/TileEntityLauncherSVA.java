@@ -10,7 +10,9 @@ import java.util.Map;
 import java.util.Random;
 
 import com.sc.energy.Tier;
+import com.sc.machine.UpgradeType;
 import com.sva.ConfigSVA;
+import com.sva.airdefense.AdUpgradeMath;
 import com.sva.airdefense.AirDefenseDataSVA;
 import com.sva.airdefense.AirDefenseSVA;
 import com.sva.airdefense.BallisticsMath;
@@ -23,12 +25,16 @@ import com.sva.net.NetADSVA;
 
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.block.Block;
 import net.minecraft.inventory.IInventory;
+import net.minecraft.inventory.ISidedInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChunkCoordinates;
+import net.minecraftforge.common.util.ForgeDirection;
 
 /**
  * Air-defence wave (mock-up veh_ad_3_launchers): a launcher - block meta GUN (the AA gun, MV, 32 EU/t, «Снаряды ПВО»)
@@ -39,6 +45,9 @@ import net.minecraft.util.ChunkCoordinates;
  * checks (RoeMath.fireBlock) before every burst / launch: only OK fires; warnings still go where warnsAllowed says.
  * The missile system launches only at a target a tracking radar holds (or within its own eyes). Launches and the first
  * burst of an engagement go to the command post's log and logs/airdefense.log.
+ * Upgrades wave: overclockers shorten the gun's burst interval / the missile system's reload (x0.7 each, never under
+ * AdUpgradeMath.MIN_BURST / MIN_RELOAD), economizers cheapen the upkeep and every shot, a puller takes rounds from the
+ * inventories beside the structure (a chest by any of its blocks) every AdUpgradeMath.PULL_INTERVAL ticks.
  */
 public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements IInventory {
 
@@ -66,8 +75,38 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
     }
 
     @Override
-    public int upkeep() {
+    public int baseUpkeep() {
         return UPKEEP[kind()];
+    }
+
+    @Override
+    public int upgradeBlock() {
+        return AdUpgradeMath.B_LAUNCHER;
+    }
+
+    /** The gun's burst period / the missile system's reload before the upgrades (ticks). */
+    public int baseFireInterval() {
+        return kind() == MISSILE ? BallisticsMath.MISSILE_RELOAD : BallisticsMath.GUN_PERIOD;
+    }
+
+    @Override
+    protected int ocBaseInterval() {
+        return baseFireInterval();
+    }
+
+    @Override
+    protected int ocFloor() {
+        return kind() == MISSILE ? AdUpgradeMath.MIN_RELOAD : AdUpgradeMath.MIN_BURST;
+    }
+
+    /** Ticks between bursts / launches with the overclockers. */
+    public int fireInterval() {
+        return AdUpgradeMath.interval(baseFireInterval(), upgradeCount(UpgradeType.OVERCLOCKER), ocFloor());
+    }
+
+    /** EU of one burst / launch with the economizers. */
+    public int shotCost() {
+        return shotEu(kind() == MISSILE ? BallisticsMath.MISSILE_EU : BallisticsMath.GUN_EU_BURST);
     }
 
     @Override
@@ -147,6 +186,9 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         if (!tierSet) {
             tierSet = true;
             setTier(kind() == MISSILE ? Tier.EV : Tier.MV);
+        }
+        if (worldObj.getTotalWorldTime() % AdUpgradeMath.PULL_INTERVAL == 0 && upgradeCount(UpgradeType.PULLER) > 0) {
+            pull();
         }
         if (++timer % 5 != 0) {
             return;
@@ -340,15 +382,15 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
     }
 
     private boolean burst(AirDefenseSVA.Contact c, long now, double ax, double ay, double az) {
-        if (now < nextShot || getEnergyStored() < BallisticsMath.GUN_EU_BURST) {
+        if (now < nextShot || getEnergyStored() < shotCost()) {
             return false;
         }
         double[] p = aim(c, ax, ay, az, BallisticsMath.GUN_SPEED, BallisticsMath.SHELL_LIFE);
         if (p == null || !take()) {
             return false;
         }
-        nextShot = now + BallisticsMath.GUN_PERIOD;
-        removeEnergy(BallisticsMath.GUN_EU_BURST);
+        nextShot = now + fireInterval();
+        removeEnergy(shotCost());
         double[] d = BallisticsMath.dir(ax, ay, az, p[0], p[1], p[2]);
         double spread = c.precise() || (c.kinds & 1 << RadarMath.HEIGHT) != 0 ? BallisticsMath.GUN_SPREAD : BallisticsMath.GUN_SPREAD_SURVEY;
         for (int i = 0; i < BallisticsMath.GUN_BURST; i++) {
@@ -375,7 +417,7 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
     private boolean launchMissile(AirDefenseSVA.Contact c, long now, double ax, double ay, double az) {
         boolean guided = (c.kinds & 1 << RadarMath.TRACK) != 0
                 || BallisticsMath.dist(ax, ay, az, c.v.posX, c.v.posY, c.v.posZ) <= BallisticsMath.EYES && (c.kinds & 1 << AirDefenseSVA.EYES_BIT) != 0;
-        if (!guided || now < nextShot || getEnergyStored() < BallisticsMath.MISSILE_EU
+        if (!guided || now < nextShot || getEnergyStored() < shotCost()
                 || AirDefenseSVA.INSTANCE.missilesOf(key()) >= BallisticsMath.MISSILE_CHANNELS) {
             return false;
         }
@@ -387,8 +429,8 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         if (!take()) {
             return false;
         }
-        nextShot = now + BallisticsMath.MISSILE_RELOAD;
-        removeEnergy(BallisticsMath.MISSILE_EU);
+        nextShot = now + fireInterval();
+        removeEnergy(shotCost());
         double[] d = BallisticsMath.dir(ax, ay, az, c.x, c.y + 6, c.z);         // up out of the tube first
         AirDefenseSVA.Projectile pr = new AirDefenseSVA.Projectile();
         pr.missile = true;
@@ -481,6 +523,71 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         return SLOTS * getInventoryStackLimit();
     }
 
+    /**
+     * The puller (the core machines' module): up to AdUpgradeMath.PULL_ITEMS rounds from the inventories touching any block
+     * of the structure (not other air-defence blocks), through the faces they let out of (ISidedInventory). @return taken
+     */
+    public int pull() {
+        if (ammo() >= ammoMax()) {
+            return 0;
+        }
+        int budget = AdUpgradeMath.PULL_ITEMS, taken = 0;
+        int[][] c = cells();
+        java.util.Set<Long> seen = new java.util.HashSet<Long>();
+        for (int i = 0; i < c.length && budget > 0; i++) {
+            for (ForgeDirection d : ForgeDirection.VALID_DIRECTIONS) {
+                int x = xCoord + c[i][0] + d.offsetX, y = yCoord + c[i][1] + d.offsetY, z = zCoord + c[i][2] + d.offsetZ;
+                if (y < 0 || y > 255 || !worldObj.blockExists(x, y, z) || !seen.add(Long.valueOf(((long) x & 0x3FFFFFF) << 34 | ((long) z & 0x3FFFFFF) << 8 | y))) {
+                    continue;
+                }
+                Block b = worldObj.getBlock(x, y, z);
+                if (b instanceof BlockAirDefenseSVA || b instanceof BlockAdPartSVA) {
+                    continue;
+                }
+                TileEntity te = worldObj.getTileEntity(x, y, z);
+                if (!(te instanceof IInventory)) {
+                    continue;
+                }
+                int n = pullFrom((IInventory) te, d.getOpposite().ordinal(), budget);
+                budget -= n;
+                taken += n;
+                if (budget <= 0) {
+                    break;
+                }
+            }
+        }
+        return taken;
+    }
+
+    private int pullFrom(IInventory from, int side, int budget) {
+        int[] slots;
+        if (from instanceof ISidedInventory) {
+            slots = ((ISidedInventory) from).getAccessibleSlotsFromSide(side);
+        } else {
+            slots = new int[from.getSizeInventory()];
+            for (int i = 0; i < slots.length; i++) {
+                slots[i] = i;
+            }
+        }
+        int taken = 0;
+        for (int i = 0; slots != null && i < slots.length && taken < budget; i++) {
+            ItemStack s = from.getStackInSlot(slots[i]);
+            if (!isAmmo(s) || from instanceof ISidedInventory && !((ISidedInventory) from).canExtractItem(slots[i], s, side)) {
+                continue;
+            }
+            ItemStack move = s.copy();
+            move.stackSize = Math.min(s.stackSize, budget - taken);
+            int n = insert(move);
+            if (n <= 0) {
+                break;                                              // full
+            }
+            from.decrStackSize(slots[i], n);
+            from.markDirty();
+            taken += n;
+        }
+        return taken;
+    }
+
     /** Shift+RMB with ammunition in hand: as much as fits goes in. @return taken */
     public int insert(ItemStack s) {
         if (!isAmmo(s)) {
@@ -540,6 +647,17 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         t.setInteger("AmmoMax", ammoMax());
         t.setString("Own", ownerName);
         t.setString("Mode", ConfigSVA.adFires() ? "fire" : ConfigSVA.adEnabled ? "warn" : "off");
+        // upgrades wave: the input, the upkeep, the burst / reload interval, a shot's EU
+        t.setByte("Tier", (byte) getTier().ordinal());
+        t.setByte("In", (byte) inputTier().ordinal());
+        t.setBoolean("Any", acceptsAnyVoltage());
+        t.setInteger("Use", upkeep());
+        t.setInteger("BaseUse", baseUpkeep());
+        t.setInteger("Interval", fireInterval());
+        t.setInteger("BaseInterval", baseFireInterval());
+        t.setInteger("ShotEu", shotCost());
+        t.setBoolean("Puller", upgradeCount(UpgradeType.PULLER) > 0);
+        t.setBoolean("Upg", ConfigSVA.adUpgrades);
         TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
         t.setString("Kp", kp == null ? "" : kp.name());
         t.setInteger("No", kp == null ? 0 : kp.launcherNo(this));

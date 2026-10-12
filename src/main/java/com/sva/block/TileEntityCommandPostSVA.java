@@ -43,6 +43,8 @@ import net.minecraft.nbt.NBTTagString;
  * or after 60 s without violators). Its launchers on «по отметкам КП» fire only at what the operator assigned (or, with
  * «Авто», at violators). Its zones go to AirDefenseDataSVA (the pilots' copies).
  * The screen (client.GuiCommandPostSVA, no container) gets the picture every 10 ticks while open.
+ * Upgrades wave: its «Оборудование» tab opens the equipment screen (a container: the energy, the input tier, the four
+ * upgrade slots - transformers, the universal one, storage, economizers; it has no work interval to overclock).
  */
 public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
 
@@ -73,8 +75,23 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
     }
 
     @Override
-    public int upkeep() {
+    public int baseUpkeep() {
         return UPKEEP;
+    }
+
+    @Override
+    public int upgradeBlock() {
+        return com.sva.airdefense.AdUpgradeMath.B_KP;
+    }
+
+    @Override
+    public NBTTagCompound equipSnapshot() {
+        NBTTagCompound t = super.equipSnapshot();
+        t.setString("Kp", name());
+        t.setInteger("Radars", radars.size());
+        t.setInteger("Launchers", launchers.size());
+        t.setInteger("Tracks", tracks.size());
+        return t;
     }
 
     @Override

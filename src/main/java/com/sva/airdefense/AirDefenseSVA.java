@@ -849,6 +849,14 @@ public final class AirDefenseSVA {
             ((TileEntityCommandPostSVA) te).command(p, m.data);
         } else if (m.op == NetADSVA.LAUNCHER_SET && te instanceof TileEntityLauncherSVA) {
             ((TileEntityLauncherSVA) te).applySettings(m.data);
+        } else if (m.op == NetADSVA.AD_EQUIP && com.sva.block.BlockAirDefenseSVA.realPlayer(p)) {
+            if (te instanceof TileEntityCommandPostSVA) {
+                ((TileEntityCommandPostSVA) te).removeViewer(p);
+            }
+            p.openGui(com.sva.SVAMod.instance, te instanceof TileEntityLauncherSVA ? com.sva.inventory.GuiHandlerSVA.LAUNCHER
+                    : com.sva.inventory.GuiHandlerSVA.AD_EQUIP, w, m.x, m.y, m.z);
+        } else if (m.op == NetADSVA.KP_OPEN && te instanceof TileEntityCommandPostSVA) {
+            com.sva.block.BlockAirDefenseSVA.openKp((TileEntityCommandPostSVA) te, p);
         }
     }
 }

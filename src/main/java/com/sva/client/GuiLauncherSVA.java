@@ -7,6 +7,7 @@ import org.lwjgl.opengl.GL11;
 
 import com.sc.inventory.TextFitSC;
 import com.sc.manual.Lang;
+import com.sva.FormatSVA;
 import com.sva.airdefense.RoeMath;
 import com.sva.block.TileEntityLauncherSVA;
 import com.sva.inventory.ContainerLauncherSVA;
@@ -25,10 +26,12 @@ import net.minecraft.nbt.NBTTagList;
  * the state (charge, ammunition, the command post it is linked to, a tracking radar for the missiles, the targets with
  * their stage, the server's mode) and the 4 ammunition slots. Own codes, the day key and the Mode S white list are the
  * command post's (its screen). Settings go at once (NetADSVA LAUNCHER_SET); the state comes every 10 ticks.
+ * Upgrades wave: a row with the burst interval / the reload and the input tier with EU/t (the upgrades in), and the four
+ * upgrade slots beside the ammunition (hover: the modules that fit, GuiAdEquipSVA.fitsTip).
  */
 public class GuiLauncherSVA extends GuiContainer {
 
-    private static final int W = 260, H = 218, BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, GOLD = 0xF2A040, TEXT = 0xD8DCE4,
+    private static final int W = 260, H = 240, BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, GOLD = 0xF2A040, TEXT = 0xD8DCE4,
             MUTED = 0x8A93A3, AMBER = 0xF0B040, RED = 0xF06060, GREEN = 0x62E06A, CYAN = 0x5EC8F0;
     private static final int B_ROE = 10, B_MSG = 20, B_WARN = 21, B_WAIT_DN = 22, B_WAIT_UP = 23, B_R_DN = 24, B_R_UP = 25;
 
@@ -127,7 +130,8 @@ public class GuiLauncherSVA extends GuiContainer {
         drawRect(x + 3, y + 15, x + W - 3, y + 16, 0xFFE08A30);
         for (Object o : inventorySlots.inventorySlots) {
             Slot s = (Slot) o;
-            drawRect(x + s.xDisplayPosition - 1, y + s.yDisplayPosition - 1, x + s.xDisplayPosition + 17, y + s.yDisplayPosition + 17, 0xFF0E1014);
+            drawRect(x + s.xDisplayPosition - 1, y + s.yDisplayPosition - 1, x + s.xDisplayPosition + 17, y + s.yDisplayPosition + 17,
+                    s instanceof com.sva.inventory.ContainerAdSVA.UpgradeSlot ? 0xFF2A5068 : 0xFF0E1014);
             drawRect(x + s.xDisplayPosition, y + s.yDisplayPosition, x + s.xDisplayPosition + 16, y + s.yDisplayPosition + 16, 0xFF2A2F3A);
         }
         for (Object o : buttonList) {
@@ -144,7 +148,33 @@ public class GuiLauncherSVA extends GuiContainer {
         boolean missile = tile.kind() == TileEntityLauncherSVA.MISSILE;
         String no = t != null && t.getInteger("No") > 0 ? " " + Lang.tr("sva.ad.l.no", Integer.valueOf(t.getInteger("No"))) : "";
         TextFitSC.draw(fontRendererObj, Lang.tr(tile.nameKey()) + no, 6, 4, W - 60, GOLD, false, guiLeft, guiTop);
-        fontRendererObj.drawString(missile ? "EV" : "MV", W - 20, 4, MUTED);
+        String tier = t != null && t.hasKey("In") ? GuiAdEquipSVA.input(t) : missile ? "EV" : "MV";
+        fontRendererObj.drawString(tier, W - 6 - fontRendererObj.getStringWidth(tier), 4, t != null && t.getBoolean("Any") ? GREEN : MUTED);
+        // upgrades wave: the labels over the ammunition and the upgrade slots
+        int ly = ContainerLauncherSVA.SLOT_Y - 11;
+        fontRendererObj.drawString(Lang.tr("sva.ad.l.ammo"), ContainerLauncherSVA.SLOT_X, ly, MUTED);
+        boolean upgOn = t == null || !t.hasKey("Upg") || t.getBoolean("Upg");
+        fontRendererObj.drawString(Lang.tr("sva.ad.eq.modules"), ContainerLauncherSVA.UPG_X, ly, upgOn ? CYAN : RED);
+        List<String> fits = GuiAdEquipSVA.fitsTip(tile, upgOn);
+        TextFitSC.hover(guiLeft + ContainerLauncherSVA.UPG_X, guiTop + ly - 1, 76, 10, fits);
+        for (int i = 0; i < com.sva.airdefense.AdUpgradeMath.SLOTS; i++) {
+            if (tile.upgrades.getStackInSlot(i) == null) {
+                TextFitSC.hover(guiLeft + ContainerLauncherSVA.UPG_X + 18 * i - 1, guiTop + ContainerLauncherSVA.SLOT_Y - 1, 18, 18, fits);
+            }
+        }
+        if (t != null && t.hasKey("Interval")) {
+            int iv = t.getInteger("Interval"), biv = t.getInteger("BaseInterval");
+            String key = missile ? "sva.ad.l.reload" : "sva.ad.l.burst";
+            String rate = iv == biv ? Lang.tr(key, GuiAdEquipSVA.sec(iv)) : Lang.tr(key + "Was", GuiAdEquipSVA.sec(iv), GuiAdEquipSVA.sec(biv));
+            TextFitSC.draw(fontRendererObj, rate, 8, 110, 122, iv < biv ? GREEN : TEXT, false, guiLeft, guiTop);
+            TextFitSC.hover(guiLeft + 8, guiTop + 109, 122, 10, Lang.tr("sva.ad.l.shotEu", FormatSVA.group(t.getInteger("ShotEu"))));
+            int use = t.getInteger("Use"), base = t.getInteger("BaseUse");
+            String in = Lang.tr("sva.ad.l.inUse", GuiAdEquipSVA.input(t), FormatSVA.group(use));
+            TextFitSC.draw(fontRendererObj, in, 136, 110, W - 142, use > base ? AMBER : use < base ? GREEN : TEXT, false, guiLeft, guiTop);
+            if (t.getBoolean("Puller")) {
+                TextFitSC.hover(guiLeft + ContainerLauncherSVA.SLOT_X, guiTop + ly - 1, 76, 10, Lang.tr("sva.ad.l.puller"));
+            }
+        }
         int sx = 136, sy = 20;
         if (t == null) {
             fontRendererObj.drawString(Lang.tr("sva.ad.l.wait"), sx, sy, MUTED);
@@ -180,7 +210,6 @@ public class GuiLauncherSVA extends GuiContainer {
         int minW = t.getInteger("MinWait");
         String ws = Math.max(wait, minW) + " " + Lang.tr("sva.ad.l.sec");
         fontRendererObj.drawString(ws, 214 - fontRendererObj.getStringWidth(ws) / 2, 96, wait < minW ? AMBER : TEXT);
-        fontRendererObj.drawString(Lang.tr("sva.ad.l.ammo"), 92, 118, MUTED);
         TextFitSC.hover(guiLeft + 6, guiTop + 2, W - 60, 12, Lang.tr("sva.ad.l.always"));
         List<String> tip = TextFitSC.hoverAt(mx, my);
         for (Object o : buttonList) {

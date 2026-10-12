@@ -94,6 +94,18 @@ public class TileEntityAdPartSVA extends TileEntityEnergyBase {
         return m != null ? m.inputTier() : super.inputTier();
     }
 
+    /** The master's universal transformer covers every part (IC2 asks each part's sink tier on its own). */
+    @Override
+    public boolean acceptsAnyVoltage() {
+        TileEntityAirDefenseSVA m = master();
+        return m != null && m.acceptsAnyVoltage();
+    }
+
+    /** The master's input tier changed (a transformer in / out): re-announce to IC2, which caches the sink tier. */
+    public void refreshNet() {
+        refreshEnergyNet();
+    }
+
     @Override
     public int demandedEnergy() {
         TileEntityAirDefenseSVA m = master();

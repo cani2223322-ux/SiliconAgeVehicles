@@ -5,25 +5,35 @@ import java.util.List;
 
 import com.sc.energy.Tier;
 import com.sc.energy.TileEntityEnergyBase;
+import com.sc.item.ItemUpgradeSC;
+import com.sc.machine.UpgradeType;
 import com.sva.ConfigSVA;
 import com.sva.airdefense.AirDefenseDataSVA;
 import com.sva.airdefense.AirDefenseSVA;
 import com.sva.entity.EntityVehicleSVA;
 
 import com.sva.airdefense.AdShapeMath;
+import com.sva.airdefense.AdUpgradeMath;
+import com.sva.net.NetADSVA;
 
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.block.Block;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.inventory.IInventory;
+import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.nbt.NBTTagString;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
 import net.minecraft.network.play.server.S35PacketUpdateTileEntity;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.AxisAlignedBB;
+import net.minecraft.world.World;
 
 /**
  * Air-defence wave: what the radars, the launchers and the command post share - the owner and his access list (the
@@ -39,6 +49,13 @@ import net.minecraft.util.AxisAlignedBB;
  * the client model it syncs (the description packet, only on a change) the facing, the state, the lamps (ST_*), the
  * target it turns to and the rounds to show; shots go as block events (EV_*). The animation angles live here too
  * (clientTick, client side only; AdShapeMath has the math).
+ *
+ * The upgrades wave (2026-10-12): four upgrade slots for the core's modules (AdUpgradeMath: which fit and what they do -
+ * the universal transformer, transformers, storage, overclockers, economizers; overdrive on radars, the puller on
+ * launchers). They live in an inventory of their own (upgrades) so no hopper or pipe reaches them, drop loose when the
+ * structure goes, and count only with airdefense.upgrades on. A change of the input tier re-announces the master and
+ * every part to IC2 (it caches the sink tier), as the charging station does. The equipment screen (ContainerAdSVA /
+ * GuiAdEquipSVA; the launcher's own screen has the slots too) gets equipSnapshot() every 10 ticks while open.
  */
 public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
 
@@ -67,8 +84,237 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         super(t);
     }
 
-    /** EU a tick while working. */
-    public abstract int upkeep();
+    /** EU a tick while working, before the upgrades. */
+    public abstract int baseUpkeep();
+
+    /** AdUpgradeMath.B_*: which modules fit. */
+    public abstract int upgradeBlock();
+
+    /** The work interval the overclockers shorten (ticks; 0 - none) and its floor. */
+    protected int ocBaseInterval() {
+        return 0;
+    }
+
+    protected int ocFloor() {
+        return 1;
+    }
+
+    /** EU a tick while working: the base with the useful overclockers, the economizers, the overdrives. */
+    public int upkeep() {
+        int oc = ocBaseInterval() > 0 ? AdUpgradeMath.usefulOc(ocBaseInterval(), upgradeCount(UpgradeType.OVERCLOCKER), ocFloor()) : 0;
+        return AdUpgradeMath.upkeep(baseUpkeep(), oc, upgradeCount(UpgradeType.ECONOMIZER), upgradeCount(UpgradeType.OVERDRIVE));
+    }
+
+    // ------------------------------------------------------------------ upgrades (the core's modules)
+
+    protected final ItemStack[] upg = new ItemStack[AdUpgradeMath.SLOTS];
+    /** The upgrade slots as an inventory of their own (the screens' slots; nothing automatic reaches them). */
+    public final IInventory upgrades = new UpgradeInv();
+    private int lastTierKey = -1, tierRefreshes;
+
+    /** How many of a kind sit in the slots (only modules that fit, only with airdefense.upgrades on; capped as in the core). */
+    public int upgradeCount(UpgradeType type) {
+        if (!ConfigSVA.adUpgrades || !AdUpgradeMath.accepts(upgradeBlock(), type)) {
+            return 0;
+        }
+        int n = 0;
+        for (ItemStack s : upg) {
+            if (s != null && s.getItem() instanceof ItemUpgradeSC && ItemUpgradeSC.typeOf(s) == type) {
+                n += s.stackSize;
+            }
+        }
+        return type == UpgradeType.ECONOMIZER || type == UpgradeType.OVERDRIVE ? AdUpgradeMath.capGen(n) : AdUpgradeMath.cap(n);
+    }
+
+    /** The module fits this block's upgrade slot. */
+    public boolean upgradeAccepted(ItemStack s) {
+        return ConfigSVA.adUpgrades && s != null && s.getItem() instanceof ItemUpgradeSC && AdUpgradeMath.accepts(upgradeBlock(), ItemUpgradeSC.typeOf(s));
+    }
+
+    /** The universal transformer: any voltage, nothing overvolts it (the core machines', the charging station's). */
+    @Override
+    public boolean acceptsAnyVoltage() {
+        return upgradeCount(UpgradeType.UNIVERSAL_TRANSFORMER) > 0;
+    }
+
+    @Override
+    public Tier inputTier() {
+        return AdUpgradeMath.inputTier(getTier(), upgradeCount(UpgradeType.TRANSFORMER), acceptsAnyVoltage());
+    }
+
+    @Override
+    public int getMaxEnergyStored() {
+        return AdUpgradeMath.buffer(getTier(), upgradeCount(UpgradeType.ENERGY_STORAGE), upkeep());
+    }
+
+    /** EU of a shot with the economizers. */
+    public int shotEu(int base) {
+        return AdUpgradeMath.shotEu(base, upgradeCount(UpgradeType.ECONOMIZER));
+    }
+
+    /**
+     * IC2 caches a sink's tier when it joins the net: after a transformer goes in or out (or the tier is set from the
+     * meta) the master and every part re-announce themselves (the charging station's refresh).
+     */
+    private void tierRefresh() {
+        int key = acceptsAnyVoltage() ? 1000 : inputTier().ordinal();
+        if (key == lastTierKey) {
+            return;
+        }
+        if (lastTierKey >= 0) {
+            tierRefreshes++;
+            refreshEnergyNet();
+            int[][] c = cells();
+            for (int i = 1; i < c.length; i++) {
+                int x = xCoord + c[i][0], y = yCoord + c[i][1], z = zCoord + c[i][2];
+                if (y >= 0 && y <= 255 && worldObj.blockExists(x, y, z)) {
+                    TileEntity te = worldObj.getTileEntity(x, y, z);
+                    if (te instanceof TileEntityAdPartSVA && ((TileEntityAdPartSVA) te).master() == this) {
+                        ((TileEntityAdPartSVA) te).refreshNet();
+                    }
+                }
+            }
+        }
+        lastTierKey = key;
+    }
+
+    /** World tests: how many times the input tier changed and the net was told. */
+    public int tierRefreshes() {
+        return tierRefreshes;
+    }
+
+    /** The structure is gone: the modules drop loose (BlockAirDefenseSVA.breakBlock). */
+    public void dropUpgrades(World w, int x, int y, int z) {
+        for (int i = 0; i < upg.length; i++) {
+            if (upg[i] != null) {
+                w.spawnEntityInWorld(new EntityItem(w, x + 0.5, y + 0.5, z + 0.5, upg[i].copy()));
+                upg[i] = null;
+            }
+        }
+    }
+
+    /** The upgrade slots: 64 a stack as the core's, only a module that fits, the screen's reach and access rule. */
+    private final class UpgradeInv implements IInventory {
+        @Override
+        public int getSizeInventory() {
+            return upg.length;
+        }
+
+        @Override
+        public ItemStack getStackInSlot(int i) {
+            return i >= 0 && i < upg.length ? upg[i] : null;
+        }
+
+        @Override
+        public ItemStack decrStackSize(int i, int n) {
+            if (i < 0 || i >= upg.length || upg[i] == null) {
+                return null;
+            }
+            ItemStack out;
+            if (upg[i].stackSize <= n) {
+                out = upg[i];
+                upg[i] = null;
+            } else {
+                out = upg[i].splitStack(n);
+            }
+            markDirty();
+            return out;
+        }
+
+        @Override
+        public ItemStack getStackInSlotOnClosing(int i) {
+            return null;
+        }
+
+        @Override
+        public void setInventorySlotContents(int i, ItemStack s) {
+            if (i >= 0 && i < upg.length) {
+                upg[i] = s;
+                if (s != null && s.stackSize > getInventoryStackLimit()) {
+                    s.stackSize = getInventoryStackLimit();
+                }
+                markDirty();
+            }
+        }
+
+        @Override
+        public String getInventoryName() {
+            return "container.sva.adUpgrades";
+        }
+
+        @Override
+        public boolean hasCustomInventoryName() {
+            return false;
+        }
+
+        @Override
+        public int getInventoryStackLimit() {
+            return 64;
+        }
+
+        @Override
+        public void markDirty() {
+            TileEntityAirDefenseSVA.this.markDirty();
+        }
+
+        @Override
+        public boolean isUseableByPlayer(EntityPlayer p) {
+            return worldObj != null && worldObj.getTileEntity(xCoord, yCoord, zCoord) == TileEntityAirDefenseSVA.this && reach(p) && mayUse(p);
+        }
+
+        @Override
+        public void openInventory() {
+        }
+
+        @Override
+        public void closeInventory() {
+        }
+
+        @Override
+        public boolean isItemValidForSlot(int i, ItemStack s) {
+            return upgradeAccepted(s);
+        }
+    }
+
+    /** Within reach of the structure (10 blocks from its centre: a 3x3 radar's far corner is still in). */
+    public boolean reach(EntityPlayer p) {
+        double[] c = pivotWorld();
+        return p.getDistanceSq(c[0], yCoord + 0.5, c[2]) <= 100;
+    }
+
+    // ------------------------------------------------------------------ the equipment screen
+
+    /** The equipment screen's picture (energy, tier, upkeep, power); subclasses add their own. */
+    public NBTTagCompound equipSnapshot() {
+        NBTTagCompound t = new NBTTagCompound();
+        t.setIntArray("Pos", new int[] {xCoord, yCoord, zCoord});
+        t.setInteger("E", getEnergyStored());
+        t.setInteger("EMax", getMaxEnergyStored());
+        t.setByte("Tier", (byte) getTier().ordinal());
+        t.setByte("In", (byte) inputTier().ordinal());
+        t.setBoolean("Any", acceptsAnyVoltage());
+        t.setInteger("Use", upkeep());
+        t.setInteger("BaseUse", baseUpkeep());
+        t.setBoolean("Powered", powered);
+        t.setBoolean("Upg", ConfigSVA.adUpgrades);
+        t.setBoolean("Ad", ConfigSVA.adEnabled);
+        t.setString("Own", ownerName);
+        return t;
+    }
+
+    /** Every 10 ticks: the picture to the players with this block's equipment screen open. */
+    private void sendEquip() {
+        NBTTagCompound snap = null;
+        for (Object o : worldObj.playerEntities) {
+            if (o instanceof EntityPlayerMP && ((EntityPlayerMP) o).openContainer instanceof com.sva.inventory.ContainerAdSVA
+                    && ((com.sva.inventory.ContainerAdSVA) ((EntityPlayerMP) o).openContainer).tile == this) {
+                if (snap == null) {
+                    snap = equipSnapshot();
+                }
+                NetADSVA.send((EntityPlayerMP) o, NetADSVA.D_EQUIP, snap);
+            }
+        }
+    }
 
     /** AirDefenseDataSVA.N_* (limits). */
     public abstract int nodeKind();
@@ -456,7 +702,11 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         }
         upkeepTick();
         serverTick();
+        tierRefresh();
         syncTick();
+        if (syncTimer % 10 == 5) {
+            sendEquip();
+        }
     }
 
     /** The block's own work (server, every tick, after the upkeep). */
@@ -500,6 +750,17 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         for (int i = 0; i < l.tagCount() && i < MAX_ACCESS; i++) {
             access.add(l.getStringTagAt(i));
         }
+        for (int i = 0; i < upg.length; i++) {
+            upg[i] = null;
+        }
+        NBTTagList u = t.getTagList("AdUpg", 10);
+        for (int i = 0; i < u.tagCount(); i++) {
+            NBTTagCompound c = u.getCompoundTagAt(i);
+            int s = c.getByte("Slot") & 0xFF;
+            if (s < upg.length) {
+                upg[s] = ItemStack.loadItemStackFromNBT(c);
+            }
+        }
     }
 
     @Override
@@ -514,5 +775,15 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
             l.appendTag(new NBTTagString(a));
         }
         t.setTag("AdAccess", l);
+        NBTTagList u = new NBTTagList();
+        for (int i = 0; i < upg.length; i++) {
+            if (upg[i] != null) {
+                NBTTagCompound c = new NBTTagCompound();
+                c.setByte("Slot", (byte) i);
+                upg[i].writeToNBT(c);
+                u.appendTag(c);
+            }
+        }
+        t.setTag("AdUpg", u);
     }
 }

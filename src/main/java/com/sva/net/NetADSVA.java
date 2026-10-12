@@ -28,8 +28,12 @@ public final class NetADSVA {
 
     public static final SimpleNetworkWrapper CHANNEL = NetworkRegistry.INSTANCE.newSimpleChannel("SAVehiclesAD");
 
-    public static final int XPDR_SET = 1, XPDR_IDENT = 2, KP_CMD = 3, KP_CLOSE = 4, LAUNCHER_SET = 5;
-    public static final int D_KP = 1, D_LAUNCHER = 2, D_XPDR = 3, D_RWR = 4, D_ZONES = 5, D_MSG = 6;
+    public static final int XPDR_SET = 1, XPDR_IDENT = 2, KP_CMD = 3, KP_CLOSE = 4, LAUNCHER_SET = 5,
+            /** Upgrades wave: open a block's equipment screen (the command post's «Оборудование» tab) / back to the post's screen. */
+            AD_EQUIP = 6, KP_OPEN = 7;
+    public static final int D_KP = 1, D_LAUNCHER = 2, D_XPDR = 3, D_RWR = 4, D_ZONES = 5, D_MSG = 6,
+            /** Upgrades wave: an equipment screen's picture (every 10 ticks while open). */
+            D_EQUIP = 7;
 
     private NetADSVA() {
     }

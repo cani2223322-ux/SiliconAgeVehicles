@@ -89,23 +89,32 @@ public class ItemBlockAirDefenseSVA extends ItemBlock {
         int shape = AdShapeMath.shape(k, m);                        // multiblock wave: its size first
         list.add(Lang.tr("sva.tooltip.ad.size", Integer.valueOf(AdShapeMath.W[shape]), Integer.valueOf(AdShapeMath.D[shape]),
                 Integer.valueOf(AdShapeMath.layers(shape))));
+        // upgrades wave: the slots for the core's modules, which fit (Shift)
+        int blk = k == BlockAirDefenseSVA.RADAR ? com.sva.airdefense.AdUpgradeMath.B_RADAR
+                : k == BlockAirDefenseSVA.LAUNCHER ? com.sva.airdefense.AdUpgradeMath.B_LAUNCHER : com.sva.airdefense.AdUpgradeMath.B_KP;
+        list.add("§7" + Lang.tr("sva.tooltip.ad.slots", Integer.valueOf(com.sva.airdefense.AdUpgradeMath.SLOTS)));
+        StringBuilder mods = new StringBuilder();
+        for (com.sc.machine.UpgradeType u : com.sva.airdefense.AdUpgradeMath.accepted(blk)) {
+            mods.append(mods.length() > 0 ? ", " : "").append(com.sc.init.ModItems.upgrade.stackOf(u).getDisplayName());
+        }
+        String fit = "\n" + Lang.tr("sva.tooltip.ad.modules", mods.toString());
         if (k == BlockAirDefenseSVA.RADAR) {
             int r = RadarMath.validKind(m) ? m : 0;
             String key = RadarMath.KEYS[r];
             list.add(Lang.tr("sva.tooltip.radar.summary", Integer.valueOf((int) RadarMath.RANGE[r]),
                     Integer.valueOf((int) Math.round(RadarMath.detectRange(r, RadarMath.rcs(VehicleType.PLANE), 1, 1))),
                     Integer.valueOf(RadarMath.EU_PER_TICK[r]), r == RadarMath.HEIGHT ? "MV" : "HV"));
-            TooltipSC.more(list, Lang.tr("sva.tooltip.radar." + key + ".details"), Lang.tr("sva.tooltip.howto.radar"));
+            TooltipSC.more(list, Lang.tr("sva.tooltip.radar." + key + ".details") + fit, Lang.tr("sva.tooltip.howto.radar"));
         } else if (k == BlockAirDefenseSVA.LAUNCHER) {
             boolean missile = m == TileEntityLauncherSVA.MISSILE;
             list.add(Lang.tr(missile ? "sva.tooltip.launcher.missile" : "sva.tooltip.launcher.gun",
                     Integer.valueOf((int) (missile ? BallisticsMath.MISSILE_RANGE : BallisticsMath.GUN_RANGE)),
                     Integer.valueOf(TileEntityLauncherSVA.UPKEEP[missile ? 1 : 0])));
-            TooltipSC.more(list, Lang.tr(missile ? "sva.tooltip.launcher.missile.details" : "sva.tooltip.launcher.gun.details"),
+            TooltipSC.more(list, Lang.tr(missile ? "sva.tooltip.launcher.missile.details" : "sva.tooltip.launcher.gun.details") + fit,
                     Lang.tr("sva.tooltip.howto.launcher"));
         } else {
             list.add(Lang.tr("sva.tooltip.kp.summary", Integer.valueOf((int) BallisticsMath.LINK), Integer.valueOf(TileEntityCommandPostSVA.UPKEEP)));
-            TooltipSC.more(list, Lang.tr("sva.tooltip.kp.details"), Lang.tr("sva.tooltip.howto.kp"));
+            TooltipSC.more(list, Lang.tr("sva.tooltip.kp.details") + fit, Lang.tr("sva.tooltip.howto.kp"));
         }
     }
 }

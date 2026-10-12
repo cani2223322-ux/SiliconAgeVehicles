@@ -8,11 +8,17 @@ import java.util.List;
 import java.util.Map;
 
 import com.sc.energy.Tier;
+import com.sc.machine.UpgradeType;
+import com.sva.airdefense.AdUpgradeMath;
 import com.sva.airdefense.AirDefenseDataSVA;
 import com.sva.airdefense.AirDefenseSVA;
 import com.sva.airdefense.BallisticsMath;
 import com.sva.airdefense.RadarMath;
 import com.sva.entity.EntityVehicleSVA;
+import com.sva.vehicle.VehicleType;
+
+import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagList;
 
 /**
  * Air-defence wave: a radar (block meta = RadarMath kind: surveillance HV, tracking HV, height finder MV). While powered
@@ -21,6 +27,8 @@ import com.sva.entity.EntityVehicleSVA;
  * radar's position +-8 blocks and the transponder's answer, the height finder's altitude, the tracking radar's exact
  * track - only for its two chosen targets: the command post's priorities, else the nearest). Each contact is painted on
  * the target's RWR. The command post within BallisticsMath.LINK of the same owner merges what its radars see.
+ * Upgrades wave: overclockers shorten the scan (x0.7 each, never under AdUpgradeMath.MIN_SCAN), overdrives stretch the
+ * range (x1.15 each); the equipment screen shows the last scan's contacts on a small PPI scope.
  */
 public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
 
@@ -40,8 +48,33 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
     }
 
     @Override
-    public int upkeep() {
+    public int baseUpkeep() {
         return RadarMath.EU_PER_TICK[kind()];
+    }
+
+    @Override
+    public int upgradeBlock() {
+        return AdUpgradeMath.B_RADAR;
+    }
+
+    @Override
+    protected int ocBaseInterval() {
+        return RadarMath.INTERVAL[kind()];
+    }
+
+    @Override
+    protected int ocFloor() {
+        return AdUpgradeMath.MIN_SCAN;
+    }
+
+    /** Ticks between scans with the overclockers. */
+    public int scanInterval() {
+        return AdUpgradeMath.interval(RadarMath.INTERVAL[kind()], upgradeCount(UpgradeType.OVERCLOCKER), AdUpgradeMath.MIN_SCAN);
+    }
+
+    /** The range multiplier of the overdrives. */
+    public double rangeMul() {
+        return AdUpgradeMath.rangeMul(upgradeCount(UpgradeType.OVERDRIVE));
     }
 
     @Override
@@ -95,7 +128,7 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
             return;
         }
         int k = kind();
-        if (++timer < RadarMath.INTERVAL[k] && kindSet == k) {
+        if (++timer < scanInterval() && kindSet == k) {
             return;
         }
         kindSet = k;
@@ -108,7 +141,7 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
         long now = worldObj.getTotalWorldTime();
         scanNo++;
         double ax = xCoord + 0.5, ay = yCoord + com.sva.airdefense.AdShapeMath.antennaHeight(shape(), struct == MULTI), az = zCoord + 0.5;
-        double weather = RadarMath.weatherMul(worldObj.isRaining(), worldObj.isThundering());
+        double weather = RadarMath.weatherMul(worldObj.isRaining(), worldObj.isThundering()), mul = rangeMul();
         List<EntityVehicleSVA> seen = new ArrayList<EntityVehicleSVA>();
         for (Object o : worldObj.loadedEntityList) {
             if (!(o instanceof EntityVehicleSVA)) {
@@ -116,7 +149,7 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
             }
             EntityVehicleSVA v = (EntityVehicleSVA) o;
             double rcs = RadarMath.rcs(v.getVehicleType());
-            double range = RadarMath.detectRange(k, rcs, AirDefenseSVA.stealth(v), weather);
+            double range = RadarMath.detectRange(k, rcs, AirDefenseSVA.stealth(v), weather) * mul;
             double[] c = AirDefenseSVA.centre(v);
             if (range <= 0 || BallisticsMath.dist(ax, ay, az, c[0], c[1], c[2]) > range || !AirDefenseSVA.radarVisible(v)
                     || !AirDefenseSVA.losClear(worldObj, ax, ay, az, c[0], c[1], c[2])) {
@@ -128,7 +161,7 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
             seen = choose(seen, ax, az);
         }
         contacts.clear();
-        long until = now + RadarMath.INTERVAL[k] + 20;
+        long until = now + scanInterval() + 20;
         for (EntityVehicleSVA v : seen) {
             double[] c = AirDefenseSVA.centre(v);
             double e = RadarMath.ERROR[k];
@@ -143,6 +176,41 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
             AirDefenseSVA.INSTANCE.paint(v, k == RadarMath.TRACK ? RadarMath.T_LOCK : k == RadarMath.HEIGHT ? RadarMath.T_HEIGHT : RadarMath.T_SEARCH,
                     ax, az, until);
         }
+    }
+
+    /**
+     * The equipment screen: the kind, the range (the reference target's and a plane's, the overdrives and the weather in),
+     * the scan interval, the linked command post and the last scan's contacts as offsets from the antenna (blocks), the
+     * altitude where this kind measures it and the relation (1 own, 2 friend, 0 foreign).
+     */
+    @Override
+    public NBTTagCompound equipSnapshot() {
+        NBTTagCompound t = super.equipSnapshot();
+        int k = kind();
+        double weather = RadarMath.weatherMul(worldObj.isRaining(), worldObj.isThundering());
+        t.setByte("RKind", (byte) k);
+        t.setInteger("Range", (int) Math.round(RadarMath.RANGE[k] * rangeMul()));
+        t.setInteger("PlaneRange", (int) Math.round(RadarMath.detectRange(k, RadarMath.rcs(VehicleType.PLANE), 1, weather) * rangeMul()));
+        t.setInteger("Interval", scanInterval());
+        t.setInteger("BaseInterval", RadarMath.INTERVAL[k]);
+        t.setInteger("Timer", Math.max(0, scanInterval() - timer));
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        t.setString("Kp", kp == null ? "" : kp.name());
+        NBTTagList l = new NBTTagList();
+        double ax = xCoord + 0.5, az = zCoord + 0.5;
+        for (AirDefenseSVA.Contact c : contacts.values()) {
+            NBTTagCompound o = new NBTTagCompound();
+            o.setFloat("X", (float) (c.x - ax));
+            o.setFloat("Z", (float) (c.z - az));
+            o.setInteger("Y", c.altKnown ? (int) Math.round(c.y) : Integer.MIN_VALUE);
+            o.setByte("Rel", (byte) relation(c.owner));
+            l.appendTag(o);
+            if (l.tagCount() >= 64) {
+                break;
+            }
+        }
+        t.setTag("Contacts", l);
+        return t;
     }
 
     /** The tracking radar's two: the command post's priority order, then the nearest. */

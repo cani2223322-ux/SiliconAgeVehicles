@@ -149,6 +149,9 @@ public final class AirDefenseClientSVA {
             case NetADSVA.D_LAUNCHER:
                 GuiLauncherSVA.receive(t);
                 break;
+            case NetADSVA.D_EQUIP:
+                GuiAdEquipSVA.receive(t);
+                break;
             default:
                 break;
         }

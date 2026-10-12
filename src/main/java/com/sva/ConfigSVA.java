@@ -224,6 +224,8 @@ public final class ConfigSVA {
     public static boolean adModelTextures = true;
     /** ... with their small details (bolts, rungs, louvres) only this near (blocks). */
     public static int adModelDetailDistance = 64;
+    /** Upgrades wave: the core's upgrade modules in the air-defence blocks' slots (off: they do nothing, new ones don't fit). */
+    public static boolean adUpgrades = true;
 
     private ConfigSVA() {
     }
@@ -481,6 +483,9 @@ public final class ConfigSVA {
                 "Client: the models' detailed textures (off: flat colours) / Клиент: подробные текстуры моделей ПВО");
         adModelDetailDistance = c.getInt("modelDetailDistance", a, 64, 0, 512,
                 "Client: the models' small details drawn only this near (blocks) / Клиент: мелкие детали моделей ПВО ближе (блоков)");
+        adUpgrades = c.getBoolean("upgrades", a, true,
+                "Silicon Age upgrade modules in radars, launchers and the command post (transformers, storage, overclockers...); off - they do nothing / "
+                        + "Модули Silicon Age в РЛС, ПУ и КП (трансформаторы, накопитель, ускорители...); выкл. - не действуют");
     }
 
     /** NaN / infinity -> default, else clamped into [min, max] (pure; the self-test checks it). */

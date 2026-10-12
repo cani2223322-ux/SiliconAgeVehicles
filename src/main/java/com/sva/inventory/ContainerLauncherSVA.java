@@ -11,11 +11,13 @@ import net.minecraft.item.ItemStack;
 /**
  * Air-defence wave: the launcher's screen - its 4 ammunition slots (the gun's shells by the stack, one missile a tube)
  * and the player's inventory. The settings and the state travel apart (NetADSVA LAUNCHER_SET / D_LAUNCHER).
- * Layout matches client.GuiLauncherSVA: the slots at (8 + 20 i, 114), the inventory under them.
+ * Layout matches client.GuiLauncherSVA: the slots at (8 + 20 i, SLOT_Y), the inventory under them.
+ * Upgrades wave: the four upgrade slots (the core's modules that fit a launcher) beside the ammunition, at (UPG_X + 18 i,
+ * SLOT_Y); container slots 0-3 ammunition, 4-7 upgrades, then the player's.
  */
 public class ContainerLauncherSVA extends Container {
 
-    public static final int SLOT_X = 8, SLOT_Y = 114, INV_X = 49, INV_Y = 136;
+    public static final int SLOT_X = 8, SLOT_Y = 134, UPG_X = 176, INV_X = 49, INV_Y = 156;
 
     public final TileEntityLauncherSVA tile;
 
@@ -33,6 +35,9 @@ public class ContainerLauncherSVA extends Container {
                     return ContainerLauncherSVA.this.tile.getInventoryStackLimit();
                 }
             });
+        }
+        for (int i = 0; i < com.sva.airdefense.AdUpgradeMath.SLOTS; i++) {
+            addSlotToContainer(new ContainerAdSVA.UpgradeSlot(tile, i, UPG_X + 18 * i, SLOT_Y));
         }
         for (int r = 0; r < 3; r++) {
             for (int c = 0; c < 9; c++) {
@@ -56,9 +61,13 @@ public class ContainerLauncherSVA extends Container {
             return null;
         }
         ItemStack st = s.getStack(), copy = st.copy();
-        int n = TileEntityLauncherSVA.SLOTS;
+        int n = TileEntityLauncherSVA.SLOTS + com.sva.airdefense.AdUpgradeMath.SLOTS;
         if (i < n) {
             if (!mergeItemStack(st, n, inventorySlots.size(), true)) {
+                return null;
+            }
+        } else if (tile.upgradeAccepted(st)) {
+            if (!mergeItemStack(st, TileEntityLauncherSVA.SLOTS, n, false)) {
                 return null;
             }
         } else {
