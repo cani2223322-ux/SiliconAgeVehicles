@@ -119,7 +119,7 @@ final class AvionicsSVA {
 
     /** Text centred at (x, y), `h` tall at most, `maxW` wide at most, turned `deg` counter-clockwise in the frame. */
     private static void textRot(FontRenderer fr, String s, float x, float y, float h, float maxW, float deg, int color) {
-        int px = fr.getStringWidth(s);
+        float px = HiFontSVA.width(fr, s);
         if (px <= 0) {
             return;
         }
@@ -128,9 +128,7 @@ final class AvionicsSVA {
         GL11.glTranslatef(x, y, CockpitInstrumentsSVA.textLift);
         GL11.glRotatef(deg, 0F, 0F, 1F);
         GL11.glScalef(k, -k, k);
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        fr.drawString(s, -px / 2, -4, color);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        HiFontSVA.render(fr, s, -px / 2, color);
         GL11.glPopMatrix();
     }
 
@@ -444,7 +442,7 @@ final class AvionicsSVA {
         col(0x040506, 1F);
         CockpitInstrumentsSVA.rect(x0, y0, x0 + ww, y1, Z1);
         CockpitInstrumentsSVA.textLeft(fr, label, x0 + ww * 0.05F, (y0 + y1) / 2, wh * 0.5F, tint(0x6E7480));
-        int px = fr.getStringWidth(value);
+        float px = HiFontSVA.width(fr, value);
         float k = Math.min(wh * 0.7F / 8F, ww * 0.55F / Math.max(1, px));
         CockpitInstrumentsSVA.drawText(fr, value, x0 + ww * 0.95F - px * k, (y0 + y1) / 2, k, c);
     }

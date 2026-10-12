@@ -79,6 +79,7 @@ public class ClientProxySVA extends CommonProxySVA {
         com.sva.client.DynamicLightSVA light = new com.sva.client.DynamicLightSVA();
         FMLCommonHandler.instance().bus().register(light);
         MinecraftForge.EVENT_BUS.register(light);
+        com.sva.client.HiResSVA.register();                // 2K / 4K wave: a resource reload / language change re-bakes the cockpit art
     }
 
     @Override

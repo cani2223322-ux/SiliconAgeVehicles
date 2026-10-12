@@ -176,6 +176,7 @@ public final class CockpitInstrumentsSVA {
             GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
             GL11.glPolygonOffset(-1F, -4F);
             FontRenderer fr = mc.fontRenderer;
+            HiResSVA.beginFrame();                                      // 2K / 4K wave: the quality level, the glyph atlas
             int[] table = CockpitDials.table(t);
             if (s.shown.length != l.dials.size()) {
                 s.shown = new float[l.dials.size()];
@@ -514,22 +515,27 @@ public final class CockpitInstrumentsSVA {
             GL11.glPopMatrix();                                     // ★11: not lit yet
             return;
         }
-        glColor(tint(0xEBEDF2));                                      // ticks: 21 marks, every other one long
-        for (int k = 0; k <= 20; k++) {
-            float a = -CockpitDials.SWEEP / 2 + CockpitDials.SWEEP * k / 20F;
-            boolean major = k % 2 == 0;
-            ray(a, r * (major ? 0.68F : 0.76F), r * 0.86F, r * (major ? 0.035F : 0.02F), LIFT_MARK - LIFT_FACE);
+        // 2K / 4K wave: the ticks, numbers, name and unit baked into one anti-aliased texture (FaceArtSVA); until it is
+        // ready (or with vehicles.cockpitHiRes off) drawn as before
+        if (!FaceArtSVA.dial(kind, min, max, r, LIFT_MARK - LIFT_FACE, tint(0xFFFFFF))) {
+            glColor(tint(0xEBEDF2));                                  // ticks: 21 marks, every other one long
+            for (int k = 0; k <= 20; k++) {
+                float a = -CockpitDials.SWEEP / 2 + CockpitDials.SWEEP * k / 20F;
+                boolean major = k % 2 == 0;
+                ray(a, r * (major ? 0.68F : 0.76F), r * 0.86F, r * (major ? 0.035F : 0.02F), LIFT_MARK - LIFT_FACE);
+            }
+            // scale numbers at the ends and the middle; the name over the hub (2K / 4K wave: under it, it ran into the end
+            // numbers), the unit under it
+            float th = r * 0.16F;
+            for (int k = 0; k <= 2; k++) {
+                float a = (float) Math.toRadians(-CockpitDials.SWEEP / 2 + CockpitDials.SWEEP * k / 2F);
+                float val = min + (max - min) * k / 2F;
+                text(fr, num(val), (float) Math.sin(a) * r * 0.5F, (float) Math.cos(a) * r * 0.5F, th, r * 0.5F, tint(0xD8D8DE));
+            }
+            String key = CockpitDials.KEYS[kind];
+            text(fr, Lang.tr("sva.cockpit.dial." + key), 0F, r * 0.25F, r * 0.15F, r * 1.1F, tint(0xFFFFFF));
+            text(fr, Lang.tr("sva.cockpit.unit." + key), 0F, -r * 0.56F, r * 0.11F, r * 0.9F, tint(0x9A9AA6));
         }
-        // scale numbers at the ends and the middle, the label and unit under the hub
-        float th = r * 0.16F;
-        for (int k = 0; k <= 2; k++) {
-            float a = (float) Math.toRadians(-CockpitDials.SWEEP / 2 + CockpitDials.SWEEP * k / 2F);
-            float val = min + (max - min) * k / 2F;
-            text(fr, num(val), (float) Math.sin(a) * r * 0.5F, (float) Math.cos(a) * r * 0.5F, th, r * 0.5F, tint(0xD8D8DE));
-        }
-        String key = CockpitDials.KEYS[kind];
-        text(fr, Lang.tr("sva.cockpit.dial." + key), 0F, -r * 0.36F, r * 0.15F, r * 1.3F, tint(0xFFFFFF));
-        text(fr, Lang.tr("sva.cockpit.unit." + key), 0F, -r * 0.56F, r * 0.11F, r * 0.9F, tint(0x9A9AA6));
         // the needle
         float[] c = color(kind);
         GL11.glColor4f(c[0], c[1], c[2], 1F);
@@ -540,7 +546,7 @@ public final class CockpitInstrumentsSVA {
         GL11.glPopMatrix();
     }
 
-    private static String num(float v) {
+    static String num(float v) {
         return String.valueOf(Math.round(v));
     }
 
@@ -751,10 +757,10 @@ public final class CockpitInstrumentsSVA {
         float best = 0;
         int bestRows = 1, bestN = 1;
         for (int count = n; count >= 1; count--) {
-            int cellPx = 0;
+            float cellPx = 0;
             for (int i = 0; i < count; i++) {
                 Line ln = lines.get(i);
-                cellPx = Math.max(cellPx, fr.getStringWidth(ln.text) + (ln.frac >= 0 ? GAP_PX + BAR_PX : 0));
+                cellPx = Math.max(cellPx, HiFontSVA.width(fr, ln.text) + (ln.frac >= 0 ? GAP_PX + BAR_PX : 0));
             }
             for (int rows = 1; rows <= count; rows++) {
                 int cols = (count + rows - 1) / rows;
@@ -777,7 +783,7 @@ public final class CockpitInstrumentsSVA {
             int col = i / rows, row = i % rows;
             float x0 = -w / 2 + col * cellW;
             float yc = h / 2 - (row + 0.5F) * (h / rows);
-            float tw = fr.getStringWidth(ln.text) * k;
+            float tw = HiFontSVA.width(fr, ln.text) * k;
             textLeft(fr, ln.text, x0, yc, k * 8F, ln.color == TEXT || ln.color == DIM ? tint(ln.color) : ln.color);
             if (ln.frac >= 0) {
                 float bx0 = x0 + tw + GAP_PX * k, bx1 = Math.min(x0 + cellW - 2 * k, bx0 + BAR_PX * k);
@@ -1109,8 +1115,8 @@ public final class CockpitInstrumentsSVA {
     static void disc(float x, float y, float r, float z) {
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
         GL11.glVertex3f(x, y, z);
-        for (int k = 0; k <= 32; k++) {
-            double a = k * Math.PI * 2 / 32;
+        for (int k = 0; k <= 64; k++) {                              // 64 sides: round at 4K too
+            double a = k * Math.PI * 2 / 64;
             GL11.glVertex3f(x + (float) Math.cos(a) * r, y + (float) Math.sin(a) * r, z);
         }
         GL11.glEnd();
@@ -1185,9 +1191,9 @@ public final class CockpitInstrumentsSVA {
         }
     }
 
-    /** Centred text, `height` model units for the 8 px font, never wider than maxW. */
+    /** Centred text, `height` model units for the 8 px font, never wider than maxW (2K / 4K wave: the hi-res font's widths). */
     static void text(FontRenderer fr, String s, float x, float y, float height, float maxW, int color) {
-        int px = fr.getStringWidth(s);
+        float px = HiFontSVA.width(fr, s);
         if (px <= 0) {
             return;
         }
@@ -1203,13 +1209,12 @@ public final class CockpitInstrumentsSVA {
     /** Text's lift over the current frame (a flag over the attitude screen raises it). */
     static float textLift = LIFT_MARK - LIFT_FACE;
 
+    /** The one place cockpit text is drawn: the hi-res glyph atlas (HiFontSVA) or, as a fallback, the vanilla font. */
     static void drawText(FontRenderer fr, String s, float x, float y, float k, int color) {
         GL11.glPushMatrix();
         GL11.glTranslatef(x, y, textLift);
         GL11.glScalef(k, -k, k);
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        fr.drawString(s, 0, -4, color);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        HiFontSVA.render(fr, s, 0F, color);
         GL11.glPopMatrix();
     }
 }

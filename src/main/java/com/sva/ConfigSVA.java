@@ -160,6 +160,12 @@ public final class ConfigSVA {
      * faces (off: the faces stay dark; the dials, the AP bar and the switch panels as before).
      */
     public static boolean glassCockpit = true;
+    /**
+     * 2K / 4K wave (client): sharp cockpit text and dial faces - the anti-aliased glyph atlas and the baked dial faces
+     * (client/HiResSVA); the quality AUTO / 1K / 2K / 4K (HiResMath.QUALITY_KEYS; AUTO from the window's height).
+     */
+    public static boolean cockpitHiRes = true;
+    public static String cockpitQuality = "AUTO";
     /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
     public static boolean radarAltCallouts = true;
     /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
@@ -382,6 +388,18 @@ public final class ConfigSVA {
                     "Light plane / helicopter cockpits: PFD, MFD pages, lamp strip, transponder, radar warning, the heli's tach / power / hover /"
                             + " radar altimeter faces (client) / Кабины лёгкого самолёта и вертолёта: PFD, страницы MFD, табло, ответчик, СПО,"
                             + " тахометр / мощность / висение / радиовысотомер вертолёта (клиент)");
+            cockpitHiRes = c.getBoolean("cockpitHiRes", v, true,
+                    "Client: sharp cockpit text and dial faces for 2K / 4K screens (an anti-aliased font and baked dial faces, mipmaps,"
+                            + " anisotropic filtering); false = the vanilla 8 px font, as before / Клиент: чёткие надписи и шкалы в кабине для"
+                            + " экранов 2K / 4K (сглаженный шрифт, запечённые шкалы, мипмапы, анизотропная фильтрация); false - обычный шрифт 8 px,"
+                            + " как раньше");
+            cockpitQuality = com.sva.vehicle.HiResMath.QUALITY_KEYS[com.sva.vehicle.HiResMath.parse(c.getString("cockpitQuality", v, "AUTO",
+                    "Cockpit texture quality: AUTO (by the window height: up to 1200 px - 1K, up to 1800 - 2K, else 4K), 1K, 2K, 4K."
+                            + " Video memory: 1K - font 0.7 MB + 0.2 MB a dial; 2K - 2.7 MB + 0.7 MB; 4K - 10.7 MB + 2.7 MB"
+                            + " (at most 12 dials kept: 4K at most ~43 MB) / Качество текстур кабины: AUTO (по высоте окна: до 1200 px - 1K,"
+                            + " до 1800 - 2K, больше - 4K), 1K, 2K, 4K. Видеопамять: 1K - шрифт 0,7 МБ + 0,2 МБ на шкалу; 2K - 2,7 + 0,7 МБ;"
+                            + " 4K - 10,7 + 2,7 МБ (хранится не больше 12 шкал: 4K - до ~43 МБ)",
+                    com.sva.vehicle.HiResMath.QUALITY_KEYS))];
             radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,
                     "Helicopter radar altimeter callouts 50.. 40.. 30.. 20.. 10 on the descent (client) / "
                             + "Радиовысотомер вертолёта отсчитывает 50.. 40.. 30.. 20.. 10 при снижении (клиент)");

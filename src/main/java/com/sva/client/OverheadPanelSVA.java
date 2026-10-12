@@ -159,7 +159,7 @@ final class OverheadPanelSVA {
         CockpitInstrumentsSVA.rect(x0, y0, x0 + t, y1, Z1 * 0.2F);
         CockpitInstrumentsSVA.rect(x1 - t, y0, x1, y1, Z1 * 0.2F);
         String title = Lang.tr(key);
-        float th = h * 0.055F, tw = Math.min((x1 - x0) * 0.8F, fr.getStringWidth(title) * th / 8F);
+        float th = h * 0.055F, tw = Math.min((x1 - x0) * 0.8F, HiFontSVA.width(fr, title) * th / 8F);
         col(PANEL);
         CockpitInstrumentsSVA.rect(-tw / 2 - th * 0.4F + (x0 + x1) / 2, y1 - th * 0.7F, tw / 2 + th * 0.4F + (x0 + x1) / 2, y1 + th * 0.7F, Z1 * 0.4F);
         CockpitInstrumentsSVA.text(fr, title, (x0 + x1) / 2, y1, th, (x1 - x0) * 0.8F, CockpitInstrumentsSVA.tint(LABEL));
@@ -301,7 +301,7 @@ final class OverheadPanelSVA {
         if (title.length() == 0) {
             return;
         }
-        float tw = Math.min((x1 - x0) * 0.8F, fr.getStringWidth(title) * th / 8F);
+        float tw = Math.min((x1 - x0) * 0.8F, HiFontSVA.width(fr, title) * th / 8F);
         col(PANEL);
         float xm = (x0 + x1) / 2;
         CockpitInstrumentsSVA.rect(xm - tw / 2 - th * 0.4F, y1 - th * 0.7F, xm + tw / 2 + th * 0.4F, y1 + th * 0.7F, Z1 * 0.4F);

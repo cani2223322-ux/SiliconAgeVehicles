@@ -239,7 +239,7 @@ final class GlassCockpitSVA {
 
     /** Text left-aligned at x, centred on y, `h` tall at most and `maxW` wide at most. */
     private static void textL(FontRenderer fr, String s, float x, float y, float h, float maxW, int color) {
-        int px = fr.getStringWidth(s);
+        float px = HiFontSVA.width(fr, s);
         if (px <= 0) {
             return;
         }
@@ -248,7 +248,7 @@ final class GlassCockpitSVA {
 
     /** Text right-aligned to x. */
     private static void textR(FontRenderer fr, String s, float x, float y, float h, float maxW, int color) {
-        int px = fr.getStringWidth(s);
+        float px = HiFontSVA.width(fr, s);
         if (px <= 0) {
             return;
         }
@@ -883,7 +883,7 @@ final class GlassCockpitSVA {
 
     /** A label centred at (x, y): one line if it fits at height h, else split at its middle space into two. */
     private static void twoLines(FontRenderer fr, String s, float x, float y, float h, float maxW, int c) {
-        int px = fr.getStringWidth(s);
+        float px = HiFontSVA.width(fr, s);
         int sp = s.indexOf(' ', s.length() / 2 - 1);
         if (sp < 0) {
             sp = s.lastIndexOf(' ');
@@ -979,6 +979,9 @@ final class GlassCockpitSVA {
     /** The scale's ticks (every `minor`, long + a number every `major`) over 0..max. */
     private static void scaleMarks(FontRenderer fr, float R, int max, int minor, int major) {
         col(tint(WHITE));
+        if (FaceArtSVA.scale(R, max, minor, major, Z1, tint(WHITE))) {
+            return;                                         // 2K / 4K wave: the baked ticks and numbers
+        }
         for (int v = 0; v <= max; v += minor) {
             float a = GlassMath.angle(v / (float) max);
             boolean big = v % major == 0;

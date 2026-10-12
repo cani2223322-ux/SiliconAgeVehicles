@@ -139,6 +139,7 @@ public final class SelfTestSVA {
             com.sva.vehicle.FuelMath.legacyTest = false;
             SelfTestFuelSVA.run();                          // hydrogen wave: fuel, the removable battery, wear and service
             SelfTestAirDefenseSVA.run();                    // air-defence wave: transponder, radars, zones, rules of engagement, ballistics
+            SelfTestHiResSVA.run();                         // 2K / 4K wave: cockpit quality, glyph atlas layout, mips, cache keys
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
