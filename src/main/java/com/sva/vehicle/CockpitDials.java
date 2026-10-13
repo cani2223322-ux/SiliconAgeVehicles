@@ -180,6 +180,14 @@ public final class CockpitDials {
     }
 
     /**
+     * A dial that needs no board power (airspeed, altimeter, vario - the pitot-static set): it still reads with АКБ off,
+     * every other dial falls to its stop.
+     */
+    public static boolean pitotStatic(int kind) {
+        return kind == SPEED || kind == ALT || kind == VSPEED;
+    }
+
+    /**
      * The needle following its reading, frame by frame: an exponential approach with a time constant of 0.15 s (dt in
      * seconds; a long pause or the first frame jumps straight to the value).
      */

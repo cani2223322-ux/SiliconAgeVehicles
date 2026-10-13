@@ -137,7 +137,9 @@ public final class CockpitInstrumentsSVA {
         // ★11 startup (started by clientTick when the local player takes the wheel or the power comes back)
         boolean powered = v.powered();
         float sec = s.startNs == 0 ? -1F : (now - s.startNs) / 1e9F;
-        phase = powered ? CockpitLamps.phase(sec) : CockpitLamps.PH_NORMAL;
+        // no board power (АКБ off, the battery flat or out): every screen, lamp and strip stays dark - only the switch
+        // panels (to turn it back on) and the pitot-static dials work; the startup runs when the power comes back
+        phase = powered ? CockpitLamps.phase(sec) : CockpitLamps.PH_DARK;
         if (phase == CockpitLamps.PH_NORMAL) {
             s.startNs = 0;
         }
@@ -189,12 +191,21 @@ public final class CockpitInstrumentsSVA {
                 float min = CockpitDials.min(kind, t), max = CockpitDials.max(kind, t, v.cargoCapacity());
                 if (i == dead && !Float.isNaN(s.shown[i])) {
                     // round 2, D2 (★7): a dead instrument (or the iced pitot's airspeed) - the needle stays where it stopped
+                } else if (!powered) {
+                    // unpowered: the pitot-static dials still read, every electric one falls to its stop
+                    s.shown[i] = CockpitDials.follow(s.shown[i], CockpitDials.pitotStatic(kind) ? value(kind, v, t, s, pt) : min, dt);
                 } else if (phase == CockpitLamps.PH_NORMAL) {
                     s.shown[i] = CockpitDials.follow(s.shown[i], value(kind, v, t, s, pt), dt);
                 } else {
                     s.shown[i] = min + (max - min) * sweep;          // ★11: at rest, then 0 -> max -> 0
                 }
+                if (!powered) {
+                    phase = CockpitLamps.PH_NORMAL;                  // a printed, unlit face (night = 0 without power)
+                }
                 drawDial(fr, l.dials.get(i), kind, s.shown[i], min, max);
+                if (!powered) {
+                    phase = CockpitLamps.PH_DARK;
+                }
                 if (i == dead && phase != CockpitLamps.PH_DARK) {
                     failFlag(fr, l.dials.get(i));
                 }
@@ -234,7 +245,13 @@ public final class CockpitInstrumentsSVA {
             }
             drawLamps(fr, l, t, v, pt);
             AvionicsSVA.draw(fr, l, v, t, pt, sweep);                  // stage C: the AP panel, HSI, flap / trim, the gate
+            if (!powered) {
+                phase = CockpitLamps.PH_NORMAL;                          // the switches stay readable (their lamps follow the board)
+            }
             OverheadPanelSVA.draw(fr, l, v, t);                         // round 2, D2: the overhead switch panel (C+: the wall / heli roof)
+            if (!powered) {
+                phase = CockpitLamps.PH_DARK;
+            }
             GlassCockpitSVA.Readings rd = new GlassCockpitSVA.Readings();
             rd.speed = s.speed;
             rd.vy = s.vy;

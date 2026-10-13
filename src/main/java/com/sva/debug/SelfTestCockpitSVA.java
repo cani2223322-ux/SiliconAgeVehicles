@@ -341,5 +341,10 @@ final class SelfTestCockpitSVA {
         }
         check(cfg && miss.length() == 0, "cockpit wave config (glassCockpit, radarAltCallouts on, style both) and the dynamic lang lines (pages,"
                 + " titles, transponder modes, overhead lamps, the function) in ru + en" + miss);
+        check(CockpitDials.pitotStatic(CockpitDials.SPEED) && CockpitDials.pitotStatic(CockpitDials.ALT)
+                        && CockpitDials.pitotStatic(CockpitDials.VSPEED) && !CockpitDials.pitotStatic(CockpitDials.CHARGE)
+                        && !CockpitDials.pitotStatic(CockpitDials.RPM) && !CockpitDials.pitotStatic(CockpitDials.GAS)
+                        && !CockpitDials.pitotStatic(CockpitDials.HEADING),
+                "АКБ off: only airspeed / altimeter / vario read without board power, every other dial falls to its stop");
     }
 }
