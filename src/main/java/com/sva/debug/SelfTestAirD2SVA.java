@@ -49,14 +49,16 @@ final class SelfTestAirD2SVA {
 
     private static void switches() {
         int all = SystemsMath.ALL_ON;
-        boolean on = all == 127 && SystemsMath.on(all, SystemsMath.SW_BAT) && SystemsMath.on(all, SystemsMath.SW_HEAT)
+        boolean on = all == 255 && SystemsMath.on(all, SystemsMath.SW_BAT) && SystemsMath.on(all, SystemsMath.SW_HEAT)
+                && SystemsMath.on(all, SystemsMath.SW_INS) && SystemsMath.SWITCHES == 8
                 && !SystemsMath.on(SystemsMath.toggle(all, SystemsMath.SW_NAV), SystemsMath.SW_NAV)
                 && SystemsMath.toggle(SystemsMath.toggle(all, SystemsMath.SW_NAV), SystemsMath.SW_NAV) == all && SystemsMath.sanitize(-1) == all
                 && SystemsMath.toggle(all, 9) == all;
         check(on && SystemsMath.SW_KEYS.length == SystemsMath.SWITCHES && SystemsMath.GUARDED.length == SystemsMath.SWITCHES
                         && SystemsMath.SW_COLOUR.length == SystemsMath.SWITCHES && SystemsMath.GUARDED[SystemsMath.SW_BAT] && SystemsMath.GUARDED[SystemsMath.SW_GEN]
-                        && !SystemsMath.GUARDED[SystemsMath.SW_NAV],
-                "D2 switches: seven (АКБ, ГЕН under guards; НАВ. ОГНИ, СТРОБ, МАЯЧОК, ПОС. ФАРЫ, ОБОГРЕВ), all on by default, a toggle flips one");
+                        && !SystemsMath.GUARDED[SystemsMath.SW_NAV] && !SystemsMath.GUARDED[SystemsMath.SW_INS],
+                "D2 switches: eight (АКБ, ГЕН under guards; НАВ. ОГНИ, СТРОБ, МАЯЧОК, ПОС. ФАРЫ, ОБОГРЕВ; D5: ИНС), all on by default,"
+                        + " a toggle flips one");
         check(SystemsMath.lightSwitch(VehicleLights.RED) == SystemsMath.SW_NAV && SystemsMath.lightSwitch(VehicleLights.GREEN) == SystemsMath.SW_NAV
                         && SystemsMath.lightSwitch(VehicleLights.WHITE) == SystemsMath.SW_NAV && SystemsMath.lightSwitch(VehicleLights.STROBE) == SystemsMath.SW_STROBE
                         && SystemsMath.lightSwitch(VehicleLights.BEACON) == SystemsMath.SW_BEACON && SystemsMath.lightSwitch(VehicleLights.HEAD) == SystemsMath.SW_LAMP
@@ -248,8 +250,10 @@ final class SelfTestAirD2SVA {
         check(SystemsMath.switches(w) == SystemsMath.toggle(SystemsMath.ALL_ON, SystemsMath.SW_GEN) && SystemsMath.engine(w) == SystemsMath.WARM
                         && SystemsMath.fails(w) == (SystemsMath.F_ENGINE | SystemsMath.F_INSTR) && SystemsMath.instr(w) == 5 && SystemsMath.batteryPct(w) == 42
                         && SystemsMath.frostLevel(w) == 2 && (w & SystemsMath.P_CFG_ENGINE) != 0 && (w & SystemsMath.P_ICED) != 0
-                        && (w & SystemsMath.P_CFG_FAILS) == 0 && w > 0 && SystemsMath.batteryPct(SystemsMath.pack(0, 0, 0, 0, SystemsMath.BAT_MAX, 0, 0)) == 100,
-                "D2 sync: the board word round trip (switches, engine, failures, instrument, battery %, frost, flags; the sign bit unused)");
+                        && (w & SystemsMath.P_CFG_FAILS) == 0 && SystemsMath.insStatus(w) == SystemsMath.INS_READY
+                        && SystemsMath.batteryPct(SystemsMath.pack(0, 0, 0, 0, SystemsMath.BAT_MAX, 0, 0)) == 100,
+                "D2 sync: the board word round trip (switches, engine, failures, instrument, battery %, frost, flags; D5: the INS status in"
+                        + " bits 30..31)");
     }
 
     private static void nbt() {
@@ -320,7 +324,8 @@ final class SelfTestAirD2SVA {
                     && !EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_SWITCH + i, true, false);
         }
         check(pilot && EntityVehicleSVA.A_SWITCH + SystemsMath.SWITCHES <= 127 && EntityVehicleSVA.A_ENGINE < EntityVehicleSVA.A_SWITCH,
-                "D2 key: the start and the seven switches (Action A_SWITCH + i, one byte) are the pilot's alone - not the owner's from outside");
+                "D2 key: the start and the eight switches (Action A_SWITCH + i, one byte) are the pilot's alone - not the owner's from outside");
+
     }
 
     private static void panel() {

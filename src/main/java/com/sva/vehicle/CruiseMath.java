@@ -22,7 +22,9 @@ public final class CruiseMath {
     /** Why it switched off (HUD / chat): keys, low charge, stall, landed, no thrust (overheat / empty / no lift). */
     public static final int OFF_KEYS = 1, OFF_CHARGE = 2, OFF_STALL = 3, OFF_GROUND = 4, OFF_THRUST = 5, OFF_MODE = 6,
             /** Aircraft stage C: ЗАХВ brought the aircraft low over the runway (AutopilotMath.OFF_HEIGHT) - the pilot lands. */
-            OFF_LANDING = 7;
+            OFF_LANDING = 7,
+            /** Stage D5: the INS is not aligned (off, no power, aligning) - like the A320, no autopilot without the IRs. */
+            OFF_INS = 8;
     /** The wheel's step of the set speed (km/h) and the lowest set speed. */
     public static final double STEP_KMH = 5, MIN_KMH = 5;
     /** blocks/tick per km/h (VehicleMath.kmh: b/t x 20 x 3.6). */

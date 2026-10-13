@@ -109,7 +109,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             /** Stage A: the flap setting and the pilot's airbrake (as the throttle: the entity's, not the item's). */
             K_FLAPS = "SVAFlaps", K_AIRBRAKE = "SVAAirbrake",
             /** D2: the engine's state and the pitot's ice (the entity's - picked up, the engine is off and the ice gone). */
-            K_ENGINE = "SVAEngine", K_ICE = "SVAIce";
+            K_ENGINE = "SVAEngine", K_ICE = "SVAIce",
+            /** D5: the INS was aligned (an entity saved before D5 has no key: taken as aligned - it keeps it if still powered). */
+            K_INS = "SVAInsAligned";
     /** «Передать владельца»: the new owner must be online within this many blocks of the vehicle. */
     public static final double TRANSFER_RANGE = 16;
     private static final int X_TRAILER = 1, X_DRILL = 2, X_MODE_SHIFT = 2, X_WIDE = 16, X_HEAD = 32, X_AUTO_SHIFT = 6, X_AUTO_ON = 512,
@@ -145,7 +147,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             A_FLAPS_UP = 25, A_FLAPS_DOWN = 26, A_AIRBRAKE = 27,
             /**
              * Aircraft round 2, D2 (the pilot): «Запуск двигателя» - start (off) / stop (turning); an overhead switch -
-             * A_SWITCH + SystemsMath.SW_* (30..36) toggles it.
+             * A_SWITCH + SystemsMath.SW_* (30..37; D5: 37 = ИНС, the helicopter too) toggles it.
              */
             A_ENGINE = 28, A_SWITCH = 30,
             /**
@@ -342,6 +344,15 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     // aircraft round 2, D2 (SystemsMath), server: the engine, its no-pilot timer, the failure roll's timer, the pitot's ice
     private final SystemsMath.Engine engine = new SystemsMath.Engine();
+    /**
+     * Stage D5, server: the INS's machine and this tick's status (SystemsMath.INS_*), where it stood last tick (the
+     * "standing still" check). Aligned is kept over a reload (K_INS) while the board stays powered. World tests: aligned at
+     * once (as the engine) unless the vehicle's debugInsManual says it goes through the real alignment.
+     */
+    private final SystemsMath.Ins ins = new SystemsMath.Ins();
+    private int insNow = SystemsMath.INS_READY;
+    private double insX = Double.NaN, insY, insZ;
+    public boolean debugInsManual;
     private int noPilot, failTimer, ice, autoWait;
     /** Ticks before the auto-start tries again after it could not crank (or misfired). */
     private static final int AUTO_RETRY = 60;
@@ -412,7 +423,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.addObject(DW_AP2, Integer.valueOf(0));
         dataWatcher.addObject(DW_BASE_X, Integer.valueOf(Integer.MIN_VALUE));
         dataWatcher.addObject(DW_BASE_Z, Integer.valueOf(Integer.MIN_VALUE));
-        dataWatcher.addObject(DW_SYS, Integer.valueOf(SystemsMath.ALL_ON));
+        dataWatcher.addObject(DW_SYS, Integer.valueOf(SystemsMath.INITIAL));
     }
 
     // ------------------------------------------------------------------ synced views (both sides)
@@ -1130,6 +1141,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             boolean thrust = t.movement == Movement.HOVER ? hasLift() && canThrust() : canThrust();
             return thrust ? 0 : CruiseMath.OFF_THRUST;
         }
+        if (!insReady()) {
+            return CruiseMath.OFF_INS;                              // D5: no attitude / heading without the aligned INS
+        }
         boolean keys = (in & (IN_FWD | IN_BACK | IN_LEFT | IN_RIGHT)) != 0;
         double charge = getEnergy() / Math.max(1.0, getMaxEnergy());
         // the server judges the airspeed it measured last tick (a driver's client's: its own, capped) - its per-tick
@@ -1736,11 +1750,43 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** The overhead switches (SystemsMath.SW_* bits). Server: the state's; clients: synced. */
     public int switches() {
-        return remote() ? SystemsMath.switches(sysWord()) : state.switches;
+        return remote() ? SystemsMath.switches(sysWord()) : SystemsMath.effective(state.type, state.switches);
     }
 
     public boolean switchOn(int i) {
         return SystemsMath.on(switches(), i);
+    }
+
+    /** Stage D5: this type has the INS (SystemsMath.insApplies - the D2 aircraft and the helicopter). */
+    public boolean insApplies() {
+        return SystemsMath.insApplies(getVehicleType());
+    }
+
+    /** Stage D5: the INS status (SystemsMath.INS_*); a type without one: INS_READY. Server: this tick's; clients: synced. */
+    public int insStatus() {
+        if (!insApplies()) {
+            return SystemsMath.INS_READY;
+        }
+        return remote() ? SystemsMath.insStatus(sysWord()) : insNow;
+    }
+
+    /** Stage D5: the INS is aligned - attitude, heading, the map and the autopilot are there. */
+    public boolean insReady() {
+        return insStatus() == SystemsMath.INS_READY;
+    }
+
+    /** Stage D5: whole seconds left of the INS alignment (0 when not aligning). */
+    public int insSecondsLeft() {
+        if (insStatus() != SystemsMath.INS_ALIGN) {
+            return 0;
+        }
+        return remote() ? SystemsMath.insSeconds(hiLiftBits())
+                : SystemsMath.secondsLeft(ins.done, SystemsMath.alignTicks(ConfigSVA.insAlignSeconds));
+    }
+
+    /** Stage D5: the alignment just started over (moved while aligning) - the ВЫСТ. lamp flashes. */
+    public boolean insRestarted() {
+        return insApplies() && (remote() ? SystemsMath.insFlash(hiLiftBits()) : ins.flash > 0);
     }
 
     /** The board has power: АКБ on and the battery not flat. */
@@ -1933,6 +1979,44 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         return 1 - state.hp / Math.max(1F, state.maxHp());
     }
 
+    /**
+     * Stage D5, server, once a tick (serverUpdate, before the autopilot's judgement): the INS - on with the board powered
+     * it aligns standing still; the switch off / the power lost drops the alignment (an engaged autopilot lets go by
+     * cruiseBlocked - OFF_INS); vehicles.ins off - always aligned. The riders hear when it is aligned.
+     */
+    private void insTick(VehicleType t) {
+        boolean moving = false;
+        if (!Double.isNaN(insX)) {
+            double dx = posX - insX, dy = posY - insY, dz = posZ - insZ;
+            moving = dx * dx + dy * dy + dz * dz > SystemsMath.ALIGN_SPEED * SystemsMath.ALIGN_SPEED;
+        }
+        insX = posX;
+        insY = posY;
+        insZ = posZ;
+        if (!SystemsMath.insApplies(t)) {
+            insNow = SystemsMath.INS_READY;
+            return;
+        }
+        boolean on = SystemsMath.on(state.switches, SystemsMath.SW_INS), power = powered();
+        int was = insNow;
+        if (!ConfigSVA.ins) {
+            ins.align();
+            insNow = SystemsMath.INS_READY;
+            return;
+        }
+        if (on && power && testInstantEngine && !debugInsManual && !ins.ready) {
+            ins.align();                                            // world tests: the INS aligned at once (as the engine)
+        }
+        insNow = ins.tick(on, power, moving, SystemsMath.alignTicks(ConfigSVA.insAlignSeconds));
+        if (was != insNow) {
+            if (insNow == SystemsMath.INS_READY && was == SystemsMath.INS_ALIGN) {
+                tellRiders("sva.msg.ins.ready");                     // «ИНС выставлена»
+            } else if (was == SystemsMath.INS_READY && on && !power) {
+                tellRiders("sva.msg.ins.lost");                      // the power gone: «ИНС - нет питания, выставка сброшена»
+            }
+        }
+    }
+
     /** Server: a failure comes on (F_* bit, the instrument's slot): the riders are told, the master caution sounds. */
     private void fail(int f, int slot) {
         if (f == 0 || (state.fails & f) != 0) {
@@ -2060,6 +2144,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** Server: an overhead switch flipped by the pilot (serverAction). АКБ off stops the engine (its tick does). */
     private void switchCommand(EntityPlayer p, int i) {
+        if (i == SystemsMath.SW_INS && !ConfigSVA.ins) {
+            msg(p, "sva.msg.ins.always");                          // D5: vehicles.ins off - always aligned
+            return;
+        }
         state.switches = SystemsMath.toggle(state.switches, i);
         vanillaShot("random.click", 0.35F, SystemsMath.on(state.switches, i) ? 1.6F : 1.2F);
         if (i == SystemsMath.SW_BAT && !SystemsMath.on(state.switches, i) && engine.state != SystemsMath.OFF) {
@@ -2103,6 +2191,14 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 engine.stop();
             }
         }
+        syncWatcher();
+    }
+
+    /** World test (D5): the INS through its real alignment (`manual`) or the tests' instant one; the alignment restarts. */
+    public void debugIns(boolean manual) {
+        debugInsManual = manual;
+        ins.reset();
+        insNow = SystemsMath.on(state.switches, SystemsMath.SW_INS) ? SystemsMath.INS_FAULT : SystemsMath.INS_OFF;
         syncWatcher();
     }
 
@@ -2220,13 +2316,17 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         dataWatcher.updateObject(DW_TRAILER, trailerString());
         dataWatcher.updateObject(DW_REGEN, Integer.valueOf(com.sva.vehicle.RegenMath.pack(regenNow, ConfigSVA.regenEfficiency, ConfigSVA.regen)));
         dataWatcher.updateObject(DW_HILIFT, Integer.valueOf(HighLiftMath.pack(flaps, airbrake, groundSpoilers, slats, flapWarn > 0,
-                HighLiftMath.spec(t) != null && HighLiftMath.brakeDeg(HighLiftMath.spec(t), airspeedNow) < HighLiftMath.spec(t).brakeDeg)));
-        if (SystemsMath.applies(t) || state.hydrogen()) {
-            dataWatcher.updateObject(DW_SYS, Integer.valueOf(SystemsMath.pack(SystemsMath.applies(t) ? state.switches : SystemsMath.ALL_ON, engine.state, state.fails, state.failInstr,
+                HighLiftMath.spec(t) != null && HighLiftMath.brakeDeg(HighLiftMath.spec(t), airspeedNow) < HighLiftMath.spec(t).brakeDeg)
+                // D5: the INS's seconds left / restart flash in the word's spare bits (changes once a second while aligning)
+                | SystemsMath.packInsAux(insNow == SystemsMath.INS_ALIGN ? SystemsMath.secondsLeft(ins.done,
+                        SystemsMath.alignTicks(ConfigSVA.insAlignSeconds)) : 0, ins.flash > 0)));
+        if (SystemsMath.insApplies(t) || state.hydrogen()) {
+            dataWatcher.updateObject(DW_SYS, Integer.valueOf(SystemsMath.pack(SystemsMath.effective(t, state.switches), engine.state, state.fails, state.failInstr,
                     state.battery, SystemsMath.frost(ice), (ConfigSVA.engineStart ? SystemsMath.P_CFG_ENGINE : 0)
                             | (ConfigSVA.failures ? SystemsMath.P_CFG_FAILS : 0) | (heatingNow ? SystemsMath.P_HEATING : 0)
                             | (coldNow ? SystemsMath.P_COLD : 0) | (SystemsMath.iced(ice) ? SystemsMath.P_ICED : 0)
-                            | (SystemsMath.on(state.switches, SystemsMath.SW_GEN) && state.energy > 0 ? SystemsMath.P_CHARGING : 0))));
+                            | (SystemsMath.on(state.switches, SystemsMath.SW_GEN) && state.energy > 0 ? SystemsMath.P_CHARGING : 0),
+                    insNow)));
         }
         if (CruiseMath.kind(t.movement, true) == CruiseMath.AUTOPILOT) {
             // aircraft stage C: the autopilot panel for every rider (the server's judgement) and the HSI's «База»
@@ -2381,6 +2481,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         int in = autoDrive ? autoIn : input;
         double sysEu = systemsTick(t, motorOn, in, riddenByEntity != null || debugDriver || autoDrive);   // D2: battery, engine, heat, failures
+        insTick(t);                                                 // D5: the INS alignment (before the autopilot judges)
         cruiseNow = !autoDrive && motorOn && cruiseActive(in);
         routeServerTick();                                          // D4: МАРШ's points, the plan to the driver
         boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
@@ -5175,7 +5276,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             airbrakeCommand(p);
         } else if (a == A_ENGINE && (SystemsMath.applies(t) || state.hydrogen())) {
             engineCommand(p);
-        } else if (a >= A_SWITCH && a < A_SWITCH + SystemsMath.SWITCHES && SystemsMath.applies(t)) {
+        } else if (a >= A_SWITCH && a < A_SWITCH + SystemsMath.SWITCHES && (SystemsMath.applies(t)
+                || a == A_SWITCH + SystemsMath.SW_INS && SystemsMath.insApplies(t))) {     // D5: the helicopter has only its ИНС
             switchCommand(p, a - A_SWITCH);
         } else if (a == A_FLIGHT_MODE && t.movement == Movement.TILT) {
             int r = toggleFlightMode();
@@ -5565,6 +5667,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             }
             ice = Math.max(0, Math.min(SystemsMath.ICE_TICKS, tag.getInteger(K_ICE)));
         }
+        if (SystemsMath.insApplies(t) && (!tag.hasKey(K_INS) || tag.getBoolean(K_INS))) {
+            // D5: aligned over a reload (a pilot who logged out mid-flight can't align in the air); the first tick drops it
+            // if the board has no power or ИНС is off
+            ins.align();
+            insNow = SystemsMath.INS_READY;
+        }
         autoReason = state.autoState == AutoDelivery.STOPPED || AutoDelivery.driving(state.autoState)
                 ? Math.max(0, Math.min(7, tag.getByte(K_AUTO_REASON))) : AutoDelivery.R_NONE;
         if (t.singular && tag.hasKey(K_PORTAL) && tag.getInteger(K_PORTAL_TICKS) > 0) {
@@ -5587,6 +5695,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         tag.setBoolean(K_AIRBRAKE, airbrake);
         tag.setByte(K_ENGINE, (byte) engine.state);
         tag.setInteger(K_ICE, ice);
+        tag.setBoolean(K_INS, ins.ready);
         tag.setByte(K_AUTO_REASON, (byte) autoReason);
         if (portalTicks > 0 && portalTarget != null) {
             NBTTagCompound pt = new NBTTagCompound();

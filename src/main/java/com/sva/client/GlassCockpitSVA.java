@@ -301,43 +301,53 @@ final class GlassCockpitSVA {
         float yBand = hh - 0.83F * h;                                // the heading band's top
         float cy = hh - 0.44F * h;                                   // the attitude's centre
         float fs = h * 0.042F;
-        // attitude: sky over ground in the area above the heading band, the horizon through (0, cy) moved by pitch / bank
-        float perDeg = h * 0.0216F;
-        double a = Math.toRadians(r.roll);
-        float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
-        float ox = sa * r.pitch * perDeg, oy = cy - ca * r.pitch * perDeg;
-        float[][] area = {{-hw, yBand}, {hw, yBand}, {hw, hh}, {-hw, hh}};
-        col(0x2870C8);
-        CockpitInstrumentsSVA.poly(CockpitInstrumentsSVA.clip(area, ox, oy, -sa, ca), Z0);
-        col(0x82542A);
-        CockpitInstrumentsSVA.poly(CockpitInstrumentsSVA.clip(area, ox, oy, sa, -ca), Z0);
-        // the pitch ladder (clipped to the middle of the attitude area)
-        col(0xF2F2F6);
-        float lx = hw * 0.55F, ly = Math.min(hh - cy, cy - yBand) * 0.92F;
-        for (int deg = -20; deg <= 20; deg += 5) {
-            float len = deg == 0 ? w * 2 : w * (Math.abs(deg) == 5 ? 0.06F : 0.12F);
-            float px = ox - sa * deg * perDeg, py = oy + ca * deg * perDeg - cy;
-            float[][] seg = CockpitInstrumentsSVA.clipSegment(px - ca * len, py - sa * len, px + ca * len, py + sa * len, deg == 0 ? hw : lx, ly);
-            if (seg != null) {
-                CockpitInstrumentsSVA.line(seg[0][0], seg[0][1] + cy, seg[1][0], seg[1][1] + cy, h * (deg == 0 ? 0.008F : 0.005F), Z1);
+        // stage D5: the INS not aligned - no attitude and no heading (the A320's red ATT / HDG flags); the air data tapes stay
+        boolean insOk = v.insReady();
+        if (insOk) {
+            // attitude: sky over ground in the area above the heading band, the horizon through (0, cy) moved by pitch / bank
+            float perDeg = h * 0.0216F;
+            double a = Math.toRadians(r.roll);
+            float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            float ox = sa * r.pitch * perDeg, oy = cy - ca * r.pitch * perDeg;
+            float[][] area = {{-hw, yBand}, {hw, yBand}, {hw, hh}, {-hw, hh}};
+            col(0x2870C8);
+            CockpitInstrumentsSVA.poly(CockpitInstrumentsSVA.clip(area, ox, oy, -sa, ca), Z0);
+            col(0x82542A);
+            CockpitInstrumentsSVA.poly(CockpitInstrumentsSVA.clip(area, ox, oy, sa, -ca), Z0);
+            // the pitch ladder (clipped to the middle of the attitude area)
+            col(0xF2F2F6);
+            float lx = hw * 0.55F, ly = Math.min(hh - cy, cy - yBand) * 0.92F;
+            for (int deg = -20; deg <= 20; deg += 5) {
+                float len = deg == 0 ? w * 2 : w * (Math.abs(deg) == 5 ? 0.06F : 0.12F);
+                float px = ox - sa * deg * perDeg, py = oy + ca * deg * perDeg - cy;
+                float[][] seg = CockpitInstrumentsSVA.clipSegment(px - ca * len, py - sa * len, px + ca * len, py + sa * len, deg == 0 ? hw : lx, ly);
+                if (seg != null) {
+                    CockpitInstrumentsSVA.line(seg[0][0], seg[0][1] + cy, seg[1][0], seg[1][1] + cy, h * (deg == 0 ? 0.008F : 0.005F), Z1);
+                }
+            }
+            // the bank scale (turns with the bank) and the fixed pointer
+            float R = h * 0.3F;
+            for (int k : new int[] {-45, -30, -20, -10, 0, 10, 20, 30, 45}) {
+                double ang = Math.toRadians(k - r.roll);
+                float sx = (float) Math.sin(ang), sy = (float) Math.cos(ang);
+                CockpitInstrumentsSVA.line(sx * R, cy + sy * R, sx * (R + h * 0.03F), cy + sy * (R + h * 0.03F), h * 0.008F, Z1);
+            }
+            AvionicsSVA.tri(0F, cy + R - h * 0.005F, -h * 0.022F, cy + R - h * 0.04F, h * 0.022F, cy + R - h * 0.04F, Z1);
+            // the aircraft symbol (yellow)
+            col(0xFFD228);
+            float lw = h * 0.016F;
+            CockpitInstrumentsSVA.line(-w * 0.17F, cy, -w * 0.06F, cy, lw, Z2);
+            CockpitInstrumentsSVA.line(-w * 0.06F, cy, -w * 0.03F, cy - h * 0.035F, lw, Z2);
+            CockpitInstrumentsSVA.line(w * 0.17F, cy, w * 0.06F, cy, lw, Z2);
+            CockpitInstrumentsSVA.line(w * 0.06F, cy, w * 0.03F, cy - h * 0.035F, lw, Z2);
+            rect(-lw, cy - lw, lw, cy + lw, Z2);
+        } else {
+            insFlag(fr, 0F, cy, h * 0.075F, Lang.tr("sva.ins.flag.att"));
+            String sub = insSub(v);
+            if (sub != null) {
+                textC(fr, sub, 0F, cy - h * 0.1F, fs * 0.8F, w * 0.5F, tint(WHITE));
             }
         }
-        // the bank scale (turns with the bank) and the fixed pointer
-        float R = h * 0.3F;
-        for (int k : new int[] {-45, -30, -20, -10, 0, 10, 20, 30, 45}) {
-            double ang = Math.toRadians(k - r.roll);
-            float sx = (float) Math.sin(ang), sy = (float) Math.cos(ang);
-            CockpitInstrumentsSVA.line(sx * R, cy + sy * R, sx * (R + h * 0.03F), cy + sy * (R + h * 0.03F), h * 0.008F, Z1);
-        }
-        AvionicsSVA.tri(0F, cy + R - h * 0.005F, -h * 0.022F, cy + R - h * 0.04F, h * 0.022F, cy + R - h * 0.04F, Z1);
-        // the aircraft symbol (yellow)
-        col(0xFFD228);
-        float lw = h * 0.016F;
-        CockpitInstrumentsSVA.line(-w * 0.17F, cy, -w * 0.06F, cy, lw, Z2);
-        CockpitInstrumentsSVA.line(-w * 0.06F, cy, -w * 0.03F, cy - h * 0.035F, lw, Z2);
-        CockpitInstrumentsSVA.line(w * 0.17F, cy, w * 0.06F, cy, lw, Z2);
-        CockpitInstrumentsSVA.line(w * 0.06F, cy, w * 0.03F, cy - h * 0.035F, lw, Z2);
-        rect(-lw, cy - lw, lw, cy + lw, Z2);
         // the tapes: speed (km/h) left, altitude (Y) right
         float t0 = hh - 0.1F * h, t1 = hh - 0.78F * h;
         float kmh = r.speed * 72F;
@@ -362,27 +372,31 @@ final class GlassCockpitSVA {
         // the heading strip
         col(0x0A0C12);
         rect(-hw, -hh, hw, yBand, Z0 * 2);
-        float hdg = heading(v, pt);
-        float perHdg = w * 0.011F;
-        col(tint(WHITE));
-        int h0 = (int) Math.floor(hdg / 5F) * 5;
-        for (int k = h0 - 30; k <= h0 + 35; k += 5) {
-            float x = (k - hdg) * perHdg;
-            if (Math.abs(x) > hw * 0.95F) {
-                continue;
+        if (!insOk) {
+            insFlag(fr, 0F, (-hh + yBand) / 2, h * 0.06F, Lang.tr("sva.ins.flag.hdg"));      // D5: the heading is the INS's
+        } else {
+            float hdg = heading(v, pt);
+            float perHdg = w * 0.011F;
+            col(tint(WHITE));
+            int h0 = (int) Math.floor(hdg / 5F) * 5;
+            for (int k = h0 - 30; k <= h0 + 35; k += 5) {
+                float x = (k - hdg) * perHdg;
+                if (Math.abs(x) > hw * 0.95F) {
+                    continue;
+                }
+                boolean big = ((k % 360) + 360) % 10 == 0;
+                CockpitInstrumentsSVA.line(x, yBand, x, yBand - h * (big ? 0.026F : 0.013F), h * 0.005F, Z1);
+                if (big) {
+                    int hv = ((k % 360) + 360) % 360;
+                    textC(fr, String.format("%02d", Integer.valueOf(hv / 10)), x, yBand - h * 0.05F, fs * 0.8F, perHdg * 8, tint(WHITE));
+                }
             }
-            boolean big = ((k % 360) + 360) % 10 == 0;
-            CockpitInstrumentsSVA.line(x, yBand, x, yBand - h * (big ? 0.026F : 0.013F), h * 0.005F, Z1);
-            if (big) {
-                int hv = ((k % 360) + 360) % 360;
-                textC(fr, String.format("%02d", Integer.valueOf(hv / 10)), x, yBand - h * 0.05F, fs * 0.8F, perHdg * 8, tint(WHITE));
-            }
+            col(YEL);
+            AvionicsSVA.tri(0F, yBand - h * 0.004F, -h * 0.018F, yBand + h * 0.022F, h * 0.018F, yBand + h * 0.022F, Z2);
+            float bx = w * 0.06F, by0 = -hh + h * 0.012F, by1 = yBand - h * 0.075F;
+            box(-bx, by0, bx, by1, h * 0.005F, tint(WHITE), 0x000000, Z1);
+            textC(fr, String.format("%03d", Integer.valueOf(Math.round(hdg) % 360)), 0F, (by0 + by1) / 2, (by1 - by0) * 0.7F, bx * 1.8F, tint(WHITE));
         }
-        col(YEL);
-        AvionicsSVA.tri(0F, yBand - h * 0.004F, -h * 0.018F, yBand + h * 0.022F, h * 0.018F, yBand + h * 0.022F, Z2);
-        float bx = w * 0.06F, by0 = -hh + h * 0.012F, by1 = yBand - h * 0.075F;
-        box(-bx, by0, bx, by1, h * 0.005F, tint(WHITE), 0x000000, Z1);
-        textC(fr, String.format("%03d", Integer.valueOf(Math.round(hdg) % 360)), 0F, (by0 + by1) / 2, (by1 - by0) * 0.7F, bx * 1.8F, tint(WHITE));
         // the top line
         String top;
         int topC = GRN;
@@ -409,7 +423,7 @@ final class GlassCockpitSVA {
         } else {
             // МАРШ: the active point and its distance (magenta)
             int[] rt = CockpitInstrumentsSVA.apView(v).mode(AutopilotMath.M_ROUTE) ? v.routeTarget() : null;
-            if (rt != null && rt[0] < rt[1]) {
+            if (rt != null && rt[0] < rt[1] && insOk) {
                 double d = AutopilotMath.distance(v.posX, v.posZ, rt[2] + 0.5, rt[3] + 0.5);
                 textC(fr, Lang.tr("sva.pfd.route", Integer.valueOf(rt[0] + 1), Integer.valueOf(rt[1]), AutopilotMath.km(d)), -w * 0.3F,
                         (-hh + yBand) / 2, fs * 0.72F, w * 0.3F, MAG);
@@ -423,6 +437,28 @@ final class GlassCockpitSVA {
             }
         }
         GL11.glPopMatrix();
+    }
+
+    /**
+     * Stage D5: an A320-style failure flag - the word in red inside a thin red box on black (ПРОСТР / КУРС), centred at
+     * (x, y), `th` tall.
+     */
+    static void insFlag(FontRenderer fr, float x, float y, float th, String word) {
+        float tw = HiFontSVA.width(fr, word) * th * 0.8F / 8F + th * 0.8F;
+        box(x - tw / 2, y - th / 2, x + tw / 2, y + th / 2, th * 0.07F, RED, 0x000000, Z2);
+        CockpitInstrumentsSVA.textLift = Z2 + 0.0004F;
+        textC(fr, word, x, y, th * 0.75F, tw, RED);
+        CockpitInstrumentsSVA.textLift = Z1;
+    }
+
+    /** Stage D5: the line under the flags - «ВЫСТАВКА ИНС 7 с» / «ИНС ВЫКЛ.» / «ИНС: НЕТ ПИТАНИЯ»; null when aligned. */
+    static String insSub(EntityVehicleSVA v) {
+        int st = v.insStatus();
+        if (st == com.sva.vehicle.SystemsMath.INS_READY) {
+            return null;
+        }
+        return st == com.sva.vehicle.SystemsMath.INS_ALIGN ? Lang.tr("sva.ins.screen.align", Integer.valueOf(v.insSecondsLeft()))
+                : Lang.tr("sva.ins.screen." + com.sva.vehicle.SystemsMath.INS_KEYS[st]);
     }
 
     /** A tape from y t0 (top) to t1 at x0..x1: ticks every `step`, 6 steps over its height, the value's box at cy. */
@@ -470,7 +506,13 @@ final class GlassCockpitSVA {
         col(BAR_BG);
         rect(-hw, top, hw, hh, Z0 * 2);
         textL(fr, Lang.tr("sva.mfd.title." + GlassMath.PAGE_KEYS[page] + (heli ? ".heli" : "")), -hw + w * 0.03F, (top + hh) / 2, fs * 1.05F, w * 0.62F, CYN);
-        if (!heli) {
+        if (!v.insReady()) {
+            // D5: the memo (the A320 ECAM's «IRS IN ALIGN»): green, amber once the engine runs; the AP can't be on meanwhile
+            String memo = v.insStatus() == com.sva.vehicle.SystemsMath.INS_ALIGN
+                    ? Lang.tr("sva.ins.memo", Integer.valueOf(v.insSecondsLeft())) : Lang.tr("sva.ins.memo." + com.sva.vehicle.SystemsMath.INS_KEYS[v.insStatus()]);
+            boolean amber = v.insStatus() != com.sva.vehicle.SystemsMath.INS_ALIGN || v.engineGated(t) && v.engineState() == com.sva.vehicle.SystemsMath.RUN;
+            textR(fr, memo, hw - w * 0.03F, (top + hh) / 2, fs * 0.8F, w * 0.34F, amber ? AMB : GRN);
+        } else if (!heli) {
             AutopilotMath.Panel ap = CockpitInstrumentsSVA.apView(v);
             String apl = ap.on ? apModes(ap) : Lang.tr("sva.pfd.apOff");
             textR(fr, apl, hw - w * 0.03F, (top + hh) / 2, fs * 0.8F, w * 0.34F, ap.on ? GRN : DIMT);
@@ -497,10 +539,14 @@ final class GlassCockpitSVA {
                 }
                 break;
             case GlassMath.MAP:
-                map(fr, v, t, pt, w, top, bot, fs, heli);
-                break;
             case GlassMath.ROUTE:
-                route(fr, v, r, w, top, fs);
+                if (!v.insReady()) {
+                    noNav(fr, v, w, top, bot, fs);                      // D5: no map / plan without the aligned INS
+                } else if (page == GlassMath.MAP) {
+                    map(fr, v, t, pt, w, top, bot, fs, heli);
+                } else {
+                    route(fr, v, r, w, top, fs);
+                }
                 break;
             case GlassMath.CARGO:
                 cargo(fr, v, w, top, bot, fs);
@@ -509,6 +555,20 @@ final class GlassCockpitSVA {
                 rwrPage(fr, v, w, h, top, fs);
         }
         GL11.glPopMatrix();
+    }
+
+    /**
+     * Stage D5: КАРТА / МАРШ without the aligned INS (the A320 ND's «MAP NOT AVAIL»): blank, the red КУРС flag at the top,
+     * «КАРТА НЕДОСТУПНА» in the middle, «ВЫСТАВКА ИНС 7 с» under it.
+     */
+    private static void noNav(FontRenderer fr, EntityVehicleSVA v, float w, float top, float bot, float fs) {
+        float mid = (top + bot) / 2, hgt = top - bot;
+        insFlag(fr, 0F, top - hgt * 0.12F, fs * 1.6F, Lang.tr("sva.ins.flag.hdg"));
+        textC(fr, Lang.tr("sva.ins.mapNa"), 0F, mid, fs * 1.2F, w * 0.86F, RED);
+        String sub = insSub(v);
+        if (sub != null) {
+            textC(fr, sub, 0F, mid - fs * 2F, fs * 0.9F, w * 0.8F, tint(WHITE));
+        }
     }
 
     /** «КУРС ВЫС» - the held modes' names. */

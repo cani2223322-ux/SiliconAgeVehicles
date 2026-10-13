@@ -37,15 +37,22 @@ public final class SystemsMath {
 
     // ---------------------------------------------------------------- the overhead switches
 
-    public static final int SW_BAT = 0, SW_GEN = 1, SW_NAV = 2, SW_STROBE = 3, SW_BEACON = 4, SW_LAMP = 5, SW_HEAT = 6, SWITCHES = 7;
+    /** SW_INS (stage D5): the inertial navigation system - see the INS section below; the helicopter has it too. */
+    public static final int SW_BAT = 0, SW_GEN = 1, SW_NAV = 2, SW_STROBE = 3, SW_BEACON = 4, SW_LAMP = 5, SW_HEAT = 6, SW_INS = 7,
+            SWITCHES = 8;
+    /** The switches a save from before D5 knew (VehicleState.K_SW_COUNT missing): the ones after them load ON. */
+    public static final int OLD_SWITCHES = 7;
     /** Every switch on: the default of a new vehicle and of one saved before D2. */
     public static final int ALL_ON = (1 << SWITCHES) - 1;
     /** Lang key part per switch: sva.sys.sw.KEY (the panel's label, the menu's button), sva.sys.sw.KEY.tip. */
-    public static final String[] SW_KEYS = {"bat", "gen", "nav", "strobe", "beacon", "lamp", "heat"};
+    public static final String[] SW_KEYS = {"bat", "gen", "nav", "strobe", "beacon", "lamp", "heat", "ins"};
     /** Under a red guard on the panel (the mock-up: АКБ and ГЕН - not switched off by accident). */
-    public static final boolean[] GUARDED = {true, true, false, false, false, false, false};
-    /** A switch's lamp colour when lit (0xRRGGBB; the mock-up: power / nav green, strobe / landing white, beacon red, heat amber). */
-    public static final int[] SW_COLOUR = {0x46E07A, 0x46E07A, 0x46E07A, 0xF4F4EC, 0xFF4636, 0xF4F4EC, 0xFFB43A};
+    public static final boolean[] GUARDED = {true, true, false, false, false, false, false, false};
+    /**
+     * A switch's lamp colour when lit (0xRRGGBB; the mock-up: power / nav green, strobe / landing white, beacon red, heat
+     * amber; ИНС - the A320 ADIRS «ALIGN» white).
+     */
+    public static final int[] SW_COLOUR = {0x46E07A, 0x46E07A, 0x46E07A, 0xF4F4EC, 0xFF4636, 0xF4F4EC, 0xFFB43A, 0xF4F4EC};
 
     private SystemsMath() {
     }
@@ -66,6 +73,16 @@ public final class SystemsMath {
     /** Saved bits sanitised (an old save without the key: all on). */
     public static int sanitize(int sw) {
         return sw & ALL_ON;
+    }
+
+    /**
+     * Saved bits from a save that knew `known` switches (VehicleState.K_SW_COUNT; missing = OLD_SWITCHES): the switches
+     * added since then come ON - a vehicle saved before D5 has its ИНС on (it aligns once the board is powered).
+     */
+    public static int load(int saved, int known) {
+        int k = Math.max(0, Math.min(SWITCHES, known));
+        int mask = (1 << k) - 1;
+        return sanitize(saved) & mask | ALL_ON & ~mask;
     }
 
     /** The switch a light of this kind (VehicleLights.*) hangs on, or -1 (brake glow, amber beacons, markers: none). */
@@ -383,21 +400,164 @@ public final class SystemsMath {
         return (fails & F_ALL) != 0 || iced;
     }
 
+    // ---------------------------------------------------------------- the INS (stage D5, «ИНС»)
+
+    /*
+     * The inertial navigation system - after the A320 family's ADIRS: one switch «ИНС» per aircraft (SW_INS), on by
+     * default. Switched on with the board powered it ALIGNS for alignTicks (vehicles.insAlignSeconds, 10 s) standing
+     * still; until it is aligned the PFD has no attitude («ПРОСТР» flag) and no heading («КУРС» flag), the MFD's КАРТА
+     * and МАРШ have no map («КАРТА НЕДОСТУПНА»), the HSIs no rose, and the autopilot can't engage (CruiseMath.OFF_INS -
+     * an engaged one lets go). Airspeed and altitude keep reading: they are the air data (pitot-static), not the INS.
+     * The switch off or the board's power lost (АКБ off, flat, the cells empty, a wreck) drops the alignment; moving
+     * faster than ALIGN_SPEED while aligning restarts it (the panel's ВЫСТ. lamp flashes for RESTART_TICKS). An aligned INS
+     * stays aligned over a reload while powered (the entity's NBT). Which vehicles: insApplies - the D2 aircraft and the helicopter (whose other
+     * switches stay display-only and always on).
+     */
+
+    /** The INS status (synced: bits 30..31 of the word): switched off, on without power, aligning, aligned. */
+    public static final int INS_OFF = 0, INS_FAULT = 1, INS_ALIGN = 2, INS_READY = 3;
+    /** Lang key part per status: sva.ins.KEY. */
+    public static final String[] INS_KEYS = {"off", "fault", "align", "ready"};
+    /** Moving faster than this (blocks / tick: 1 block/s) while aligning restarts the alignment. */
+    public static final double ALIGN_SPEED = 0.05;
+    /** The ВЫСТ. lamp flashes this long after a restart (3 s). */
+    public static final int RESTART_TICKS = 60;
+    /** The alignment's longest setting (s) - the synced seconds-left field has 8 bits. */
+    public static final int ALIGN_MAX_S = 240;
+
+    /** The INS applies: the light plane, the jet, the tiltrotor and the helicopter (the aircraft with attitude / nav screens). */
+    public static boolean insApplies(VehicleType t) {
+        return applies(t) || t != null && t.movement == Movement.HELI;
+    }
+
+    /**
+     * The switch word a vehicle shows / syncs: the D2 aircraft their own; the helicopter every switch on but its ИНС
+     * (its other switches are display-only); everyone else all on.
+     */
+    public static int effective(VehicleType t, int sw) {
+        if (applies(t)) {
+            return sanitize(sw);
+        }
+        return insApplies(t) ? ALL_ON & ~(1 << SW_INS) | sw & 1 << SW_INS : ALL_ON;
+    }
+
+    /** The alignment in ticks for a setting in seconds (clamped 0..ALIGN_MAX_S; 0 = instant). */
+    public static int alignTicks(int seconds) {
+        return Math.max(0, Math.min(ALIGN_MAX_S, seconds)) * 20;
+    }
+
+    /** Whole seconds left of an alignment `done` ticks into `total` (rounded up; 0 when done). */
+    public static int secondsLeft(int done, int total) {
+        int left = total - Math.max(0, done);
+        return left <= 0 ? 0 : (left + 19) / 20;
+    }
+
+    /** The INS's state machine (the server's; the self-test drives it). */
+    public static final class Ins {
+        /** Ticks aligned so far; ticks left of the restart flash. */
+        public int done, flash;
+        public boolean ready;
+
+        /**
+         * One tick: `on` the switch, `power` the board powered, `moving` faster than ALIGN_SPEED, `total` the alignment's
+         * ticks (0 = instant). @return the status (INS_*)
+         */
+        public int tick(boolean on, boolean power, boolean moving, int total) {
+            if (flash > 0) {
+                flash--;
+            }
+            if (!on || !power) {
+                reset();
+                return on ? INS_FAULT : INS_OFF;
+            }
+            if (ready) {
+                return INS_READY;
+            }
+            if (moving) {
+                if (done > 0) {
+                    flash = RESTART_TICKS;              // the A320's ALIGN light flashing: the alignment starts over
+                }
+                done = 0;
+            } else {
+                done++;
+            }
+            if (done >= total) {
+                align();
+                return INS_READY;
+            }
+            return INS_ALIGN;
+        }
+
+        public void reset() {
+            done = 0;
+            ready = false;
+            flash = 0;
+        }
+
+        /** Straight to aligned (world tests; vehicles.ins off). */
+        public void align() {
+            ready = true;
+            done = 0;
+            flash = 0;
+        }
+    }
+
+    /**
+     * The INS's spare-bit field (bits 16..24 of the DW_HILIFT word, beside HighLiftMath.pack's 0..6 - DW_SYS is full):
+     * the seconds left of the alignment (0..255) and the restart flash.
+     */
+    public static final int INS_AUX_SHIFT = 16, INS_AUX_FLASH = 1 << 24, INS_AUX_MASK = 0xFF << INS_AUX_SHIFT | INS_AUX_FLASH;
+
+    public static int packInsAux(int secondsLeft, boolean flash) {
+        return Math.max(0, Math.min(255, secondsLeft)) << INS_AUX_SHIFT | (flash ? INS_AUX_FLASH : 0);
+    }
+
+    public static int insSeconds(int aux) {
+        return aux >> INS_AUX_SHIFT & 255;
+    }
+
+    public static boolean insFlash(int aux) {
+        return (aux & INS_AUX_FLASH) != 0;
+    }
+
     // ---------------------------------------------------------------- the synced word
 
-    private static final int P_ENGINE = 7, P_FAILS = 9, P_INSTR = 12, P_BAT = 15, P_FROST = 22;
+    /**
+     * The word's fields: switches 0..6 (SW_BAT..SW_HEAT), the engine 7..8, the failures 9..11, the instrument slot
+     * 12..14, the battery % 15..21, the frost 22..23, the flags 24..29 (P_*), the INS status 30..31 (D5: INS_*; its switch
+     * SW_INS reads as "status != INS_OFF", so the eighth switch costs no bit of its own).
+     */
+    private static final int P_ENGINE = 7, P_FAILS = 9, P_INSTR = 12, P_BAT = 15, P_FROST = 22, P_INS = 30;
     public static final int P_CFG_ENGINE = 1 << 24, P_CFG_FAILS = 1 << 25, P_HEATING = 1 << 26, P_CHARGING = 1 << 27, P_COLD = 1 << 28,
             P_ICED = 1 << 29;
+    /** The switches in bits 0..6 (all but SW_INS). */
+    private static final int LOW_SWITCHES = (1 << OLD_SWITCHES) - 1;
+    /** The word before the first sync: every switch on, the INS aligned (nothing flickers on a client). */
+    public static final int INITIAL = pack(ALL_ON, OFF, 0, 0, 0, 0, 0);
 
-    /** switches | engine state | failures | instrument slot | battery % | frost | flags (P_*) - 30 bits, the sign bit unused. */
+    /** As the pack below with the INS aligned (types without one; the self-tests from before D5). */
     public static int pack(int sw, int engine, int fails, int instr, double bat, int frost, int flags) {
+        return pack(sw, engine, fails, instr, bat, frost, flags, INS_READY);
+    }
+
+    /**
+     * switches | engine state | failures | instrument slot | battery % | frost | flags (P_*) | INS status - all 32 bits.
+     * The INS status follows SW_INS: the switch off - INS_OFF whatever `ins` says; on - at least INS_FAULT.
+     */
+    public static int pack(int sw, int engine, int fails, int instr, double bat, int frost, int flags, int ins) {
         int pct = (int) Math.round(Math.max(0, Math.min(BAT_MAX, bat)) * 100 / BAT_MAX);
-        return sw & ALL_ON | (engine & 3) << P_ENGINE | (fails & F_ALL) << P_FAILS | (instr & 7) << P_INSTR | (pct & 127) << P_BAT
-                | (frost & 3) << P_FROST | flags & (P_CFG_ENGINE | P_CFG_FAILS | P_HEATING | P_CHARGING | P_COLD | P_ICED);
+        int st = on(sw, SW_INS) ? Math.max(INS_FAULT, Math.min(INS_READY, ins)) : INS_OFF;
+        return sw & LOW_SWITCHES | (engine & 3) << P_ENGINE | (fails & F_ALL) << P_FAILS | (instr & 7) << P_INSTR | (pct & 127) << P_BAT
+                | (frost & 3) << P_FROST | flags & (P_CFG_ENGINE | P_CFG_FAILS | P_HEATING | P_CHARGING | P_COLD | P_ICED) | st << P_INS;
     }
 
     public static int switches(int w) {
-        return w & ALL_ON;
+        return w & LOW_SWITCHES | (insStatus(w) != INS_OFF ? 1 << SW_INS : 0);
+    }
+
+    /** The INS status (INS_*) of a packed word. */
+    public static int insStatus(int w) {
+        return w >>> P_INS & 3;
     }
 
     public static int engine(int w) {

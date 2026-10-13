@@ -221,7 +221,8 @@ public final class CockpitInstrumentsSVA {
                 }
                 switch (roles[i]) {
                     case CockpitDials.SCREEN_ATTITUDE:
-                        drawAttitude(fr, sc, s.pitch, s.roll, v.isStalling() && phase == CockpitLamps.PH_NORMAL);
+                        drawAttitude(fr, sc, s.pitch, s.roll, v.isStalling() && phase == CockpitLamps.PH_NORMAL,
+                                v.insReady() ? null : GlassCockpitSVA.insSub(v));
                         break;
                     case CockpitDials.SCREEN_MAIN:
                         drawMain(fr, sc, mainLines(v, t, s));
@@ -847,12 +848,22 @@ public final class CockpitInstrumentsSVA {
      * The attitude indicator: sky over ground split by the horizon - tilted by the bank, moved down as the nose
      * comes up (the screen's height = 60 degrees of pitch) - a pitch ladder every 10 degrees and the fixed aircraft mark.
      */
-    private static void drawAttitude(FontRenderer fr, CockpitLayout.Screen sc, float pitch, float roll, boolean stall) {
+    /** `ins`: null - the INS aligned; else (stage D5) the screen goes blank under the red ПРОСТР flag, this line under it. */
+    private static void drawAttitude(FontRenderer fr, CockpitLayout.Screen sc, float pitch, float roll, boolean stall, String ins) {
         frame(sc.c, sc.n, sc.up, sc.right, sc.front + LIFT_FACE);
         if (night > 0F) {
             glowRect(sc.w, sc.h, 0.35F * night);
         }
         float hw = sc.w / 2, hh = sc.h / 2;
+        if (ins != null) {
+            GL11.glColor4f(0.02F, 0.025F, 0.035F, 1F);
+            rect(-hw, -hh, hw, hh, 0F);
+            GlassCockpitSVA.insFlag(fr, 0F, hh * 0.2F, sc.h * 0.2F, Lang.tr("sva.ins.flag.att"));
+            text(fr, ins, 0F, -hh * 0.4F, sc.h * 0.11F, sc.w * 0.9F, 0xEBEDF2);
+            GL11.glPopMatrix();
+            return;
+        }
+
         float perDeg = sc.h / 60F;
         double a = Math.toRadians(roll);                      // bank right (+): the horizon's right end rises
         float ca = (float) Math.cos(a), sa = (float) Math.sin(a);

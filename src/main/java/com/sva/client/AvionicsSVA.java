@@ -304,6 +304,16 @@ final class AvionicsSVA {
             GL11.glPopMatrix();
             return;
         }
+        if (!v.insReady()) {
+            // stage D5: no heading without the aligned INS - no card, no bugs, the red КУРС flag (and how long it still aligns)
+            GlassCockpitSVA.insFlag(fr, 0F, R * 0.2F, R * 0.24F, Lang.tr("sva.ins.flag.hdg"));
+            String sub = GlassCockpitSVA.insSub(v);
+            if (sub != null) {
+                CockpitInstrumentsSVA.text(fr, sub, 0F, -R * 0.3F, R * 0.13F, R * 1.5F, tint(WHITE));
+            }
+            GL11.glPopMatrix();
+            return;
+        }
         float yaw = v.prevRotationYaw + MathHelper.wrapAngleTo180_float(v.rotationYaw - v.prevRotationYaw) * pt;
         double hdg = ((yaw + 180F) % 360F + 360F) % 360F;
         float Rc = R * 0.82F;

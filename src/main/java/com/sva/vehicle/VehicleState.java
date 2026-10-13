@@ -33,6 +33,8 @@ public class VehicleState {
             K_TRAILER_TYPE = "TrailerType", K_TRAILER_DATA = "TrailerData",
             // aircraft round 2, D2 (SystemsMath): the overhead switches, the failures (+ the failed instrument's slot), the battery
             K_SWITCHES = "Switches", K_FAILS = "Failures", K_FAIL_INSTR = "FailInstr", K_BATTERY = "Battery",
+            // stage D5: how many switches the save knew (SystemsMath.load - a save without it predates ИНС: ИНС on)
+            K_SW_COUNT = "SwCount",
             // hydrogen wave (FuelMath / BatteryMath): the board battery is in (+ its health, limit, services, cycle EU, deep
             // flag - BatteryMath.K_*), the H2 tank has been set up once (a save without it gets a full tank)
             K_BAT_IN = "BatIn", K_H2_SEEN = "H2Seen",
@@ -481,6 +483,7 @@ public class VehicleState {
         access.write(a);
         t.setTag(K_ACCESS, a);
         t.setInteger(K_SWITCHES, switches);
+        t.setInteger(K_SW_COUNT, SystemsMath.SWITCHES);
         t.setInteger(K_FAILS, fails);
         t.setInteger(K_FAIL_INSTR, failInstr);
         t.setDouble(K_BATTERY, battery);
@@ -594,7 +597,8 @@ public class VehicleState {
         anchor = type.singular && t.getBoolean(K_ANCHOR);
         invisible = type.singular && t.getBoolean(K_INVIS);
         // D2: a missing key keeps the current value (a save from before D2: every switch on, no failures, a full battery)
-        switches = t.hasKey(K_SWITCHES) ? SystemsMath.sanitize(t.getInteger(K_SWITCHES)) : switches;
+        switches = t.hasKey(K_SWITCHES) ? SystemsMath.load(t.getInteger(K_SWITCHES),
+                t.hasKey(K_SW_COUNT) ? t.getInteger(K_SW_COUNT) : SystemsMath.OLD_SWITCHES) : switches;
         fails = t.hasKey(K_FAILS) ? t.getInteger(K_FAILS) & SystemsMath.F_ALL : fails;
         failInstr = t.hasKey(K_FAIL_INSTR) ? Math.max(0, Math.min(SystemsMath.INSTR_SLOTS - 1, t.getInteger(K_FAIL_INSTR))) : failInstr;
         battery = t.hasKey(K_BATTERY) ? clampNum(t.getDouble(K_BATTERY), 0, SystemsMath.BAT_MAX) : battery;

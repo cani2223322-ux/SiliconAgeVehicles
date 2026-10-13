@@ -141,6 +141,14 @@ public final class ConfigSVA {
      */
     public static boolean failures = true;
     /**
+     * Server (stage D5): the aircraft's (and the helicopter's) inertial navigation - the «ИНС» switch and its alignment
+     * (SystemsMath.Ins): until aligned the PFD has no attitude / heading, the MFD no map, the autopilot can't engage.
+     * Off = always aligned, the switch does nothing.
+     */
+    public static boolean ins = true;
+    /** Server (stage D5): the INS alignment in seconds standing still with the board powered (0 = instant). */
+    public static int insAlignSeconds = 10;
+    /**
      * Client (aircraft round 2, stage D3, ★12): the jet's and the tiltrotor's gear doors open before the legs move and shut
      * after they are in (GearMath.sequence); off = the doors follow the legs at once.
      */
@@ -380,6 +388,12 @@ public final class ConfigSVA {
             failures = c.getBoolean("failures", v, true,
                     "Aircraft failures over 60 % wear: engine power loss, a jammed flap, a dead instrument; the garage repairs them / "
                             + "Отказы авиации при износе выше 60 %: потеря тяги, заклинивший закрылок, отказ прибора; ремонт в гараже снимает их");
+            ins = c.getBoolean("ins", v, true,
+                    "Aircraft inertial navigation (INS switch, A320 ADIRS style): until aligned no attitude / heading / map, no autopilot; false = always aligned / "
+                            + "Инерциальная система авиации (выключатель ИНС, как ADIRS A320): до выставки нет авиагоризонта / курса / карты и автопилота; false - всегда выставлена");
+            insAlignSeconds = c.getInt("insAlignSeconds", v, 10, 0, com.sva.vehicle.SystemsMath.ALIGN_MAX_S,
+                    "INS alignment time in seconds, standing still with the board powered (0 = instant) / "
+                            + "Время выставки ИНС в секундах, стоя на месте с питанием борта (0 - сразу)");
             gearDoors = c.getBoolean("gearDoors", v, true,
                     "Jet / tiltrotor gear doors open before the legs move and shut after them (client) / "
                             + "Створки шасси реактивного и конвертоплана открываются до уборки ног и закрываются после (клиент)");

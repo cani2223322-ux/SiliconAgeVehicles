@@ -33,6 +33,10 @@ import net.minecraft.client.gui.FontRenderer;
  * helicopter has no board systems (SystemsMath.applies) - its panel SHOWS the state of what exists (the board powered,
  * the rotor, the nav lights' config, the headlights, a hitched trailer) and draws the rest (КРАН / НАСОС H2, ОБОГРЕВ,
  * ПРОЖЕКТОР, СБРОС) as visual items until their waves give them a game side.
+ * <p>
+ * Stage D5: the ИНС switch (SystemsMath.SW_INS) under an A320 ADIRS-style annunciator - ВЫСТ. (white: aligning, flashing
+ * after a restart) over ОТКАЗ (amber: on without the board's power) - in a НАВИГАЦИЯ group on all three panels; on the
+ * helicopter it is a REAL switch (the menu's «Пульт» row sets it), the rest of its panel stays display-only.
  */
 @SideOnly(Side.CLIENT)
 final class OverheadPanelSVA {
@@ -42,7 +46,8 @@ final class OverheadPanelSVA {
             Z2 = CockpitInstrumentsSVA.LIFT_NEEDLE - CockpitInstrumentsSVA.LIFT_FACE, Z3 = CockpitInstrumentsSVA.LIFT_HUB - CockpitInstrumentsSVA.LIFT_FACE;
     /** The slots across the face (the mock-up's 8 columns) and where each switch sits: {switch, row (0 near / 1 far), slot}. */
     private static final float SLOTS = 8F;
-    private static final float[][] CELLS = {{SystemsMath.SW_BAT, 0, 0.75F}, {SystemsMath.SW_GEN, 0, 1.85F}, {SystemsMath.SW_HEAT, 0, 3.5F},
+    private static final float[][] CELLS = {{SystemsMath.SW_BAT, 0, 0.7F}, {SystemsMath.SW_GEN, 0, 1.7F}, {SystemsMath.SW_HEAT, 0, 2.95F},
+            {SystemsMath.SW_INS, 0, 4.15F},
             {SystemsMath.SW_NAV, 1, 0.55F}, {SystemsMath.SW_STROBE, 1, 1.4F}, {SystemsMath.SW_BEACON, 1, 2.25F}, {SystemsMath.SW_LAMP, 1, 3.1F}};
 
     private OverheadPanelSVA() {
@@ -78,9 +83,10 @@ final class OverheadPanelSVA {
         col(PANEL);
         CockpitInstrumentsSVA.rect(-w / 2, -h / 2, w / 2, h / 2, 0F);
         // the group frames and their titles (near row at the top of the face: its "up" points back toward the pilot)
-        group(fr, s, 0, 0.15F, 2.45F, "sva.sys.group.power");
-        group(fr, s, 0, 2.85F, 4.15F, "sva.sys.group.heat");
-        group(fr, s, 0, 4.55F, 7.85F, "sva.sys.group.engine");
+        group(fr, s, 0, 0.15F, 2.25F, "sva.sys.group.power");
+        group(fr, s, 0, 2.45F, 3.45F, "sva.sys.group.heat");
+        group(fr, s, 0, 3.65F, 4.65F, "sva.sys.group.nav");                  // D5: ИНС
+        group(fr, s, 0, 4.85F, 7.85F, "sva.sys.group.engine");
         group(fr, s, 1, 0.1F, 3.55F, "sva.sys.group.lights");
         int sw = v.switches();
         for (float[] c : CELLS) {
@@ -91,7 +97,11 @@ final class OverheadPanelSVA {
                 lampOn = on && board;                               // amber: armed (it heats in the cold - HUD «обогрев»)
             }
             float x = slotX(w, c[2]), y = rowY(h, (int) c[1]);
-            lamp(x, y + h * 0.13F, h * 0.04F, SystemsMath.SW_COLOUR[i], !dark && (test || lampOn));
+            if (i == SystemsMath.SW_INS) {
+                insAnn(fr, x, y + h * 0.13F, w / SLOTS * 0.8F, h * 0.12F, insAlignLit(v), insFaultLit(v), dark, test);
+            } else {
+                lamp(x, y + h * 0.13F, h * 0.04F, SystemsMath.SW_COLOUR[i], !dark && (test || lampOn));
+            }
             toggle(x, y - h * 0.02F, h, on, SystemsMath.GUARDED[i]);
             CockpitInstrumentsSVA.text(fr, Lang.tr("sva.sys.sw." + SystemsMath.SW_KEYS[i] + ".short"), x, y - h * (c[1] == 0 ? 0.165F : 0.19F), h * 0.055F,
                     w / SLOTS * 0.84F, CockpitInstrumentsSVA.tint(LABEL));
@@ -101,7 +111,7 @@ final class OverheadPanelSVA {
         boolean gated = v.engineGated(t);
         boolean ready = gated ? es == SystemsMath.RUN : v.isLifting();
         boolean starting = es == SystemsMath.CRANK || es == SystemsMath.WARM;
-        float ex = slotX(w, 5.15F), ey = rowY(h, 0);
+        float ex = slotX(w, 5.6F), ey = rowY(h, 0);
         boolean blink = (ms / 300) % 2 == 0;
         lamp(ex, ey + h * 0.08F, h * 0.05F, starting ? CockpitLamps.AMBER : CockpitLamps.GREEN,
                 board && !dark && (test || ready || starting && blink));
@@ -219,8 +229,11 @@ final class OverheadPanelSVA {
 
     // ---------------------------------------------------------------- cockpit wave: the switch panels as rows of groups
 
-    /** A panel item: a toggle (guarded or not), or a guarded push button; its lamp (colour, lit) and its label. */
-    private static final int TOG = 0, GTOG = 1, BTN = 2;
+    /**
+     * A panel item: a toggle (guarded or not), or a guarded push button; its lamp (colour, lit) and its label. D5: INS -
+     * a toggle under the A320-style ВЫСТ. / ОТКАЗ annunciator (lampOn = ВЫСТ. lit, pressed = ОТКАЗ lit).
+     */
+    private static final int TOG = 0, GTOG = 1, BTN = 2, INS = 3;
 
     private static final class Item {
         final int kind;
@@ -251,6 +264,42 @@ final class OverheadPanelSVA {
         return new Item(BTN, Lang.tr(key), false, lamp, lampOn, pressed);
     }
 
+    /** D5: the ИНС switch with its annunciator. */
+    private static Item insTog(EntityVehicleSVA v) {
+        return new Item(INS, Lang.tr("sva.sys.sw.ins.short"), v.switchOn(SystemsMath.SW_INS), 0, insAlignLit(v), insFaultLit(v));
+    }
+
+    /**
+     * D5, the ИНС annunciator's ВЫСТ. (A320 «ALIGN», white): steady while aligning, flashing for a while after the
+     * alignment started over (the aircraft moved), out when aligned.
+     */
+    static boolean insAlignLit(EntityVehicleSVA v) {
+        return v.insStatus() == SystemsMath.INS_ALIGN && (!v.insRestarted() || (System.currentTimeMillis() / 250) % 2 == 0);
+    }
+
+    /**
+     * D5, its ОТКАЗ (A320 «FAULT», amber): switched on but without the board's power - lit while the battery bus still
+     * feeds the lamps (АКБ on and charged, the main cells empty); with АКБ off nothing lights at all.
+     */
+    static boolean insFaultLit(EntityVehicleSVA v) {
+        return v.insStatus() == SystemsMath.INS_FAULT && v.boardOn() && !v.isWrecked();
+    }
+
+    /** D5: the two-segment annunciator (ВЫСТ. over ОТКАЗ) centred at x, y, w x h. */
+    private static void insAnn(FontRenderer fr, float x, float y, float w, float h, boolean align, boolean fault, boolean dark, boolean test) {
+        col(0x0C0C0E);
+        CockpitInstrumentsSVA.rect(x - w / 2, y - h / 2, x + w / 2, y + h / 2, Z1 * 0.3F);
+        insSeg(fr, x, y + h / 4, w, h / 2, "sva.ins.lamp.align", SystemsMath.SW_COLOUR[SystemsMath.SW_INS], !dark && (test || align));
+        insSeg(fr, x, y - h / 4, w, h / 2, "sva.ins.lamp.fault", CockpitLamps.AMBER, !dark && (test || fault));
+    }
+
+    /** One segment: dark glass with its word in the lamp's colour; lit - the A320 way, the word glows on a dim face. */
+    private static void insSeg(FontRenderer fr, float x, float y, float w, float h, String key, int rgb, boolean lit) {
+        col(lit ? CockpitLamps.mix(rgb, 0x101012, 0.7F) : 0x131316);
+        CockpitInstrumentsSVA.rect(x - w * 0.46F, y - h * 0.42F, x + w * 0.46F, y + h * 0.42F, Z1 * 0.6F);
+        CockpitInstrumentsSVA.text(fr, Lang.tr(key), x, y, h * 0.55F, w * 0.86F, lit ? rgb : CockpitLamps.mix(rgb, 0x101012, 0.72F));
+    }
+
     /**
      * One row of groups between y0 and y1 across x0..x1 (concepts.rows_switches / cab2_art Canvas.switches: each group's
      * width by its item count): a thin frame with the title on its top edge, per item a lamp, the switch and the label.
@@ -270,7 +319,9 @@ final class OverheadPanelSVA {
                 Item it = g[i];
                 float cx = x + cw * (i + 0.5F);
                 float lampY = y1 - ch * 0.22F, swY = y0 + ch * 0.52F, labY = y0 + ch * 0.15F;
-                if (it.lamp != 0) {
+                if (it.kind == INS) {
+                    insAnn(fr, cx, lampY, cw * 0.86F, ch * 0.2F, it.lampOn, it.pressed, dark, test);
+                } else if (it.lamp != 0) {
                     lamp(cx, lampY, ch * 0.055F, it.lamp, !dark && (test || it.lampOn));
                 }
                 if (it.kind == BTN) {
@@ -343,10 +394,10 @@ final class OverheadPanelSVA {
                 {tog("sva.sys.sw.heat.short", heat, SystemsMath.SW_COLOUR[6], heat && board)},
                 {btn("sva.sys.start", starting ? CockpitLamps.AMBER : CockpitLamps.GREEN, board && (ready || starting && blink), es == SystemsMath.CRANK)}};
         Item[][] r2 = {{lightTog(sw, SystemsMath.SW_NAV, board), lightTog(sw, SystemsMath.SW_STROBE, board), lightTog(sw, SystemsMath.SW_BEACON, board),
-                lightTog(sw, SystemsMath.SW_LAMP, board)}};
+                lightTog(sw, SystemsMath.SW_LAMP, board)}, {insTog(v)}};
         float rh = (h - 3 * m) / 2;
         row(fr, -w / 2 + m, w / 2 - m, h / 2 - m - rh, h / 2 - m, new String[] {"sva.sys.group.power", "sva.sys.group.heat", "sva.sys.group.engine"}, r1, dark, test);
-        row(fr, -w / 2 + m, w / 2 - m, -h / 2 + m, -h / 2 + m + rh, new String[] {"sva.sys.group.lights"}, r2, dark, test);
+        row(fr, -w / 2 + m, w / 2 - m, -h / 2 + m, -h / 2 + m + rh, new String[] {"sva.sys.group.lights", "sva.sys.group.nav"}, r2, dark, test);
         GL11.glPopMatrix();
     }
 
@@ -395,8 +446,8 @@ final class OverheadPanelSVA {
         row(fr, -w / 2 + m, w / 2 - m, y - rh, y, new String[] {"sva.sys.group.power", "sva.sys.group.engine"}, r1, dark, test);
         y -= rh + gap;
         Item[][] r2 = {{tog("sva.ovhd.valve", h2, CockpitLamps.GREEN, h2), tog("sva.ovhd.pump", h2, CockpitLamps.GREEN, h2)},
-                {tog("sva.ovhd.heat", false, SystemsMath.SW_COLOUR[6], false)}};
-        row(fr, -w / 2 + m, w / 2 - m, y - rh, y, new String[] {"sva.ovhd.group.fuel", "sva.sys.group.heat"}, r2, dark, test);
+                {tog("sva.ovhd.heat", false, SystemsMath.SW_COLOUR[6], false)}, {insTog(v)}};
+        row(fr, -w / 2 + m, w / 2 - m, y - rh, y, new String[] {"sva.ovhd.group.fuel", "sva.sys.group.heat", "sva.sys.group.nav"}, r2, dark, test);
         y -= rh + gap;
         Item[][] r3 = {{tog("sva.sys.sw.nav.short", nav, SystemsMath.SW_COLOUR[2], nav && board), tog("sva.sys.sw.strobe.short", nav, SystemsMath.SW_COLOUR[3], nav && board),
                 tog("sva.sys.sw.beacon.short", nav, SystemsMath.SW_COLOUR[4], nav && board)}};

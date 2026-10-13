@@ -375,7 +375,8 @@ public class HudVehicleSVA {
         // aircraft stage A: «Закрылки 20 гр. · предкр. · ТОРМОЗ» (the light plane, the jet, the tiltrotor in airplane mode)
         boolean hlRow = !heli && com.sva.vehicle.HighLiftMath.spec(t) != null;
         // round 2, D2: the board systems - the engine start, the failures, the battery
-        boolean sysRow = com.sva.vehicle.SystemsMath.applies(t);
+        // D5: the helicopter (no board systems) gets the line only while its INS is not aligned
+        boolean sysRow = com.sva.vehicle.SystemsMath.applies(t) || com.sva.vehicle.SystemsMath.insApplies(t) && !v.insReady();
         int extraRows = (tilt ? 1 : 0) + (afterRow ? 1 : 0) + (hlRow ? 1 : 0) + (sysRow ? 1 : 0);
         shownVy = shownVy * 0.7 + (v.posY - v.prevPosY) * 0.3;
         long now = mc.theWorld.getTotalWorldTime();
@@ -590,6 +591,11 @@ public class HudVehicleSVA {
     static String[] systemsLine(EntityVehicleSVA v, VehicleType t, boolean blink) {
         int es = v.engineState(), fails = v.failures();
         boolean gated = v.engineGated(t);
+        // D5: the INS not aligned - its state after the engine's («... · ИНС: выставка 7 с»), the line amber
+        String ins = v.insApplies() && !v.insReady() ? insText(v) : null;
+        if (!com.sva.vehicle.SystemsMath.applies(t)) {
+            return new String[] {ins == null ? "" : ins, String.valueOf(v.insStatus() == com.sva.vehicle.SystemsMath.INS_FAULT && blink ? WARN : AMBER)};
+        }
         String text;
         int c;
         if (!v.switchOn(com.sva.vehicle.SystemsMath.SW_BAT)) {
@@ -628,7 +634,24 @@ public class HudVehicleSVA {
             text = b.toString();
             c = !v.switchOn(com.sva.vehicle.SystemsMath.SW_GEN) || v.batteryPct() < 20 ? AMBER : DIM;
         }
+        if (ins != null && v.switchOn(com.sva.vehicle.SystemsMath.SW_BAT)) {
+            text = text + " \u00b7 " + ins;
+            c = c == DIM ? AMBER : c;
+        }
         return new String[] {text, String.valueOf(c)};
+    }
+
+    /**
+     * Stage D5: the INS's state in words - «ИНС: выставка 7 с» (+ «сначала, стойте» after a restart), «ИНС: нет питания»,
+     * «ИНС выкл.», «ИНС выставлена» (the menu's tip, the HUD's systems line).
+     */
+    static String insText(EntityVehicleSVA v) {
+        int st = v.insStatus();
+        if (st == com.sva.vehicle.SystemsMath.INS_ALIGN) {
+            String s = Lang.tr("sva.ins.align", Integer.valueOf(v.insSecondsLeft()));
+            return v.insRestarted() ? s + " " + Lang.tr("sva.ins.restart") : s;
+        }
+        return Lang.tr("sva.ins." + com.sva.vehicle.SystemsMath.INS_KEYS[st]);
     }
 
     /**

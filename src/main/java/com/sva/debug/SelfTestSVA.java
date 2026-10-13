@@ -135,6 +135,7 @@ public final class SelfTestSVA {
             SelfTestAirD2SVA.run();                         // aircraft round 2, D2: switches, engine start, failures, overhead panel
             SelfTestAirD3SVA.run();                         // aircraft round 2, D3: gear doors and struts, nozzle petals, the jet's HUD
             SelfTestAirD4SVA.run();                         // aircraft round 2, D4: the flight plan (route maths, leg switching, NBT, rights)
+            SelfTestAirD5SVA.run();                         // stage D5: the INS (switch, alignment, sync bits, old saves, config)
             SelfTestCockpitSVA.run();                       // cockpit wave: the C+ cockpits (MFD pages, heli gauges, callouts, lamp strips, layouts)
             com.sva.vehicle.FuelMath.legacyTest = false;
             SelfTestFuelSVA.run();                          // hydrogen wave: fuel, the removable battery, wear and service

@@ -114,10 +114,14 @@ public class GuiVehicleSVA extends GuiScreen {
                     Lang.tr("sva.vmenu.act.setup"), null));
         }
         if (swRow()) {
-            // D2: «Пульт» - the seven overhead switches (the same packet as the cockpit's would be: Action A_SWITCH + i)
+            // D2: «Пульт» - the overhead switches (the same packet as the cockpit's would be: Action A_SWITCH + i); D5: the
+            // eighth, ИНС, last; the helicopter has only that one (its other panel switches are display-only)
             int sy = top + 19 + 36, lw = 34, bw = (w - 12 - lw) / SystemsMath.SWITCHES;
-            for (int i = 0; i < SystemsMath.SWITCHES; i++) {
-                buttonList.add(new GuiCargoSVA.Dark(B_SW + i, left + 6 + lw + i * bw, sy, bw - 2, SW_ROW - 3, "", null));
+            int[] shown = SystemsMath.applies(type) ? null : new int[] {SystemsMath.SW_INS};
+            int nSw = shown == null ? SystemsMath.SWITCHES : shown.length;
+            for (int k = 0; k < nSw; k++) {
+                int i = shown == null ? k : shown[k];
+                buttonList.add(new GuiCargoSVA.Dark(B_SW + i, left + 6 + lw + k * bw, sy, bw - 2, SW_ROW - 3, "", null));
             }
         }
         refresh();
@@ -138,9 +142,9 @@ public class GuiVehicleSVA extends GuiScreen {
         return vehicle != null && com.sva.airdefense.XpdrMath.fitted(type);
     }
 
-    /** D2: the vehicle has the overhead switches (the light plane, the jet, the tiltrotor). */
+    /** D2: the vehicle has the overhead switches (the light plane, the jet, the tiltrotor); D5: the helicopter its ИНС. */
     private boolean swRow() {
-        return vehicle != null && SystemsMath.applies(type);
+        return vehicle != null && SystemsMath.insApplies(type);
     }
 
     // ------------------------------------------------------------------ rows
@@ -633,6 +637,9 @@ public class GuiVehicleSVA extends GuiScreen {
         String k = "sva.sys.sw." + SystemsMath.SW_KEYS[i];
         l.add("\u00a7e" + Lang.tr(k) + ": " + Lang.tr(vehicle.switchOn(i) ? "sva.vmenu.st.on" : "sva.vmenu.st.off"));
         l.add(Lang.tr(k + ".tip"));
+        if (i == SystemsMath.SW_INS) {
+            l.add(HudVehicleSVA.insText(vehicle));                 // D5: «ИНС: выставка 7 с» / выставлена / нет питания
+        }
         if (i == SystemsMath.SW_BAT || i == SystemsMath.SW_GEN) {
             l.add("\u00a77" + Lang.tr("sva.sys.battery", Integer.valueOf(vehicle.batteryPct())));
         }
