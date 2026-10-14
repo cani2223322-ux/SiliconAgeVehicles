@@ -149,6 +149,13 @@ public final class ConfigSVA {
     /** Server (stage D5): the INS alignment in seconds standing still with the board powered (0 = instant). */
     public static int insAlignSeconds = 10;
     /**
+     * Liner wave 7: GPS always on (the user's decision: the IRs' drift is corrected, GPS PRIMARY on the ND / PROG) - kept as
+     * a hidden option, no GPS-off control in the cockpit; the IR / ADR random faults' chance per flight hour (behind
+     * vehicles.failures, rare); towing a liner by a tug; the passengers fastened by the seat-belt sign.
+     */
+    public static boolean linerGpsAlwaysOn = true, linerTow = true, linerSeatBelts = true;
+    public static double linerAdirsFailChance = 0.02;
+    /**
      * Client (aircraft round 2, stage D3, ★12): the jet's and the tiltrotor's gear doors open before the legs move and shut
      * after they are in (GearMath.sequence); off = the doors follow the legs at once.
      */
@@ -554,6 +561,19 @@ public final class ConfigSVA {
             linerCabinLighting = c.getBoolean("linerCabinLighting", v, true,
                     "Liner: the cockpit / cabin light levels - dome, flood, cabin steps, night blue, reading lights (client) / Лайнер:"
                             + " освещение кабины и салона - плафон, заливающий свет, ступени, ночной синий, лампы чтения (клиент)");
+            // liner wave 7: GPS (kept on - the user's decision; no cockpit switch), the ADIRS' random faults, towing, the seat belts
+            linerGpsAlwaysOn = c.getBoolean("linerGpsAlwaysOn", v, true,
+                    "Liner: GPS always on - the IRs' drift corrected, GPS PRIMARY (no cockpit switch) / Лайнер: GPS всегда включён - дрейф"
+                            + " ИНС корректируется, GPS PRIMARY (выключателя в кабине нет)");
+            linerAdirsFailChance = sanitize((float) c.getFloat("linerAdirsFailChance", v, 0.02F, 0F, 1F,
+                    "Liner: the chance per flight hour of a random IR / ADR fault (only with 'failures') / Лайнер: вероятность за час полёта"
+                            + " случайного отказа IR / ADR (только при 'failures')"), 0.02F, 0F, 1F);
+            linerTow = c.getBoolean("linerTow", v, true,
+                    "Liner: a truck / crawler can tow the liner by its nose gear (БУКСИР switch ON) / Лайнер: грузовик или вездеход может"
+                            + " буксировать лайнер за переднюю стойку (тумблер БУКСИР ВКЛ)");
+            linerSeatBelts = c.getBoolean("linerSeatBelts", v, true,
+                    "Liner: with the seat-belt sign on in flight the passengers are fastened (Shift twice to unbuckle) / Лайнер: при"
+                            + " табло 'ремни' в полёте пассажиры пристёгнуты (Shift дважды - отстегнуться)");
             linerPtuSound = c.getBoolean("linerPtuSound", v, true,
                     "Liner: the PTU's 'barking' during single-engine taxi as a sound / Лайнер: 'лай' PTU при рулении на одном двигателе - звуком");
             radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,

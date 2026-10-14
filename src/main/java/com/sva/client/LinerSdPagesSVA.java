@@ -225,7 +225,8 @@ public final class LinerSdPagesSVA {
         computer(L, 2, 92 * s, 92 * s, s);
         computer(L, 3, 140 * s, 92 * s, s);
         computer(L, 4, 188 * s, 92 * s, s);
-        LinerGfxSVA.text(tr("fctl.law", lang("sva.liner.law." + LinerFctl.LAW_KEYS[f.law])), 140 * s, 110 * s, 8.5F * s, f.law == 0 ? GRN : AMB, 0);
+        String lk = f.law == LinerFctl.ALTN && f.altn2 ? "altn2" : LinerFctl.LAW_KEYS[Math.min(3, f.law)];     // wave 7: ALTN 2, MECH
+        LinerGfxSVA.text(tr("fctl.law", lang("sva.liner.law." + lk)), 140 * s, 110 * s, 8.5F * s, f.law == 0 ? GRN : f.law == LinerFctl.MECH ? RED : AMB, 0);
         // elevators: L at x 56, R at 224 - up 30 (top) .. down 17
         LinerGfxSVA.text(tr("fctl.elev"), 56 * s, 146 * s, 8 * s, WHT, 0);
         LinerGfxSVA.text(tr("fctl.elev"), 224 * s, 146 * s, 8 * s, WHT, 0);
@@ -369,6 +370,10 @@ public final class LinerSdPagesSVA {
         boolean park = L.on(LinerControls.PARK_BRK);
         LinerGfxSVA.text(lang(park ? "sva.liner.pos.on" : "sva.liner.pos.off"), 236 * s, 214 * s, 8 * s, park ? (g.parkHold ? GRN : AMB) : WHT, -1);
         LinerGfxSVA.text(tr("wheel.accu", Integer.valueOf((int) Math.round(L.hyd.accu / 50) * 50)), 140 * s, 232 * s, 7 * s, GREY, 0);
+        if (L.chocks || L.towed) {
+            // wave 7: the chocks in / the tow bar on
+            LinerGfxSVA.text(lang(L.chocks ? "sva.liner.memo.chocks" : "sva.liner.memo.tow"), 140 * s, 178 * s, 8 * s, L.chocks ? AMB : GRN, 0);
+        }
     }
 
     /** A leg's symbol: green triangles down and locked, red in transit (or disagreeing), nothing up and locked. */

@@ -43,6 +43,11 @@ public final class LinerGfxSVA {
 
     /** Null in the game: GL. */
     public static Sink sink;
+    /**
+     * Wave 7 (the «Пульты» screen): the device px a drawing unit spans now and the text's floor (device px) - the text is
+     * never drawn smaller (0: no floor - the 3D cockpit).
+     */
+    static float unitPx, minTextPx;
 
     /**
      * Enters a face's frame: its units (x right, y down) onto the plane through `tl` (the face's top-left corner, the frame
@@ -87,7 +92,14 @@ public final class LinerGfxSVA {
         GL11.glColor4f((rgb >> 16 & 255) / 255F * bright, (rgb >> 8 & 255) / 255F * bright, (rgb & 255) / 255F * bright, 1F);
     }
 
+    /** Wave 7: the colour set last while a sink draws (the panels' preview: the guards' rects). */
+    static int sinkCol;
+
     static void col(int rgb, float a) {
+        if (sink != null) {
+            sinkCol = sc(rgb);
+            return;
+        }
         GL11.glColor4f((rgb >> 16 & 255) / 255F * bright, (rgb >> 8 & 255) / 255F * bright, (rgb & 255) / 255F * bright, a);
     }
 
@@ -207,7 +219,8 @@ public final class LinerGfxSVA {
             return;
         }
         if (sink != null) {
-            sink.text(s, x, y, h, sc(rgb), align, maxW);
+            float fl = unitPx > 0 && minTextPx > 0 ? minTextPx / unitPx : 0F;
+            sink.text(s, x, y, Math.max(h, fl), sc(rgb), align, fl > h ? 0 : maxW);      // wave 7: the floor (the panels' preview)
             return;
         }
         FontRenderer fr = Minecraft.getMinecraft().fontRenderer;
@@ -215,9 +228,10 @@ public final class LinerGfxSVA {
         if (wpx <= 0) {
             return;
         }
-        float k = h / 8F;
+        float floor = unitPx > 0 && minTextPx > 0 ? minTextPx / unitPx : 0F;
+        float k = Math.max(h, floor) / 8F;
         if (maxW > 0 && wpx * k > maxW) {
-            k = maxW / wpx;
+            k = Math.max(maxW / wpx, floor / 8F);                 // wave 7: a fitted text still keeps the floor
         }
         float w = wpx * k;
         float x0 = align < 0 ? x : align == 0 ? x - w / 2 : x - w;

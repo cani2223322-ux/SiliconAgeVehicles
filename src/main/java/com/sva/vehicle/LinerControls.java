@@ -402,6 +402,64 @@ public final class LinerControls {
     public static final Ctl TEMP_CK = rot("tempCk", OVH, 220, 960, 16, TEMP_POS, 2);
     public static final Ctl TEMP_CAB = rot("tempCab", OVH, 440, 960, 16, TEMP_POS, 2);
 
+    /**
+     * Wave 7: the pedestal's ADIRS switching (LinerPaintSVA.pedestal: the painted ИНС КВС / ВОЗД. ДАННЫЕ selectors) - КВС НА 3 /
+     * НОРМ / 2П НА 3: the captain's displays on ADIRU 3, normal (1 / 2), the F/O's on 3 (LinerAdirs.source).
+     */
+    public static final String[] SW3 = {"capt3", "norm", "fo3"};
+    public static final Ctl ATT_HDG = rot("attHdg", PED, 380, 1262, 14, SW3, 1);
+    public static final Ctl AIR_DATA = rot("airData", PED, 500, 1262, 14, SW3, 1);
+    /**
+     * Wave 7: the fire panel (LinerPaintSVA.overhead «ПОЖАР»): the handles ДВ 1 / ВСУ / ДВ 2 (pulled = the A320's FIRE push
+     * button out: fuel, bleed, generator off, the squibs armed), the agents (ПИРОПАТР. white armed, РАЗРЯЖ. amber fired), the
+     * tests.
+     */
+    public static final Ctl FIRE_ENG1 = add("fireEng1", OVH, LEV, new String[] {"in", "pulled"}, 0, 770, 115, 118, 54);
+    public static final Ctl FIRE_APU = add("fireApu", OVH, LEV, new String[] {"in", "pulled"}, 0, 940, 115, 118, 54);
+    public static final Ctl FIRE_ENG2 = add("fireEng2", OVH, LEV, new String[] {"in", "pulled"}, 0, 1110, 115, 118, 54);
+    public static final Ctl AGENT1_1 = agent("agent11", 736), AGENT1_2 = agent("agent12", 804), AGENT_APU = agent("agentApu", 940),
+            AGENT2_1 = agent("agent21", 1076), AGENT2_2 = agent("agent22", 1144);
+    public static final Ctl FIRE_TEST1 = pbm("fireTest1", OVH, 770, 335, 42, 42), FIRE_TEST_APU = pbm("fireTestApu", OVH, 940, 335, 42, 42),
+            FIRE_TEST2 = pbm("fireTest2", OVH, 1110, 335, 42, 42);
+    /**
+     * Wave 7: the sidestick priority buttons on the glare shield (under MASTER WARN / CAUT, the painted «ПРИОРИТ.»): the F/O's
+     * takes the controls (the F/O seat's player becomes the flying pilot), the captain's takes them back.
+     */
+    public static final Ctl PRIO_L = pbm("prioL", GS, 560, 150, 38, 38), PRIO_R = pbm("prioR", GS, 1440, 150, 38, 38);
+    /**
+     * Wave 7: the doors from the cockpit (the main panel's F/O knee recess, «ДВЕРИ»): L1, R1, the forward and aft cargo doors -
+     * amber ОТКР when open (the systems keep the buttons with the doors); the cabin's call (ВЫЗОВ: the passengers' chime).
+     */
+    public static final Ctl DOOR_L1 = doorPb("doorL1Pb", 1470), DOOR_R1 = doorPb("doorR1Pb", 1570), DOOR_CF = doorPb("doorCargoF", 1670),
+            DOOR_CA = doorPb("doorCargoA", 1770);
+    public static final Ctl PA_CALL = pbm("paCall", MP, 1880, 450, 52, 52);
+
+    static {
+        AGENT1_1.top = AGENT1_2.top = AGENT_APU.top = AGENT2_1.top = AGENT2_2.top = "disch";
+        AGENT1_1.bottom = AGENT1_2.bottom = AGENT_APU.bottom = AGENT2_1.bottom = AGENT2_2.bottom = "squib";
+        PRIO_L.bottom = PRIO_R.bottom = "priority";
+    }
+
+    /** Wave 7: an agent button of the fire panel (x; the painter's row at y 245, 50 units). */
+    private static Ctl agent(String id, float x) {
+        return pbm(id, OVH, x, 245, 54, 54);
+    }
+
+    /** Wave 7: a door button of the main panel (x; y 440). */
+    private static Ctl doorPb(String id, float x) {
+        return pb(id, MP, x, 450, 48, "open", null, false, 0);
+    }
+
+    /** Wave 7: the fire handles in LinerFire's zone order (ДВ 1, ВСУ, ДВ 2). */
+    public static Ctl[] fireHandles() {
+        return new Ctl[] {FIRE_ENG1, FIRE_APU, FIRE_ENG2};
+    }
+
+    /** Wave 7: the door buttons in LinerSystems.D_* order (L1, R1, cargo forward, cargo aft). */
+    public static Ctl[] doorButtons() {
+        return new Ctl[] {DOOR_L1, DOOR_R1, DOOR_CF, DOOR_CA};
+    }
+
     /** Wave 4: an FCU knob (r: its radius in panel units; the hitbox a little larger). */
     private static Ctl knob(String id, int panel, float cx, float cy, float r) {
         return add(id, panel, KNOB, null, 0, cx, cy, 2 * r + 12, 2 * r + 12);
@@ -411,7 +469,7 @@ public final class LinerControls {
         RAT.guard = true;
         EMER_EXIT.guard = true;
         QUICK.guard = true;
-        // the engines' fire handles are drawn on the overhead (wave 2 / 3: the fire system) - no row yet
+        // wave 7: the fire handles are rows now (FIRE_ENG1 / FIRE_APU / FIRE_ENG2)
     }
 
     /** Number of rows. */

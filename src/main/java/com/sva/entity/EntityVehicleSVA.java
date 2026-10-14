@@ -477,6 +477,23 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         syncWatcher();
     }
 
+    /** Liner wave 7: a tug tows this liner (both sides: the synced flag) - its own physics wait. */
+    public boolean linerTowed() {
+        return getVehicleType() == VehicleType.LINER && liner() != null && liner().towed;
+    }
+
+    /** Liner wave 7: the ticks a tug has stood at the nose gear (the coupling). */
+    int towCouple;
+
+    /**
+     * Liner wave 7: the transponder's mode C altitude is there - the liner's from the captain's selected ADR (none: no
+     * altitude in the reply, the air defence's track form shows none); every other vehicle has it.
+     */
+    public boolean xpdrAltitude() {
+        com.sva.vehicle.LinerSystems L = getVehicleType() == VehicleType.LINER ? liner() : null;
+        return L == null || L.adirs.sideAdr(0, L.at(com.sva.vehicle.LinerControls.AIR_DATA));
+    }
+
     // liner wave 2: the slats' automatic rule for the next tick's systems, the height over the ground, the grip under the
     // wheels, the world test's «in the air» for the systems alone
     boolean linerSlatsAuto;
@@ -2260,6 +2277,22 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         // the MCDU's «ВЫСТАВИТЬ»; the state goes to the ECAM memo and the MCDU (afs.irsState)
         int total = SystemsMath.alignTicks(ConfigSVA.insAlignSeconds);
         com.sva.vehicle.LinerSystems ls = t == VehicleType.LINER ? state.liner() : null;
+        if (ls != null) {
+            // liner wave 7: the three ADIRUs (LinerAdirs, ticked with the systems) are the INS - the old word follows them
+            insNow = ls.adirs.insStatus();
+            ins.ready = insNow == SystemsMath.INS_READY;
+            int left = ls.adirs.secondsLeft * 20;
+            ins.done = insNow == SystemsMath.INS_ALIGN ? Math.max(0, total - left) : 0;
+            boolean flash = false;
+            for (int i = 0; i < com.sva.vehicle.LinerAdirs.UNITS; i++) {
+                flash |= ls.adirs.alignLamp(i) == 2;
+            }
+            ins.flash = flash ? 2 : 0;
+            if (was != insNow && insNow == SystemsMath.INS_READY) {
+                tellRiders("sva.msg.ins.ready");
+            }
+            return;
+        }
         boolean gate = ls == null || com.sva.vehicle.LinerFms.irsGate(ConfigSVA.linerIrsAutoInit, ls.fms.irsDone);
         insNow = ins.tick(on, power, moving, com.sva.vehicle.LinerFms.alignTotal(total, gate));
         if (!gate && ins.done > total) {
@@ -2639,6 +2672,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     public double[] seatPos(int seat) {
         VehicleType t = getVehicleType();
+        if (t == VehicleType.LINER) {
+            seat = LinerGroundSVA.seatSwap(this, seat);             // liner wave 7: the F/O flying keeps both pilots in their seats
+        }
         double[] o = t.seatOffsets[Math.min(seat, t.seatOffsets.length - 1)];
         double[] w = toWorld(o[0], o[1]);
         return new double[] {posX + w[0], posY + t.seatDy(seat), posZ + w[1]};     // y: + the seat's own height change
@@ -2753,8 +2789,14 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         cruiseNow = !autoDrive && motorOn && cruiseActive(in);
         routeServerTick();                                          // D4: МАРШ's points, the plan to the driver
         boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
+        // liner wave 7: a tug moves a towed liner (its own physics and the pilot's moves wait); the doors shut when it rolls
+        boolean towedNow = t == VehicleType.LINER && state.liner() != null && ConfigSVA.linerTow && LinerGroundSVA.towTick(this);
+        if (t == VehicleType.LINER && state.liner() != null) {
+            LinerGroundSVA.doorsTick(this, state.liner());
+        }
+        clientDriven &= !towedNow;
         // aircraft: also while the last tick ended in the air (a driver who got out mid-air - onGround is stale then)
-        if (!clientDriven && (motorOn || Math.abs(speed) > 0.0005 || !onGround || ticksExisted < 3 || t.movement.flies && wasAirborne)) {
+        if (!towedNow && !clientDriven && (motorOn || Math.abs(speed) > 0.0005 || !onGround || ticksExisted < 3 || t.movement.flies && wasAirborne)) {
             physicsStep(t, motorOn ? in : 0);
         }
         // measured displacement - the base for EU, heat and wall hits on both control paths
@@ -3662,7 +3704,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         // the reach / climb rules judge the whole tick's displacement: more Moves in one tick are no more speed
         double bx = x - moveBaseX, by = y - moveBaseY, bz = z - moveBaseZ;
         double bh = Math.sqrt(bx * bx + bz * bz);
-        if (isHeld() && (h > 0.01 || Math.abs(dy) > 0.01)) {
+        boolean towed = t.ordinal() == VehicleType.LINER.ordinal() && state.liner() != null && state.liner().towed;   // liner wave 7: the tug leads
+        if ((isHeld() || towed) && (h > 0.01 || Math.abs(dy) > 0.01)) {
             if (now - lastCorrectTick >= 5 && p.playerNetServerHandler != null) {
                 lastCorrectTick = now;
                 NetSVA.CHANNEL.sendTo(new NetSVA.Correct(getEntityId(), posX, posY, posZ, rotationYaw), p);
@@ -3879,7 +3922,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             applySize(t);
         }
         EntityPlayer local = SVAMod.proxy.localPlayer();
-        if (local != null && riddenByEntity == local) {
+        if (local != null && riddenByEntity == local && !linerTowed()) {
             int in = SVAMod.proxy.driverInput();
             animIn = in;
             physicsStep(t, in);
@@ -3950,6 +3993,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             L.clientTick(anim.ctlRoll, anim.ctlPitch, anim.ctlYaw, Math.sqrt(mx * mx + mz * mz), anim.height < 0.6, anim.trim * 0.6F);
             linerAnim.tickHighLift((float) L.fctl.flapPos, (float) L.fctl.slatPos);
             linerAnim.tickReversers((float) L.afs.revPos[0], (float) L.afs.revPos[1]);   // liner wave 4
+            linerAnim.tickDoors(L.doorR1, L.cargoF, L.cargoA);                             // liner wave 7
         }
         if (isWrecked() && ticksExisted % 4 == 0) {
             worldObj.spawnParticle("largesmoke", posX + (rand.nextDouble() - 0.5), posY + 1.0, posZ + (rand.nextDouble() - 0.5), 0, 0.05, 0);
@@ -4251,8 +4295,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     @SideOnly(Side.CLIENT)
     public void setPositionAndRotation2(double x, double y, double z, float yaw, float pitch, int inc) {
         EntityPlayer local = SVAMod.proxy.localPlayer();
-        if (local != null && riddenByEntity == local) {
-            return;                                                 // the driver's own simulation leads
+        if (local != null && riddenByEntity == local && !linerTowed()) {
+            return;                                                 // the driver's own simulation leads (liner wave 7: not while towed)
         }
         lx = x;
         ly = y;
@@ -4539,6 +4583,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             installHead(p, held);
             return true;
         }
+        if (state.type == VehicleType.LINER && state.liner() != null && LinerGroundSVA.interact(this, p, held, rightsOf(p), canOpenCargo(p))) {
+            return true;                                            // liner wave 7: a door, the chocks, the cargo through its door
+        }
         if (p.isSneaking()) {
             if (canOpenCargo(p)) {
                 p.openGui(SVAMod.instance, GuiHandlerSVA.CARGO, worldObj, getEntityId(), 0, 0);
@@ -4552,11 +4599,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         boolean driver = (rights & AccessMath.DRIVE) != 0;
         if (state.type == VehicleType.LINER && state.liner() != null) {
             // liner wave 1: in and out through the L1 door (left, forward): by it - the first click opens it, then you board
-            if (!LinerLogicSVA.byDoor(this, p)) {
+            boolean r1 = LinerGroundSVA.byR1(this, p);             // wave 7: an open R1 boards too
+            if (!LinerLogicSVA.byDoor(this, p) && !r1) {
                 msg(p, "sva.liner.msg.useDoor");
                 return true;
             }
-            if (!state.liner().door) {
+            if (!state.liner().door && !r1) {
                 if ((rights & (AccessMath.DRIVE | AccessMath.PASSENGER)) == 0) {
                     lockedMsg(p);
                 } else {
@@ -5809,6 +5857,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             }
         }
         return out;
+    }
+
+    /** Liner wave 7 (the world test): passenger seat i's entity (1..), null while not there. */
+    public EntitySeatSVA seatAt(int i) {
+        Entity s = seatEntity(i);
+        return s instanceof EntitySeatSVA ? (EntitySeatSVA) s : null;
     }
 
     /** The entity a rider of seat i mounts: this (0) or passenger seat i; null while the seats are not there yet. */

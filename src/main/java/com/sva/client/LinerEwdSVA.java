@@ -287,14 +287,16 @@ public final class LinerEwdSVA {
             }
             return;
         }
-        int memo = L.memos(ground);
+        long memo = L.memos(ground);
         for (int i = 0; i < LinerSystems.MEMO_KEYS.length; i++) {
-            if ((memo & 1 << i) == 0 || y > BOTTOM) {
+            if ((memo & 1L << i) == 0 || y > BOTTOM) {
                 continue;
             }
-            int bit = 1 << i;
+            long bit = 1L << i;
             int c = (bit & LinerSystems.MEMO_AMBER) != 0 ? AMB : bit == LinerSystems.M_STS ? WHT : GRN;
             String t = bit == LinerSystems.M_ON_BAT ? lang("sva.liner.memo.onBat", Integer.valueOf(batMin))
+                    // wave 7: «ИНС ВЫСТ.» with the time left (the longest aligning IR)
+                    : bit == LinerSystems.M_IRS_ALIGN && L.adirs.secondsLeft > 0 ? lang("sva.liner.memo.irsAlignSec", Integer.valueOf(L.adirs.secondsLeft))
                     : bit == LinerSystems.M_AUTOBRK ? lang("sva.liner.memo.autoBrk", tr("ab." + com.sva.vehicle.LinerGear.AB_KEYS[L.gear.abMode]))
                     : lang("sva.liner.memo." + LinerSystems.MEMO_KEYS[i]);
             LinerGfxSVA.text(t, 180 * s, y * s, 8 * s, c, -1, 96 * s);

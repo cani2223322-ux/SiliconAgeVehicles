@@ -160,4 +160,28 @@ public final class LinerPreviewHookSVA {
         LinerGfxSVA.resetLayer();
         IlsScreenSVA.paint(v, mx, my);
     }
+
+    /** Wave 7: ISIS from its own sensors' values. */
+    public static void isis(float pitch, float roll, float kmh, float alt, float hdg, float w, float h) {
+        LinerGfxSVA.resetLayer();
+        LinerDisplaysSVA.isis(pitch, roll, kmh, alt, hdg, w, h);
+    }
+
+    /** Wave 7: a panel's run-time look (lamps, bars, windows, levers' marks of the «Пульты» screen) in the panel's units. */
+    public static void panelOverlay(int panel, LinerSystems L, boolean power, float unitPx, float minTextPx) {
+        LinerGfxSVA.unitPx = unitPx;
+        LinerGfxSVA.minTextPx = minTextPx;
+        try {
+            LinerCockpitSVA.drawPanel(panel, -1, null, L, power);
+        } finally {
+            LinerGfxSVA.unitPx = 0F;
+            LinerGfxSVA.minTextPx = 0F;
+        }
+    }
+
+    /** Wave 7: the text floor for the faces drawn next (the «Пульты» screen's DUs). */
+    public static void textFloor(float unitPx, float minTextPx) {
+        LinerGfxSVA.unitPx = unitPx;
+        LinerGfxSVA.minTextPx = minTextPx;
+    }
 }

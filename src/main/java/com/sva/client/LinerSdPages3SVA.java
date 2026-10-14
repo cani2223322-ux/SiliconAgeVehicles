@@ -251,15 +251,17 @@ public final class LinerSdPages3SVA {
         // L1 (left = top of the plan), R1, the overwing exits, aft, cargo
         doorRect(56 * s, y0, 18 * s, open, s);
         LinerGfxSVA.text(tr("door.l1"), 65 * s, y0 - 9 * s, 7.5F * s, open ? AMB : GRN, 0);
-        doorRect(56 * s, y1, 18 * s, false, s);
-        LinerGfxSVA.text(tr("door.r1"), 65 * s, y1 + 10 * s, 7.5F * s, GRN, 0);
+        doorRect(56 * s, y1, 18 * s, L.doorR1, s);                  // wave 7: R1 and the cargo doors really open
+        LinerGfxSVA.text(tr("door.r1"), 65 * s, y1 + 10 * s, 7.5F * s, L.doorR1 ? AMB : GRN, 0);
         doorRect(124 * s, y0, 10 * s, false, s);
         doorRect(138 * s, y0, 10 * s, false, s);
         doorRect(124 * s, y1, 10 * s, false, s);
         doorRect(138 * s, y1, 10 * s, false, s);
         LinerGfxSVA.text(tr("door.emer"), 136 * s, y0 - 9 * s, 7 * s, GRN, 0);
-        doorRect(176 * s, y1, 22 * s, false, s);
-        LinerGfxSVA.text(tr("door.cargo"), 187 * s, y1 + 10 * s, 7.5F * s, GRN, 0);
+        doorRect(100 * s, y1, 18 * s, L.cargoF, s);
+        LinerGfxSVA.text(tr("door.cargoF"), 109 * s, y1 + 10 * s, 7 * s, L.cargoF ? AMB : GRN, 0);
+        doorRect(176 * s, y1, 22 * s, L.cargoA, s);
+        LinerGfxSVA.text(tr("door.cargoA"), 187 * s, y1 + 10 * s, 7.5F * s, L.cargoA ? AMB : GRN, 0);
         doorRect(198 * s, y0 + 4 * s, 12 * s, false, s);
         LinerGfxSVA.text(tr("door.aft"), 210 * s, y0 - 9 * s, 7 * s, GRN, 0);
         if (stairs) {
@@ -269,6 +271,11 @@ public final class LinerSdPages3SVA {
         LinerGfxSVA.text(tr(armed ? "door.slidesArmed" : "door.slides"), 140 * s, 176 * s, 7.5F * s, armed ? GRN : WHT, 0);
         if (open) {
             LinerGfxSVA.text(lang("sva.liner.memo.door"), 140 * s, 196 * s, 9 * s, AMB, 0);
+        } else if (L.doorsOpen() != 0) {
+            LinerGfxSVA.text(lang("sva.liner.memo.cargoOpen"), 140 * s, 196 * s, 9 * s, AMB, 0);
+        }
+        if (L.chocks) {
+            LinerGfxSVA.text(lang("sva.liner.memo.chocks"), 230 * s, 52 * s, 8 * s, AMB, 0);
         }
         LinerGfxSVA.text(tr("door.cabin"), 20 * s, 222 * s, 8 * s, WHT, -1);
         boolean pressed = !L.onGround && !open && L.cabAlt > 0;

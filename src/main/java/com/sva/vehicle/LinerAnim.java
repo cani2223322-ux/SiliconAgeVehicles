@@ -32,6 +32,28 @@ public final class LinerAnim {
     public float revL, prevRevL, revR, prevRevR;
     /** The cowl's travel (the rig's reverser_* track limit, model units). */
     public static final float REV_TRAVEL = 0.34F;
+    /** Wave 7: the R1 door (0 shut .. 1 open: DOOR_DEG) and the cargo doors (0 .. 1: CARGO_DEG, up over CARGO_TICKS). */
+    public float doorR1, prevDoorR1, cargoF, prevCargoF, cargoA, prevCargoA;
+    public static final float CARGO_DEG = 110;
+    public static final int CARGO_TICKS = 70;
+
+    /** Wave 7, one client tick of the R1 / cargo doors toward the synced state (the first tick at once). */
+    public void tickDoors(boolean r1, boolean cf, boolean ca) {
+        prevDoorR1 = doorR1;
+        prevCargoF = cargoF;
+        prevCargoA = cargoA;
+        if (!doorsInited) {
+            doorR1 = prevDoorR1 = r1 ? 1 : 0;
+            cargoF = prevCargoF = cf ? 1 : 0;
+            cargoA = prevCargoA = ca ? 1 : 0;
+            doorsInited = true;
+        }
+        doorR1 = step(doorR1, r1 ? 1 : 0, 1F / DOOR_TICKS);
+        cargoF = step(cargoF, cf ? 1 : 0, 1F / CARGO_TICKS);
+        cargoA = step(cargoA, ca ? 1 : 0, 1F / CARGO_TICKS);
+    }
+
+    private boolean doorsInited;
 
     /** Wave 4, one client tick of the reversers toward the synced cowl positions (engine 1 left, 2 right). */
     public void tickReversers(float l, float r) {

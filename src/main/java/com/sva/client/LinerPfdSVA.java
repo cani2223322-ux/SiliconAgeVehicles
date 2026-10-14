@@ -53,6 +53,11 @@ public final class LinerPfdSVA {
         public long now;
         /** INS alignment's sub-line (null none). */
         public String insSub;
+        /**
+         * Wave 7, this side's ADIRS (its sources through the pedestal's ИНС КВС / ВОЗД. ДАННЫЕ): the attitude, the heading, the
+         * air data; the ADRs disagreeing (amber «СКОР РАСХОЖД»).
+         */
+        public boolean att = true, hdgOk = true, adrOk = true, spdDisagree;
     }
 
     // ---------------------------------------------------------------- the entity's data
@@ -64,13 +69,20 @@ public final class LinerPfdSVA {
         d.captain = captain;
         d.pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
         d.roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
-        // wave 6: the airspeed through this side's probe - an iced one is frozen where it iced (the captain's probe 1, the F/O's 2)
-        d.kmh = (float) L.ice.indicated(captain ? 0 : 1, LinerDisplaysSVA.kmh(v));
+        // wave 6: the airspeed through this side's probe - an iced one is frozen where it iced (the captain's probe 1, the F/O's 2);
+        // wave 7: the probe of the ADR this side reads (ВОЗД. ДАННЫЕ: 3 for either), the IR's heading (a ПРОСТР one off by its offset)
+        int side = captain ? 0 : 1, attSw = L.at(LinerControls.ATT_HDG), airSw = L.at(LinerControls.AIR_DATA);
+        com.sva.vehicle.LinerAdirs A = L.adirs;
+        d.kmh = (float) L.ice.indicated(com.sva.vehicle.LinerAdirs.source(side, airSw), LinerDisplaysSVA.kmh(v));
+        d.att = A.sideAtt(side, attSw);
+        d.hdgOk = A.sideHdg(side, attSw);
+        d.adrOk = A.sideAdr(side, airSw);
+        d.spdDisagree = A.disagree;
         d.y = LinerDisplaysSVA.alt(v, pt);
         d.vs = (float) ((v.posY - v.prevPosY) * 20);
         d.vy = v.posY - v.prevPosY;
-        d.hdg = LinerDisplaysSVA.heading(v, pt);
-        d.ins = v.insReady();
+        d.hdg = (float) ((LinerDisplaysSVA.heading(v, pt) + A.hdgOff(com.sva.vehicle.LinerAdirs.source(side, attSw))) % 360 + 360) % 360;
+        d.ins = true;                                               // wave 7: the per-side ADIRS flags (att / hdgOk / adrOk) replace the single INS
         d.insSub = GlassCockpitSVA.insSub(v);
         d.stall = v.isStalling();
         d.ground = v.anim.height < 0.6;
@@ -122,7 +134,7 @@ public final class LinerPfdSVA {
         fma(d, L, w, s);
         float cx = 140 * s, cy = 132 * s;
         float ax0 = 62 * s, ax1 = 218 * s, ay0 = 48 * s, ay1 = 222 * s;
-        if (d.ins) {
+        if (d.ins && d.att) {
             float per = 3.2F * s;
             double a = Math.toRadians(d.roll);
             float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
@@ -194,10 +206,23 @@ public final class LinerPfdSVA {
             }
         }
         LinerGfxSVA.layer();
-        // the tapes
-        speedTape(d, L, s, ay0, ay1, cy);
+        // the tapes (wave 7: no air data on this side - the red СКОР / ВЫС flags, the V/S blank)
         float shown = (float) F.shownAlt(d.y);
-        LinerDisplaysSVA.tape(226 * s, 262 * s, ay0, ay1, cy, shown, 10, false, s);
+        if (d.adrOk) {
+            speedTape(d, L, s, ay0, ay1, cy);
+            LinerDisplaysSVA.tape(226 * s, 262 * s, ay0, ay1, cy, shown, 10, false, s);
+        } else {
+            LinerGfxSVA.rect(8 * s, ay0, 50 * s, ay1, DARK);
+            LinerGfxSVA.rect(226 * s, ay0, 262 * s, ay1, DARK);
+            LinerGfxSVA.layer();
+            LinerDisplaysSVA.flag(LinerDisplaysSVA.tr("flag.spd"), 29 * s, cy, 10 * s);
+            LinerDisplaysSVA.flag(LinerDisplaysSVA.tr("flag.alt"), 244 * s, cy, 10 * s);
+        }
+        if (d.spdDisagree) {
+            LinerGfxSVA.layer();
+            LinerGfxSVA.text(LinerDisplaysSVA.tr("spdDisagree1"), 29 * s, ay1 + 31 * s, 7 * s, AMB, 0);
+            LinerGfxSVA.text(LinerDisplaysSVA.tr("spdDisagree2"), 29 * s, ay1 + 40 * s, 7 * s, AMB, 0, 56 * s);
+        }
         LinerGfxSVA.text(LinerDisplaysSVA.tr("kmh"), 29 * s, ay1 + 9 * s, 7 * s, WHT, 0);
         // the FCU altitude: the number over the tape (cyan selected / magenta managed), a mark on it
         int fcuAlt = F.alt;
@@ -213,15 +238,17 @@ public final class LinerPfdSVA {
         LinerGfxSVA.rect(264 * s, cy - span, 278 * s, cy + span, DARK);
         LinerGfxSVA.layer();
         float vy = cy - Math.max(-1F, Math.min(1F, d.vs / 6F)) * span;
-        LinerGfxSVA.line(279 * s, cy, vx - 4 * s, vy, 1.6F * s, GRN);
-        if (Math.abs(d.vs) > 0.4F) {
-            LinerGfxSVA.text(LinerGfxSVA.num(Math.abs(d.vs), 0), 271 * s, vy + (d.vs > 0 ? -8 : 8) * s, 7 * s, GRN, 0);
+        if (d.adrOk) {
+            LinerGfxSVA.line(279 * s, cy, vx - 4 * s, vy, 1.6F * s, GRN);
+            if (Math.abs(d.vs) > 0.4F) {
+                LinerGfxSVA.text(LinerGfxSVA.num(Math.abs(d.vs), 0), 271 * s, vy + (d.vs > 0 ? -8 : 8) * s, 7 * s, GRN, 0);
+            }
         }
         // the heading band with the selected heading (cyan) and the ILS course (magenta)
         float by0 = 236 * s, by1 = 258 * s;
         LinerGfxSVA.rect(70 * s, by0, 210 * s, by1, DARK);
         LinerGfxSVA.layer();
-        if (d.ins) {
+        if (d.ins && d.hdgOk) {
             float per = 3.5F * s;
             int h0 = (int) Math.floor(d.hdg / 5) * 5;
             for (int k = h0 - 20; k <= h0 + 25; k += 5) {
@@ -258,7 +285,7 @@ public final class LinerPfdSVA {
             LinerGfxSVA.frameRect(226 * s, 240 * s, 246 * s, 254 * s, 0.8F * s, YEL);
         }
         // the ILS: the scales and diamonds (LS), the station's words bottom left
-        if (d.ls && F.ils != null && d.ins) {
+        if (d.ls && F.ils != null && d.ins && d.att) {
             ils(d, F, s, cx, cy, ay1);
         }
         if (d.stall && (d.now / 250) % 2 == 0) {

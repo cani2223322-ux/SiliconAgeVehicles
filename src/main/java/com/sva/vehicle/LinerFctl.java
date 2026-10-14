@@ -73,9 +73,16 @@ public final class LinerFctl {
     /** Computers: ELAC 1 / 2, SEC 1 / 2 / 3, FAC 1 / 2 (bits of `comp`). */
     public static final int C_ELAC1 = 1, C_ELAC2 = 2, C_SEC1 = 4, C_SEC2 = 8, C_SEC3 = 16, C_FAC1 = 32, C_FAC2 = 64, COMPUTERS = 7;
     public static final String[] COMP_NAMES = {"ELAC 1", "ELAC 2", "SEC 1", "SEC 2", "SEC 3", "FAC 1", "FAC 2"};
-    /** Laws. */
-    public static final int NORMAL = 0, ALTN = 1, DIRECT = 2;
-    public static final String[] LAW_KEYS = {"normal", "altn", "direct"};
+    /** Laws (wave 7: + the mechanical back-up - the rudder and the THS by the trim wheel only). */
+    public static final int NORMAL = 0, ALTN = 1, DIRECT = 2, MECH = 3;
+    public static final String[] LAW_KEYS = {"normal", "altn", "direct", "mech"};
+    /**
+     * Wave 7, the handling by the law: ALTN's low-speed stability (b/t of sink a tick per b/t under alpha-prot, the stick
+     * released), DIRECT's / MECH's speed stability (b/t of climb per b/t over the trimmed speed - no auto-trim), the trim
+     * wheel's step (b/t of the trimmed speed a click: nose up = slower), the normal law's alpha protection (the stick's up
+     * command fades from alpha-prot to alpha-max).
+     */
+    public static final double LOW_SPD_K = 0.25, SPEED_STAB = 0.12, TRIM_STEP = 0.04;
 
     // ---------------------------------------------------------------- state
 
@@ -85,6 +92,14 @@ public final class LinerFctl {
     public int powered;
     /** Working computers (C_*), the law. */
     public int comp, law = DIRECT;
+    /**
+     * Wave 7: ALTN 2 (ALTN with one IR / ADR or less, or the ADRs disagreeing: no roll protections at all, the roll direct);
+     * the speed the THS is trimmed for (b/t - NORMAL / ALTN follow the speed flown: the auto-trim; DIRECT / MECH keep it, the
+     * trim wheel moves it); the trim wheel's THS offset (deg, + nose up) for the pose and the SD.
+     */
+    public boolean altn2;
+    public double trimSpeed;
+    public float manTrim;
     /** High lift: the flaps' position (setting units 0..4, continuous) and the slats' (0..1); jam timers / flags. */
     public double flapPos, slatPos;
     public int flapStuck, slatStuck;
@@ -107,8 +122,9 @@ public final class LinerFctl {
         /** Push buttons of the computers in (ELAC1, ELAC2, SEC1, SEC2, SEC3, FAC1, FAC2) and their buses (ESS / AC). */
         public boolean[] pb = {true, true, true, true, true, true, true};
         public boolean ess, ac;
-        /** ADR / IR working (count 0..3), the gear down (ALTN -> DIRECT with the gear down). */
+        /** ADR / IR working (count 0..3), the gear down (ALTN -> DIRECT with the gear down); wave 7: the ADRs disagreeing. */
         public int adr = 3, ir = 3;
+        public boolean adrDisagree;
         public boolean gearDown = true;
         /** The hydraulics' state. */
         public LinerHyd hyd;
@@ -132,7 +148,11 @@ public final class LinerFctl {
             }
         }
         comp = c;
-        law = law(c, in.adr, in.ir, h.lost(), in.gearDown && !in.ground);
+        // wave 7: the law from the real state - the ADIRS' counts and their disagreement, the computers, the hydraulics, the
+        // elevators' pressure (none on either half: the mechanical back-up)
+        boolean elevHyd = (HYD[ELEV_L] & hm) != 0 || (HYD[ELEV_R] & hm) != 0;
+        law = compute(c, in.adr, in.ir, h.lost(), in.gearDown && !in.ground, in.adrDisagree, elevHyd || in.ground);   // MECH: in flight
+        altn2 = law == ALTN && (in.adr <= 1 || in.ir <= 1 || in.adrDisagree);
         // ---- the spoilers' modes (the server decides; the clients get gndSpl synced)
         if (in.server) {
             spoilerLogic(in);
@@ -336,6 +356,72 @@ public final class LinerFctl {
         return NORMAL;
     }
 
+    /**
+     * Wave 7: the law from the whole state - law() (the computers, the ADR / IR counts, the hydraulics, the gear) with the
+     * ADRs disagreeing (NORMAL -> ALTN) and the elevators without any pressure in flight (the mechanical back-up: MECH).
+     */
+    public static int compute(int comp, int adr, int ir, int hydLost, boolean gearDownAir, boolean adrDisagree, boolean elevHyd) {
+        if (!elevHyd) {
+            return MECH;
+        }
+        int l = law(comp, adr, ir, hydLost, gearDownAir);
+        if (l == NORMAL && adrDisagree) {
+            l = gearDownAir ? DIRECT : ALTN;
+        }
+        return l;
+    }
+
+    /** The law has no protections and no auto-trim (DIRECT / MECH). */
+    public boolean manualTrim() {
+        return law == DIRECT || law == MECH;
+    }
+
+    /**
+     * Wave 7: the vertical speed's law terms for the physics (b/t, added to the stick's target): NORMAL - none (the path
+     * holds, the alpha protection is in alphaStick); ALTN - the low-speed stability (the stick released under alpha-prot: the
+     * nose drops); DIRECT / MECH - the speed stability (no auto-trim: faster than trimmed climbs, slower sinks).
+     */
+    public double lawVy(double speed, double aProt, double pitchStick) {
+        if (law == ALTN) {
+            return Math.abs(pitchStick) < 0.05 && speed < aProt ? -(aProt - speed) * LOW_SPD_K : 0;
+        }
+        if (manualTrim() && trimSpeed > 0) {
+            return (speed - trimSpeed) * SPEED_STAB;
+        }
+        return 0;
+    }
+
+    /** The normal law's alpha protection: the up stick's share left between alpha-max (0) and alpha-prot (1). */
+    public static double alphaStick(double stick, double speed, double aProt, double aMax) {
+        if (stick <= 0 || speed >= aProt || aProt <= aMax) {
+            return stick;
+        }
+        return stick * clamp((speed - aMax) / (aProt - aMax), 0, 1);
+    }
+
+    /**
+     * Wave 7, the server each tick: the auto-trim (NORMAL / ALTN: the trimmed speed follows the airspeed, no wheel offset);
+     * DIRECT / MECH keep the speed they were trimmed at (the trim wheel moves it).
+     */
+    public void trimTick(double airspeed, boolean ground) {
+        if (!manualTrim() || ground) {
+            trimSpeed = Math.max(0, airspeed);
+            manTrim = 0;
+        } else if (trimSpeed <= 0) {
+            trimSpeed = Math.max(0, airspeed);
+        }
+    }
+
+    /** A trim wheel click: nose up (true) slows the trimmed speed by TRIM_STEP (the THS a little up). DIRECT / MECH only. @return moved */
+    public boolean trimClick(boolean noseUp) {
+        if (!manualTrim()) {
+            return false;
+        }
+        trimSpeed = Math.max(0.2, trimSpeed + (noseUp ? -TRIM_STEP : TRIM_STEP));
+        manTrim = clamp(manTrim + (noseUp ? 0.25F : -0.25F), THS_DOWN, THS_UP);
+        return true;
+    }
+
     // ---------------------------------------------------------------- the handling
 
     /** The roll authority 0.2..1: both ailerons 0.7, the roll spoilers 0.3; the rudder alone (mechanical) 0.2. */
@@ -357,9 +443,9 @@ public final class LinerFctl {
         return Math.max(0.15, Math.min(1, a));
     }
 
-    /** ALTN / DIRECT: no protections and a more direct (livelier) response. */
+    /** ALTN / DIRECT: no protections and a more direct (livelier) response; MECH: the trim wheel and the rudder only. */
     public double lawGain() {
-        return law == NORMAL ? 1 : law == ALTN ? 1.08 : 1.15;
+        return law == NORMAL ? 1 : law == ALTN ? 1.08 : law == DIRECT ? 1.15 : 0.6;
     }
 
     public boolean on(int s) {

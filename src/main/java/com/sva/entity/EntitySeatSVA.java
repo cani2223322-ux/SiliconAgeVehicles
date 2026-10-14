@@ -18,6 +18,9 @@ public class EntitySeatSVA extends Entity {
     private Entity lastRider;
     /** Client: the world tick the rider last took its place in its own update (followBody). */
     private long riderPlacedTick = -1;
+    /** Liner wave 7 (the seat belts, LinerGroundSVA.belts): the rider's Shift last tick, the confirmation's last tick. */
+    boolean beltSneak;
+    long beltConfirm;
 
     public EntitySeatSVA(World world) {
         super(world);
@@ -73,6 +76,9 @@ public class EntitySeatSVA extends Entity {
         }
         orphanTicks = 0;
         if (!worldObj.isRemote) {
+            if (riddenByEntity instanceof net.minecraft.entity.player.EntityPlayer && com.sva.ConfigSVA.linerSeatBelts) {
+                LinerGroundSVA.belts(this, (net.minecraft.entity.player.EntityPlayer) riddenByEntity);   // liner wave 7: fastened in flight
+            }
             if (lastRider != null && riddenByEntity != lastRider && lastRider.ridingEntity == null && !lastRider.isDead) {
                 p.placeBeside(lastRider, 1, getIndex());       // beside its own seat, not the driver's
             }

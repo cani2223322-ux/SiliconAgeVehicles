@@ -4,7 +4,6 @@ import java.util.List;
 
 import org.lwjgl.opengl.GL11;
 
-import com.sc.manual.Lang;
 import com.sva.ConfigSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.vehicle.LinerControls;
@@ -235,7 +234,7 @@ public final class LinerCockpitSVA {
         LinerGfxSVA.rect(0, 0, 400, 110, lit ? 0x1A1C20 : 0x24262A);
         if (lit) {
             LinerGfxSVA.layer();
-            LinerGfxSVA.text(Lang.tr("sva.liner.sign." + word), 200, 55, 60, col, 0, 380);
+            LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.sign." + word), 200, 55, 60, col, 0, 380);
         }
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glPopMatrix();
@@ -448,8 +447,8 @@ public final class LinerCockpitSVA {
                         LinerGfxSVA.layer();
                         LinerGfxSVA.rect(c.cx - h + 4, c.cy - h + 4, c.cx + h - 4, c.cy + h - 4, scale(lit[0], 0.55F));
                         LinerGfxSVA.layer();
-                        LinerGfxSVA.text(Lang.tr("sva.liner.du.master"), c.cx, c.cy - h / 2 + 1, c.h * 0.2F, 0xFFFFFF, 0, c.w - 10);
-                        LinerGfxSVA.text(Lang.tr(warn ? "sva.liner.du.warn" : "sva.liner.du.caut"), c.cx, c.cy + h / 2 - 1, c.h * 0.2F, 0xFFFFFF, 0, c.w - 10);
+                        LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.master"), c.cx, c.cy - h / 2 + 1, c.h * 0.2F, 0xFFFFFF, 0, c.w - 10);
+                        LinerGfxSVA.text(LinerSdPagesSVA.lang(warn ? "sva.liner.du.warn" : "sva.liner.du.caut"), c.cx, c.cy + h / 2 - 1, c.h * 0.2F, 0xFFFFFF, 0, c.w - 10);
                     }
                     break;
                 }
@@ -462,10 +461,9 @@ public final class LinerCockpitSVA {
                 if (c.guard && !L.guard[c.index]) {
                     LinerGfxSVA.layer();
                     LinerGfxSVA.col(0xA01410, 0.55F);
-                    GL11.glEnable(GL11.GL_BLEND);
-                    GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                    blend(true);
                     rectA(c.cx - h - 6, c.cy - h - 6, c.cx + h + 6, c.cy + h + 6);
-                    GL11.glDisable(GL11.GL_BLEND);
+                    blend(false);
                 }
                 break;
             }
@@ -506,15 +504,14 @@ public final class LinerCockpitSVA {
                 }
                 if (c.guard) {
                     LinerGfxSVA.layer();
-                    GL11.glEnable(GL11.GL_BLEND);
-                    GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                    blend(true);
                     LinerGfxSVA.col(0xA01410, L.guard[c.index] ? 0.25F : 0.75F);
                     if (L.guard[c.index]) {
                         rectA(c.cx - 13 * z, c.cy - 62 * z, c.cx + 13 * z, c.cy - 32 * z);       // lifted: folded up over the switch
                     } else {
                         rectA(c.cx - 13 * z, c.cy - 30 * z, c.cx + 13 * z, c.cy + 30 * z);
                     }
-                    GL11.glDisable(GL11.GL_BLEND);
+                    blend(false);
                 }
                 break;
             }
@@ -523,7 +520,24 @@ public final class LinerCockpitSVA {
         }
     }
 
+    /** Wave 7: the guards' blending (none while a sink draws - the panels' preview). */
+    private static void blend(boolean on) {
+        if (LinerGfxSVA.sink != null) {
+            return;
+        }
+        if (on) {
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        } else {
+            GL11.glDisable(GL11.GL_BLEND);
+        }
+    }
+
     private static void rectA(float x0, float y0, float x1, float y1) {
+        if (LinerGfxSVA.sink != null) {
+            LinerGfxSVA.sink.poly(new float[] {x0, y0, x0, y1, x1, y1, x1, y0}, LinerGfxSVA.sinkCol);
+            return;
+        }
         GL11.glBegin(GL11.GL_QUADS);
         GL11.glVertex3f(x0, y0, 0.0012F);
         GL11.glVertex3f(x0, y1, 0.0012F);
@@ -539,7 +553,7 @@ public final class LinerCockpitSVA {
         LinerGfxSVA.layer();
         LinerGfxSVA.rect(c.cx - h + i, y0, c.cx + h - i, y1, scale(col, 0.18F));
         LinerGfxSVA.layer();
-        LinerGfxSVA.text(Lang.tr("sva.liner.pos." + word), c.cx, (y0 + y1) / 2, Math.min(c.h * 0.24F, (y1 - y0) * 0.95F), col, 0, c.w - 2 * i - 2);
+        LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.pos." + word), c.cx, (y0 + y1) / 2, Math.min(c.h * 0.24F, (y1 - y0) * 0.95F), col, 0, c.w - 2 * i - 2);
     }
 
     static int scale(int rgb, float k) {
@@ -586,6 +600,12 @@ public final class LinerCockpitSVA {
         }
         if (L.greenLamp(c)) {
             top = L_GRN;                                            // wave 2: the autobrake's ТОРМОЖ.
+        }
+        if (L.whiteLamp(c)) {
+            bot = L_WHT;                                            // wave 7: an agent's ПИРОПАТР.
+        }
+        if (c == LinerControls.PRIO_R && L.foPriority) {
+            bot = L_GRN;                                            // wave 7: the F/O has the priority
         }
         if (L.at(LinerControls.ANN_LT) == 0 && L.powered() && c.kind == LinerControls.PB) {
             // wave 6: АННУНЦ. ТЕСТ - every push button's halves lit (amber over, its own colour under)
@@ -635,10 +655,10 @@ public final class LinerCockpitSVA {
         LinerGfxSVA.layer();
         if (panel == LinerControls.OVH) {
             if (L.bat1V > 0) {
-                LinerGfxSVA.text(LinerGfxSVA.num(L.bat1V, 1) + " " + Lang.tr("sva.liner.du.v"), 1300, 490, 21, L_GRN, 0, 80);
+                LinerGfxSVA.text(LinerGfxSVA.num(L.bat1V, 1) + " " + LinerSdPagesSVA.lang("sva.liner.du.v"), 1300, 490, 21, L_GRN, 0, 80);
             }
             if (L.bat2V > 0) {
-                LinerGfxSVA.text(LinerGfxSVA.num(L.bat2V, 1) + " " + Lang.tr("sva.liner.du.v"), 1440, 490, 21, L_GRN, 0, 80);
+                LinerGfxSVA.text(LinerGfxSVA.num(L.bat2V, 1) + " " + LinerSdPagesSVA.lang("sva.liner.du.v"), 1440, 490, 21, L_GRN, 0, 80);
             }
             LinerGfxSVA.text(Math.round(Math.max(L.ductL, L.ductR)) + " psi", 220, 1050, 13, L_GRN, 0, 60);
             if (L.apu != LinerSystems.A_OFF) {
@@ -646,31 +666,50 @@ public final class LinerCockpitSVA {
             }
             int ad = Math.max(L.at(LinerControls.ADIRS1), Math.max(L.at(LinerControls.ADIRS2), L.at(LinerControls.ADIRS3)));
             if (ad > 0) {
-                LinerGfxSVA.text(Lang.tr("sva.liner.pos." + LinerControls.ADIRS1.pos[ad]), 105, 175, 16, L_GRN, 0, 72);
+                LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.pos." + LinerControls.ADIRS1.pos[ad]), 105, 175, 16, L_GRN, 0, 72);
             }
-            boolean aligning = v.insStatus() == SystemsMath.INS_ALIGN;
-            LinerControls.Ctl[] sel = {LinerControls.ADIRS1, LinerControls.ADIRS3, LinerControls.ADIRS2};
+            // wave 7: each IR's ВЫСТ. (steady aligning; flashing - moved, in the air, waiting for the IRS INIT) - the painted
+            // order ИНС 1 / 3 / 2
+            int[] unit = {0, 2, 1};
             float[] xs = {250, 385, 520};
+            boolean blink = (System.currentTimeMillis() / 250) % 2 == 0;
             for (int i = 0; i < 3; i++) {
-                if (aligning && L.at(sel[i]) > 0) {
+                int lamp = L.adirs.lamp(unit[i]);
+                if (lamp == 1 || lamp == 2 && blink) {
                     LinerGfxSVA.rect(xs[i] + 58 - 20, 352 - 9, xs[i] + 58 + 20, 352 + 9, scale(L_WHT, 0.18F));
                     LinerGfxSVA.layer();
-                    LinerGfxSVA.text(Lang.tr("sva.liner.du.align"), xs[i] + 58, 352, 10, L_WHT, 0, 38);
+                    LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.align"), xs[i] + 58, 352, 10, L_WHT, 0, 38);
                 }
             }
-            if (L.essOnly && ad > 0) {
+            // wave 7: the fire handles - red with a fire (or its test), a white frame pulled
+            float[] fx = {770, 940, 1110};
+            for (int z = 0; z < 3; z++) {
+                if (L.fire.lamp(z)) {
+                    LinerGfxSVA.rect(fx[z] - 55, 115 - 24, fx[z] + 55, 115 + 24, scale(L_RED, (System.currentTimeMillis() / 300) % 2 == 0 ? 0.55F : 0.35F));
+                    LinerGfxSVA.layer();
+                    LinerGfxSVA.text(z == 1 ? LinerSdPagesSVA.lang("sva.liner.du.apu") : LinerSdPagesSVA.lang("sva.liner.du.engN", Integer.valueOf(z == 0 ? 1 : 2)),
+                            fx[z], 106, 15, 0xFFF0E8, 0, 100);
+                    LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.fire"), fx[z], 127, 13, 0xFFE0D0, 0, 100);
+                }
+                if (L.fire.pulled[z]) {
+                    LinerGfxSVA.layer();
+                    LinerGfxSVA.frameRect(fx[z] - 62, 115 - 31, fx[z] + 62, 115 + 31, 3F, 0xF0F0F0);
+                }
+            }
+            if (L.adirs.onBat && ad > 0 || L.essOnly && ad > 0) {
                 LinerGfxSVA.rect(105 - 38, 100 - 13, 105 + 38, 100 + 13, scale(L_AMB, 0.18F));
                 LinerGfxSVA.layer();
-                LinerGfxSVA.text(Lang.tr("sva.liner.du.onBat"), 105, 100, 12.5F, L_AMB, 0, 74);
+                LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.onBat"), 105, 100, 12.5F, L_AMB, 0, 74);
             }
             // wave 2: the law window of the F/CTL group
             int law = L.fctl.law;
-            LinerGfxSVA.text(Lang.tr("sva.liner.law." + com.sva.vehicle.LinerFctl.LAW_KEYS[law]), 1670, 350, 13, law == 0 ? L_GRN : L_AMB, 0, 74);
+            String lk = law == com.sva.vehicle.LinerFctl.ALTN && L.fctl.altn2 ? "altn2" : com.sva.vehicle.LinerFctl.LAW_KEYS[Math.min(law, 3)];
+            LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.law." + lk), 1670, 350, 13, law == 0 ? L_GRN : law == com.sva.vehicle.LinerFctl.MECH ? L_RED : L_AMB, 0, 74);
             // wave 6: the anti-ice group's «ЛЁД» lamp (ice detected) between the push buttons; the zone selectors' °C
             if (L.ice.detected()) {
                 LinerGfxSVA.rect(810 - 30, 942 - 12, 810 + 30, 942 + 12, scale(L_AMB, 0.2F));
                 LinerGfxSVA.layer();
-                LinerGfxSVA.text(Lang.tr("sva.liner.du.ice"), 810, 942, 15, L_AMB, 0, 56);
+                LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.ice"), 810, 942, 15, L_AMB, 0, 56);
             }
             for (LinerControls.Ctl t : new LinerControls.Ctl[] {LinerControls.TEMP_CK, LinerControls.TEMP_CAB}) {
                 LinerGfxSVA.text(Math.round(com.sva.vehicle.LinerIce.TEMP[L.at(t)]) + " C", t.cx, t.cy + 30, 11, L_GRN, 0, 50);
@@ -690,20 +729,29 @@ public final class LinerCockpitSVA {
             if (L.gearRedLamp() && (System.currentTimeMillis() / 500) % 2 == 0) {
                 LinerGfxSVA.rect(630 - 43, 1530 - 10, 630 + 43, 1530 + 10, scale(L_RED, 0.3F));
                 LinerGfxSVA.layer();
-                LinerGfxSVA.text(Lang.tr("sva.liner.du.gear"), 630, 1530, 11, L_RED, 0, 84);
+                LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.gear"), 630, 1530, 11, L_RED, 0, 84);
             }
         }
         if (panel == LinerControls.PED && pass != 0) {
+            // wave 7: the masters' red ПОЖАР lamps (the engines' fire or its test)
+            for (int i = 0; i < 2; i++) {
+                if (L.fire.lamp(i == 0 ? com.sva.vehicle.LinerFire.ENG1 : com.sva.vehicle.LinerFire.ENG2)) {
+                    float x = (i == 0 ? 210 : 550) - 38;
+                    LinerGfxSVA.rect(x - 30, 1098 - 10, x + 30, 1098 + 10, scale(L_RED, 0.35F));
+                    LinerGfxSVA.layer();
+                    LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.fire"), x, 1098, 10, L_RED, 0, 56);
+                }
+            }
             for (int i = 0; i < 2; i++) {
                 if (L.eng[i].fault != LinerSystems.F_NONE) {
                     float x = (i == 0 ? 210 : 550) + 38;
                     LinerGfxSVA.rect(x - 30, 1098 - 10, x + 30, 1098 + 10, scale(L_AMB, 0.2F));
                     LinerGfxSVA.layer();
-                    LinerGfxSVA.text(Lang.tr("sva.liner.pos.fault"), x, 1098, 10, L_AMB, 0, 56);
+                    LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.pos.fault"), x, 1098, 10, L_AMB, 0, 56);
                 }
             }
         }
-        if (panel == LinerControls.PED && pass != 1 && com.sva.ConfigSVA.linerMcdu3d) {
+        if (panel == LinerControls.PED && pass != 1 && com.sva.ConfigSVA.linerMcdu3d && LinerGfxSVA.sink == null) {
             // wave 5: the two MCDUs' screens (what the server sent the pilots - McduScreenSVA, as the keyboard screen)
             for (int i = 0; i < 2; i++) {
                 float x0 = (i == 0 ? 15 : 385) + 62;
@@ -720,7 +768,7 @@ public final class LinerCockpitSVA {
                 LinerGfxSVA.rect(k.cx - 20, k.cy + 9, k.cx + 20, k.cy + 12, L_GRN);
             }
         }
-        if (panel == LinerControls.MP) {
+        if (panel == LinerControls.MP && v != null) {
             long tod = v.worldObj.getWorldTime() % 24000;
             int hh = (int) ((tod / 1000 + 6) % 24), mm = (int) (tod % 1000 * 60 / 1000);
             LinerGfxSVA.text(String.format("%02d:%02d", Integer.valueOf(hh), Integer.valueOf(mm)), 803, 205, 12, L_WHT, 0, 50);
@@ -735,7 +783,7 @@ public final class LinerCockpitSVA {
         float cx = 803, cy = 345;
         float a = (float) (-60 + 120 * Math.max(0, Math.min(1, L.hyd.accu / 3000.0)));
         LinerGfxSVA.line(cx, cy, LinerGfxSVA.px(cx, 34, a), LinerGfxSVA.py(cy, 34, a), 2.5F, L_GRN);
-        LinerGfxSVA.text(Lang.tr("sva.liner.du.accu"), cx, cy - 12, 8, L_WHT, 0, 40);
+        LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.accu"), cx, cy - 12, 8, L_WHT, 0, 40);
         double[] p = {L.gear.brakeL, L.gear.brakeR};
         for (int i = 0; i < 2; i++) {
             float x = cx + (i == 0 ? -12 : 12), top = cy + 30, h = (float) (22 * Math.max(0, Math.min(1, p[i] / 3000.0)));

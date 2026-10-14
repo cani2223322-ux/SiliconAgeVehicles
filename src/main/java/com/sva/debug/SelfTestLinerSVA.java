@@ -57,6 +57,7 @@ final class SelfTestLinerSVA {
         SelfTestLinerAfsSVA.run();                                  // liner wave 4: FCU, AP / FD, A/THR, levers, ILS, autoland
         SelfTestLinerFmsSVA.run();                                  // liner wave 5: the MCDU, the FMS, the profile, NAV by the plan
         SelfTestLinerW6SVA.run();                                   // liner wave 6: lights, signs, anti-ice, icing, air conditioning, loads
+        SelfTestLinerW7SVA.run();                                   // liner wave 7: ADIRS, laws, doors, chocks, tow, belts, fire, ECAM
         saves();
     }
 
@@ -664,8 +665,9 @@ final class SelfTestLinerSVA {
         if (!same) {
             System.out.println("[SVA-TEST] liner sync: " + s + " / " + round);
         }
-        // wave 3 added its ECAM / fuel / cabin part (the bound was 400)
-        check(same && s.length() < 720 && C.apu == L.apu, "liner sync: the string (" + s.length() + " chars) round-trips; junk is ignored");
+        // wave 3 added its ECAM / fuel / cabin part (the bound was 400); wave 7 its ADIRS / doors part and the ECAM's second
+        // words (the bound was 720)
+        check(same && s.length() < SelfTestLinerW7SVA.SYNC_LIMIT && C.apu == L.apu, "liner sync: the string (" + s.length() + " chars) round-trips; junk is ignored");
         // the save: positions by id, engines / APU running, tanks, АКБ 2; the vehicle state carries it
         NBTTagCompound t = new NBTTagCompound();
         run(L, e, 400, null);

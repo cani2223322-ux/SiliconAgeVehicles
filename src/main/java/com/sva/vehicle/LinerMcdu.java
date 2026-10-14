@@ -77,6 +77,8 @@ public final class LinerMcdu {
         public long time;
         /** The INS (SystemsMath.INS_*), its seconds left, the IRS INIT's automatic confirmation (config). */
         public int insStatus = SystemsMath.INS_READY, insSec;
+        /** Wave 7: the true compass heading (the IRS INIT page's ПРОСТР heading entry). */
+        public double hdgTrue;
         public boolean autoIrs = true;
         /** Fuel on board (mB), the gross weight (kg), riders, the consumption multiplier, the acceleration height's default. */
         public double fob, gw = LinerAfs.MASS0 + 1500, burn = 1;
@@ -639,6 +641,14 @@ public final class LinerMcdu {
                 } else if (right && n == 5 && !e.autoIrs && !f.irsDone) {
                     f.irsDone = true;
                     s.msg = "";
+                } else if (right && n >= 2 && n <= 4 && sp.length() > 0) {
+                    // wave 7: ПРОСТР - the heading entered for IR n-1 (3 digits, 0..359)
+                    int h = num(sp, 0, 359);
+                    if (h == Integer.MIN_VALUE || !L.adirs.enterHeading(n - 2, h, e.hdgTrue)) {
+                        fail(s, M_BAD);
+                    } else {
+                        done(s);
+                    }
                 } else if (!right && n == 5) {
                     go(s, P_INIT);
                 }
@@ -1687,9 +1697,37 @@ public final class LinerMcdu {
         r.lbl(2, true, k("sva.mcdu.irs.gps"));
         r.dat(2, true, (int) Math.floor(e.x) + "/" + (int) Math.floor(e.z), C_GREEN);
         LinerControls.Ctl[] sel = {LinerControls.ADIRS1, LinerControls.ADIRS2, LinerControls.ADIRS3};
+        boolean units = L.adirs.anyOn();                            // wave 7: each ADIRU's own state (the old single INS before a tick)
         for (int i = 0; i < 3; i++) {
             String st;
             int c = C_GREEN;
+            if (units) {
+                com.sva.vehicle.LinerAdirs A = L.adirs;
+                Integer u = Integer.valueOf(i + 1);
+                if (A.sel[i] == 0) {
+                    st = k("sva.mcdu.irs.off", u);
+                    c = C_WHITE;
+                } else if (!A.powered[i] || A.irFault(i)) {
+                    st = k("sva.mcdu.irs.fault", u);
+                    c = C_AMBER;
+                } else if (A.state[i] == com.sva.vehicle.LinerAdirs.S_NAV) {
+                    st = k("sva.mcdu.irs.navDrift", u, t1((int) Math.round(A.drift[i] * 10)));
+                } else if (A.state[i] == com.sva.vehicle.LinerAdirs.S_ATT) {
+                    st = k(A.hdgSet[i] ? "sva.mcdu.irs.att" : "sva.mcdu.irs.attHdg", u);
+                    c = A.hdgSet[i] ? C_GREEN : C_AMBER;
+                    // ПРОСТР: the heading to enter on the right (the scratchpad's 3 digits)
+                    double shown = ((e.hdgTrue + A.hdgOff(i)) % 360 + 360) % 360;
+                    r.dat(3 + i, true, A.hdgSet[i] ? String.format("%03d", Integer.valueOf((int) Math.round(shown) % 360)) + ">" : "[ ]>",
+                            A.hdgSet[i] ? C_GREEN : C_CYAN);
+                } else if (A.waitInit && A.align[i] > 0) {
+                    st = k("sva.mcdu.irs.wait", u);
+                    c = C_AMBER;
+                } else {
+                    st = k("sva.mcdu.irs.align", u, two(Math.max(0, A.secondsLeft)));
+                }
+                r.dat(3 + i, false, st, c);
+                continue;
+            }
             if (L.at(sel[i]) == 0 || e.insStatus == SystemsMath.INS_OFF) {
                 st = k("sva.mcdu.irs.off", Integer.valueOf(i + 1));
                 c = C_WHITE;

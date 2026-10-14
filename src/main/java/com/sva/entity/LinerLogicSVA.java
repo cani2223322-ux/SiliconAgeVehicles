@@ -101,6 +101,14 @@ public final class LinerLogicSVA {
         // wave 6: the outside air at the aircraft (the biome's temperature, the cloud layer, rain / snow) for the icing; the
         // older world tests fly without it (their own weather must not ice them), the wave-6 one asks for it
         air6(v, e);
+        // wave 7: the ADIRUs - moving (the alignment restarts), the alignment's ticks and its IRS INIT gate, the world tests'
+        // instant alignment, GPS, the random IR / ADR faults (the failures config, per hour -> per tick)
+        e.moving = Math.abs(v.speed) > SystemsMath.ALIGN_SPEED || v.wasAirborneNow();
+        e.insTotal = SystemsMath.alignTicks(ConfigSVA.insAlignSeconds);
+        e.irsGate = com.sva.vehicle.LinerFms.irsGate(ConfigSVA.linerIrsAutoInit, L.fms.irsDone);
+        e.instantIns = !ConfigSVA.ins || EntityVehicleSVA.testInstantEngine && !v.debugInsManual;
+        e.gps = ConfigSVA.linerGpsAlwaysOn;
+        e.adirsFail = ConfigSVA.failures && !EntityVehicleSVA.testInstantEngine ? Math.max(0, ConfigSVA.linerAdirsFailChance) / 72000.0 : 0;
         boolean instant = EntityVehicleSVA.testInstantEngine && !v.debugEngineManual;
         if (instant && pilot) {
             // the older world tests fly every aircraft at once: the liner's batteries and masters on, the engines at idle
@@ -133,11 +141,7 @@ public final class LinerLogicSVA {
         v.linerEngine(L.anyRunning());
         v.state.switches = L.switchWord();
         v.state.battery = L.powered() ? SystemsMath.BAT_MAX : 0;
-        // the L1 door shuts by itself once it rolls fast or flies
-        if (L.door && (v.wasAirborneNow() || Math.abs(v.speed) > 0.3)) {
-            L.door = false;
-            v.oneShot("door", 0.5F, 0.8F);
-        }
+        // the doors shut by themselves once it rolls fast or flies (wave 7: all four - LinerGroundSVA.doorsTick in serverUpdate)
         // sounds of this tick (wave 3, vanilla): MASTER WARN - the continuous repetitive chime until pressed (or EMER CANC);
         // MASTER CAUT - a single chime
         if ((L.events & LinerSystems.E_CHIME_WARN) != 0 || L.masterWarn && !L.ecam.silenced && v.ticksExisted % WARN_REPEAT == 0) {
@@ -205,6 +209,23 @@ public final class LinerLogicSVA {
             } else {
                 v.vanillaSound("note.pling", 0.45F, (float) (0.8F + (100 - Math.min(100, c)) / 100.0));
             }
+        }
+        // wave 7: the stall warning's aural (crickets - ALTN / DIRECT), the cabin call (two high-low notes and the line to the
+        // passengers), a fire (the riders told; the red chime is the ECAM's)
+        if ((L.events & LinerSystems.E_STALL) != 0) {
+            v.vanillaSound("mob.silverfish.say", 0.9F, 1.8F);
+            v.vanillaSound("note.bd", 0.8F, 0.6F);
+        }
+        if ((L.events & LinerSystems.E_PA) != 0) {
+            v.vanillaSound("note.pling", 0.6F, 1.5F);
+            v.vanillaSound("note.pling", 0.5F, 1.12F);
+            v.tellRidersKey("sva.liner.msg.paCall");
+        }
+        if ((L.events & LinerSystems.E_FIRE) != 0) {
+            v.tellRidersKey("sva.liner.msg.fire");
+        }
+        if (L.adirs.alignedNow) {
+            v.vanillaClick(0.2F, 2.0F);
         }
         if (quickBefore != LinerSystems.QUICK_OFF && L.quick == LinerSystems.QUICK_OFF) {
             v.tellRidersKey("done".equals(L.quickWhy) ? "sva.liner.quick.done" : "sva.liner.quick.stopped." + L.quickWhy);
@@ -323,6 +344,7 @@ public final class LinerLogicSVA {
         e.time = v.worldObj.getWorldTime();
         e.insStatus = v.insStatus();
         e.insSec = v.insSecondsLeft();
+        e.hdgTrue = LinerGuide.compass(v.rotationYaw);              // wave 7: the IRS INIT page's ПРОСТР heading entry
         e.autoIrs = ConfigSVA.linerIrsAutoInit;
         e.fob = L.tanks();
         e.gw = L.lastAir != null ? L.lastAir.mass : LinerAfs.MASS0 + L.tanks() / 48000.0 * 2600 + v.ridersNow() * 80;
@@ -504,6 +526,14 @@ public final class LinerLogicSVA {
             return;
         }
         boolean was = L.quick != LinerSystems.QUICK_OFF;
+        LinerControls.Ctl c = LinerControls.get(index);
+        if (c == LinerControls.PRIO_L || c == LinerControls.PRIO_R) {
+            // wave 7: the sidestick priority - the presser's own side only; the flying pilot swaps (LinerGroundSVA.priority)
+            if (action == LinerControls.A_PRIMARY && LinerGroundSVA.priority(v, p, c == LinerControls.PRIO_R)) {
+                v.vanillaClick(0.3F, 1.8F);
+            }
+            return;
+        }
         if (L.control(index, action)) {
             v.vanillaClick(0.3F, LinerControls.get(index).kind == LinerControls.PBM ? 1.8F : 1.5F);
             applyLevers(v, L);

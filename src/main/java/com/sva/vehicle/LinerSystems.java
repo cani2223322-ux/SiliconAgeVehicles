@@ -43,6 +43,11 @@ import net.minecraft.nbt.NBTTagCompound;
  * <b>Wave 3</b>: the fuel system (LinerFuel - pumps, centre first, crossfeed, gravity feed, transfer, FU) feeds the engines
  * from their sides; every warning, caution and memo goes through the ECAM (LinerEcam - priorities, action lines, phases,
  * CLR / RCL / STS / EMER CANC, T.O. CONFIG, the SD's automatic page); the cabin's zones and altitude (cosmetic).
+ * <p>
+ * <b>Wave 7</b>: the three ADIRUs (LinerAdirs - the IRs' alignment, ПРОСТР, «НА АКБ», the pedestal's switching, the ADR
+ * vote) feed the law (LinerFctl.compute: NORMAL / ALTN 1-2 / DIRECT / MECH with their handling), the AP / A/THR and the
+ * protections; the fire protection (LinerFire); the doors L1 / R1 / the cargo doors, the chocks, the tow, the sidestick
+ * priority.
  */
 public final class LinerSystems {
 
@@ -183,6 +188,12 @@ public final class LinerSystems {
         /** Wave 6: the outside air (°C, moisture, the icing model on) - LinerIce; the true airspeed (km/h) a probe freezes at. */
         public LinerIce.Air iceAir = new LinerIce.Air();
         public double kmh;
+        // wave 7
+        /** Moving (the IRs' alignment restarts), the alignment's ticks (0: at once - the self-tests), its IRS INIT gate open, the
+         * world tests' instant alignment, GPS (vehicles.linerGpsAlwaysOn), an IR / ADR fault's chance a tick (the failures config). */
+        public boolean moving, irsGate = true, instantIns, gps = true;
+        public int insTotal;
+        public double adirsFail;
     }
 
     // ---------------------------------------------------------------- state
@@ -234,6 +245,28 @@ public final class LinerSystems {
 
     /** The L1 door (0 shut .. 1 open target), synced; the stairs follow it on the client. */
     public boolean door;
+
+    /** Wave 7: the doors open now (D_* bits). */
+    public int doorsOpen() {
+        return (door ? D_L1 : 0) | (doorR1 ? D_R1 : 0) | (cargoF ? D_CARGO_F : 0) | (cargoA ? D_CARGO_A : 0);
+    }
+
+    /** Wave 7: door k (D_* bit) open / shut. */
+    public boolean doorOpen(int bit) {
+        return (doorsOpen() & bit) != 0;
+    }
+
+    public void setDoor(int bit, boolean open) {
+        if (bit == D_L1) {
+            door = open;
+        } else if (bit == D_R1) {
+            doorR1 = open;
+        } else if (bit == D_CARGO_F) {
+            cargoF = open;
+        } else if (bit == D_CARGO_A) {
+            cargoA = open;
+        }
+    }
 
     // ---------------------------------------------------------------- wave 2: hydraulics, flight controls, gear and brakes
 
@@ -292,6 +325,23 @@ public final class LinerSystems {
     public static final int E_SIGN = 4096, E_ICE_SHED = 8192;
     /** Wave 6: the airspeed was unreliable last tick (the AP / A/THR let go once when it becomes so). */
     private boolean unreliableBefore;
+
+    // ---------------------------------------------------------------- wave 7: ADIRS, fire, doors, chocks, tow, priority
+
+    /** The three ADIRUs (LinerAdirs) and the fire protection (LinerFire). */
+    public final LinerAdirs adirs = new LinerAdirs();
+    public final LinerFire fire = new LinerFire();
+    /** The R1 service door, the forward / aft cargo doors (L1 is `door`); the chocks on the main gear; towed by a tug; the F/O flies. */
+    public boolean doorR1, cargoF, cargoA, chocks, towed, foPriority;
+    /** The doors' bits (doorsOpen()). */
+    public static final int D_L1 = 1, D_R1 = 2, D_CARGO_F = 4, D_CARGO_A = 8;
+    /** Towing (entity.LinerGroundSVA): the tug's entity id (-1 none), its hitch (+1 front, -1 rear), the nose wheel's angle (deg). */
+    public int tugId = -1, tugSign = 1;
+    public double towSteer;
+    /** Events of this tick past E_*: the stall warning's aural (ALTN / DIRECT), the cabin call, the priority taken, a fire. */
+    public static final int E_STALL = 16384, E_PA = 32768, E_PRIORITY = 65536, E_FIRE = 1 << 17;
+    /** The stall aural repeats this often (ticks). */
+    public static final int STALL_EVERY = 10;
 
     // EU / mB of this tick (outputs for the entity)
     /** EU taken from АКБ 1 this tick (negative: charged into it). */
@@ -363,6 +413,31 @@ public final class LinerSystems {
             afs.chooseIls(action >= LinerControls.A_SET ? action - LinerControls.A_SET : 0);
             return true;
         }
+        if (c == LinerControls.TRIM_L || c == LinerControls.TRIM_R) {
+            // wave 7: the trim wheels - DIRECT / MECH only (the auto-trim otherwise): LMB / wheel up nose up, RMB / down nose down
+            boolean up = action == LinerControls.A_PRIMARY || action == LinerControls.A_WHEEL_UP;
+            boolean moved = (action == LinerControls.A_PRIMARY || action == LinerControls.A_SECONDARY || action == LinerControls.A_WHEEL_UP
+                    || action == LinerControls.A_WHEEL_DOWN) && fctl.trimClick(up);
+            if (moved) {
+                events |= E_CLICK;
+            }
+            return moved;
+        }
+        LinerControls.Ctl[] db = LinerControls.doorButtons();
+        for (int k = 0; k < db.length; k++) {
+            if (c == db[k] && action == LinerControls.A_PRIMARY) {
+                // wave 7: a door from the cockpit - opens only standing on the ground; shuts any time
+                int bit = 1 << k;
+                boolean open = !doorOpen(bit);
+                if (open && !(onGround && Math.abs(lastSpeed) < DOOR_SPEED)) {
+                    return false;
+                }
+                setDoor(bit, open);
+                pos[index] = open ? 1 : 0;
+                events |= E_CLICK;
+                return true;
+            }
+        }
         int[] r = LinerControls.apply(c, pos[index], guard[index], action);
         boolean changed = r[0] != pos[index] || (r[1] != 0) != guard[index];
         pos[index] = r[0];
@@ -419,6 +494,30 @@ public final class LinerSystems {
     private boolean press(LinerControls.Ctl c) {
         if (afs.press(this, c, lastAir)) {
             return true;                                            // wave 4: the FCU's buttons, the AP / A/THR disconnects
+        }
+        // wave 7: the agents (the handle pulled, DC power), the fire tests, the cabin call; the priority buttons (the entity
+        // checks who pressed and swaps the flying pilot - LinerLogicSVA.priority)
+        LinerControls.Ctl[] ag = {LinerControls.AGENT1_1, LinerControls.AGENT1_2, LinerControls.AGENT_APU, LinerControls.AGENT2_1, LinerControls.AGENT2_2};
+        int[][] zb = {{LinerFire.ENG1, 0}, {LinerFire.ENG1, 1}, {LinerFire.APU, 0}, {LinerFire.ENG2, 0}, {LinerFire.ENG2, 1}};
+        for (int i = 0; i < ag.length; i++) {
+            if (c == ag[i]) {
+                return fire.discharge(zb[i][0], zb[i][1], powered());
+            }
+        }
+        LinerControls.Ctl[] ft = {LinerControls.FIRE_TEST1, LinerControls.FIRE_TEST_APU, LinerControls.FIRE_TEST2};
+        for (int z = 0; z < 3; z++) {
+            if (c == ft[z] && powered()) {
+                fire.test[z] = LinerFire.TEST_TICKS;
+                return true;
+            }
+        }
+        if (c == LinerControls.PA_CALL) {
+            events |= E_PA;
+            return true;
+        }
+        if (c == LinerControls.PRIO_L || c == LinerControls.PRIO_R) {
+            events |= E_PRIORITY;
+            return true;
         }
         if (c == LinerControls.APU_START) {
             if (on(LinerControls.APU_MASTER) && (apu == A_FLAP || apu == A_OFF) && !apuFault) {
@@ -491,8 +590,8 @@ public final class LinerSystems {
         boolean dc = dcBat1 || dcBat2 || acBefore || extOn;
         apuTick(e, dc, batV >= APU_MIN_V || acBefore || extOn);
         // ---- the generators
-        gen1On = eng[0].n2 >= GEN_N2 && eng[0].running() && on(LinerControls.GEN1);
-        gen2On = eng[1].n2 >= GEN_N2 && eng[1].running() && on(LinerControls.GEN2);
+        gen1On = eng[0].n2 >= GEN_N2 && eng[0].running() && on(LinerControls.GEN1) && !fire.pulled[LinerFire.ENG1];     // wave 7: the handle
+        gen2On = eng[1].n2 >= GEN_N2 && eng[1].running() && on(LinerControls.GEN2) && !fire.pulled[LinerFire.ENG2];
         apuGenOn = apu == A_AVAIL && on(LinerControls.APU_GEN);
         boolean tie = on(LinerControls.BUS_TIE);
         ac1Src = gen1On ? S_GEN1 : extOn ? S_EXT : apuGenOn ? S_APU : tie && gen2On ? S_GEN2 : S_NONE;
@@ -554,15 +653,22 @@ public final class LinerSystems {
             engineTick(e, i, ac || dcBat1 || dcBat2 || extOn);
         }
         burnFuel();
+        adirsTick(e);                                               // wave 7: the ADIRUs before the law (LinerFctl reads their counts)
         wave2Tick(e);
+        fireTick(e);                                                // wave 7: the fire protection (after the engines' EGT)
+        lastSpeed = Math.max(e.speed, e.airspeed);
+        // wave 7: the stall warning's aural without the protections (ALTN / DIRECT / MECH), under alpha-max in the air
+        if (!e.ground && fctl.law != LinerFctl.NORMAL && afs.aMax > 0 && e.airspeed > 0.3 && e.airspeed < afs.aMax && ticks % STALL_EVERY == 0) {
+            events |= E_STALL;
+        }
         // wave 6: the anti-ice and the icing (after the bleed and the engines), the lights and the signs (after the gear)
         ice.tick(this, e, e.iceAir, e.kmh);
         if (ice.shed) {
             events |= E_ICE_SHED;
         }
-        boolean unrel = ice.unreliable();
+        boolean unrel = ice.unreliable() || adirs.unreliable;
         if (unrel && !unreliableBefore && !e.ground) {
-            afs.apOff(false);                                       // simplified until the ADIRS wave: the AP / A/THR let go
+            afs.apOff(false);                                       // the airspeed unreliable: the AP / A/THR let go (wave 7: the vote too)
             if (afs.athr) {
                 afs.athrOff(false);
             }
@@ -597,7 +703,7 @@ public final class LinerSystems {
     // ---------------------------------------------------------------- APU
 
     private void apuTick(Env e, boolean dc, boolean startPower) {
-        boolean master = on(LinerControls.APU_MASTER) && dc;
+        boolean master = on(LinerControls.APU_MASTER) && dc && !fire.pulled[LinerFire.APU];     // wave 7: its fire handle
         apuTicks++;
         if (!on(LinerControls.APU_MASTER)) {
             apuFault = false;                                       // master off resets the fault light
@@ -657,8 +763,8 @@ public final class LinerSystems {
                 apuN = 100;
                 apuFlap = 1;
                 apuEgt += (APU_EGT_RUN + (apuBleedOpen ? 40 : 0) - apuEgt) * 0.05;
-                if (!fuel) {
-                    apuFail();
+                if (!fuel || fire.pulled[LinerFire.APU]) {
+                    apuFail();                                      // wave 7: the fire handle (or the automatic one) shuts it down
                 } else if (!on(LinerControls.APU_MASTER)) {
                     apu = A_COOL;
                     apuTicks = 0;
@@ -725,8 +831,8 @@ public final class LinerSystems {
             apuBleedUsed = true;
         }
         apuPsi = apuBleedOpen ? APU_PSI : 0;
-        bleed1Open = !apuBleedOpen && on(LinerControls.BLEED1) && eng[0].n2 >= ENG_BLEED_N2;
-        bleed2Open = !apuBleedOpen && on(LinerControls.BLEED2) && eng[1].n2 >= ENG_BLEED_N2;
+        bleed1Open = !apuBleedOpen && on(LinerControls.BLEED1) && eng[0].n2 >= ENG_BLEED_N2 && !fire.pulled[LinerFire.ENG1];
+        bleed2Open = !apuBleedOpen && on(LinerControls.BLEED2) && eng[1].n2 >= ENG_BLEED_N2 && !fire.pulled[LinerFire.ENG2];
         int xb = at(LinerControls.XBLEED);
         xbleedOpen = xb == 2 || xb == 1 && apuBleedOpen;
         double sL = Math.max(bleed1Open ? engPsi(eng[0]) : 0, apuPsi);
@@ -767,7 +873,9 @@ public final class LinerSystems {
 
     private void engineTick(Env e, int i, boolean power) {
         Eng g = eng[i];
-        boolean master = on(i == 0 ? LinerControls.ENG_MASTER1 : LinerControls.ENG_MASTER2);
+        // wave 7: a pulled fire handle cuts the fuel (as the master off); an engine lost to a fire stays down
+        int zone = i == 0 ? LinerFire.ENG1 : LinerFire.ENG2;
+        boolean master = on(i == 0 ? LinerControls.ENG_MASTER1 : LinerControls.ENG_MASTER2) && !fire.pulled[zone] && !fire.lost[zone];
         int mode = at(LinerControls.ENG_MODE);
         // wave 3: fuel from this engine's side (LinerFuel: centre / wing pumps / gravity / crossfeed), not just any tank
         boolean feedable = fuel.feedable(i), fed = fuel.fed[i];
@@ -1176,6 +1284,7 @@ public final class LinerSystems {
         f.ac = acPowered();
         f.adr = adrCount();
         f.ir = irCount();
+        f.adrDisagree = adirs.disagree;                             // wave 7
         f.gearDown = at(LinerControls.GEAR) == 1;
         f.hyd = hyd;
         return f;
@@ -1192,23 +1301,77 @@ public final class LinerSystems {
         return (float) (1.5 + 0.6 * flapPos);
     }
 
-    /** ADRs working: the push button in, the ADIRS selector not off, the board powered. */
+    /** ADRs in use (wave 7: LinerAdirs - on, powered, not failed, not rejected by the vote). */
     public int adrCount() {
-        return adirs(new LinerControls.Ctl[] {LinerControls.ADR1, LinerControls.ADR2, LinerControls.ADR3});
+        return adirs.adrCount();
     }
 
-    /** IRs working (the same rule with the IR push buttons). */
+    /** IRs giving the attitude (wave 7: LinerAdirs - aligned in НАВ, or ПРОСТР after 3 s). */
     public int irCount() {
-        return adirs(new LinerControls.Ctl[] {LinerControls.IR1, LinerControls.IR2, LinerControls.IR3});
+        return adirs.irCount();
     }
 
-    private int adirs(LinerControls.Ctl[] pb) {
-        LinerControls.Ctl[] sel = {LinerControls.ADIRS1, LinerControls.ADIRS2, LinerControls.ADIRS3};
-        int n = 0;
-        for (int i = 0; i < 3; i++) {
-            n += on(pb[i]) && at(sel[i]) != 0 && powered() ? 1 : 0;
+    /** Wave 7: the selectors / push buttons of the ADIRUs in LinerAdirs' unit order (1, 2, 3). */
+    public static final LinerControls.Ctl[] ADIRS_SEL = {LinerControls.ADIRS1, LinerControls.ADIRS2, LinerControls.ADIRS3},
+            IR_PB = {LinerControls.IR1, LinerControls.IR2, LinerControls.IR3}, ADR_PB = {LinerControls.ADR1, LinerControls.ADR2, LinerControls.ADR3};
+    /** Wave 7: the doors open / move only below this speed (b/t) on the ground. */
+    public static final double DOOR_SPEED = 0.3;
+    /** Wave 7: the last tick's speed (b/t: the doors' rule between ticks). */
+    public double lastSpeed;
+
+    /** Wave 7: one tick of the ADIRUs (the selectors, the push buttons, power, the probes' airspeeds, the alignment's rules). */
+    private void adirsTick(Env e) {
+        LinerAdirs.In a = new LinerAdirs.In();
+        for (int i = 0; i < LinerAdirs.UNITS; i++) {
+            a.sel[i] = at(ADIRS_SEL[i]);
+            a.irPb[i] = on(IR_PB[i]);
+            a.adrPb[i] = on(ADR_PB[i]);
+            a.kmh[i] = ice.indicated(i, e.kmh);
+            a.iced[i] = ice.iced(i);
         }
-        return n;
+        a.ac = acPowered();
+        a.ess = powered();
+        a.moving = e.moving;
+        a.ground = e.ground;
+        a.total = Math.max(0, e.insTotal);
+        a.gate = e.irsGate;
+        a.instant = e.instantIns;
+        a.hdg = e.air != null ? e.air.hdg : 0;
+        a.random = e.random;
+        a.failChance = e.adirsFail;
+        a.gps = e.gps;
+        adirs.tick(a);
+        afs.irsState = adirs.irsState();                            // the MCDU / ECAM's IRS INIT state (wave 5's gate)
+        if (!adirs.anyPowered()) {
+            fms.irsDone = false;                                    // every unit off: the IRS INIT is to be confirmed again
+        }
+    }
+
+    /** Wave 7: one tick of the fire protection (the handles, the EGTs, the agents), the door buttons following the doors. */
+    private void fireTick(Env e) {
+        LinerControls.Ctl[] h = LinerControls.fireHandles();
+        boolean[] pulled = new boolean[h.length];
+        for (int z = 0; z < h.length; z++) {
+            pulled[z] = on(h[z]);
+        }
+        boolean[] was = fire.burning.clone();
+        fire.tick(pulled, eng[0].egt, apuEgt, eng[1].egt, e.ground, powered(), e.random);
+        if (fire.startedNow) {
+            events |= E_FIRE;
+        }
+        if (fire.pulled[LinerFire.APU] && apuRunning()) {
+            apuFail();                                              // the APU's automatic shut-down on the ground
+        }
+        for (int z = 0; z < 3; z++) {
+            if (was[z] && !fire.burning[z] && fire.lost[z]) {
+                fire.lost[z] = false;                               // the fire out: the engine may be restarted
+            }
+        }
+        LinerControls.Ctl[] db = LinerControls.doorButtons();
+        for (int k = 0; k < db.length; k++) {
+            pos[db[k].index] = doorOpen(1 << k) ? 1 : 0;
+        }
+        fctl.trimTick(e.airspeed, e.ground);                        // wave 7: the auto-trim (NORMAL / ALTN) or the hand's trim
     }
 
     /** One server tick of wave 2: the hydraulics, the flight controls (the spoilers' and high lift's decisions), the gear. */
@@ -1328,6 +1491,43 @@ public final class LinerSystems {
             if (c == pb[i]) {
                 return on(c) && (fctl.comp & 1 << i) == 0;          // in, but not working (its bus dead)
             }
+        }
+        // wave 7: the IR / ADR ОТКАЗ, the doors' ОТКР, the agents' РАЗРЯЖ.
+        for (int i = 0; i < LinerAdirs.UNITS; i++) {
+            if (c == IR_PB[i]) {
+                return adirs.irFault(i);
+            }
+            if (c == ADR_PB[i]) {
+                return adirs.adrFault(i);
+            }
+        }
+        LinerControls.Ctl[] db = LinerControls.doorButtons();
+        for (int k = 0; k < db.length; k++) {
+            if (c == db[k]) {
+                return doorOpen(1 << k);
+            }
+        }
+        int[] ag = agent(c);
+        return ag != null && fire.discharged(ag[0], ag[1]);
+    }
+
+    /** Wave 7: an agent button's {zone, bottle}, null for any other control. */
+    public static int[] agent(LinerControls.Ctl c) {
+        LinerControls.Ctl[] ag = {LinerControls.AGENT1_1, LinerControls.AGENT1_2, LinerControls.AGENT_APU, LinerControls.AGENT2_1, LinerControls.AGENT2_2};
+        int[][] zb = {{LinerFire.ENG1, 0}, {LinerFire.ENG1, 1}, {LinerFire.APU, 0}, {LinerFire.ENG2, 0}, {LinerFire.ENG2, 1}};
+        for (int i = 0; i < ag.length; i++) {
+            if (c == ag[i]) {
+                return zb[i];
+            }
+        }
+        return null;
+    }
+
+    /** Wave 7: a push button's white lower half lit by the systems: an agent's «ПИРОПАТР.» (armed); the priority's (the side flying). */
+    public boolean whiteLamp(LinerControls.Ctl c) {
+        int[] ag = agent(c);
+        if (ag != null) {
+            return fire.squib(ag[0], ag[1]);
         }
         return false;
     }
@@ -1461,15 +1661,21 @@ public final class LinerSystems {
             M_IRS_ALIGN = 1 << 27, M_IRS_INIT = 1 << 28,
             // wave 6: the wing's / the engines' anti-ice on (green «ПОС КРЫЛА», «ПОС ДВ»)
             M_WING_AI = 1 << 29, M_ENG_AI = 1 << 30;
+    /**
+     * Wave 7 (the memos are a long now): the ADIRUs on the batteries (amber «ИНС НА АКБ»), the chocks in, towed, a cargo door
+     * open (amber), the F/O flying (the priority).
+     */
+    public static final long M_IRS_ON_BAT = 1L << 31, M_CHOCKS = 1L << 32, M_TOW = 1L << 33, M_CARGO = 1L << 34, M_PRIORITY_FO = 1L << 35;
     public static final String[] MEMO_KEYS = {"apuAvail", "apuBleed", "park", "beaconOff", "ext", "door", "stairs", "galley", "seatBelts", "noSmoking",
             "onBat", "engStart", "idle", "quick", "splArm", "autoBrk", "rat", "ptu", "gravity", "brkFan", "refuel", "xfeed", "toNormal", "normal",
-            "gravFeed", "sts", "rev", "irsAlign", "irsInit", "wingAi", "engAi"};
+            "gravFeed", "sts", "rev", "irsAlign", "irsInit", "wingAi", "engAi", "irsOnBat", "chocks", "tow", "cargoOpen", "priorityFo"};
     /** Memos drawn amber (the rest green). */
-    public static final int MEMO_AMBER = M_BEACON_OFF | M_DOOR | M_GALLEY | M_ON_BAT | M_RAT | M_GRAVITY | M_GRAV_FEED | M_IRS_INIT;
+    public static final long MEMO_AMBER = M_BEACON_OFF | M_DOOR | M_GALLEY | M_ON_BAT | M_RAT | M_GRAVITY | M_GRAV_FEED | M_IRS_INIT | M_IRS_ON_BAT
+            | M_CARGO | M_CHOCKS;
 
     /** The memo bits now (both sides compute them from the synced state). */
-    public int memos(boolean ground) {
-        int m = 0;
+    public long memos(boolean ground) {
+        long m = 0;
         if (apuRunning()) {
             m |= M_APU_AVAIL;
         }
@@ -1559,6 +1765,22 @@ public final class LinerSystems {
         }
         if (ice.engOn[0] || ice.engOn[1]) {
             m |= M_ENG_AI;
+        }
+        // wave 7
+        if (adirs.onBat) {
+            m |= M_IRS_ON_BAT;
+        }
+        if (chocks) {
+            m |= M_CHOCKS;
+        }
+        if (towed) {
+            m |= M_TOW;
+        }
+        if (cargoF || cargoA || doorR1) {
+            m |= M_CARGO;
+        }
+        if (foPriority) {
+            m |= M_PRIORITY_FO;
         }
         return m;
     }
@@ -1867,7 +2089,52 @@ public final class LinerSystems {
             }
             b.append(w6[i]);
         }
+        b.append('|');                                              // wave 7: ADIRS, the fire, the doors, the trim
+        int[] w7 = wave7Numbers();
+        for (int i = 0; i < w7.length; i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append(w7[i]);
+        }
         return b.toString();
+    }
+
+    /** The seventh part (wave 7): LinerAdirs' words, the flags (doors, chocks, tow, priority, ALTN 2), the fire, the trim. */
+    private int[] wave7Numbers() {
+        int[] a = adirs.pack();
+        int[] all = new int[a.length + 6];
+        System.arraycopy(a, 0, all, 0, a.length);
+        int o = a.length;
+        all[o] = (doorR1 ? 1 : 0) | (cargoF ? 2 : 0) | (cargoA ? 4 : 0) | (chocks ? 8 : 0) | (towed ? 16 : 0) | (foPriority ? 32 : 0)
+                | (fctl.altn2 ? 64 : 0);
+        all[o + 1] = fire.pack();
+        all[o + 2] = r(fctl.trimSpeed * 1000);
+        all[o + 3] = r(fctl.manTrim * 10);
+        all[o + 4] = tugId;
+        all[o + 5] = r(towSteer);
+        return all;
+    }
+
+    private void unpackWave7(int[] w) {
+        int o = LinerAdirs.WORDS;
+        if (w.length < o + 6) {
+            return;
+        }
+        adirs.unpack(w, 0);
+        int f = w[o];
+        doorR1 = (f & 1) != 0;
+        cargoF = (f & 2) != 0;
+        cargoA = (f & 4) != 0;
+        chocks = (f & 8) != 0;
+        towed = (f & 16) != 0;
+        foPriority = (f & 32) != 0;
+        fctl.altn2 = (f & 64) != 0;
+        fire.unpack(w[o + 1]);
+        fctl.trimSpeed = w[o + 2] / 1000.0;
+        fctl.manTrim = w[o + 3] / 10F;
+        tugId = w[o + 4];
+        towSteer = w[o + 5];
     }
 
     /** The sixth part (wave 6): LinerLights' words, LinerIce's words, the heaters' / lights' loads. */
@@ -1969,6 +2236,7 @@ public final class LinerSystems {
         int[] w3 = part.length > 2 ? ints(part[2]) : null;
         int[] w4 = part.length > 3 ? ints(part[3]) : null;
         int[] w6 = part.length > 4 ? ints(part[4]) : null;
+        int[] w7 = part.length > 5 ? ints(part[5]) : null;
         if (v == null || v.length < 36) {
             return;
         }
@@ -1983,6 +2251,9 @@ public final class LinerSystems {
         }
         if (w6 != null) {
             unpackWave6(w6);                                        // wave 6: the lights, the ice, the loads
+        }
+        if (w7 != null) {
+            unpackWave7(w7);                                        // wave 7: ADIRS, the fire, the doors, the trim
         }
         int f = v[0];
         masterWarn = (f & 1) != 0;
@@ -2105,7 +2376,15 @@ public final class LinerSystems {
         lights.write(l6);
         ice.write(l6);
         t.setTag(K_W6, l6);
+        NBTTagCompound w7 = new NBTTagCompound();
+        adirs.write(w7);
+        w7.setByte("Doors", (byte) doorsOpen());
+        w7.setBoolean("Chocks", chocks);
+        t.setTag(K_W7, w7);
     }
+
+    /** Wave 7: the ADIRUs (aligned units stay aligned over a reload), the doors, the chocks. */
+    public static final String K_W7 = "W7Adirs";
 
     /** Wave 6: the lights (the reading lights, the emergency batteries, the landing lights' travel) and the ice. */
     public static final String K_W6 = "W6Lights";
@@ -2187,6 +2466,15 @@ public final class LinerSystems {
         if (t.hasKey(K_W6)) {
             lights.read(t.getCompoundTag(K_W6));
             ice.read(t.getCompoundTag(K_W6));
+        }
+        if (t.hasKey(K_W7)) {
+            NBTTagCompound w7 = t.getCompoundTag(K_W7);
+            adirs.read(w7);
+            int d = w7.getByte("Doors");
+            doorR1 = (d & D_R1) != 0;
+            cargoF = (d & D_CARGO_F) != 0;
+            cargoA = (d & D_CARGO_A) != 0;
+            chocks = w7.getBoolean("Chocks");
         }
         int[] w3 = t.getIntArray(K_W3);
         if (w3.length == 5) {

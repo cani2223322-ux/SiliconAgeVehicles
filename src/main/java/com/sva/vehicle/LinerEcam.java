@@ -59,13 +59,18 @@ public final class LinerEcam {
     public static final int I_ENG1 = 1, I_ENG2 = 2, I_GEN1 = 4, I_GEN2 = 8, I_APU = 16, I_BLEED1 = 32, I_BLEED2 = 64, I_G = 128, I_B = 256,
             I_Y = 512, I_FUEL_L = 1024, I_FUEL_R = 2048, I_PUMP = 4096, I_FCTL = 8192,
             /** Wave 6: the wing's / the engines' anti-ice, the probe heat. */
-            I_WING_AI = 16384, I_ENG_AI = 32768, I_PROBE = 65536;
+            I_WING_AI = 16384, I_ENG_AI = 32768, I_PROBE = 65536,
+            /** Wave 7: the IRs / ADRs, the protections, AP 1 + 2, the A/THR. */
+            I_IR1 = 1 << 17, I_IR2 = 1 << 18, I_IR3 = 1 << 19, I_ADR1 = 1 << 20, I_ADR2 = 1 << 21, I_ADR3 = 1 << 22, I_PROT = 1 << 23, I_AP = 1 << 24,
+            I_ATHR = 1 << 25;
     public static final String[] INOP_KEYS = {"eng1", "eng2", "gen1", "gen2", "apu", "bleed1", "bleed2", "hydG", "hydB", "hydY", "fuelL", "fuelR",
-            "fuelPump", "fctl", "wingAi", "engAi", "probe"};
+            "fuelPump", "fctl", "wingAi", "engAi", "probe", "ir1", "ir2", "ir3", "adr1", "adr2", "adr3", "prot", "ap", "athr"};
     public static final int LIM_LAND = 1, LIM_GRAV = 2, LIM_ALTN = 4, LIM_DIRECT = 8, LIM_IMBAL = 16, LIM_FLAPS = 32, LIM_FUEL = 64,
             /** Wave 6: stay out of icing. */
-            LIM_ICING = 128;
-    public static final String[] LIM_KEYS = {"land", "grav", "altn", "direct", "imbal", "flaps", "fuel", "icing"};
+            LIM_ICING = 128,
+            /** Wave 7: the pitch trimmed by hand (DIRECT / MECH), the airspeed cross-checked on ISIS. */
+            LIM_MAN_TRIM = 256, LIM_SPD_ISIS = 512;
+    public static final String[] LIM_KEYS = {"land", "grav", "altn", "direct", "imbal", "flaps", "fuel", "icing", "manTrim", "spdIsis"};
 
     // ---------------------------------------------------------------- action lines
 
@@ -76,12 +81,20 @@ public final class LinerEcam {
             // wave 4: the levers to FLX / TOGA (not set), to CL (A/THR limited)
             A_THR_TO = 30, A_THR_CL = 31,
             // wave 6: the engines' / the wing's anti-ice on, the probe heat on, the crew's oxygen masks, an emergency descent
-            A_ENG_AI_ON = 32, A_WING_AI_ON = 33, A_PROBE_ON = 34, A_MASK = 35, A_DESCEND = 36, ACTS = 37;
+            A_ENG_AI_ON = 32, A_WING_AI_ON = 33, A_PROBE_ON = 34, A_MASK = 35, A_DESCEND = 36,
+            // wave 7: the unreliable airspeed's procedure (AP / A/THR / FD off, the pitch and thrust memory items, the ADRs on
+            // iced probes off), an IR / ADR off, the ATT HDG selector, the speed cross-check, the fire's handles and agents,
+            // the doors shut, the chocks removed
+            A_AP_OFF = 37, A_ATHR_OFF = 38, A_FD_OFF = 39, A_PITCH_THR = 40, A_ADR1_OFF = 41, A_ADR2_OFF = 42, A_ADR3_OFF = 43, A_IR1_OFF = 44,
+            A_IR2_OFF = 45, A_IR3_OFF = 46, A_ATT_SW = 47, A_SPD_CHECK = 48, A_FIRE1 = 49, A_AGENT1_1 = 50, A_AGENT1_2 = 51, A_FIRE2 = 52,
+            A_AGENT2_1 = 53, A_AGENT2_2 = 54, A_FIRE_APU = 55, A_AGENT_APU = 56, A_DOORS_SHUT = 57, A_CHOCKS_OFF = 58, ACTS = 59;
     /** Lang sva.liner.act.KEY = «WHAT|SETTING» (drawn «- WHAT ...... SETTING»). */
     public static final String[] ACT_KEYS = {"modeStart", "thrIdle", "master1Off", "master2Off", "ptuOff", "brkFanOn", "gearDown", "flapsTo",
             "spdBrkRet", "parkOff", "ratMan", "apuBleedOn", "gen1On", "gen2On", "apuMasterOff", "xbleedOpen", "busTieOn", "edp1Off", "blueOff",
             "edp2Off", "pumpL1Off", "pumpL2Off", "pumpC1Off", "pumpC2Off", "pumpR1Off", "pumpR2Off", "xfeedOn", "lightPumpsOff", "ctrMan",
-            "doorShut", "thrTo", "thrCl", "engAiOn", "wingAiOn", "probeOn", "mask", "descend"};
+            "doorShut", "thrTo", "thrCl", "engAiOn", "wingAiOn", "probeOn", "mask", "descend", "apOff", "athrOff", "fdOff", "pitchThr", "adr1Off",
+            "adr2Off", "adr3Off", "ir1Off", "ir2Off", "ir3Off", "attSw", "spdCheck", "fire1", "agent11", "agent12", "fire2", "agent21", "agent22",
+            "fireApu", "agentApu", "doorsShut", "chocksOff"};
 
     // ---------------------------------------------------------------- the messages
 
@@ -97,9 +110,16 @@ public final class LinerEcam {
             // wave 5: the take-off speeds not entered on the MCDU (the T.O. CONFIG test / take-off thrust)
             M_TO_SPEEDS = 56,
             // wave 6: ice detected (its anti-ice off), the wing's / an engine's anti-ice failed, the probe heat failed, the
-            // airspeed unreliable (an iced probe), the cabin altitude (red). The table is full now (64 bits): the ADIRS wave
-            // widens the words.
-            M_ICE = 57, M_WING_AI = 58, M_ENG1_AI = 59, M_ENG2_AI = 60, M_PROBE_HEAT = 61, M_IAS = 62, M_CAB_ALT = 63, N = 64;
+            // airspeed unreliable (an iced probe), the cabin altitude (red)
+            M_ICE = 57, M_WING_AI = 58, M_ENG1_AI = 59, M_ENG2_AI = 60, M_PROBE_HEAT = 61, M_IAS = 62, M_CAB_ALT = 63,
+            // wave 7 (the words widened to two longs: ids 64..127 in the second): the ADRs / IRs failed or rejected, their
+            // disagreements, the overspeed, the mechanical back-up («ТРИММ ВРУЧНУЮ»), the fires, the take-off configuration's
+            // doors and chocks, the cargo / R1 doors open
+            M_ADR1 = 64, M_ADR2 = 65, M_ADR3 = 66, M_IR1 = 67, M_IR2 = 68, M_IR3 = 69, M_ADR_DISAG = 70, M_IR_DISAG = 71, M_OVERSPEED = 72,
+            M_LAW_MECH = 73, M_ENG1_FIRE = 74, M_ENG2_FIRE = 75, M_APU_FIRE = 76, M_CFG_DOOR = 77, M_CFG_CHOCKS = 78, M_DOOR_CARGO = 79,
+            M_DOOR_R1 = 80, N = 81;
+    /** The table's capacity (two longs). */
+    public static final int CAPACITY = 128;
     /** The first red / amber with a wave 1-2 bit (LinerSystems.warn bit = id; caut bit = id - FIRST_CAUT for ids under LEGACY_CAUT_END). */
     public static final int LEGACY_WARN_END = 7, FIRST_CAUT = 12, LEGACY_CAUT_END = 39;
 
@@ -186,14 +206,61 @@ public final class LinerEcam {
         def(M_ENG1_AI, "eng1AiFault", CAUT, P_ENG, INH, I_ENG_AI, LIM_ICING);
         def(M_ENG2_AI, "eng2AiFault", CAUT, P_ENG, INH, I_ENG_AI, LIM_ICING);
         def(M_PROBE_HEAT, "probeHeat", CAUT, -1, INH, I_PROBE, 0, A_PROBE_ON);
-        def(M_IAS, "iasUnreliable", CAUT, -1, 0, 0, 0);
+        // wave 7: the unreliable airspeed's procedure (the A320's UNRELIABLE SPEED INDIC: AP / A/THR / FD off, the pitch and
+        // thrust memory items, the ADRs on the iced probes off - a line only for an iced one)
+        def(M_IAS, "iasUnreliable", CAUT, -1, 0, I_AP | I_ATHR, LIM_SPD_ISIS, A_AP_OFF, A_ATHR_OFF, A_FD_OFF, A_PITCH_THR, A_ADR1_OFF, A_ADR2_OFF,
+                A_ADR3_OFF);
         def(M_CAB_ALT, "cabAlt", WARN, P_COND, 0, 0, 0, A_MASK, A_DESCEND);
+        // wave 7: ADIRS
+        def(M_ADR1, "adr1Fault", CAUT, -1, INH, I_ADR1, 0, A_ADR1_OFF);
+        def(M_ADR2, "adr2Fault", CAUT, -1, INH, I_ADR2, 0, A_ADR2_OFF);
+        def(M_ADR3, "adr3Fault", CAUT, -1, INH, I_ADR3, 0, A_ADR3_OFF);
+        def(M_IR1, "ir1Fault", CAUT, -1, INH, I_IR1, 0, A_IR1_OFF);
+        def(M_IR2, "ir2Fault", CAUT, -1, INH, I_IR2, 0, A_IR2_OFF);
+        def(M_IR3, "ir3Fault", CAUT, -1, INH, I_IR3, 0, A_IR3_OFF);
+        def(M_ADR_DISAG, "adrDisagree", CAUT, -1, 0, I_PROT | I_AP | I_ATHR, LIM_ALTN | LIM_SPD_ISIS, A_SPD_CHECK);
+        def(M_IR_DISAG, "irDisagree", CAUT, -1, 0, 0, 0, A_ATT_SW);
+        def(M_OVERSPEED, "overspeed", WARN, -1, 0, 0, 0, A_THR_IDLE);
+        def(M_LAW_MECH, "manPitchTrim", WARN, P_FCTL, 0, I_FCTL | I_PROT | I_AP, LIM_LAND | LIM_MAN_TRIM);
+        // wave 7: fire (the A320's ENG FIRE / APU FIRE: the lever idle, the master off, the handle, the agents)
+        def(M_ENG1_FIRE, "eng1Fire", WARN, P_ENG, 0, I_ENG1 | I_GEN1 | I_BLEED1, LIM_LAND, A_THR_IDLE, A_MASTER1_OFF, A_FIRE1, A_AGENT1_1, A_AGENT1_2);
+        def(M_ENG2_FIRE, "eng2Fire", WARN, P_ENG, 0, I_ENG2 | I_GEN2 | I_BLEED2, LIM_LAND, A_THR_IDLE, A_MASTER2_OFF, A_FIRE2, A_AGENT2_1, A_AGENT2_2);
+        def(M_APU_FIRE, "apuFire", WARN, P_APU, 0, I_APU, 0, A_FIRE_APU, A_AGENT_APU, A_APU_MASTER_OFF);
+        // wave 7: the take-off configuration's doors / chocks (red, the T.O. CONFIG test and take-off thrust), the doors open
+        def(M_CFG_DOOR, "cfgDoor", WARN, P_DOOR, 0, 0, 0, A_DOORS_SHUT);
+        def(M_CFG_CHOCKS, "cfgChocks", WARN, P_WHEEL, 0, 0, 0, A_CHOCKS_OFF);
+        def(M_DOOR_CARGO, "doorCargo", CAUT, P_DOOR, INH, 0, 0, A_DOORS_SHUT);
+        def(M_DOOR_R1, "doorR1", CAUT, P_DOOR, INH, 0, 0, A_DOORS_SHUT);
+        // wave 7: the laws take the protections / the AP with them on the STATUS page
+        INOP[M_LAW_ALTN] |= I_PROT;
+        INOP[M_LAW_DIRECT] |= I_PROT | I_AP;
+        LIMIT[M_LAW_DIRECT] |= LIM_MAN_TRIM;
+    }
+
+    // ---------------------------------------------------------------- two-long bit sets (ids 0..63 | 64..127)
+
+    /** Bit `id` of the pair (lo: ids 0..63, hi: 64..127). */
+    public static boolean has(long lo, long hi, int id) {
+        return id < 64 ? (lo & 1L << id) != 0 : (hi & 1L << (id - 64)) != 0;
+    }
+
+    /** Message id active / shown now (either word). */
+    public boolean isActive(int id) {
+        return has(active, active2, id);
+    }
+
+    public boolean isShown(int id) {
+        return has(shown, shown2, id);
     }
 
     // ---------------------------------------------------------------- state
 
-    /** Raw conditions now, shown (not inhibited, not cancelled), taken off by CLR, cancelled by EMER CANC; last tick's shown. */
+    /**
+     * Raw conditions now, shown (not inhibited, not cancelled), taken off by CLR, cancelled by EMER CANC; last tick's shown.
+     * Wave 7: ids 0..63 in these, 64..127 in the *2 words (the older code and tests read the first words as they were).
+     */
     public long active, shown, cleared, cancelled, prevShown;
+    public long active2, shown2, cleared2, cancelled2, prevShown2;
     /** Action lines done now (bits by A_*). */
     public long done;
     /** The flight phase (PH_*), its ticks, the fast take-off run. */
@@ -226,16 +293,22 @@ public final class LinerEcam {
             stsSeen = false;                                         // a new flight: the STATUS is to be looked at again
         }
         // the conditions
-        long a = 0;
+        long a = 0, a2 = 0;
         for (int id = 0; id < N; id++) {
             if (cond(id, L, e)) {
-                a |= 1L << id;
+                if (id < 64) {
+                    a |= 1L << id;
+                } else {
+                    a2 |= 1L << (id - 64);
+                }
             }
         }
         active = a;
-        // the configuration found good by the test (and kept while it stays good, on the ground, engines running)
+        active2 = a2;
+        // the configuration found good by the test (and kept while it stays good, on the ground, engines running); wave 7: a
+        // door open or the chocks in - not good
         boolean cfgBad = (a & (1L << M_CFG_FLAPS | 1L << M_CFG_SPDBRK | 1L << M_CFG_TRIM | 1L << M_TO_BRK | 1L << M_TO_SPEEDS)) != 0 || !configGood(L)
-                || speedsMissing(L);
+                || speedsMissing(L) || L.doorsOpen() != 0 || L.chocks;
         if (toTest > 0 && !cfgBad) {
             toCfgOk = true;
         }
@@ -244,38 +317,48 @@ public final class LinerEcam {
         }
         // shown: not inhibited in this phase, not cancelled; the cleared ones forgotten once their condition goes
         int bit = 1 << (toFast ? PH_TO_FAST : phase);
-        long s = 0;
+        long s = 0, s2 = 0;
         for (int id = 0; id < N; id++) {
-            if ((a & 1L << id) != 0 && (INHIBIT[id] & bit) == 0) {
-                s |= 1L << id;
+            if (has(a, a2, id) && (INHIBIT[id] & bit) == 0) {
+                if (id < 64) {
+                    s |= 1L << id;
+                } else {
+                    s2 |= 1L << (id - 64);
+                }
             }
         }
         cleared &= a;
         cancelled &= a;
+        cleared2 &= a2;
+        cancelled2 &= a2;
         s &= ~cancelled;
+        s2 &= ~cancelled2;
         shown = s;
+        shown2 = s2;
         // new red / amber: the masters and the chimes; gone: their lamps out
-        long fresh = s & ~prevShown;
-        if ((fresh & levelMask(WARN)) != 0) {
+        long fresh = s & ~prevShown, fresh2 = s2 & ~prevShown2;
+        long w1 = levelMask(WARN), w2 = levelMask2(WARN), c1 = levelMask(CAUT), c2 = levelMask2(CAUT);
+        if ((fresh & w1) != 0 || (fresh2 & w2) != 0) {
             L.masterWarn = true;
             // wave 4: the AP off sounds the cavalry charge (LinerAfs), not the continuous repetitive chime
-            boolean apOnly = (fresh & levelMask(WARN)) == 1L << M_AP_OFF && (s & levelMask(WARN) & ~(1L << M_AP_OFF)) == 0;
+            boolean apOnly = (fresh & w1) == 1L << M_AP_OFF && (s & w1 & ~(1L << M_AP_OFF)) == 0 && (s2 & w2) == 0;
             silenced = apOnly;
             if (!apOnly) {
                 L.events |= LinerSystems.E_CHIME_WARN;
             }
         }
-        if ((fresh & levelMask(CAUT)) != 0) {
+        if ((fresh & c1) != 0 || (fresh2 & c2) != 0) {
             L.masterCaut = true;
             L.events |= LinerSystems.E_CHIME_CAUT;
         }
-        if ((s & levelMask(WARN)) == 0) {
+        if ((s & w1) == 0 && (s2 & w2) == 0) {
             L.masterWarn = false;
         }
-        if ((s & levelMask(CAUT)) == 0) {
+        if ((s & c1) == 0 && (s2 & c2) == 0) {
             L.masterCaut = false;
         }
         prevShown = s;
+        prevShown2 = s2;
         // the old bits (raw)
         int w = 0, c = 0;
         for (int id = 0; id < LEGACY_WARN_END; id++) {
@@ -299,12 +382,23 @@ public final class LinerEcam {
         }
     }
 
-    /** The bits of every message of this level. */
+    /** The bits of every message of this level (ids 0..63). */
     public static long levelMask(int level) {
         long m = 0;
-        for (int id = 0; id < N; id++) {
+        for (int id = 0; id < Math.min(64, N); id++) {
             if (LEVEL[id] == level) {
                 m |= 1L << id;
+            }
+        }
+        return m;
+    }
+
+    /** Wave 7: the same for ids 64..127 (the second word). */
+    public static long levelMask2(int level) {
+        long m = 0;
+        for (int id = 64; id < N; id++) {
+            if (LEVEL[id] == level) {
+                m |= 1L << (id - 64);
             }
         }
         return m;
@@ -492,13 +586,52 @@ public final class LinerEcam {
             case M_PROBE_HEAT:
                 return L.ice.probeFault;
             case M_IAS:
-                return !e.ground && L.ice.unreliable();
+                return !e.ground && (L.ice.unreliable() || L.adirs.unreliable);     // wave 7: the ADIRS' vote too
             case M_CAB_ALT:
                 return !e.ground && L.cabAlt > LinerIce.CAB_ALT_WARN;
+            // wave 7: ADIRS - an ADR failed / rejected by the vote with its push button in; an IR failed (or unpowered while
+            // it should work); the disagreements
+            case M_ADR1:
+            case M_ADR2:
+            case M_ADR3: {
+                int u = id - M_ADR1;
+                return L.adirs.adrOn[u] && L.adirs.adrFault(u);
+            }
+            case M_IR1:
+            case M_IR2:
+            case M_IR3: {
+                int u = id - M_IR1;
+                return L.adirs.irOn[u] && (L.adirs.irFault(u) || L.adirs.sel[u] != 0 && !L.adirs.powered[u] && live(L, e));
+            }
+            case M_ADR_DISAG:
+                return L.adirs.disagree && !e.ground;
+            case M_IR_DISAG:
+                return L.adirs.irDisagree;
+            case M_OVERSPEED:
+                return !e.ground && e.airspeed > LinerAfs.VMO + OVERSPEED_ADD;
+            case M_LAW_MECH:
+                return !e.ground && L.fctl.law == LinerFctl.MECH;
+            case M_ENG1_FIRE:
+                return L.fire.burning[LinerFire.ENG1];
+            case M_ENG2_FIRE:
+                return L.fire.burning[LinerFire.ENG2];
+            case M_APU_FIRE:
+                return L.fire.burning[LinerFire.APU];
+            case M_CFG_DOOR:
+                return cfgCheck(L, e) && L.doorsOpen() != 0;
+            case M_CFG_CHOCKS:
+                return cfgCheck(L, e) && L.chocks;
+            case M_DOOR_CARGO:
+                return (L.doorsOpen() & (LinerSystems.D_CARGO_F | LinerSystems.D_CARGO_A)) != 0 && live(L, e);
+            case M_DOOR_R1:
+                return (L.doorsOpen() & LinerSystems.D_R1) != 0 && live(L, e);
             default:
                 return false;
         }
     }
+
+    /** Wave 7: the overspeed warning over VMO + this (b/t, 4 km/h - the A320's VMO + 4 kt). */
+    public static final double OVERSPEED_ADD = 4 / 72.0;
 
     /** A hydraulic system's low pressure while it should have it (wave 2's rule). */
     static boolean lowHyd(LinerSystems L, LinerSystems.Env e, int s) {
@@ -596,6 +729,50 @@ public final class LinerEcam {
                 return false;                                       // the crew's masks: a reminder, never ticked
             case A_DESCEND:
                 return L.cabAlt <= LinerIce.CAB_ALT_WARN;
+            // wave 7: the unreliable airspeed (an ADR's line only for an ADR on an iced probe / in the disagreement), the
+            // ADIRS' push buttons, the ATT HDG selector, the fires, the doors, the chocks
+            case A_AP_OFF:
+                return !L.afs.apOn();
+            case A_ATHR_OFF:
+                return !L.afs.athr;
+            case A_FD_OFF:
+                return !L.on(LinerControls.FD_L) && !L.on(LinerControls.FD_R);
+            case A_PITCH_THR:
+                return false;                                       // the memory items: a reminder
+            case A_ADR1_OFF:
+            case A_ADR2_OFF:
+            case A_ADR3_OFF: {
+                int u = i - A_ADR1_OFF;
+                return !L.adirs.adrOn[u] || !L.ice.iced(u) && !L.adirs.adrFault(u);
+            }
+            case A_IR1_OFF:
+            case A_IR2_OFF:
+            case A_IR3_OFF:
+                return !L.adirs.irOn[i - A_IR1_OFF];
+            case A_ATT_SW:
+                return L.at(LinerControls.ATT_HDG) != LinerAdirs.SW_NORM;
+            case A_SPD_CHECK:
+                return false;
+            case A_FIRE1:
+                return L.fire.pulled[LinerFire.ENG1];
+            case A_FIRE2:
+                return L.fire.pulled[LinerFire.ENG2];
+            case A_FIRE_APU:
+                return L.fire.pulled[LinerFire.APU];
+            case A_AGENT1_1:
+                return L.fire.discharged(LinerFire.ENG1, 0);
+            case A_AGENT1_2:
+                return L.fire.discharged(LinerFire.ENG1, 1);
+            case A_AGENT2_1:
+                return L.fire.discharged(LinerFire.ENG2, 0);
+            case A_AGENT2_2:
+                return L.fire.discharged(LinerFire.ENG2, 1);
+            case A_AGENT_APU:
+                return L.fire.discharged(LinerFire.APU, 0);
+            case A_DOORS_SHUT:
+                return L.doorsOpen() == 0;
+            case A_CHOCKS_OFF:
+                return !L.chocks;
             default:
                 return false;
         }
@@ -612,13 +789,13 @@ public final class LinerEcam {
 
     /** The messages on the E/WD (shown, not cleared): red first, then amber, each in table order. */
     public int[] list() {
-        long s = shown & ~cleared;
-        int n = Long.bitCount(s);
+        long s = shown & ~cleared, s2 = shown2 & ~cleared2;
+        int n = Long.bitCount(s) + Long.bitCount(s2);
         int[] r = new int[n];
         int k = 0;
         for (int lv = WARN; lv >= CAUT; lv--) {
             for (int id = 0; id < N; id++) {
-                if ((s & 1L << id) != 0 && LEVEL[id] == lv) {
+                if (has(s, s2, id) && LEVEL[id] == lv) {
                     r[k++] = id;
                 }
             }
@@ -653,7 +830,7 @@ public final class LinerEcam {
     public int inop() {
         int m = 0;
         for (int id = 0; id < N; id++) {
-            if ((active & 1L << id) != 0) {
+            if (isActive(id)) {
                 m |= INOP[id];
             }
         }
@@ -664,7 +841,7 @@ public final class LinerEcam {
     public int limits() {
         int m = 0;
         for (int id = 0; id < N; id++) {
-            if ((active & 1L << id) != 0) {
+            if (isActive(id)) {
                 m |= LIMIT[id];
             }
         }
@@ -673,7 +850,7 @@ public final class LinerEcam {
 
     /** Anything for the STATUS page. */
     public boolean hasStatus() {
-        return inop() != 0 || limits() != 0 || cancelled != 0;
+        return inop() != 0 || limits() != 0 || cancelled != 0 || cancelled2 != 0;
     }
 
     // ---------------------------------------------------------------- the panel
@@ -682,7 +859,11 @@ public final class LinerEcam {
     public void clr(LinerSystems L) {
         int t = top();
         if (t >= 0) {
-            cleared |= 1L << t;
+            if (t < 64) {
+                cleared |= 1L << t;
+            } else {
+                cleared2 |= 1L << (t - 64);
+            }
             L.masterCaut = false;
             if (top() < 0 && hasStatus()) {
                 stsAuto = true;
@@ -698,25 +879,33 @@ public final class LinerEcam {
 
     /** RCL: the cleared and cancelled messages back; nothing at all - «НОРМА» for a while. */
     public void rcl() {
-        if (active == 0 && cleared == 0 && cancelled == 0) {
+        if (active == 0 && cleared == 0 && cancelled == 0 && active2 == 0 && cleared2 == 0 && cancelled2 == 0) {
             rclNormal = RCL_NORMAL;
         }
         cleared = 0;
         cancelled = 0;
+        cleared2 = 0;
+        cancelled2 = 0;
     }
 
     /** EMER CANC: a red message - its chime silenced; else the top caution cancelled for the flight. */
     public void emerCanc(LinerSystems L) {
-        if ((shown & levelMask(WARN)) != 0) {
+        if ((shown & levelMask(WARN)) != 0 || (shown2 & levelMask2(WARN)) != 0) {
             silenced = true;
             return;
         }
         int t = top();
         if (t >= 0 && LEVEL[t] == CAUT) {
-            cancelled |= 1L << t;
-            shown &= ~(1L << t);
+            if (t < 64) {
+                cancelled |= 1L << t;
+                shown &= ~(1L << t);
+            } else {
+                cancelled2 |= 1L << (t - 64);
+                shown2 &= ~(1L << (t - 64));
+            }
             prevShown = shown;
-            L.masterCaut = (shown & levelMask(CAUT)) != 0 && L.masterCaut;
+            prevShown2 = shown2;
+            L.masterCaut = ((shown & levelMask(CAUT)) != 0 || (shown2 & levelMask2(CAUT)) != 0) && L.masterCaut;
         }
     }
 
@@ -835,11 +1024,15 @@ public final class LinerEcam {
 
     // ---------------------------------------------------------------- sync
 
-    /** The ECAM's words for the sync string: flags, shown / cleared / cancelled / done (two ints each). */
+    /**
+     * The ECAM's words for the sync string: flags, shown / cleared / cancelled / done / active (two ints each); wave 7: the
+     * second words (ids 64..) of shown / cleared / cancelled / active (two ints each - zeros mostly: one char each).
+     */
     public int[] pack() {
         int f = phase | (toFast ? 16 : 0) | (toCfgOk ? 32 : 0) | (stsAuto ? 64 : 0) | (stsSeen ? 128 : 0) | (silenced ? 256 : 0) | (toTest > 0 ? 512 : 0)
                 | (rclNormal > 0 ? 1024 : 0);
-        return new int[] {f, lo(shown), hi(shown), lo(cleared), hi(cleared), lo(cancelled), hi(cancelled), lo(done), hi(done), lo(active), hi(active)};
+        return new int[] {f, lo(shown), hi(shown), lo(cleared), hi(cleared), lo(cancelled), hi(cancelled), lo(done), hi(done), lo(active), hi(active),
+                lo(shown2), hi(shown2), lo(cleared2), hi(cleared2), lo(cancelled2), hi(cancelled2), lo(active2), hi(active2)};
     }
 
     /** The client's mirror from those words (at `o` in w). */
@@ -858,10 +1051,14 @@ public final class LinerEcam {
         cancelled = join(w[o + 5], w[o + 6]);
         done = join(w[o + 7], w[o + 8]);
         active = join(w[o + 9], w[o + 10]);
+        shown2 = join(w[o + 11], w[o + 12]);
+        cleared2 = join(w[o + 13], w[o + 14]);
+        cancelled2 = join(w[o + 15], w[o + 16]);
+        active2 = join(w[o + 17], w[o + 18]);
     }
 
     /** Words in pack(). */
-    public static final int WORDS = 11;
+    public static final int WORDS = 19;
 
     static int lo(long v) {
         return (int) v;
