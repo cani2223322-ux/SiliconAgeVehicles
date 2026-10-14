@@ -236,6 +236,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     // of one tick share it; aircraft: the deepest sink of one client step this tick and the count of Moves taken
     private double moveBaseX, moveBaseY, moveBaseZ, moveDyMin;
     private long moveBaseDt = 1, moveBaseMs;
+    /** Steps borrowed (-1) or saved (+1) between ticks: one client step of tick jitter (serverMove). */
+    private long moveCredit, moveCreditAtTick;
     private int movesThisTick;
     // server measurement
     private double lastX, lastY, lastZ, lastDx, lastDz;
@@ -3604,6 +3606,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // a lagging server (TPS < 20) drains more than one client step a tick - the real time counts then
             long ticks = now - lastMoveTick, real = (ms - moveBaseMs + 25) / 50;
             moveBaseDt = ticks > MOVE_TIMEOUT ? 1 : Math.max(1, Math.min(MOVE_TIMEOUT, Math.max(ticks, real)));
+            moveCreditAtTick = ticks > MOVE_TIMEOUT ? 0 : moveCredit;
             moveBaseMs = ms;
             moveBaseX = posX;
             moveBaseY = posY;
@@ -3632,10 +3635,23 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 : canThrust() && (!onHydrogen() || motorDrives()) ? VehicleMath.maxSpeed(t, driveCharge()) * tuneSpeed() * Math.max(roadSpeedMul(t),
                 RoadMath.speedMul(com.sva.block.BlockRoadSVA.surfaceAt(worldObj, x, y, z), t.movement)) : coast;   // coasting only; ★11 roads
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
-        boolean ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), flightParams(t), bh, by, dt, y, lift, airborneAt(posX, posY, posZ), airborneAt(x, y, z),
-                clientAirspeed(clientSpeed, bh / dt))           // not the bare EMA: it halved on a tick without a Move (and
+        // The client and server ticks run unsynchronised and only the newest Move of a tick is kept (ServerQueueSVA): a
+        // tick may get two client steps and the next none. One step may be borrowed (moveCredit -1..1, repaid by the
+        // empty tick), so that jitter is no snap-back, while a steady 2x pace is still refused after one tick.
+        long dtMax = Math.max(1, Math.min(MOVE_TIMEOUT, dt + moveCreditAtTick + 1));
+        boolean ok = false;
+        long used = dt;
+        boolean wasAir = flies && airborneAt(posX, posY, posZ), nowAir = flies && airborneAt(x, y, z);
+        for (long d = 1; d <= dtMax && !ok; d++) {
+            ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), flightParams(t), bh, by, d, y, lift, wasAir, nowAir,
+                    clientAirspeed(clientSpeed, bh / d))        // not the bare EMA: it halved on a tick without a Move (and
                                                                 // a Move after a refused one must count what it covers)
-                : moveAllowed(bh, by, dt, limit, CrawlerMath.climbLimit(stepHeight));             // ★8: big wheels step 1.5
+                    : moveAllowed(bh, by, d, limit, CrawlerMath.climbLimit(stepHeight));          // ★8: big wheels step 1.5
+            used = d;
+        }
+        if (ok) {
+            moveCredit = Math.max(-1, Math.min(1, moveCreditAtTick + dt - used));
+        }
         refuseWhy = ok ? 0 : 1;
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
             AxisAlignedBB box = boundingBox.getOffsetBoundingBox(dx, dy, dz).contract(0.05, 0.05, 0.05);
