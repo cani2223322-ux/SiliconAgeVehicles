@@ -278,6 +278,11 @@ public final class LinerClickSVA {
     }
 
     static void send(EntityVehicleSVA v, LinerControls.Ctl c, int action) {
+        if (c == LinerControls.MCDU1 || c == LinerControls.MCDU2) {
+            // wave 5: an MCDU clicked (the cockpit, the «Пульты» screen) - its keyboard screen
+            Minecraft.getMinecraft().displayGuiScreen(new GuiMcduSVA(v, c == LinerControls.MCDU1 ? 0 : 1));
+            return;
+        }
         if (c.kind == LinerControls.INFO && c != LinerControls.TL1 && c != LinerControls.TL2) {
             return;                                                 // wave 4: the thrust levers click through their detents
         }

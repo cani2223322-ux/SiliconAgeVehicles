@@ -212,6 +212,12 @@ public final class VehicleKeyBindsSVA {
         if (b == null || b[0] != code || mc.thePlayer == null || mc.currentScreen != null) {
             return;
         }
+        // liner wave 5: in the SA-320's pilot seats the MCDU's key wins over the map's on the same key (both are M by default)
+        EntityVehicleSVA lv = HudVehicleSVA.vehicleOf(mc.thePlayer);
+        if (lv != null && !lv.isDead && VehicleFn.MCDU.appliesTo(lv.getVehicleType()) && LinerClickSVA.pilotSeat(mc.thePlayer, lv)
+                && KeyBindMath.same(b, BINDS.get(VehicleFn.MCDU))) {
+            return;
+        }
         if (KeyBindMath.owns(b, true, modifiersDown(), new ArrayList<int[]>(BINDS.values()))) {
             GuiMapSVA.openAtPlayer(mc);
         }
@@ -275,11 +281,16 @@ public final class VehicleKeyBindsSVA {
         List<VehicleFn> out = new ArrayList<VehicleFn>();
         int[] b = BINDS.get(f);
         for (VehicleFn o : VehicleFn.values()) {
-            if (o != f && KeyBindMath.same(b, BINDS.get(o)) && (t == null || o.appliesTo(t))) {
+            if (o != f && KeyBindMath.same(b, BINDS.get(o)) && (t == null || o.appliesTo(t)) && !mapAndMcdu(f, o)) {
                 out.add(o);
             }
         }
         return out;
+    }
+
+    /** Liner wave 5: the map and the MCDU on one key is no clash - in the pilot's seat the MCDU wins (openMap). */
+    static boolean mapAndMcdu(VehicleFn a, VehicleFn b) {
+        return a == VehicleFn.MAP && b == VehicleFn.MCDU || a == VehicleFn.MCDU && b == VehicleFn.MAP;
     }
 
     /**
@@ -396,6 +407,11 @@ public final class VehicleKeyBindsSVA {
         }
         if (f == VehicleFn.CRUISE) {
             CruiseClientSVA.toggleFor(v);
+            return;
+        }
+        if (f == VehicleFn.MCDU) {
+            // liner wave 5: the pilot's own MCDU (the captain's 1, the F/O's 2)
+            mc.displayGuiScreen(new GuiMcduSVA(v, mc.thePlayer.ridingEntity == v ? 0 : 1));
             return;
         }
         if (f == VehicleFn.MFD_PAGE) {

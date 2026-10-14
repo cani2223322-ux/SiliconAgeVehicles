@@ -211,8 +211,12 @@ public final class LinerDisplaysSVA {
         }
         LinerGfxSVA.text(String.valueOf(Math.round(range / 2)), LinerGfxSVA.px(cx, R / 2 + 6 * s, -60), LinerGfxSVA.py(cy, R / 2 + 6 * s, -60), 7 * s,
                 CYN, 0);
+        // wave 5: the FMS' plan (the server's ND data): names, the active point white, constraints magenta, T/C / T/D, the
+        // missed approach cyan, the TMPY yellow - else (no FMS plan) wave 1's drawing of the route
+        com.sva.vehicle.LinerFms.NdView nv = McduClientSVA.nd(v.getEntityId());
+        boolean fmsDrawn = nv != null && !nv.pts.isEmpty() && ndFms(nv, L, v.posX, v.posZ, cx, cy, R, range, rot, s, captain, true);
         // the flight plan: lines from the aircraft through the points, the active one white
-        RouteMath.Plan p = v.plan();
+        RouteMath.Plan p = fmsDrawn ? null : v.plan();
         float lastX = cx, lastY = cy;
         int nearest = -1;
         double nd = 0;
@@ -285,6 +289,96 @@ public final class LinerDisplaysSVA {
         LinerGfxSVA.text("GPS PRIMARY", w / 2, 269 * s, 8 * s, WHT, 0);
         LinerGfxSVA.text(Lang.tr("sva.liner.pos." + LinerControls.ND_MODES[mode]), 6 * s, 269 * s, 7 * s, GRN, -1);
         LinerGfxSVA.text(tr("range", Integer.valueOf(Math.round(range))), 274 * s, 269 * s, 7 * s, CYN, 1);
+    }
+
+    /** A world point on the ND: {x, y} (clamped to 1.3 R), its distance (blocks) and bearing (deg). */
+    static float[] ndPoint(double px, double pz, double ax, double az, float cx, float cy, float R, float range, float rot) {
+        double dx = px - ax, dz = pz - az;
+        double br = Math.toDegrees(Math.atan2(dx, -dz));
+        double d = Math.sqrt(dx * dx + dz * dz);
+        float a = (float) (br - rot);
+        float r = Math.min(R * 1.3F, (float) (d / range * R));
+        return new float[] {LinerGfxSVA.px(cx, r, a), LinerGfxSVA.py(cy, r, a), (float) d, (float) br};
+    }
+
+    /**
+     * Wave 5: the FMS' plan on the ND (mock-up veh_liner_11, sheet 7): the legs green from the FROM entry (a
+     * discontinuity breaks the line), the missed approach cyan, the TMPY yellow; each point a diamond with its name (the
+     * active one white), with ОГР (CSTR) on the constraints as magenta circles and figures; T/C and T/D as magenta markers;
+     * the active point's name, bearing and distance top right (`header`). Also the preview's. @return drawn
+     */
+    public static boolean ndFms(com.sva.vehicle.LinerFms.NdView nv, LinerSystems L, double ax, double az, float cx, float cy, float R, float range,
+            float rot, float s, boolean captain, boolean header) {
+        boolean cstr = L.on(LinerControls.EFIS_PB[captain ? 0 : 5]);
+        for (int pass = 0; pass < 2; pass++) {
+            java.util.List<com.sva.vehicle.LinerFms.Wp> l = pass == 0 ? nv.tmp : nv.pts;
+            float lx = Float.NaN, ly = Float.NaN;
+            for (int i = 0; i < l.size(); i++) {
+                com.sva.vehicle.LinerFms.Wp w = l.get(i);
+                if (w.kind == com.sva.vehicle.LinerFms.K_DISC) {
+                    lx = Float.NaN;
+                    continue;
+                }
+                float[] q = ndPoint(w.x, w.z, ax, az, cx, cy, R, range, rot);
+                boolean missed = w.kind == com.sva.vehicle.LinerFms.K_MISSED;
+                int col = pass == 0 ? YEL : missed ? CYN : GRN;
+                if (!Float.isNaN(lx)) {
+                    LinerGfxSVA.line(lx, ly, q[0], q[1], 1.6F * s, col);
+                }
+                lx = q[0];
+                ly = q[1];
+            }
+        }
+        LinerGfxSVA.layer();
+        // the points (the active plan's)
+        for (int i = 0; i < nv.pts.size(); i++) {
+            com.sva.vehicle.LinerFms.Wp w = nv.pts.get(i);
+            if (w.kind == com.sva.vehicle.LinerFms.K_DISC) {
+                continue;
+            }
+            float[] q = ndPoint(w.x, w.z, ax, az, cx, cy, R, range, rot);
+            if (q[2] / range * R > R * 1.25F) {
+                continue;
+            }
+            boolean act = i == nv.active;
+            int col = act ? WHT : w.kind == com.sva.vehicle.LinerFms.K_MISSED ? CYN : GRN;
+            float d = 3.2F * s;
+            LinerGfxSVA.line(q[0], q[1] - d, q[0] + d, q[1], 1.1F * s, col);
+            LinerGfxSVA.line(q[0] + d, q[1], q[0], q[1] + d, 1.1F * s, col);
+            LinerGfxSVA.line(q[0], q[1] + d, q[0] - d, q[1], 1.1F * s, col);
+            LinerGfxSVA.line(q[0] - d, q[1], q[0], q[1] - d, 1.1F * s, col);
+            LinerGfxSVA.text(w.id, q[0] + 6 * s, q[1] - 1 * s, 8 * s, col, -1);
+            if (cstr && w.cst != com.sva.vehicle.LinerFms.C_NONE) {
+                LinerGfxSVA.arc(q[0], q[1], 7 * s, 0, 360, 1F * s, MAG);
+                String t = (w.cst == com.sva.vehicle.LinerFms.C_ABOVE ? "+" : w.cst == com.sva.vehicle.LinerFms.C_BELOW ? "-" : "") + w.alt;
+                LinerGfxSVA.text(t, q[0] + 6 * s, q[1] + 9 * s, 7 * s, MAG, -1);
+            }
+        }
+        // T/C, T/D: the magenta markers on the path
+        for (int k = 0; k < 2; k++) {
+            double px = k == 0 ? nv.tcX : nv.tdX, pz = k == 0 ? nv.tcZ : nv.tdZ;
+            if (Double.isNaN(px)) {
+                continue;
+            }
+            float[] q = ndPoint(px, pz, ax, az, cx, cy, R, range, rot);
+            if (q[2] / range * R > R * 1.2F) {
+                continue;
+            }
+            LinerGfxSVA.disc(q[0], q[1], 2.2F * s, MAG);
+            float ex = q[0] + 7 * s, ey = q[1] + (k == 0 ? -4 : 4) * s;
+            LinerGfxSVA.line(q[0], q[1], ex, ey, 1.1F * s, MAG);
+            LinerGfxSVA.text(k == 0 ? "T/C" : "T/D", ex + 2 * s, ey, 8 * s, MAG, -1);
+        }
+        if (header && nv.active >= 0 && nv.active < nv.pts.size()) {
+            com.sva.vehicle.LinerFms.Wp a = nv.pts.get(nv.active);
+            if (a.kind != com.sva.vehicle.LinerFms.K_DISC) {
+                float[] q = ndPoint(a.x, a.z, ax, az, cx, cy, R, range, rot);
+                LinerGfxSVA.text(a.id, 230 * s, 10 * s, 9 * s, WHT, 1);
+                LinerGfxSVA.text(String.format("%03d", Integer.valueOf((int) Math.round((q[3] + 360) % 360))), 274 * s, 10 * s, 9 * s, GRN, 1);
+                LinerGfxSVA.text(LinerGfxSVA.num(q[2] / 1000, 1) + " " + tr("km"), 274 * s, 22 * s, 9 * s, GRN, 1);
+            }
+        }
+        return true;
     }
 
     // ---------------------------------------------------------------- E/WD

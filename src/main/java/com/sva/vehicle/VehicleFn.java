@@ -91,7 +91,13 @@ public enum VehicleFn {
      */
     AP_DISC("apDisc", "apDisc", 51, false, true),
     /** Liner wave 4: «Откл. автомата тяги» - the thrust levers' instinctive button (A/THR off, TOGA LK released). - (minus). */
-    ATHR_DISC("athrDisc", "athrDisc", 12, false, true);
+    ATHR_DISC("athrDisc", "athrDisc", 12, false, true),
+    /**
+     * Liner wave 5 (plan-next §7: «клавиша M»): «МФПУ» - the pilot's own MCDU's keyboard screen (client.GuiMcduSVA; the
+     * captain's MCDU 1, the F/O's MCDU 2). M - the map's letter: on the liner M opens the MCDU and the map yields there
+     * (VehicleKeyBindsSVA.openMap; the map stays in the «Техника» menu); both stay rebindable.
+     */
+    MCDU("mcdu", "mcdu", 50, false, true);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -149,6 +155,7 @@ public enum VehicleFn {
             case CURSOR:
             case AP_DISC:
             case ATHR_DISC:
+            case MCDU:
                 return t == VehicleType.LINER;
             default:
                 return true;                                        // cargo, map: every vehicle

@@ -209,6 +209,11 @@ public class ClientProxySVA extends CommonProxySVA {
     }
 
     @Override
+    public void mcduData(int entity, int kind, String data) {
+        com.sva.client.McduClientSVA.put(entity, kind, data);    // liner wave 5 (a concurrent map: safe from the network thread)
+    }
+
+    @Override
     public void openIls(com.sva.block.TileEntityIlsSVA te) {
         net.minecraft.client.Minecraft.getMinecraft().displayGuiScreen(new com.sva.client.GuiIlsSVA(te));   // liner wave 4
     }

@@ -7,6 +7,8 @@ import com.sva.vehicle.FuelMath;
 import com.sva.vehicle.LinerAfs;
 import com.sva.vehicle.LinerGuide;
 import com.sva.vehicle.LinerIls;
+import com.sva.vehicle.LinerMcdu;
+import com.sva.vehicle.NavDb;
 import com.sva.vehicle.PlaneMath;
 import com.sva.vehicle.PlaneParams;
 import com.sva.vehicle.RouteMath;
@@ -81,6 +83,7 @@ public final class LinerLogicSVA {
         e.random = v.rand().nextDouble();
         e.failChance = Math.max(0, Math.min(0.5, ConfigSVA.linerStartFailChance));
         e.quickAllowed = ConfigSVA.linerQuickStart;
+        e.burn = Math.max(0, ConfigSVA.consumption);                // wave 5: the FMS' fuel predictions
         // wave 2: the stick, the pedals, the ground speed, the grip, the height, the leak chance
         boolean left = (in & EntityVehicleSVA.IN_LEFT) != 0, right = (in & EntityVehicleSVA.IN_RIGHT) != 0;
         boolean up = (in & EntityVehicleSVA.IN_BRAKE) != 0, down = (in & (EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BOOST)) != 0;
@@ -191,7 +194,129 @@ public final class LinerLogicSVA {
         if (quickBefore != LinerSystems.QUICK_OFF && L.quick == LinerSystems.QUICK_OFF) {
             v.tellRidersKey("done".equals(L.quickWhy) ? "sva.liner.quick.done" : "sva.liner.quick.stopped." + L.quickWhy);
         }
+        // wave 5: the MCDUs' own messages, their screens and the ND's plan to the pilots when they change
+        LinerMcdu.Env me = mcduEnv(v, L);
+        L.mcdu.tick(L, me);
+        if (v.ticksExisted % MCDU_EVERY == 0) {
+            mcduPush(v, L, me, false);
+        }
         return 0;
+    }
+
+    /** The MCDU screens are checked for a change this often (ticks); a key sends at once. */
+    public static final int MCDU_EVERY = 4;
+
+    /** Wave 5: what the MCDUs know of the world now (the database, the aircraft, the INS, the fuel, the ILS near). */
+    public static LinerMcdu.Env mcduEnv(final EntityVehicleSVA v, LinerSystems L) {
+        LinerMcdu.Env e = new LinerMcdu.Env();
+        final int dim = v.worldObj.provider.dimensionId;
+        final com.sva.block.NavDataSVA nd = com.sva.block.NavDataSVA.get(v.worldObj);
+        if (nd != null) {
+            e.db = nd.db(v.worldObj, dim, v.basePoint());
+            e.store = new LinerMcdu.Store() {
+                @Override
+                public String putWpt(NavDb.Wpt w) {
+                    return nd.putWpt(w);
+                }
+
+                @Override
+                public String putApt(NavDb.Airport a) {
+                    return nd.putApt(a);
+                }
+
+                @Override
+                public String delete(String ident, boolean airport) {
+                    return nd.delete(ident, airport, dim);
+                }
+            };
+        }
+        e.dim = dim;
+        e.x = v.posX;
+        e.y = v.posY;
+        e.z = v.posZ;
+        e.hdg = LinerGuide.compass(v.rotationYaw);
+        e.gs = Math.max(0, v.speed);
+        e.ground = !v.wasAirborneNow();
+        e.time = v.worldObj.getWorldTime();
+        e.insStatus = v.insStatus();
+        e.insSec = v.insSecondsLeft();
+        e.autoIrs = ConfigSVA.linerIrsAutoInit;
+        e.fob = L.tanks();
+        e.gw = L.lastAir != null ? L.lastAir.mass : LinerAfs.MASS0 + L.tanks() / 48000.0 * 2600 + v.ridersNow() * 80;
+        e.riders = v.ridersNow();
+        e.burn = Math.max(0, ConfigSVA.consumption);
+        e.accDefault = (int) Math.round(ConfigSVA.linerAccelHeight);
+        if (v.linerIls != null) {
+            e.ils = v.linerIls;
+        }
+        return e;
+    }
+
+    /** The pilots aboard (the captain, the F/O) as players. */
+    static java.util.List<EntityPlayerMP> pilots(EntityVehicleSVA v) {
+        java.util.List<EntityPlayerMP> out = new java.util.ArrayList<EntityPlayerMP>();
+        for (Entity r : v.riders()) {
+            if (r instanceof EntityPlayerMP && pilot(v, (EntityPlayer) r)) {
+                out.add((EntityPlayerMP) r);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Wave 5: the two MCDU screens and the ND's plan to the pilots - each when it changed since last sent (or to everyone
+     * at once when `force` / a pilot boarded).
+     */
+    static void mcduPush(EntityVehicleSVA v, LinerSystems L, LinerMcdu.Env me, boolean force) {
+        java.util.List<EntityPlayerMP> ps = pilots(v);
+        int sig = 0;
+        for (EntityPlayerMP p : ps) {
+            sig = sig * 31 + p.getEntityId();
+        }
+        if (sig != v.mcduPilots) {
+            force = true;
+            v.mcduPilots = sig;
+        }
+        if (ps.isEmpty()) {
+            return;
+        }
+        for (int k = 0; k < 3; k++) {
+            String s = k < 2 ? L.mcdu.render(L, k, me).pack() : L.fms.hasPlan() || L.fms.tmp != null ? L.fms.ndText() : "";
+            if (!force && s.equals(v.mcduSent[k])) {
+                continue;
+            }
+            v.mcduSent[k] = s;
+            for (EntityPlayerMP p : ps) {
+                if (p.playerNetServerHandler != null) {
+                    com.sva.net.NetSVA.CHANNEL.sendTo(new com.sva.net.NetSVA.McduData(v.getEntityId(), k, s), p);
+                }
+            }
+        }
+    }
+
+    /** The McduKey packet (server): a pilot's MCDU key; others are told it is locked. */
+    public static void mcduKey(EntityVehicleSVA v, EntityPlayerMP p, int side, int code) {
+        if (v.state.liner() == null) {
+            return;
+        }
+        if (!pilot(v, p)) {
+            v.lockedMsgTo(p);
+            return;
+        }
+        mcduKeyServer(v, side, code);
+        if (code == LinerMcdu.K_OPEN) {
+            v.mcduSent[0] = v.mcduSent[1] = v.mcduSent[2] = null;   // the screen opened: everything again
+        }
+        mcduPush(v, v.state.liner(), mcduEnv(v, v.state.liner()), false);
+    }
+
+    /** The MCDU's key on the server (the packet after its checks; the world test calls it directly). */
+    public static void mcduKeyServer(EntityVehicleSVA v, int side, int code) {
+        LinerSystems L = v.state.liner();
+        if (L == null) {
+            return;
+        }
+        L.mcdu.key(L, Math.max(0, Math.min(1, side)), code, mcduEnv(v, L));
     }
 
     /**
@@ -230,7 +355,19 @@ public final class LinerLogicSVA {
         a.hasRoute = plan != null && !plan.isEmpty() && !plan.done();
         a.routeHdg = Double.NaN;
         a.routeAlt = Double.NaN;
-        if (a.hasRoute && (L.afs.lat == LinerAfs.L_NAV || (L.afs.latArm & LinerAfs.AL_NAV) != 0 || L.afs.hdgMan)) {
+        if (L.fms.hasPlan()) {
+            // wave 5: the FMS' plan is the route - its bridge keeps the vehicle's (NAV, the ND, the driver's client) and sequences
+            double rate = t.turnRate * Math.max(0, Math.min(1, sp / Math.max(1e-6, p.stall)));
+            com.sva.vehicle.LinerFms.Nav n = L.fms.nav(v.state.plan, v.posX, v.posZ, a.hdg, sp, rate);
+            if (n.replaced) {
+                v.setFmsRoute(n.plan);
+            }
+            a.hasRoute = !n.plan.isEmpty() && !n.plan.done();
+            a.routeHdg = a.hasRoute && n.g != null ? n.g.heading : Double.NaN;
+            if (n.g != null && n.g.switched) {
+                v.syncNow();
+            }
+        } else if (a.hasRoute && (L.afs.lat == LinerAfs.L_NAV || (L.afs.latArm & LinerAfs.AL_NAV) != 0 || L.afs.hdgMan)) {
             RouteMath.Guide g = v.routeGuide();
             if (g != null) {
                 a.routeHdg = g.heading;

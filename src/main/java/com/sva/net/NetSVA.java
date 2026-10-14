@@ -64,6 +64,102 @@ public final class NetSVA {
         CHANNEL.registerMessage(RouteInfoHandler.class, RouteInfo.class, 15, Side.CLIENT);
         CHANNEL.registerMessage(LinerControlHandler.class, LinerControl.class, 16, Side.SERVER);
         CHANNEL.registerMessage(IlsSetHandler.class, IlsSet.class, 17, Side.SERVER);
+        CHANNEL.registerMessage(McduKeyHandler.class, McduKey.class, 18, Side.SERVER);
+        CHANNEL.registerMessage(McduDataHandler.class, McduData.class, 19, Side.CLIENT);
+    }
+
+    // ---------------------------------------------------------------- liner wave 5: the MCDU
+
+    /**
+     * McduKey (C->S): a key of an SA-320 MCDU (vehicle.LinerMcdu.K_* / K_CHAR + a character) on MCDU `side` (0 the
+     * captain's, 1 the F/O's): the keyboard screen, the PC keyboard. The server checks the sender is a pilot
+     * (LinerLogicSVA.mcduKey), runs it and sends the screen back.
+     */
+    public static class McduKey implements IMessage {
+        public int entity, side, code;
+
+        public McduKey() {
+        }
+
+        public McduKey(int entity, int side, int code) {
+            this.entity = entity;
+            this.side = side;
+            this.code = code;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+            side = buf.readByte();
+            code = buf.readInt();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+            buf.writeByte(side);
+            buf.writeInt(code);
+        }
+    }
+
+    public static class McduKeyHandler implements IMessageHandler<McduKey, IMessage> {
+        @Override
+        public IMessage onMessage(final McduKey m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    if (p.worldObj == null) {
+                        return;
+                    }
+                    Entity e = p.worldObj.getEntityByID(m.entity);
+                    if (e instanceof EntityVehicleSVA && !e.isDead) {
+                        com.sva.entity.LinerLogicSVA.mcduKey((EntityVehicleSVA) e, p, m.side, m.code);
+                    }
+                }
+            });
+            return null;
+        }
+    }
+
+    /**
+     * McduData (S->C): a liner's MCDU screen (kind 0 / 1: LinerMcdu.Screen.pack) or the ND's picture of the flight plan
+     * (kind 2: LinerFms.ndText) - to the pilots when it changes (and at once after their key).
+     */
+    public static class McduData implements IMessage {
+        public int entity, kind;
+        public String data = "";
+
+        public McduData() {
+        }
+
+        public McduData(int entity, int kind, String data) {
+            this.entity = entity;
+            this.kind = kind;
+            this.data = data == null ? "" : data;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+            kind = buf.readByte();
+            data = ByteBufUtils.readUTF8String(buf);
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+            buf.writeByte(kind);
+            ByteBufUtils.writeUTF8String(buf, data.length() > 8000 ? data.substring(0, 8000) : data);
+        }
+    }
+
+    public static class McduDataHandler implements IMessageHandler<McduData, IMessage> {
+        @Override
+        public IMessage onMessage(McduData m, MessageContext ctx) {
+            SVAMod.proxy.mcduData(m.entity, m.kind, m.data);
+            return null;
+        }
     }
 
     // ---------------------------------------------------------------- liner wave 4: the ILS beacon's screen

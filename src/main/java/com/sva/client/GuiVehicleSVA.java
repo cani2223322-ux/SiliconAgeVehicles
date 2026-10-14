@@ -250,6 +250,7 @@ public class GuiVehicleSVA extends GuiScreen {
             case CARGO:
             case MAP:
             case AP_PANEL:
+            case MCDU:
                 return Lang.tr("sva.vmenu.act.open");
             case FLAPS_UP:
                 return Lang.tr("sva.vmenu.act.retract");

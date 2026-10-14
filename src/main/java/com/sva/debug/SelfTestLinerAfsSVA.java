@@ -302,6 +302,7 @@ final class SelfTestLinerAfsSVA {
         // take-off: the levers to FLX on the ground arm the A/THR - MAN FLX 45, SRS, RWY; V-speeds set
         LinerSimSVA g = new LinerSimSVA();
         g.setFlaps(1);
+        g.L.fms.flex = 45;                                          // wave 5: FLEX comes from the MCDU's PERF TAKE OFF
         g.L.afs.lever = LinerAfs.DET_FLX;
         g.tick();
         LinerAfs F = g.L.afs;

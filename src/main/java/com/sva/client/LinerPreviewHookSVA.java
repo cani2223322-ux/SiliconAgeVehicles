@@ -52,6 +52,70 @@ public final class LinerPreviewHookSVA {
         LinerEwdSVA.draw(L, w, h, thr, (float) L.fctl.flapPos, (float) L.fctl.slatPos, L.at(LinerControls.FLAPS), ground, 17);
     }
 
+    /** Wave 5: the MCDU's keyboard screen (GuiMcduSVA's panel, W x H units) with this screen. */
+    public static void mcduPanel(int side, com.sva.vehicle.LinerMcdu.Screen sc) {
+        LinerGfxSVA.resetLayer();
+        McduPanelSVA.paintPanel(side, true, sc, -1, -1, null, false);
+    }
+
+    /** Wave 5: an MCDU screen alone (w x h). */
+    public static void mcduScreen(com.sva.vehicle.LinerMcdu.Screen sc, float w, float h) {
+        LinerGfxSVA.resetLayer();
+        McduScreenSVA.draw(sc, 0, 0, w, h, true);
+    }
+
+    /**
+     * Wave 5: the ND (280 x 280) in ARC (or PLAN, north up) with the FMS' plan - the compass, the range ring, the plan
+     * (LinerDisplaysSVA.ndFms: names, constraints, T/C, T/D, TMPY), the aircraft; GS / TAS, GPS PRIMARY - the game's ND
+     * without the entity.
+     */
+    public static void ndFms(com.sva.vehicle.LinerFms.NdView nv, LinerSystems L, double ax, double az, float hdg, float kmh, float range, boolean plan) {
+        float w = 280, h = 280, s = 1F;
+        int WHT = LinerDisplaysSVA.WHT, GRN = LinerDisplaysSVA.GRN, GREY = LinerDisplaysSVA.GREY, YEL = LinerDisplaysSVA.YEL, CYN = LinerDisplaysSVA.CYN;
+        LinerGfxSVA.resetLayer();
+        LinerGfxSVA.rect(0, 0, w, h, LinerDisplaysSVA.BG);
+        LinerGfxSVA.layer();
+        LinerGfxSVA.text("GS", 6, 10, 8, WHT, -1);
+        LinerGfxSVA.text(String.valueOf(Math.round(kmh)), 22, 10, 9, GRN, -1);
+        LinerGfxSVA.text("TAS", 52, 10, 8, WHT, -1);
+        LinerGfxSVA.text(String.valueOf(Math.round(kmh)), 72, 10, 9, GRN, -1);
+        float cx = w / 2, cy = plan ? h / 2 : 240, R = plan ? 110 : 200;
+        float rot = plan ? 0 : hdg;
+        if (plan) {
+            LinerGfxSVA.arc(cx, cy, R, 0, 360, 1.2F, WHT);
+            LinerGfxSVA.arc(cx, cy, R / 2, 0, 360, 0.8F, GREY);
+        } else {
+            LinerGfxSVA.arc(cx, cy, R, -55, 55, 1.2F, WHT);
+            LinerGfxSVA.arc(cx, cy, R / 2, -55, 55, 0.8F, GREY);
+        }
+        LinerGfxSVA.layer();
+        for (int k = 0; k < 360; k += 5) {
+            float a = k - rot;
+            a = ((a + 540) % 360) - 180;
+            if (!plan && Math.abs(a) > 55) {
+                continue;
+            }
+            boolean big = k % 10 == 0;
+            LinerGfxSVA.line(LinerGfxSVA.px(cx, R, a), LinerGfxSVA.py(cy, R, a), LinerGfxSVA.px(cx, R - (big ? 8 : 4), a), LinerGfxSVA.py(cy, R - (big ? 8 : 4), a),
+                    1F, WHT);
+            if (k % 30 == 0) {
+                LinerGfxSVA.text(String.valueOf(k / 10), LinerGfxSVA.px(cx, R + 9, a), LinerGfxSVA.py(cy, R + 9, a), 9, WHT, 0);
+            }
+        }
+        LinerGfxSVA.text(String.valueOf(Math.round(range / 2)), LinerGfxSVA.px(cx, R / 2 + 6, -60), LinerGfxSVA.py(cy, R / 2 + 6, -60), 7, CYN, 0);
+        LinerDisplaysSVA.ndFms(nv, L, ax, az, cx, cy, R, range, rot, s, true, true);
+        LinerGfxSVA.layer();
+        float ac = plan ? hdg : 0;
+        LinerGfxSVA.line(LinerGfxSVA.px(cx, 12, ac), LinerGfxSVA.py(cy, 12, ac), LinerGfxSVA.px(cx, -10, ac), LinerGfxSVA.py(cy, -10, ac), 2.4F, YEL);
+        LinerGfxSVA.line(LinerGfxSVA.px(cx, 9, ac - 90), LinerGfxSVA.py(cy, 9, ac - 90), LinerGfxSVA.px(cx, 9, ac + 90), LinerGfxSVA.py(cy, 9, ac + 90), 2.4F,
+                YEL);
+        LinerGfxSVA.layer();
+        LinerGfxSVA.rect(90, 262, 190, 276, 0x000000);
+        LinerGfxSVA.layer();
+        LinerGfxSVA.frameRect(90, 262, 190, 276, 1F, WHT);
+        LinerGfxSVA.text("GPS PRIMARY", w / 2, 269, 8, WHT, 0);
+    }
+
     /** The FCU's run-time windows / lamps (glare shield units). */
     public static void fcu(LinerSystems L) {
         LinerGfxSVA.resetLayer();

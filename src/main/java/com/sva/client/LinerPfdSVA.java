@@ -267,7 +267,8 @@ public final class LinerPfdSVA {
         // the callouts flashed (a height, RETARD, V1)
         if (d.flash != 0) {
             LinerGfxSVA.layer();
-            String t = d.flash == LinerAfs.CALL_RETARD ? "RETARD" : d.flash == LinerAfs.CALL_V1 ? "V1" : String.valueOf(d.flash);
+            String t = d.flash == LinerAfs.CALL_RETARD ? "RETARD" : d.flash == LinerAfs.CALL_V1 ? "V1" : d.flash == LinerAfs.CALL_MINIMUM ? "MINIMUM"
+                    : String.valueOf(d.flash);
             LinerGfxSVA.text(t, cx, cy + 56 * s, 13 * s, d.flash == LinerAfs.CALL_RETARD ? WHT : AMB, 0);
         }
     }
@@ -339,6 +340,10 @@ public final class LinerPfdSVA {
             if (F.boxCap < LinerAfs.BOX_TICKS) {
                 LinerGfxSVA.frameRect(cw * 3 + 4 * s, 4 * s, cw * 4 - 4 * s, 27 * s, 0.8F * s, WHT);
             }
+            // wave 5: the MCDU's minimums under the capability (DH radio / MDA baro)
+            if (F.dh >= 0 || F.mda >= 0) {
+                LinerGfxSVA.text(F.dh >= 0 ? "DH " + F.dh : "MDA " + F.mda, cw * 3.5F, 31 * s, 8F * s, CYN, 0, cw - 4 * s);
+            }
         }
         // column 5: AP / FD / A/THR
         LinerGfxSVA.text(F.apText(), cw * 4.5F, 11 * s, 8.5F * s, WHT, 0, cw - 4 * s);
@@ -384,8 +389,8 @@ public final class LinerPfdSVA {
                 LinerGfxSVA.tri(x1 + 1 * s, ty, x1 + 8 * s, ty - 4 * s, x1 + 8 * s, ty + 4 * s, c);
             }
         }
-        // V1 «1» / VR «R» on the take-off run
-        if (d.ground && F.v1 > 0) {
+        // V1 «1» / VR «R» on the take-off run (wave 5: the MCDU's V-speeds - none entered, no marks)
+        if (d.ground && F.v1 > 0 && F.vsEntered) {
             float y1 = yOf(F.v1 * 72, d.kmh, cy, ppv), yr = yOf(F.vr * 72, d.kmh, cy, ppv);
             if (y1 > ay0 && y1 < ay1) {
                 LinerGfxSVA.text("1", x1 + 7 * s, y1, 8 * s, CYN, 0);

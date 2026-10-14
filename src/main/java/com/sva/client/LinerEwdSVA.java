@@ -71,7 +71,8 @@ public final class LinerEwdSVA {
             return "TOGA";
         }
         if (det == 2) {
-            return ground || F.thr == com.sva.vehicle.LinerAfs.T_MAN_FLX ? "FLX " + com.sva.vehicle.LinerAfs.FLEX_TEMP : "MCT";
+            // wave 5: the MCDU's FLEX temperature (none: MCT)
+            return (ground || F.thr == com.sva.vehicle.LinerAfs.T_MAN_FLX) && F.flexTemp > 0 ? "FLX " + F.flexTemp : "MCT";
         }
         return "CL";
     }
@@ -80,7 +81,8 @@ public final class LinerEwdSVA {
     static float limitN1(LinerSystems L, double thr) {
         com.sva.vehicle.LinerAfs F = L.afs;
         int det = com.sva.vehicle.LinerAfs.detent(thr);
-        double share = F.aFloor || F.togaLk || det == 3 ? 1 : det == 2 ? com.sva.vehicle.LinerAfs.DET_FLX : com.sva.vehicle.LinerAfs.DET_CL;
+        double share = F.aFloor || F.togaLk || det == 3 ? 1 : det == 2 ? (F.flexTemp > 0 ? com.sva.vehicle.LinerFms.flexShare(F.flexTemp)
+                : com.sva.vehicle.LinerAfs.DET_FLX) : com.sva.vehicle.LinerAfs.DET_CL;
         return (float) (LinerSystems.IDLE_N1 + (LinerSystems.TOGA_N1 - LinerSystems.IDLE_N1) * share);
     }
 
