@@ -844,6 +844,9 @@ public class TileEntityChargerSVA extends TileEntityEnergyBase implements ISided
         boolean heating = false;
         if (current != null) {
             status |= S_VEHICLE;
+            if (switchedOn() && !overheated && (getEnergyStored() > 0 || !storages.isEmpty())) {
+                current.markExtPower();                             // liner wave 1: the station is its ground power unit
+            }
             if (!switchedOn()) {
                 status |= S_OFF;
             } else if (overheated) {

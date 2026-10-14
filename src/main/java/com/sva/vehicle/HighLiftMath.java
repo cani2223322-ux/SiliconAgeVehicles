@@ -123,7 +123,23 @@ public final class HighLiftMath {
     public static final Spec TILT = new Spec(new float[] {0, 15, 25}, new double[] {1, 32 / 36.0, 30 / 36.0}, new double[] {1, 0.9057, 0.8379},
             new double[] {1, 1.15, 1.30}, new double[] {1, 1.1, 1.25}, new double[] {INF, 140, 120}, false, false);
 
+    /**
+     * Liner wave 1 (plan-next §7: flap lever 0 / 1 / 2 / 3 / FULL, LinerControls.FLAPS): flaps 0 / 10 / 15 / 20 / 35 deg -
+     * the stall x0.92 / 0.86 / 0.82 / 0.78 (83 -> 76 -> 71 -> 68 -> 65 km/h), lift-off x0.90 / 0.85 / 0.82 / 0.80, drag +10 / +20 /
+     * +35 / +60 %, EU x1.05..1.35, max 130 / 120 / 110 / 100 km/h (the A320's VFE ladder scaled to its 144 km/h); slats out
+     * < 110 km/h or AoA > 10 deg, in > 125, -6 %; the spoilers 50 deg (+0.9 drag) as the speed brake / ground spoilers.
+     */
+    public static final Spec LINER = new Spec(new float[] {0, 10, 15, 20, 35}, new double[] {1, 0.92, 0.86, 0.82, 0.78},
+            new double[] {1, 0.90, 0.85, 0.82, 0.80}, new double[] {1, 1.10, 1.20, 1.35, 1.60}, new double[] {1, 1.05, 1.1, 1.2, 1.35},
+            new double[] {INF, 130, 120, 110, 100}, true, true);
+
     static {
+        LINER.slatOut = 110 / 72.0;
+        LINER.slatIn = 125 / 72.0;
+        LINER.slatAoa = 10;
+        LINER.slatStall = 0.06;
+        LINER.airDrag = 0.9;
+        LINER.brakeDeg = 50;
         PLANE.slatOut = 70 / 72.0;
         PLANE.slatIn = 90 / 72.0;
         PLANE.slatAoa = 10;
@@ -157,6 +173,8 @@ public final class HighLiftMath {
                 return JET;
             case TILT:
                 return TILT;
+            case LINER:
+                return LINER;
             default:
                 return null;
         }
@@ -263,7 +281,7 @@ public final class HighLiftMath {
         synchronized (CACHE) {
             PlaneParams[] arr = CACHE.get(base);
             if (arr == null) {
-                arr = new PlaneParams[32];
+                arr = new PlaneParams[64];                         // liner wave 1: five flap settings (key up to 4 << 3 | 7)
                 CACHE.put(base, arr);
             }
             if (arr[key] == null) {

@@ -245,8 +245,86 @@ public class HudVehicleSVA {
         if (t.bridgeDock) {
             drawSpace(mc, fr, e.resolution.getScaledWidth(), v, t);
         }
+        if (t == VehicleType.LINER && v.liner() != null) {
+            drawLiner(mc, fr, e.resolution.getScaledWidth(), v, v.liner());
+        }
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
+
+    /**
+     * Liner wave 1: the SA-320's compact block (top right): N1 left / right, H2 in each tank (L / C / R), the APU's state,
+     * where the electrics come from, the first warning / caution while the master lamp is lit.
+     */
+    private void drawLiner(Minecraft mc, FontRenderer fr, int sw, EntityVehicleSVA v, com.sva.vehicle.LinerSystems L) {
+        String msg = null;
+        int mc0 = AMBER;
+        for (int i = 0; i < com.sva.vehicle.LinerSystems.WARN_KEYS.length && msg == null; i++) {
+            if ((L.warn & 1 << i) != 0) {
+                msg = Lang.tr("sva.liner.msg." + com.sva.vehicle.LinerSystems.WARN_KEYS[i]);
+                mc0 = WARN;
+            }
+        }
+        for (int i = 0; i < com.sva.vehicle.LinerSystems.CAUT_KEYS.length && msg == null; i++) {
+            if ((L.caut & 1 << i) != 0) {
+                msg = Lang.tr("sva.liner.msg." + com.sva.vehicle.LinerSystems.CAUT_KEYS[i]);
+            }
+        }
+        int rows = 5 + (msg != null ? 1 : 0);
+        int pw = 190, ph = rows * 11 + 8, px = sw - pw - 4, py = 4;
+        Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
+        Gui.drawRect(px, py, px + pw, py + ph, BG);
+        int ry = py + 5;
+        fit(fr, Lang.tr("item.siliconagevehicles.vehicle.liner.name"), px + 6, ry, pw - 12, ORANGE, false);
+        ry += 11;
+        fit(fr, Lang.tr("sva.liner.hud.n1", com.sva.client.LinerGfxSVA.num(L.eng[0].n1, 1), com.sva.client.LinerGfxSVA.num(L.eng[1].n1, 1)), px + 6, ry,
+                pw - 12, L.anyRunning() ? GREEN : DIM, false);
+        ry += 11;
+        fit(fr, Lang.tr("sva.liner.hud.h2", fmt(Math.round(L.tankL)), fmt(Math.round(L.tankC)), fmt(Math.round(L.tankR))), px + 6, ry, pw - 12, TEXT,
+                false);
+        ry += 11;
+        String apu;
+        int ac = DIM;
+        if (L.apuFault) {
+            apu = Lang.tr("sva.liner.hud.apu.fault");
+            ac = WARN;
+        } else if (L.apu == com.sva.vehicle.LinerSystems.A_AVAIL) {
+            apu = Lang.tr("sva.liner.hud.apu.avail");
+            ac = GREEN;
+        } else if (L.apu == com.sva.vehicle.LinerSystems.A_START) {
+            apu = Lang.tr("sva.liner.hud.apu.start", Integer.valueOf((int) Math.round(L.apuN)));
+            ac = AMBER;
+        } else if (L.apu == com.sva.vehicle.LinerSystems.A_COOL) {
+            apu = Lang.tr("sva.liner.hud.apu.cool");
+        } else if (L.apu == com.sva.vehicle.LinerSystems.A_FLAP) {
+            apu = Lang.tr("sva.liner.hud.apu.flap");
+        } else {
+            apu = Lang.tr("sva.liner.hud.apu.off");
+        }
+        fit(fr, Lang.tr("sva.liner.hud.apu", apu), px + 6, ry, pw - 12, ac, false);
+        ry += 11;
+        String src;
+        int scol = GREEN;
+        if (L.gen1On || L.gen2On) {
+            src = Lang.tr("sva.liner.hud.src.gen", (L.gen1On ? "1" : "") + (L.gen1On && L.gen2On ? "+" : "") + (L.gen2On ? "2" : ""));
+        } else if (L.extOn) {
+            src = Lang.tr("sva.liner.hud.src.ext");
+        } else if (L.apuGenOn) {
+            src = Lang.tr("sva.liner.hud.src.apu");
+        } else if (L.essOnly) {
+            src = Lang.tr("sva.liner.hud.src.bat", Integer.valueOf((int) Math.round(L.batteryMinutes(LinerDisplaysSVA.estimateBat1(v, L)))));
+            scol = AMBER;
+        } else {
+            src = Lang.tr("sva.liner.hud.src.none");
+            scol = DIM;
+        }
+        fit(fr, Lang.tr("sva.liner.hud.elec", src), px + 6, ry, pw - 12, scol, false);
+        ry += 11;
+        if (msg != null) {
+            boolean blink = (mc.theWorld.getTotalWorldTime() / 10) % 2 == 0;
+            fit(fr, msg, px + 6, ry, pw - 12, blink || mc0 == AMBER ? mc0 : 0x803030, true);
+        }
+    }
+
 
     /**
      * Stage E, the space panel (top right) of the shuttle and the ship: the cabin's oxygen (time for the riders aboard),

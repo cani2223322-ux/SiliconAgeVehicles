@@ -117,6 +117,7 @@ public final class HiResSVA {
                 public void onResourceManagerReload(IResourceManager m) {
                     broken = false;
                     invalidate();
+                    LinerTexSVA.reset();                        // liner wave 1: its atlas / liveries re-baked (a language change)
                 }
             });
         }

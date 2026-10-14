@@ -216,7 +216,8 @@ public final class ModContentSVA {
     /**
      * Hydrogen wave: a vehicle's battery - the core's battery of its tier (MV / HV / EV), copper coils, steel casings,
      * redstone and a part saying which vehicle it is for (the addon's wheel / track / rotor / wing; a feather - the
-     * hoverbike, an iron pickaxe - the drill vehicle, a fire charge - the jet, a blaze rod - the tiltrotor); the
+     * hoverbike, an iron pickaxe - the drill vehicle, a fire charge - the jet, a blaze rod - the tiltrotor, a compass - the
+     * liner); the
      * electrolyte - a water bottle, the core's NaOH bucket, redstone (x2); the service kit and the jump leads.
      */
     private static void batteryRecipes(ItemStack casing, ItemStack coil) {
@@ -229,6 +230,8 @@ public final class ModContentSVA {
             {com.sva.vehicle.VehicleType.PLANE, component.stackOf(com.sva.item.ComponentType.WING, 1)},
             {com.sva.vehicle.VehicleType.JET, new ItemStack(net.minecraft.init.Items.fire_charge)},
             {com.sva.vehicle.VehicleType.TILT, new ItemStack(net.minecraft.init.Items.blaze_rod)},
+            // liner wave 1: a compass (the airliner's navigation) - the EV quartz capacitor like the jet's
+            {com.sva.vehicle.VehicleType.LINER, new ItemStack(net.minecraft.init.Items.compass)},
         };
         for (Object[] m : marks) {
             com.sva.vehicle.VehicleType t = (com.sva.vehicle.VehicleType) m[0];

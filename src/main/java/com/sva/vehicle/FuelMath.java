@@ -53,6 +53,9 @@ public final class FuelMath {
         set(VehicleType.PLANE, 16000, 65);
         set(VehicleType.JET, 32000, 40);
         set(VehicleType.TILT, 24000, 50);
+        // liner wave 1: three tanks L / C / R (35 / 30 / 35 %, LinerSystems); 60 min at cruise - its own burn is the
+        // engines' fuel flow (LinerSystems: ~370 mB/min an engine at cruise N1, 60 at idle) and the APU's
+        set(VehicleType.LINER, 48000, 60);
     }
 
     private static void set(VehicleType t, int tank, int minutes) {
@@ -108,6 +111,9 @@ public final class FuelMath {
     public static boolean on(VehicleType t, int force, boolean serverMode) {
         if (!uses(t)) {
             return false;
+        }
+        if (t == VehicleType.LINER) {
+            return true;                                        // liner wave 1: its systems are the H2 tanks - always on hydrogen
         }
         if (force >= 0) {
             return force == 1;

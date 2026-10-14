@@ -301,6 +301,20 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // liner wave 1 (the SA-320: cold-and-dark start-up, no air, quick start, ten riders, ground power) - its own area / owner
+        if (ticks >= WorldTestLinerSVA.START && !liner.done) {
+            try {
+                liner.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL liner exception " + t);
+                t.printStackTrace(System.out);
+                liner.abort(w);
+            }
+            if (liner.done) {
+                maybeSummary();
+            }
+        }
         // stage D5 (the INS: the alignment, its resets, the autopilot refused) - alongside, its own area and owner
         if (ticks >= WorldTestAirD5SVA.START && !airD5.done) {
             try {
@@ -2172,6 +2186,7 @@ public class WorldTestSVA {
     private final WorldTestAirD3SVA airD3 = new WorldTestAirD3SVA(this);
     private final WorldTestAirD4SVA airD4 = new WorldTestAirD4SVA(this);
     private final WorldTestAirD5SVA airD5 = new WorldTestAirD5SVA(this);
+    private final WorldTestLinerSVA liner = new WorldTestLinerSVA(this);
     private final WorldTestFastChargeSVA fastCharge = new WorldTestFastChargeSVA(this);
     private final WorldTestFuelSVA fuel = new WorldTestFuelSVA(this);
     private final WorldTestAirDefenseSVA airDefense = new WorldTestAirDefenseSVA(this);
@@ -2191,7 +2206,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && airD5.done && fuel.done && airDefense.done && adModels.done && adUpgrades.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && airD5.done && liner.done && fuel.done && airDefense.done && adModels.done && adUpgrades.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

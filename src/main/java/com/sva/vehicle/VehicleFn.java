@@ -72,7 +72,19 @@ public enum VehicleFn {
      * sees who is who; airdefense.XpdrMath). Everything that flies (it has a transponder). \ : free in vanilla, the core
      * and the old letters. The transponder's mode and code: the menu's «Ответчик» row.
      */
-    IDENT("ident", "ident", 43, false, true);
+    IDENT("ident", "ident", 43, false, true),
+    /**
+     * Liner wave 1 (plan-next §7): «Шасси» - the SA-320's gear lever up / down (the pilots; on the ground the gear stays
+     * down whatever the lever says - weight on wheels). . (Ю on a Russian keyboard): free in vanilla, the core and the old
+     * letters.
+     */
+    GEAR("gear", "gear", 52, false, true),
+    /**
+     * Liner wave 1: «Курсор кабины» - held, it frees the mouse cursor in the SA-320's cockpit and stops the view turning: a
+     * click works the switch under the cursor (client.LinerClickSVA; the packet is NetSVA.LinerControl, not an Action).
+     * Left Alt by default (rebindable here like every function).
+     */
+    CURSOR("cursor", "cursor", 56, true, true);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -126,6 +138,9 @@ public enum VehicleFn {
                 return GlassMath.hasMfd(t);
             case IDENT:
                 return com.sva.airdefense.XpdrMath.fitted(t);
+            case GEAR:
+            case CURSOR:
+                return t == VehicleType.LINER;
             default:
                 return true;                                        // cargo, map: every vehicle
         }
@@ -165,6 +180,8 @@ public enum VehicleFn {
                 return EntityVehicleSVA.A_ENGINE;
             case IDENT:
                 return EntityVehicleSVA.A_IDENT;
+            case GEAR:
+                return EntityVehicleSVA.A_LINER_GEAR;
             default:
                 return -1;
         }
@@ -177,6 +194,9 @@ public enum VehicleFn {
         }
         if ((this == FLAPS_UP || this == FLAPS_DOWN) && t == VehicleType.TILT) {
             return "sva.fn." + key + ".tilt";                    // «Флапероны −» / «+»
+        }
+        if (this == ENGINE && t == VehicleType.LINER) {
+            return "sva.fn.engine.liner";                        // liner wave 1: «Быстрый запуск»
         }
         return "sva.fn." + key;
     }

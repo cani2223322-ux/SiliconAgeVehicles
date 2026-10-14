@@ -262,7 +262,7 @@ public class ItemVehicleSVA extends Item implements ic2.api.item.ISpecialElectri
     static Object[] keyNames() {
         com.sva.vehicle.VehicleFn[] f = {com.sva.vehicle.VehicleFn.DOWN, com.sva.vehicle.VehicleFn.BOOST, com.sva.vehicle.VehicleFn.MODE,
                 com.sva.vehicle.VehicleFn.DRILL, com.sva.vehicle.VehicleFn.JUMP, com.sva.vehicle.VehicleFn.TARGET, com.sva.vehicle.VehicleFn.ANCHOR,
-                com.sva.vehicle.VehicleFn.CLOAK};
+                com.sva.vehicle.VehicleFn.CLOAK, com.sva.vehicle.VehicleFn.ENGINE, com.sva.vehicle.VehicleFn.GEAR, com.sva.vehicle.VehicleFn.CURSOR};
         Object[] n = new Object[f.length];
         for (int i = 0; i < f.length; i++) {
             n[i] = com.sva.client.VehicleKeyBindsSVA.name(f[i]);

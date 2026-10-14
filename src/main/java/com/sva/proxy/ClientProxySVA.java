@@ -328,6 +328,7 @@ public class ClientProxySVA extends CommonProxySVA {
         }
         Minecraft mcc = Minecraft.getMinecraft();
         com.sva.client.VehicleKeyBindsSVA.tick(mcc);                 // the menu key; riding: the function keys (raw)
+        com.sva.client.LinerClickSVA.tick(mcc);                      // liner wave 1: «Курсор кабины» held - the cockpit's cursor
         com.sva.client.CruiseClientSVA.tick(mcc);                    // ★4: off when the driver left
         com.sva.client.VehicleSoundsSVA.tick(mcc);                   // ★1: engine loops
         com.sva.client.CockpitInstrumentsSVA.clientTick();

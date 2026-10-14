@@ -174,6 +174,22 @@ public final class ConfigSVA {
      */
     public static boolean cockpitHiRes = true;
     public static String cockpitQuality = "AUTO";
+    /**
+     * Liner wave 1 (plan-next §7): «Быстрый запуск» - the menu row and the guarded overhead switch walk the start-up by
+     * themselves in ~40 s (off: servers «только вручную»).
+     */
+    public static boolean linerQuickStart = true;
+    /** Liner wave 1: the chance of a random hot / of a hung engine start (each; 0 = only low air pressure causes them). */
+    public static double linerStartFailChance = 0.02;
+    /**
+     * Liner wave 1 (client): the cockpit / cabin texture atlas - AUTO (by cockpitQuality: 1K / 2K / 4K -> 1024 / 2048 / 4096
+     * px), LOW (512), 1K, 2K, 4K (LinerTexMath).
+     */
+    public static String linerTextures = "AUTO";
+    /** Liner wave 1 (client): the exterior's levels of detail by distance (off: always the full model). */
+    public static boolean linerLod = true;
+    /** Liner wave 1 (client): the passenger cabin drawn (inside it or near the open door); off - never. */
+    public static boolean linerCabin = true;
     /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
     public static boolean radarAltCallouts = true;
     /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
@@ -422,6 +438,23 @@ public final class ConfigSVA {
                             + " до 1800 - 2K, больше - 4K), 1K, 2K, 4K. Видеопамять: 1K - шрифт 0,7 МБ + 0,2 МБ на шкалу; 2K - 2,7 + 0,7 МБ;"
                             + " 4K - 10,7 + 2,7 МБ (хранится не больше 12 шкал: 4K - до ~43 МБ)",
                     com.sva.vehicle.HiResMath.QUALITY_KEYS))];
+            linerQuickStart = c.getBoolean("linerQuickStart", v, true,
+                    "Liner: 'Quick start' (the menu row and the guarded overhead switch) runs the whole start-up in ~40 s; false - manual only"
+                            + " / Лайнер: 'Быстрый запуск' (строка меню и выключатель под колпачком) проходит весь запуск за ~40 с; false - только вручную");
+            linerStartFailChance = sanitize((float) c.getFloat("linerStartFailChance", v, 0.02F, 0F, 0.5F,
+                    "Liner: the chance of a random hot start and of a hung start of an engine (each); low bleed pressure causes them anyway"
+                            + " / Лайнер: вероятность случайного горячего и зависшего запуска двигателя (каждого); при низком давлении отбора - всегда"),
+                    0.02F, 0F, 0.5F);
+            linerTextures = com.sva.vehicle.LinerTexMath.KEYS[com.sva.vehicle.LinerTexMath.parse(c.getString("linerTextures", v, "AUTO",
+                    "Liner cockpit / cabin textures (client): AUTO (by cockpitQuality: 1K / 2K / 4K), LOW (512 px), 1K, 2K, 4K. Video memory:"
+                            + " LOW ~2 MB, 1K ~8, 2K ~32, 4K ~128 MB / Текстуры кабины и салона лайнера (клиент): AUTO (по cockpitQuality), LOW"
+                            + " (512 px), 1K, 2K, 4K. Видеопамять: LOW ~2 МБ, 1K ~8, 2K ~32, 4K ~128 МБ",
+                    com.sva.vehicle.LinerTexMath.KEYS))];
+            linerLod = c.getBoolean("linerLod", v, true,
+                    "Liner exterior: lighter models far away (64 / 160 blocks) (client) / Лайнер: упрощённые модели вдали (64 / 160 блоков) (клиент)");
+            linerCabin = c.getBoolean("linerCabin", v, true,
+                    "Liner: draw the passenger cabin (inside it or near the open L1 door) (client) / Лайнер: рисовать салон (внутри или у открытой"
+                            + " двери L1) (клиент)");
             radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,
                     "Helicopter radar altimeter callouts 50.. 40.. 30.. 20.. 10 on the descent (client) / "
                             + "Радиовысотомер вертолёта отсчитывает 50.. 40.. 30.. 20.. 10 при снижении (клиент)");

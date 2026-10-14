@@ -49,6 +49,8 @@ public class GuiVehicleSVA extends GuiScreen {
             B_BAT = 2,
             /** Air-defence wave: the «Ответчик» row's «Настроить» (the transponder panel, GuiTransponderSVA). */
             B_XPDR = 3,
+            /** Liner wave 1: «Пульты» (the flat panels), «Дверь L1», АКБ 2's «Снять». */
+            B_LINER_PANELS = 4, B_LINER_DOOR = 5, B_BAT2 = 6,
             /** Round 2, D2 (★17): the overhead switches' buttons (B_SW + SystemsMath.SW_*), a row under the status strip. */
             B_SW = 300;
     /** D2: the switch row's height (aircraft with the board systems). */
@@ -87,7 +89,7 @@ public class GuiVehicleSVA extends GuiScreen {
         w = Math.max(MIN_W, Math.min(MAX_W, width - 8));
         stripH = vehicle == null ? 24 : 36 + (swRow() ? SW_ROW : 0);
         int fixed = 18 + stripH + 12 + 20;                       // title, strip, the column heads, the footer
-        int n = rows.size() + (batRow() ? 1 : 0) + (xpdrRow() ? 1 : 0);
+        int n = rows.size() + (batRow() ? 1 : 0) + (xpdrRow() ? 1 : 0) + (linerRows() ? 3 : 0);
         rowH = Math.max(12, Math.min(15, (height - 8 - fixed) / Math.max(1, n)));
         h = fixed + n * rowH + 4;
         left = (width - w) / 2;
@@ -112,6 +114,15 @@ public class GuiVehicleSVA extends GuiScreen {
         if (xpdrRow()) {
             buttonList.add(new GuiCargoSVA.Dark(B_XPDR, left + w - 6 - KEY_W - 4 - ACT_W, listY + (rows.size() + (batRow() ? 1 : 0)) * rowH, ACT_W, bh,
                     Lang.tr("sva.vmenu.act.setup"), null));
+        }
+        if (linerRows()) {
+            // liner wave 1: «Пульты», «Дверь L1», АКБ 2 - after the transponder's row
+            int base = rows.size() + (batRow() ? 1 : 0) + (xpdrRow() ? 1 : 0);
+            int[] ids = {B_LINER_PANELS, B_LINER_DOOR, B_BAT2};
+            String[] labels = {Lang.tr("sva.vmenu.act.open"), "", Lang.tr("sva.vmenu.act.batOut")};
+            for (int i = 0; i < 3; i++) {
+                buttonList.add(new GuiCargoSVA.Dark(ids[i], left + w - 6 - KEY_W - 4 - ACT_W, listY + (base + i) * rowH, ACT_W, bh, labels[i], null));
+            }
         }
         if (swRow()) {
             // D2: «Пульт» - the overhead switches (the same packet as the cockpit's would be: Action A_SWITCH + i); D5: the
@@ -144,7 +155,12 @@ public class GuiVehicleSVA extends GuiScreen {
 
     /** D2: the vehicle has the overhead switches (the light plane, the jet, the tiltrotor); D5: the helicopter its ИНС. */
     private boolean swRow() {
-        return vehicle != null && SystemsMath.insApplies(type);
+        return vehicle != null && SystemsMath.insApplies(type) && type != VehicleType.LINER;   // the liner: its own cockpit
+    }
+
+    /** Liner wave 1: the SA-320's rows (the flat panels, the L1 door, АКБ 2). */
+    private boolean linerRows() {
+        return vehicle != null && type == VehicleType.LINER && vehicle.liner() != null;
     }
 
     // ------------------------------------------------------------------ rows
@@ -159,6 +175,17 @@ public class GuiVehicleSVA extends GuiScreen {
             if (b.id == B_BAT) {
                 // greyed while the engine runs / there is none (the server checks the right too)
                 b.enabled = vehicle != null && vehicle.batteryPresent() && vehicle.engineState() == SystemsMath.OFF;
+                continue;
+            }
+            if (b.id == B_BAT2) {
+                b.enabled = vehicle != null && vehicle.battery2Present() && vehicle.engineState() == SystemsMath.OFF;
+                continue;
+            }
+            if (b.id == B_LINER_DOOR) {
+                b.displayString = Lang.tr(vehicle != null && vehicle.liner() != null && vehicle.liner().door ? "sva.vmenu.act.close" : "sva.vmenu.act.open");
+                continue;
+            }
+            if (b.id == B_LINER_PANELS) {
                 continue;
             }
             if (b.id >= B_SW) {
@@ -443,6 +470,10 @@ public class GuiVehicleSVA extends GuiScreen {
             int xi = rows.size() + (batRow() ? 1 : 0);
             drawXpdrRow(listY + xi * rowH, xi % 2 == 1, nameW, stateX, stateW);
         }
+        if (linerRows()) {
+            int li = rows.size() + (batRow() ? 1 : 0) + (xpdrRow() ? 1 : 0);
+            drawLinerRows(li, nameW, stateX, stateW);
+        }
         String hint = Lang.tr("sva.vmenu.hint");
         TextFitSC.draw(fontRendererObj, hint, left + 6, top + h - 14, w - 12 - 100, MUTED, false, 0, 0);
         super.drawScreen(mx, my, pt);
@@ -490,7 +521,7 @@ public class GuiVehicleSVA extends GuiScreen {
         if (odd) {
             drawRect(left + 3, y - 1, left + w - 3, y + rowH - 1, 0x18FFFFFF);
         }
-        TextFitSC.draw(fontRendererObj, Lang.tr("sva.vmenu.bat"), left + 6, ty, nameW, TEXT, false, 0, 0);
+        TextFitSC.draw(fontRendererObj, Lang.tr(type == VehicleType.LINER ? "sva.vmenu.liner.bat1" : "sva.vmenu.bat"), left + 6, ty, nameW, TEXT, false, 0, 0);
         List<String> tip = new ArrayList<String>();
         tip.add("\u00a7e" + Lang.tr("sva.vmenu.bat"));
         tip.add(Lang.tr("sva.vmenu.bat.tip"));
@@ -517,6 +548,40 @@ public class GuiVehicleSVA extends GuiScreen {
         }
         String dash = "-";
         fontRendererObj.drawString(dash, left + w - 6 - KEY_W + (KEY_W - fontRendererObj.getStringWidth(dash)) / 2, ty, MUTED);
+    }
+
+    /** Liner wave 1: «Пульты» (the flat panels), «Дверь L1» (open / shut), «АКБ 2» (its charge and health; «Снять»). */
+    private void drawLinerRows(int first, int nameW, int stateX, int stateW) {
+        com.sva.vehicle.LinerSystems L = vehicle.liner();
+        String[] names = {"sva.vmenu.liner.panels", "sva.vmenu.liner.door", "sva.vmenu.liner.bat2"};
+        for (int i = 0; i < 3; i++) {
+            int y = listY + (first + i) * rowH, ty = y + (rowH - 2 - 8) / 2;
+            if ((first + i) % 2 == 1) {
+                drawRect(left + 3, y - 1, left + w - 3, y + rowH - 1, 0x18FFFFFF);
+            }
+            TextFitSC.draw(fontRendererObj, Lang.tr(names[i]), left + 6, ty, nameW, TEXT, false, 0, 0);
+            TextFitSC.hover(left + 6, y, nameW, rowH - 1, Lang.tr(names[i] + ".tip"));
+            String st;
+            int c;
+            if (i == 0) {
+                st = Lang.tr("sva.vmenu.liner.panels.st");
+                c = MUTED;
+            } else if (i == 1) {
+                st = Lang.tr(L.door ? "sva.vmenu.liner.door.open" : "sva.vmenu.liner.door.shut");
+                c = L.door ? AMBER : MUTED;
+            } else if (!L.bat2In) {
+                st = Lang.tr("sva.hud.bat.none");
+                c = RED;
+            } else {
+                double cap = com.sva.vehicle.BatteryMath.capacity(type);
+                int pct = (int) Math.round(L.bat2.charge * 100 / Math.max(1, cap));
+                st = pct + "% " + com.sva.client.LinerGfxSVA.num(L.bat2V, 1) + " " + Lang.tr("sva.liner.du.v");
+                c = pct < 10 ? RED : TEXT;
+            }
+            TextFitSC.draw(fontRendererObj, st, stateX, ty, stateW, c, false, 0, 0);
+            String dash = "-";
+            fontRendererObj.drawString(dash, left + w - 6 - KEY_W + (KEY_W - fontRendererObj.getStringWidth(dash)) / 2, ty, MUTED);
+        }
     }
 
     /** Air-defence wave: the «Ответчик» row - the mode and the code («C 2471»), КЛЮЧ ДНЯ / IDENT; «Настроить» opens the panel. */
@@ -696,6 +761,19 @@ public class GuiVehicleSVA extends GuiScreen {
         if (b.id == B_XPDR) {
             if (vehicle != null && driver) {
                 mc.displayGuiScreen(new GuiTransponderSVA(vehicle));
+            }
+            return;
+        }
+        if (b.id == B_LINER_PANELS) {
+            if (vehicle != null) {
+                mc.displayGuiScreen(new GuiLinerPanelsSVA(vehicle));
+            }
+            return;
+        }
+        if (b.id == B_LINER_DOOR || b.id == B_BAT2) {
+            if (vehicle != null) {
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(vehicle.getEntityId(), b.id == B_BAT2 ? EntityVehicleSVA.A_BATTERY2_OUT
+                        : EntityVehicleSVA.A_LINER_DOOR));
             }
             return;
         }

@@ -143,6 +143,7 @@ public final class SelfTestSVA {
             SelfTestHiResSVA.run();                         // 2K / 4K wave: cockpit quality, glyph atlas layout, mips, cache keys
             SelfTestAdModelsSVA.run();                      // multiblock wave: footprints, facing, offsets, legacy, animation angles, models
             SelfTestAdUpgradesSVA.run();                    // upgrades wave: the core's modules in the air-defence blocks
+            SelfTestLinerSVA.run();                         // liner wave 1: the SA-320 - controls, ELEC, APU, bleed, engine start, quick start
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -1550,6 +1551,9 @@ public final class SelfTestSVA {
      */
     private static void riderFit() throws java.io.IOException {
         for (VehicleType t : VehicleType.values()) {
+            if (t == VehicleType.LINER) {
+                continue;                                           // liner wave 1: its own model pipeline (SelfTestLinerSVA)
+            }
             if (t.openCab) {
                 continue;
             }
@@ -1596,6 +1600,9 @@ public final class SelfTestSVA {
                 "own view: the shuttle pilot's old eye (seat x 2.48) looks at the headrest from vanilla's camera (" + pct(oldWall)
                         + " of the view a wall; " + pct(oldClip) + " with the eye clip); at x 2.58 " + pct(nowWall) + " even without it");
         for (VehicleType t : VehicleType.values()) {
+            if (t == VehicleType.LINER) {
+                continue;                                           // liner wave 1: its own model pipeline (SelfTestLinerSVA)
+            }
             ViewCheckSVA.Mesh m = ViewCheckSVA.load(t.model);
             if (m == null) {
                 check(false, "own view: " + t.key + " - models/" + t.model + ".obj not found");
@@ -1654,6 +1661,9 @@ public final class SelfTestSVA {
                 "cockpit view: a crossing edge is a cut, a shared edge / coplanar contact is not; turns are right-handed");
         int nInst = 0, nCtl = 0;
         for (VehicleType t : VehicleType.values()) {
+            if (t == VehicleType.LINER) {
+                continue;                                           // liner wave 1: its own model pipeline (SelfTestLinerSVA)
+            }
             ViewCheckSVA.Mesh m = ViewCheckSVA.load(t.model);
             if (m == null) {
                 check(false, "cockpit view: " + t.key + " - models/" + t.model + ".obj not found");
@@ -1776,6 +1786,9 @@ public final class SelfTestSVA {
                 && com.sva.vehicle.CockpitView.shellKept(two, -0.5, 0.5, 0.7) && !com.sva.vehicle.CockpitView.shellKept(two, 1.2, 0.3, -9),
                 "cockpit windows: clip half-spaces (an open side has none), the shell cut inside the boxes and kept outside");
         for (VehicleType t : VehicleType.values()) {
+            if (t == VehicleType.LINER) {
+                continue;                                           // liner wave 1: its own model pipeline (SelfTestLinerSVA)
+            }
             if (t.openCab) {
                 check(t.cabWindows == null, "cockpit windows: " + t.key + " - an open seat, no window cut (the hull opaque)");
                 continue;
@@ -1988,6 +2001,9 @@ public final class SelfTestSVA {
         }
         java.util.Set<String> models = new java.util.HashSet<String>();
         for (VehicleType t : VehicleType.values()) {
+            if (t == VehicleType.LINER) {
+                continue;                                           // liner wave 1: its own model pipeline (SelfTestLinerSVA)
+            }
             models.add(t.model);
         }
         for (String m : models) {
@@ -2315,6 +2331,9 @@ public final class SelfTestSVA {
         StringBuilder found = new StringBuilder();
         boolean tablesOk = true, countsOk = true, screensOk = true;
         for (VehicleType t : VehicleType.values()) {
+            if (t == VehicleType.LINER) {
+                continue;                                           // liner wave 1: its own model pipeline (SelfTestLinerSVA)
+            }
             com.sva.vehicle.CockpitLayout cl = com.sva.vehicle.CockpitLayout.of(t);
             int[] table = com.sva.vehicle.CockpitDials.table(t);
             found.append(t.key).append(' ').append(cl.dials.size()).append('/').append(cl.screens.size()).append(' ');
@@ -2804,6 +2823,9 @@ public final class SelfTestSVA {
         StringBuilder found = new StringBuilder();
         boolean tables = true, ok = true, floors = true;
         for (VehicleType t : VehicleType.values()) {
+            if (t == VehicleType.LINER) {
+                continue;                                           // liner wave 1: its own model pipeline (SelfTestLinerSVA)
+            }
             com.sva.vehicle.CockpitLayout l = com.sva.vehicle.CockpitLayout.of(t);
             int[] roles = com.sva.vehicle.CockpitLamps.table(t);
             found.append(t.key).append(' ').append(l.lamps.size()).append(' ');

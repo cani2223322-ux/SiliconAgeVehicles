@@ -53,8 +53,8 @@ final class SelfTestFuelSVA {
         for (VehicleType t : VehicleType.values()) {
             n += FuelMath.uses(t) ? 1 : 0;
         }
-        check(n == 8 && !FuelMath.uses(VehicleType.SHUTTLE) && !FuelMath.uses(VehicleType.SHIP),
-                "fuel: 8 types on hydrogen, the shuttle and the Singular Ship stay on EU");
+        check(n == 9 && FuelMath.uses(VehicleType.LINER) && !FuelMath.uses(VehicleType.SHUTTLE) && !FuelMath.uses(VehicleType.SHIP),
+                "fuel: 9 types on hydrogen (the liner wave 1's SA-320 too), the shuttle and the Singular Ship stay on EU");
         check(FuelMath.tank(VehicleType.BUGGY) == 4000 && FuelMath.tank(VehicleType.HOVER) == 6000 && FuelMath.tank(VehicleType.TRUCK) == 16000
                 && FuelMath.tank(VehicleType.DRILL) == 24000 && FuelMath.tank(VehicleType.HELI) == 12000 && FuelMath.tank(VehicleType.PLANE) == 16000
                 && FuelMath.tank(VehicleType.JET) == 32000 && FuelMath.tank(VehicleType.TILT) == 24000, "fuel: the H2 tanks as on the mock-up");

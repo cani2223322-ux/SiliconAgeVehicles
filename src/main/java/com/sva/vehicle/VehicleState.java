@@ -39,7 +39,9 @@ public class VehicleState {
             // flag - BatteryMath.K_*), the H2 tank has been set up once (a save without it gets a full tank)
             K_BAT_IN = "BatIn", K_H2_SEEN = "H2Seen",
             // air-defence wave: the transponder
-            K_XPDR = "Xpdr";
+            K_XPDR = "Xpdr",
+            // liner wave 1: the SA-320's board systems (LinerSystems: control positions, engines / APU running, tanks, АКБ 2)
+            K_LINER = "Liner";
     /** Keys inside K_TRAILER_DATA (also the trailer item's own NBT, ItemTrailerSVA). */
     public static final String T_FLUID = "Fluid", T_AMOUNT = "Amount", T_IN = "In", T_OUT = "Out", T_CARRIED = "Carried", T_ENERGY = "Energy";
 
@@ -124,6 +126,21 @@ public class VehicleState {
     public final com.sva.airdefense.XpdrMath.Xpdr xpdr = new com.sva.airdefense.XpdrMath.Xpdr();
     /** Tests (not saved): 1 - on hydrogen, 0 - on EU whatever the config says; -1 - the server's vehicles.fuelMode. */
     public int fuelForce = -1;
+    /** Liner wave 1: the SA-320's systems (only for VehicleType.LINER; liner() makes it), saved under K_LINER. */
+    private LinerSystems liner;
+
+    /** The liner's systems (created cold and dark with the tanks full of what the vehicle holds); null for other types. */
+    public LinerSystems liner() {
+        if (type != VehicleType.LINER) {
+            return null;
+        }
+        if (liner == null) {
+            liner = new LinerSystems();
+            liner.reconcile(gas[FuelMath.H2.ordinal()], FuelMath.tank(type));
+            liner.bat2.charge = BatteryMath.capacity(type);
+        }
+        return liner;
+    }
 
     public VehicleState(VehicleType type) {
         this.type = type;
@@ -500,6 +517,11 @@ public class VehicleState {
         NBTTagCompound x = new NBTTagCompound();
         xpdr.write(x);
         t.setTag(K_XPDR, x);
+        if (liner() != null) {
+            NBTTagCompound l = new NBTTagCompound();
+            liner.writeNBT(l);
+            t.setTag(K_LINER, l);                                   // liner wave 1
+        }
     }
 
     /** Tiltrotor nacelles 0 (vertical) .. 1 (airplane). */
@@ -611,6 +633,16 @@ public class VehicleState {
         }
         if (t.hasKey(K_XPDR)) {
             xpdr.read(t.getCompoundTag(K_XPDR));                // air-defence wave (an older save: mode C, 7000)
+        }
+        if (type == VehicleType.LINER) {
+            liner = null;
+            liner();                                                // liner wave 1: cold and dark unless saved
+            if (t.hasKey(K_LINER)) {
+                liner.readNBT(t.getCompoundTag(K_LINER));
+            }
+            liner.reconcile(gas[FuelMath.H2.ordinal()], FuelMath.tank(type));
+        } else {
+            liner = null;
         }
     }
 

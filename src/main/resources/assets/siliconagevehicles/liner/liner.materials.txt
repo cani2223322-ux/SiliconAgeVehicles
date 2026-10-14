@@ -1,0 +1,30 @@
+# material r g b emissive(1 = an emitter: drawn unlit when on; then its colour when off) - liner3d.py MATS
+beacon 255 30 20 1 130 30 26
+belly 196 200 208 0
+black 12 12 14 0
+cascade 50 52 58 0
+chrome 80 84 92 0
+dark 38 40 46 0
+door 238 240 244 0
+fin 238 240 244 0
+fus 238 240 244 0
+gear 206 208 212 0
+land 255 250 230 1 200 205 215
+logo 255 246 220 1 200 205 215
+metal 165 168 176 0
+nacelle 238 240 244 0
+nav_g 40 255 90 1 30 100 50
+nav_r 255 40 30 1 120 30 30
+nav_w 255 255 255 1 170 170 175
+navy 24 44 104 0
+rto 255 250 225 1 200 205 215
+rubber 24 24 26 0
+skin 238 240 244 0
+spinner 238 240 244 0
+steel 120 124 132 0
+strobe 240 248 255 1 180 184 190
+taxi 255 250 225 1 200 205 215
+titan 96 100 110 0
+well 62 70 66 0
+wing 168 173 182 0
+wingl 255 246 220 1 200 205 215

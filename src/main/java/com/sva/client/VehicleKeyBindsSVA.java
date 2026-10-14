@@ -222,6 +222,12 @@ public final class VehicleKeyBindsSVA {
         return k != 0 && (keyDown(k) || TAPPED.contains(Integer.valueOf(k)));
     }
 
+    /** Liner wave 1: a function's key is down right now (read raw - the cursor screen polls «Курсор кабины» with a screen open). */
+    static boolean heldNow(VehicleFn f) {
+        int[] b = BINDS.get(f);
+        return b != null && keyDown(b[0]);
+    }
+
     private static boolean keyDown(int k) {
         if (k == 0) {
             return false;
@@ -310,6 +316,13 @@ public final class VehicleKeyBindsSVA {
         return downHeld;
     }
 
+    /** Liner wave 1: «Курсор кабины» held (LinerClickSVA frees the mouse while it is). */
+    private static boolean cursorHeld;
+
+    public static boolean cursorHeld() {
+        return cursorHeld;
+    }
+
     /**
      * Client tick (start): the menu key (any time with no screen open), then - riding, no screen - the functions:
      * presses fire on the edge, holds are latched for driverInput. Otherwise every edge just remembers the state.
@@ -324,7 +337,7 @@ public final class VehicleKeyBindsSVA {
         EntityVehicleSVA v = free ? HudVehicleSVA.vehicleOf(mc.thePlayer) : null;
         int held = free ? modifiersDown() : 0;
         List<int[]> all = new ArrayList<int[]>(BINDS.values());
-        boolean boost = false, down = false;
+        boolean boost = false, down = false, cursor = false;
         for (VehicleFn f : VehicleFn.values()) {
             int[] b = BINDS.get(f);
             boolean kd = b != null && downOrTapped(b[0]);
@@ -339,6 +352,8 @@ public final class VehicleKeyBindsSVA {
                 e.hold(on);
                 if (f == VehicleFn.BOOST) {
                     boost = on;
+                } else if (f == VehicleFn.CURSOR) {
+                    cursor = on && f.appliesTo(v.getVehicleType());     // liner wave 1: the cockpit's mouse cursor
                 } else {
                     down = on;
                 }
@@ -348,6 +363,7 @@ public final class VehicleKeyBindsSVA {
         }
         boostHeld = boost;
         downHeld = down;
+        cursorHeld = cursor;
         TAPPED.clear();
     }
 
@@ -373,7 +389,7 @@ public final class VehicleKeyBindsSVA {
         if (!f.appliesTo(t)) {
             return;
         }
-        boolean driver = mc.thePlayer.ridingEntity == v;
+        boolean driver = mc.thePlayer.ridingEntity == v || t == VehicleType.LINER && LinerClickSVA.pilotSeat(mc.thePlayer, v);
         if (f.driverOnly && !driver) {
             mc.ingameGUI.func_110326_a(Lang.tr("sva.fn.driverOnly", Lang.tr(f.nameKey(t))), false);
             return;

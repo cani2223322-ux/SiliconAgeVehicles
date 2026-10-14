@@ -156,7 +156,13 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
              */
             A_BATTERY_OUT = 40,
             /** Air-defence wave (the pilot): the transponder's IDENT - the blip flashes 18 s on every radar. */
-            A_IDENT = 41;
+            A_IDENT = 41,
+            /**
+             * Liner wave 1: «Быстрый запуск» (the pilots; the «Запуск двигателя» key does the same on the liner), the L1 door
+             * (the owner / anyone with the driving right, standing by or aboard), «Снять» АКБ 2 (as A_BATTERY_OUT), the
+             * gear lever (the pilots: the «Шасси» key).
+             */
+            A_LINER_QUICK = 42, A_LINER_DOOR = 43, A_BATTERY2_OUT = 44, A_LINER_GEAR = 45;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -332,6 +338,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * nacelles, brake lights (vehicle/AnimMath; nothing synced - ticked from the motion every client sees).
      */
     public final com.sva.vehicle.AnimMath.State anim = new com.sva.vehicle.AnimMath.State();
+    /** Liner wave 1, client: the SA-320's own animation (gear sequence by its lever, the L1 door and stairs, the fans). */
+    public final com.sva.vehicle.LinerAnim linerAnim = new com.sva.vehicle.LinerAnim();
     /** Client: the local driver's keys this tick (-1: someone else drives / nobody). */
     private int animIn = -1;
     /**
@@ -339,6 +347,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * aircraft with the board systems also needs АКБ on and the battery not flat (the instruments go dark with it).
      */
     public boolean powered() {
+        if (getVehicleType() == VehicleType.LINER) {
+            return !isWrecked() && liner() != null && liner().powered();   // liner wave 1: either battery or AC
+        }
         return getEnergy() > 0 && !isWrecked() && (!SystemsMath.applies(getVehicleType()) || boardOn());
     }
 
@@ -365,6 +376,100 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     public boolean debugEngineManual;
     // D2, client: the engine state seen last tick and the ticks in it (the warm-up's power ramp, the HUD, the puff)
     private int engineSeen = -1, engineSeenTicks;
+    /**
+     * Liner wave 1 (LinerLogicSVA): server - ticks left of «a station serves it» (external power: markExtPower, refreshed by
+     * the charging station every tick it serves); client - the mirror of the liner's systems (from the synced DW_SPACE
+     * string) and the string it was parsed from.
+     */
+    private int extTicks;
+    private com.sva.vehicle.LinerSystems linerView;
+    private String linerSeen;
+
+    /**
+     * Liner wave 1: the SA-320's systems - the server's own (VehicleState.liner), a client's mirror of the synced string;
+     * null for every other type.
+     */
+    public com.sva.vehicle.LinerSystems liner() {
+        if (getVehicleType() != VehicleType.LINER) {
+            return null;
+        }
+        if (!remote()) {
+            return state.liner();
+        }
+        String s = dataWatcher.getWatchableObjectString(DW_SPACE);
+        if (linerView == null) {
+            linerView = new com.sva.vehicle.LinerSystems();
+        }
+        if (s != null && !s.equals(linerSeen)) {
+            linerView.unpack(s);
+            linerSeen = s;
+        }
+        return linerView;
+    }
+
+    /** Liner wave 1, server: a charging station serves this vehicle now (the liner's ВНЕШН. ПИТ «ДОСТУП»). */
+    public void markExtPower() {
+        extTicks = CHARGE_HOLD;
+    }
+
+    /** Liner wave 1: external power is available (a station served it within CHARGE_HOLD ticks). */
+    boolean extPowerNow() {
+        return extTicks > 0;
+    }
+
+    /** Liner wave 1: in the air at the end of the last tick (the server's flight rules). */
+    boolean wasAirborneNow() {
+        return wasAirborne;
+    }
+
+    java.util.Random rand() {
+        return rand;
+    }
+
+    /** Liner wave 1: this tick's H2 burn (mB) into the flow shown (FuelMath.flowStep, mB/min). */
+    void linerFlow(double burnMb) {
+        h2Flow = FuelMath.flowStep(h2Flow, burnMb);
+    }
+
+    /** Liner wave 1: the old engine word follows the liner's engines (RUN while either runs). */
+    void linerEngine(boolean running) {
+        if (running && engine.state != SystemsMath.RUN) {
+            engine.run();
+        } else if (!running && engine.state != SystemsMath.OFF) {
+            engine.stop();
+        }
+    }
+
+    /** Liner wave 1: the flap lever's setting and the speed brake lever out (the server's high-lift state). */
+    void linerHighLift(int flapSetting, boolean brake) {
+        flaps = Math.max(0, Math.min(HighLiftMath.LINER.last(), flapSetting));
+        airbrake = brake;
+    }
+
+    void vanillaClick(float volume, float pitch) {
+        vanillaShot("random.click", volume, pitch);
+    }
+
+    void vanillaGhast(float volume, float pitch) {
+        vanillaShot("mob.ghast.fireball", volume, pitch);
+    }
+
+    void tellRidersKey(String key) {
+        tellRiders(key);
+    }
+
+    void lockedMsgTo(EntityPlayer p) {
+        lockedMsg(p);
+    }
+
+    void msgTo(EntityPlayer p, String key, Object... args) {
+        msg(p, key, args);
+    }
+
+    /** Liner wave 1: sync now (a control clicked). */
+    void syncNow() {
+        syncWatcher();
+    }
 
     /** Client: seat entities that found this body (positioned here each tick). */
     final List<EntitySeatSVA> clientSeats = new ArrayList<EntitySeatSVA>();
@@ -1582,6 +1687,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** The flap setting (0 .. the type's last; 0 without high-lift devices). Server: now; clients: synced. Stage C's indicator. */
     public int getFlaps() {
+        if (remote() && getVehicleType() == VehicleType.LINER && liner() != null) {
+            return liner().at(com.sva.vehicle.LinerControls.FLAPS);  // liner wave 1: five settings (the word has 2 bits)
+        }
         return remote() ? hiLiftBits() & HighLiftMath.P_FLAPS : flaps;
     }
 
@@ -1657,6 +1765,18 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         double as = airspeedNow;
         if (flapWarn > 0) {
             flapWarn--;
+        }
+        if (t == VehicleType.LINER && state.liner() != null) {
+            // liner wave 1: the flap and speed brake levers set them (no blow-back - the A320's flaps stay where the lever is;
+            // wave 2 adds the hydraulics); the slats and the ground spoilers as on the other aircraft
+            LinerLogicSVA.applyLevers(this, state.liner());
+            slats = plane && HighLiftMath.slats(s, slats, as, HighLiftMath.aoa(t.plane.stall, as, dy), flaps);
+            boolean gs0 = plane && HighLiftMath.groundSpoilers(s, groundSpoilers, wasAirborne, air, throttle, as);
+            if (gs0 && !groundSpoilers) {
+                oneShot("door", 0.3F, 1.5F);
+            }
+            groundSpoilers = gs0;
+            return;
         }
         int f = (state.fails & SystemsMath.F_FLAP) != 0 ? flaps : HighLiftMath.blowBack(s, flaps, as);   // D2: jammed - stays
         if (f != flaps) {
@@ -1894,6 +2014,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * @return EU the board took this tick (ГЕН's charging, the heat) - added to the tick's cost
      */
     private double systemsTick(VehicleType t, boolean motorOn, int in, boolean pilot) {
+        if (t == VehicleType.LINER) {
+            return LinerLogicSVA.tick(this, pilot);                 // liner wave 1: its own systems drive the old words
+        }
         boolean d2 = SystemsMath.applies(t), h2 = state.hydrogen();
         if (!d2 && !h2) {
             return 0;
@@ -2351,6 +2474,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (t.bridgeDock && (ticksExisted % 10 == 0 || spaceDirty)) {
             spaceDirty = false;
             dataWatcher.updateObject(DW_SPACE, SpaceLogicSVA.hudString(this, t));
+        } else if (t == VehicleType.LINER && state.liner() != null) {
+            dataWatcher.updateObject(DW_SPACE, state.liner().pack());        // liner wave 1: its systems (the space line's id)
         }
     }
 
@@ -2459,6 +2584,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         maintainSeats(t);
         if (chargeTicks > 0) {
             chargeTicks--;
+        }
+        if (extTicks > 0) {
+            extTicks--;                                             // liner wave 1: the station's external power
         }
         // stage E: riders carried over by a docking / jump board again; the cabin, the anchor, docking, the jump portal
         if (pendingRiders != null || !attachResend.isEmpty()) {
@@ -2646,6 +2774,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             if (ConfigSVA.wear && (state.fails & SystemsMath.F_ENGINE) != 0 && SystemsMath.applies(t)) {
                 dmg += SystemsMath.LANDING_WEAR * state.maxHp();     // D2 (★7): a landing on a failed engine
             }
+            if (t == VehicleType.LINER && state.liner() != null && state.liner().at(com.sva.vehicle.LinerControls.GEAR) == 0) {
+                // liner wave 1: the gear lever UP at the touch-down - on the belly (PlaneMath's belly share + the speed)
+                dmg += PlaneMath.BELLY_FRAC * 2 * state.maxHp() + Math.max(0, v - t.plane.glideSpeed) * PlaneMath.BELLY_SPEED;
+                tellRiders("sva.liner.msg.belly");
+            }
             if (dmg > 0) {
                 damageHull((float) dmg);
                 oneShot("impact", 0.8F, 0.7F);
@@ -2723,6 +2856,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      * run down to empty once (BatteryMath). @return the battery's net draw (EU/t, + discharging - the HUD's cost)
      */
     private double hydrogenTick(VehicleType t, double v, double fill, double boostMb, double sysEu) {
+        if (t == VehicleType.LINER) {
+            genNow = 0;                                             // liner wave 1: LinerLogicSVA burnt the H2 and ran the batteries
+            batNet = 0;
+            return 0;
+        }
         boolean d2 = SystemsMath.applies(t), plane = t.movement.flies && planeNow();
         boolean turning = SystemsMath.lifts(engine.state) && !isWrecked();
         double burnMb = 0;
@@ -2864,6 +3002,34 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         msg(p, "sva.msg.bat.out");
     }
 
+    /** Liner wave 1: «Снять» АКБ 2 - into p's inventory (the same rules as АКБ 1). */
+    private void battery2Out(EntityPlayer p) {
+        com.sva.vehicle.LinerSystems L = state.liner();
+        if (L == null) {
+            return;
+        }
+        if (!L.bat2In) {
+            msg(p, "sva.msg.bat.none");
+            return;
+        }
+        String why = batteryRefusal(p);
+        if (why != null) {
+            msg(p, why);
+            return;
+        }
+        ItemStack s = LinerLogicSVA.takeBattery2(this);
+        if (s != null && !p.inventory.addItemStackToInventory(s)) {
+            p.dropPlayerItemWithRandomChoice(s, false);
+        }
+        oneShot("cargo", 0.4F, 1.4F);
+        msg(p, "sva.liner.msg.bat2.out");
+    }
+
+    /** Liner wave 1: АКБ 2 is in (clients: synced). */
+    public boolean battery2Present() {
+        return liner() != null && liner().bat2In;
+    }
+
     /**
      * Server, right-click with something in hand (hydrogen): a battery of this type goes in (another type's: «не
      * подходит»), the service kit starts its 5 s, the jump leads take this vehicle as the donor or start the jump from
@@ -2878,6 +3044,15 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             if (bt != state.type) {
                 msg(p, "sva.msg.bat.wrongType", new ChatComponentTranslation("item.siliconagevehicles.vehicle." + bt.key + ".name"),
                         new ChatComponentTranslation("item.siliconagevehicles.battery." + state.type.key + ".name"));
+            } else if (state.batIn && state.type == VehicleType.LINER && !state.liner().bat2In) {
+                // liner wave 1: АКБ 1 is in - the second goes into АКБ 2
+                if (batteryRefusal(p) != null) {
+                    msg(p, batteryRefusal(p));
+                } else if (LinerLogicSVA.putBattery2(this, held)) {
+                    p.inventory.setInventorySlotContents(p.inventory.currentItem, null);
+                    oneShot("cargo", 0.4F, 1.2F);
+                    msg(p, "sva.liner.msg.bat2.in", Integer.valueOf((int) Math.round(state.liner().bat2.health * 100)));
+                }
             } else if (state.batIn) {
                 msg(p, "sva.msg.bat.already");
             } else if (batteryRefusal(p) != null) {
@@ -3602,6 +3777,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             }
         }
         animTick(t);
+        if (t == VehicleType.LINER && liner() != null) {
+            // liner wave 1: its gear sequence (the lever), the L1 door and stairs, the fans by N1, the oleos (LinerAnim)
+            com.sva.vehicle.LinerSystems L = liner();
+            linerAnim.tick(L.at(com.sva.vehicle.LinerControls.GEAR) == 0, anim.height < 0.6, L.door, L.eng[0].n1, L.eng[1].n1, anim.height);
+        }
         if (isWrecked() && ticksExisted % 4 == 0) {
             worldObj.spawnParticle("largesmoke", posX + (rand.nextDouble() - 0.5), posY + 1.0, posZ + (rand.nextDouble() - 0.5), 0, 0.05, 0);
         } else if (isHeatStopped() && ticksExisted % 6 == 0) {
@@ -3654,10 +3834,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         } else {
             tp = air ? (float) Math.toDegrees(Math.atan2(dy, Math.max(0.15, Math.abs(fwd)))) : 0F;
             tp = isStalling() ? -12F : MathHelper.clamp_float(tp, -20F, 20F);
-            tr = air ? MathHelper.clamp_float(yawRate * 10F, -25F, 25F) : 0F;
+            tr = air ? MathHelper.clamp_float(yawRate * (t == VehicleType.LINER ? 18F : 10F), -25F, 25F) : 0F;
         }
-        renderPitch += (tp - renderPitch) * 0.2F;
-        renderRoll += (tr - renderRoll) * 0.2F;
+        renderPitch += (tp - renderPitch) * (t == VehicleType.LINER ? 0.1F : 0.2F);
+        renderRoll += (tr - renderRoll) * (t == VehicleType.LINER ? 0.06F : 0.2F);  // liner wave 1: a heavy airliner rolls slowly
     }
 
     /**
@@ -4007,6 +4187,23 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      */
     void placeBeside(Entity e, int side, int seat) {
         VehicleType t = getVehicleType();
+        if (t == VehicleType.LINER && !worldObj.isRemote) {
+            // liner wave 1: out through the L1 door - at the foot of the airstairs (the door opens for it on the ground)
+            com.sva.vehicle.LinerSystems L = state.liner();
+            if (L != null && !wasAirborne && Math.abs(speed) < 0.3) {
+                if (!L.door) {
+                    L.door = true;
+                    oneShot("door", 0.6F, 1.0F);
+                }
+                double[] f = LinerLogicSVA.doorSpot(this);
+                for (int up = 0; up <= 3; up++) {
+                    int dy = up == 3 ? -1 : up;
+                    if (tryPlace(e, f[0], Math.floor(posY) + dy + 0.01, f[2], false)) {
+                        return;
+                    }
+                }
+            }
+        }
         double[] o = t.seatOffsets[Math.max(0, Math.min(seat, t.seatOffsets.length - 1))];
         if (o.length > 1 && Math.abs(o[1]) > 0.05) {
             side = o[1] > 0 ? 1 : -1;                               // the seat's own side of the hull
@@ -4179,6 +4376,21 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         int rights = rightsOf(p);
         boolean driver = (rights & AccessMath.DRIVE) != 0;
+        if (state.type == VehicleType.LINER && state.liner() != null) {
+            // liner wave 1: in and out through the L1 door (left, forward): by it - the first click opens it, then you board
+            if (!LinerLogicSVA.byDoor(this, p)) {
+                msg(p, "sva.liner.msg.useDoor");
+                return true;
+            }
+            if (!state.liner().door) {
+                if ((rights & (AccessMath.DRIVE | AccessMath.PASSENGER)) == 0) {
+                    lockedMsg(p);
+                } else {
+                    LinerLogicSVA.door(this, p);
+                }
+                return true;
+            }
+        }
         if (driver && riddenByEntity == null) {
             p.mountEntity(this);
             oneShot("door", 0.6F, 1F);       // ★1
@@ -5162,7 +5374,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return manage || driver;
         }
         if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS || action >= A_FLAPS_UP && action <= A_AIRBRAKE
-                || action == A_ENGINE || action >= A_SWITCH && action < A_SWITCH + SystemsMath.SWITCHES || action == A_IDENT) {
+                || action == A_ENGINE || action >= A_SWITCH && action < A_SWITCH + SystemsMath.SWITCHES || action == A_IDENT
+                || action == A_LINER_QUICK || action == A_LINER_GEAR) {
             return driver;                                          // only the pilot turns the nacelles / works the ship / the flaps
         }
         return manage;
@@ -5181,6 +5394,34 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (a == A_BATTERY_OUT) {
             batteryOut(p);                                          // its own rule: the owner or «Ремонт»
             return;
+        }
+        if (a == A_BATTERY2_OUT) {
+            battery2Out(p);                                         // liner wave 1: АКБ 2, the same rule
+            return;
+        }
+        if (state.type == VehicleType.LINER && (a == A_LINER_QUICK || a == A_ENGINE || a == A_LINER_GEAR)) {
+            if (!LinerLogicSVA.pilot(this, p)) {
+                lockedMsg(p);                                       // liner wave 1: either pilot (the F/O too)
+            } else if (a == A_LINER_GEAR) {
+                state.liner().control(com.sva.vehicle.LinerControls.GEAR.index, state.liner().at(com.sva.vehicle.LinerControls.GEAR) == 0
+                        ? com.sva.vehicle.LinerControls.A_PRIMARY : com.sva.vehicle.LinerControls.A_SECONDARY);
+                oneShot("door", 0.4F, 0.7F);
+                syncWatcher();
+            } else {
+                LinerLogicSVA.quick(this, p);
+            }
+            return;
+        }
+        if (a == A_LINER_DOOR && state.type == VehicleType.LINER) {
+            if (carries(p) || (rightsOf(p) & AccessMath.DRIVE) != 0) {
+                LinerLogicSVA.door(this, p);
+            } else {
+                lockedMsg(p);
+            }
+            return;
+        }
+        if (state.type == VehicleType.LINER && a >= A_SWITCH && a < A_SWITCH + SystemsMath.SWITCHES) {
+            return;                                                 // liner wave 1: its switches are the cockpit's, not the «Пульт» row
         }
         if (!actionAllowed(a, canManage(p), riddenByEntity == p, canOpenCargo(p))) {
             lockedMsg(p);

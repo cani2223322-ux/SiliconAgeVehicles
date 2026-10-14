@@ -87,8 +87,8 @@ public class RenderItemVehicleSVA implements IItemRenderer {
      */
     public static void preloadModels() {
         for (VehicleType t : VehicleType.values()) {
-            if (t.model == null) {
-                continue;
+            if (t.model == null || t == VehicleType.LINER) {
+                continue;                                           // liner wave 1: its own model (LinerModelSVA)
             }
             ObjModelSVA.get(t.model);
             preBounds(t.model, t.model, t.trailerSlots > 0 ? -1 : 0);
@@ -137,6 +137,9 @@ public class RenderItemVehicleSVA implements IItemRenderer {
         }
         boolean ok = type == ItemRenderType.INVENTORY || type == ItemRenderType.ENTITY || type == ItemRenderType.EQUIPPED
                 || type == ItemRenderType.EQUIPPED_FIRST_PERSON;
+        if (!trailer && type(item) == VehicleType.LINER) {
+            return ok;                                              // liner wave 1: LinerModelSVA's LOD2
+        }
         return ok && ObjModelSVA.get(modelOf(item)) != null && bounds(item) != null;
     }
 
@@ -155,17 +158,20 @@ public class RenderItemVehicleSVA implements IItemRenderer {
 
     @Override
     public void renderItem(ItemRenderType type, ItemStack item, Object... data) {
-        ObjModelSVA m = ObjModelSVA.get(modelOf(item));
-        float[] b = bounds(item);
+        boolean liner = !trailer && type(item) == VehicleType.LINER;
+        ObjModelSVA m = liner ? null : ObjModelSVA.get(modelOf(item));
+        float[] b = liner ? LinerModelSVA.ITEM_BOUNDS : bounds(item);
         boolean kindModel = kind(item) != com.sva.vehicle.TrailerMath.CARGO;
-        if (m == null || b == null) {
+        if (!liner && (m == null || b == null)) {
             return;
         }
-        // the model is shared: set the item's own skin, not the last drawn vehicle's (tier livery, board 1, at rest)
-        m.style(com.sva.vehicle.SkinMath.livery(type(item).tier), 1);
-        m.anim(0F, 1F);
-        m.cabin(-1F, 0);
-        m.band(-1);
+        if (!liner) {
+            // the model is shared: set the item's own skin, not the last drawn vehicle's (tier livery, board 1, at rest)
+            m.style(com.sva.vehicle.SkinMath.livery(type(item).tier), 1);
+            m.anim(0F, 1F);
+            m.cabin(-1F, 0);
+            m.band(-1);
+        }
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_LIGHTING_BIT | GL11.GL_CURRENT_BIT | GL11.GL_COLOR_BUFFER_BIT
                 | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_TEXTURE_BIT | GL11.GL_TRANSFORM_BIT);
         GL11.glPushMatrix();
@@ -213,7 +219,9 @@ public class RenderItemVehicleSVA implements IItemRenderer {
             GL11.glShadeModel(GL11.GL_SMOOTH);
             GL11.glDisable(GL11.GL_BLEND);
             GL11.glEnable(GL11.GL_ALPHA_TEST);
-            if (trailer && !kindModel) {
+            if (liner) {
+                LinerModelSVA.renderItem();
+            } else if (trailer && !kindModel) {
                 for (ObjModelSVA.Part p : m.parts()) {
                     if (p.kind == ObjModelSVA.Part.TRAILER || p.def != null && p.def.trailer) {
                         m.renderPart(p, 0F, 1F);                   // the cargo trailer and its two wheels

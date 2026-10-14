@@ -141,7 +141,25 @@ public enum VehicleType {
             new double[][] {{4.75, 0.44}, {4.75, -0.44}, {3.00, 0.81}, {3.00, -0.81}, {2.12, 0.81}, {2.12, -0.81}}, 2.0F, 0.90, Movement.HELI,
             VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(4000), Gas.HELIUM, Integer.valueOf(4000), Gas.OXYGEN, Integer.valueOf(4000),
                     Gas.ARGON, Integer.valueOf(2000), Gas.DEUTERIUM, Integer.valueOf(4000), Gas.SINGULAR_MATTER, Integer.valueOf(4000))
-                    .afterburner(Gas.HYDROGEN, 4, 1.4).field(Gas.ARGON, 1, 0.4));
+                    .afterburner(Gas.HYDROGEN, 4, 1.4).field(Gas.ARGON, 1, 0.4)),
+    // Liner SA-320 (plan-next §7, wave 1; mock-ups docs/mockups/veh_liner_*): a regional twin-jet modelled on the A320, EV.
+    // Its own model pipeline (assets liner/: liner_lod0..2.obj + liner.rig.txt, client/LinerModelSVA - every moving part a
+    // rig group) at scale 1.0 - the exterior concept is in blocks already: 18.5 long, 17.6 across the sharklets, 5.65 to
+    // the fin tip (liner3d.py). Hydrogen only (FuelMath: 48 000 mB in three tanks, LinerSystems), two removable batteries
+    // (АКБ 1 = the vehicle's own slot, АКБ 2 in LinerSystems). x7 sprint: top 2.0 b/t (144 km/h); the heaviest
+    // aeroplane (PlaneParams.LINER: stall 83 km/h, lift-off 94, thrust 0.012 - a ~90-block run on a runway), turn 1.1
+    // deg/t. 10 seats: the captain (left, the driver) and the F/O at the eyes of the cockpit concept (icockpit.py: captain
+    // eye (0, 0, -0.52) of the cockpit frame = model (6.88, 2.78, -0.52), LinerControls.CK_X / CK_Y; seatY = eye - 1.12),
+    // then four rows of two in the cabin (icabin.py rows -1.30 .. -3.85 behind the bulkhead at x 5.78, the seat a little
+    // behind each cushion centre). Rider fit (RiderFitSVA on liner_lod2.obj's skin): the 2.4-block tube is round - the
+    // heads' outer top corners came out at the concept's |z| (pilots 0.52, passengers 0.62 = 0.70 x the cabin's 0.88
+    // scale), so the pilots sit at |z| 0.45, 0.04 lower (eye 2.74), the passengers at |z| 0.52, 0.10 lower (hips 0.09
+    // into the cushions at 1.85; head tops 2.94 under the 3.03 of the tube there). Collision box 3 x 2 (like the
+    // ship: the long body is the model's, the server's box only stands it on the ground). 54 cargo slots (the hold).
+    LINER("liner", "liner", Tier.EV, 4000000, 120, 4, 2.0, PlaneParams.LINER.thrust, 1.1, 10, 54, 900, 3.0F, 2.0F,
+            new double[][] {{6.88, -0.40, -0.08}, {6.88, 0.40, -0.08}, {4.46, -0.52, -0.10}, {4.46, 0.52, -0.10}, {3.61, -0.52, -0.10},
+                    {3.61, 0.52, -0.10}, {2.76, -0.52, -0.10}, {2.76, 0.52, -0.10}, {1.91, -0.52, -0.10}, {1.91, 0.52, -0.10}}, 1.0F, 1.66, Movement.PLANE,
+            VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(48000)));
 
     public final String key;
     public final String model;
@@ -295,6 +313,11 @@ public enum VehicleType {
         SHUTTLE.longRange = SHIP.longRange = true;
         SHUTTLE.bridgeDock = SHIP.bridgeDock = true;
         SHIP.singular = true;
+        // liner wave 1
+        LINER.platformSize = PlatformSize.P7x7;
+        LINER.peakCost = 300;
+        LINER.plane = PlaneParams.LINER;
+        LINER.halfLength = 9.3;                             // x -9.3..9.22 (liner3d.py)
         // cockpit windows (cabWindows; model units). Eyes = the driver seat's eye (seatY + seatDy + 1.12) in model units;
         // "visible" = the share of the forward view cone (yaw +-60, pitch +-35) through the glass that reaches the world
         // (measured by ray-casting the OBJ with the cut shell; the rest is the dash, pillars, the nose, rotors...).

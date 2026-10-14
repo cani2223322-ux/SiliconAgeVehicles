@@ -19,6 +19,9 @@ import com.sva.vehicle.VehicleType;
  * flaps / slats / airbrake / ground spoilers applied (HighLiftMath.params; all retracted = the type's own object): the
  * stall, the lift-off speed, the drag, the brakes, the airbrake's descent. The autopilot holds the height with them
  * (the flaps' lower stall gives it more climb at a low speed; the airbrake only adds drag under the autopilot).
+ * Liner wave 1: the thrust term sees the SA-320's two engines (LinerSystems.thrust - their N1 with the spool's lag, a dead
+ * engine half the thrust) instead of the throttle x the engine's power, uneven thrust yaws it (LinerLogicSVA.ASYM_*), and
+ * the parking brake holds it on the ground.
  */
 public final class PlanePhysicsSVA {
 
@@ -39,6 +42,15 @@ public final class PlanePhysicsSVA {
         // a weaker engine accelerates slower and tops out lower (thrust x (thr - drag x r^2))
         double pw = v.enginePower();
         double speed = Math.max(0, v.speed);
+        com.sva.vehicle.LinerSystems liner = t == VehicleType.LINER ? v.liner() : null;
+        if (liner != null) {
+            // liner wave 1: the engines make the thrust (the throttle is their thrust levers): thr x pw = their mean thrust
+            double th = liner.thrust();
+            pw = thr > 0.001 ? th / thr : 1;
+            if (thr <= 0.001) {
+                thr = th;
+            }
+        }
         double vy;
         boolean auto = air && v.cruiseActive(in);
         if (auto) {
@@ -62,6 +74,9 @@ public final class PlanePhysicsSVA {
             if (back && thr <= 0) {
                 speed -= PlaneMath.brake(p, runway);
             }
+            if (liner != null && liner.on(com.sva.vehicle.LinerControls.PARK_BRK)) {
+                speed -= LinerLogicSVA.PARK_BRAKE;                  // liner wave 1: the parking brake holds it
+            }
             speed = Math.max(0, speed);
             vy = up && powered && speed >= p.liftOff ? p.rotateVy : -0.08;
         }
@@ -76,6 +91,10 @@ public final class PlanePhysicsSVA {
             double rate = air ? t.turnRate * VehicleMath.clamp(speed / p.stall, 0, 1)
                     : t.turnRate * 0.7 * Math.min(1, speed / 0.12);
             v.rotationYaw += steer * rate;
+        }
+        if (liner != null && speed > 0.02) {
+            // liner wave 1: one engine stronger yaws it to the weaker side's opposite (the left engine pushes the nose right)
+            v.rotationYaw += (float) liner.asymYaw(air ? LinerLogicSVA.ASYM_AIR : LinerLogicSVA.ASYM_GROUND * Math.min(1, speed / 0.3));
         }
         move(v, speed, vy);
     }

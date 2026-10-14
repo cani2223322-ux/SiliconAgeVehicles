@@ -41,11 +41,16 @@ public final class RiderFitSVA {
 
     /** The hull triangles of models/NAME.obj (9 floats each, model units), or null when it can't be read. */
     public static float[][] hull(String model) throws java.io.IOException {
-        InputStream in = RiderFitSVA.class.getResourceAsStream("/assets/siliconagevehicles/models/" + model + ".obj");
+        return hull("/assets/siliconagevehicles/models/" + model + ".obj", HULL);
+    }
+
+    /** Liner wave 1: the hull triangles of any OBJ resource, of the given materials (the liner's skin: fus, belly, door, fin). */
+    public static float[][] hull(String path, String[] materials) throws java.io.IOException {
+        InputStream in = RiderFitSVA.class.getResourceAsStream(path);
         if (in == null) {
             return null;
         }
-        java.util.Set<String> hull = new java.util.HashSet<String>(java.util.Arrays.asList(HULL));
+        java.util.Set<String> hull = new java.util.HashSet<String>(java.util.Arrays.asList(materials));
         List<float[]> v = new ArrayList<float[]>();
         List<float[]> tris = new ArrayList<float[]>();
         boolean take = false;

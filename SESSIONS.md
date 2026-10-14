@@ -304,3 +304,11 @@
   одобрены все ★, стиль полуреалистичный (docs/plan-next.md §7, scratchpad/liner/liner_spec.md). Макеты
   docs/mockups/veh_liner_1..15 (3D-концепт scratchpad/liner/liner3d.py + rig.json; кабина liner/interior; экраны liner/displays).
 - Осталось / next steps: подтвердить у пользователя единицы, латиницу FMA, клавишу MCDU, интерцепторы; делать по команде, 7 волн.
+
+## 2026-10-14 — Лайнер SA-320: волна 1 (ветка wave-liner1)
+- Сделано: VehicleType.LINER (EV, водород 48000 mB в баках Л/Ц/П, 10 мест, дверь L1 с трапом), физика PLANE (LINER),
+  две тяги + асимметрия, системы ЭЛЕКТР/ВСУ/ОТБОР/запуск/быстрый запуск/предупреждения (LinerSystems), таблица органов
+  управления (LinerControls), модель с LOD и ригом (assets/liner), кабина и салон, запекаемые текстуры по качеству,
+  экраны PFD/ND/EWD/SD/ISIS, клик в кабине (Alt) и окно "Пульты", HUD, меню, рецепт, lang ru/en, CHANGELOG, настройки.
+  Тесты: self 1359+ (SelfTestLinerSVA), world 424/0 (WorldTestLinerSVA). Превью docs/mockups/veh_liner_impl_*.png.
+- Осталось / next steps: проверка в клиенте (рендер, клик, GUI, HUD); волны 2-7 (гидравлика, AP/FCU, MCDU, реверс и др.).

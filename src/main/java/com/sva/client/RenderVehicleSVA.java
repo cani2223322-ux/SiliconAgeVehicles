@@ -48,6 +48,10 @@ public class RenderVehicleSVA extends Render {
     public void doRender(Entity e, double x, double y, double z, float yaw, float pt) {
         EntityVehicleSVA v = (EntityVehicleSVA) e;
         com.sva.vehicle.VehicleType vt = v.getVehicleType();
+        if (LinerModelSVA.handles(vt)) {
+            LinerModelSVA.render(v, x, y, z, pt);                      // liner wave 1: its own rig model, cockpit and cabin
+            return;
+        }
         ObjModelSVA m = ObjModelSVA.get(vt.model);
         if (m == null) {
             return;

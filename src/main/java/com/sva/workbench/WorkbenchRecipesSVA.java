@@ -390,5 +390,15 @@ public final class WorkbenchRecipesSVA {
                 'P', polymer, 'A', al, 'F', alFoil);
         module("tuningRwr", tu.stackOf(com.sva.vehicle.TuningMath.RWR), Tier.HV, "NGN", "KCK",
                 'N', sensor, 'G', Blocks.glass_pane, 'K', coil, 'C', controller);
+
+        // ---- liner wave 1 (appended: the list index is the sync id)
+        // Лайнер SA-320 (plan-next §7, EV; 8M EU, 5 min): in the style of the jet - the two gas tanks either side of the
+        // cabin (the cockpit) and the flight computer on top, the wings outboard of the two turbo engines round hull III, the
+        // EV energy block between titanium plates and copper coils, titanium casings / ingot, three wheels below. EV: the
+        // bare MV workbench builds it (WorkbenchMath), like the drill vehicle.
+        vehicle(VehicleType.LINER, 8000000L, 6000,
+                "GCFCG", "WTHTW", "KPEPK", " XIX ", "R R R",
+                'G', gasTank, 'C', cabin, 'F', computer, 'W', wing, 'T', part(ComponentType.TURBO_ENGINE), 'H', part(ComponentType.HULL_III),
+                'K', coil, 'P', tiPlate, 'E', part(ComponentType.ENERGY_BLOCK_EV), 'X', tiCasing, 'I', ti, 'R', part(ComponentType.WHEEL));
     }
 }

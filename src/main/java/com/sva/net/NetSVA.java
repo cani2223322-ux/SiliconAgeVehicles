@@ -61,6 +61,61 @@ public final class NetSVA {
         CHANNEL.registerMessage(RouteRequestHandler.class, RouteRequest.class, 13, Side.SERVER);
         CHANNEL.registerMessage(RouteSetHandler.class, RouteSet.class, 14, Side.SERVER);
         CHANNEL.registerMessage(RouteInfoHandler.class, RouteInfo.class, 15, Side.CLIENT);
+        CHANNEL.registerMessage(LinerControlHandler.class, LinerControl.class, 16, Side.SERVER);
+    }
+
+    // ---------------------------------------------------------------- liner wave 1: a cockpit control clicked
+
+    /**
+     * LinerControl (C->S): a click on a row of the SA-320's control table (vehicle/LinerControls - the 3D cockpit or the
+     * «Пульты» screen): the row's index and LinerControls.A_*. The server checks the sender is one of the two pilots
+     * (entity/LinerLogicSVA.control), applies it to its LinerSystems and syncs.
+     */
+    public static class LinerControl implements IMessage {
+        public int entity, index, action;
+
+        public LinerControl() {
+        }
+
+        public LinerControl(int entity, int index, int action) {
+            this.entity = entity;
+            this.index = index;
+            this.action = action;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            entity = buf.readInt();
+            index = buf.readShort();
+            action = buf.readByte();
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(entity);
+            buf.writeShort(index);
+            buf.writeByte(action);
+        }
+    }
+
+    public static class LinerControlHandler implements IMessageHandler<LinerControl, IMessage> {
+        @Override
+        public IMessage onMessage(final LinerControl m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    if (p.worldObj == null) {
+                        return;
+                    }
+                    Entity e = p.worldObj.getEntityByID(m.entity);
+                    if (e instanceof EntityVehicleSVA && !e.isDead) {
+                        com.sva.entity.LinerLogicSVA.control((EntityVehicleSVA) e, p, m.index, m.action);
+                    }
+                }
+            });
+            return null;
+        }
     }
 
     // ---------------------------------------------------------------- input

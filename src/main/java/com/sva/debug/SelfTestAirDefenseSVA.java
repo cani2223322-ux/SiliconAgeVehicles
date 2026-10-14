@@ -69,8 +69,9 @@ final class SelfTestAirDefenseSVA {
         for (VehicleType t : VehicleType.values()) {
             fitted += XpdrMath.fitted(t) ? 1 : 0;
         }
-        check(fitted == 6 && XpdrMath.fitted(VehicleType.PLANE) && XpdrMath.fitted(VehicleType.SHIP) && !XpdrMath.fitted(VehicleType.HOVER)
-                && !XpdrMath.fitted(VehicleType.BUGGY), "ad xpdr: a transponder on the 6 flying types, none on the ground / hoverbike");
+        check(fitted == 7 && XpdrMath.fitted(VehicleType.PLANE) && XpdrMath.fitted(VehicleType.SHIP) && XpdrMath.fitted(VehicleType.LINER)
+                && !XpdrMath.fitted(VehicleType.HOVER) && !XpdrMath.fitted(VehicleType.BUGGY),
+                "ad xpdr: a transponder on the 7 flying types (the liner too), none on the ground / hoverbike");
         XpdrMath.Xpdr x = new XpdrMath.Xpdr();
         check(x.mode == XpdrMath.C && x.code == XpdrMath.VFR && x.dayKey, "ad xpdr: a new vehicle: mode C, 7000, day key on");
         x.setCode(XpdrMath.NO_RADIO, 1000);

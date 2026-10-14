@@ -30,6 +30,14 @@ public final class PlaneParams {
     public static final PlaneParams JET = new PlaneParams(0.9, 1.0, 1.15, 0.025, 0.35, 0.4, 0.5, 0.45, 0.12);
     /** The Tiltrotor's airplane mode (stage D): stall 0.6 b/t (43 km/h), climbs 0.25, thrust for x5 sprint (1.4 b/t). */
     public static final PlaneParams TILT = new PlaneParams(0.6, 0.65, 0.8, 0.014, 0.25, 0.3, 0.35, 0.35, 0.1);
+    /**
+     * The Liner (plan-next §7, wave 1): the heaviest - stall 1.15 b/t (83 km/h), lift-off (rotation) 1.3 (94 km/h), glide
+     * at 1.4, thrust 0.012 (half the jet's for a far bigger mass: the take-off run ~90 blocks on a runway, ~180 off one -
+     * PlaneMath.takeoffDistance), climbs 0.3 b/t (6 m/s) from 0.5 over the stall, dives 0.45, a stalled nose drops 0.5,
+     * the rotation climbs only 0.08 b/t. The thrust term sees the two engines' N1 (LinerSystems.thrust) - the spool's lag
+     * and a dead engine come through it.
+     */
+    public static final PlaneParams LINER = new PlaneParams(1.15, 1.3, 1.4, 0.012, 0.3, 0.5, 0.45, 0.5, 0.08);
 
     public PlaneParams(double stall, double liftOff, double glideSpeed, double thrust, double climb, double climbBand, double dive,
                        double stallSink, double rotateVy) {
