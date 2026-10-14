@@ -363,7 +363,8 @@ public final class AirDefenseSVA {
         k.code = x.code;
         k.ident = x.identOn(now);
         k.board = XpdrMath.givesBoard(x.mode) ? v.getBoardNumber() : 0;
-        if (XpdrMath.givesAltitude(x.mode) && !k.altKnown) {
+        // liner wave 7: the liner's mode C altitude from its selected ADR - none, no altitude (the track form shows none)
+        if (XpdrMath.givesAltitude(x.mode) && !k.altKnown && v.xpdrAltitude()) {
             k.y = v.posY;
             k.altKnown = true;
         }

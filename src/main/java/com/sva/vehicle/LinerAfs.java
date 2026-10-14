@@ -30,7 +30,9 @@ import net.minecraft.nbt.NBTTagCompound;
  * the nose wheel); «RETARD» at RETARD_H. The levers to TOGA on an approach (flaps out): GO AROUND - SRS / GA TRK, the AP
  * stays.
  * <p>
- * <b>Engagement</b>: an AP needs the INS aligned, NORMAL or ALTN law, AC power, an ADR and an IR (no AP fault) and the
+ * <b>Engagement</b> (wave 7: by the ADIRS - LinerAdirs.apOk: two IRs and two ADRs in agreement, AP 1 its captain's side's
+ * attitude / heading / air data, AP 2 the F/O's; the A/THR two of each; the alpha floor the protections' ADRs): an AP needs
+ * the INS aligned, NORMAL or ALTN law, AC power, an ADR and an IR (no AP fault) and the
  * aircraft in the air (AP_MIN_H over the ground, or airborne AP_MIN_TICKS); AP 1 + AP 2 together only with the approach
  * armed / captured (CAT 3 DUAL - AUTOLAND; one AP: CAT 1, it lets go at SINGLE_MIN over the ground). Off: the sidestick's
  * red button (instinctive: the «cavalry charge» once, the red «АВТОПИЛОТ ОТКЛ» until pressed again or WARN_TICKS), the
@@ -327,7 +329,7 @@ public final class LinerAfs {
                 apOff(false);                                       // the FCU's button: not instinctive - the aural repeats
                 return true;
             }
-            if (a == null || !apAvailable(L, a)) {
+            if (a == null || !apAvailable(L, a, one ? 1 : 2)) {
                 return true;
             }
             boolean both = approachArmedOrOn();
@@ -483,13 +485,24 @@ public final class LinerAfs {
 
     /** An AP may engage: INS aligned, NORMAL / ALTN law, AC, an ADR and an IR, in the air. */
     public boolean apAvailable(LinerSystems L, Air a) {
-        return a.insReady && L.fctl.law != LinerFctl.DIRECT && L.acPowered() && L.adrCount() > 0 && L.irCount() > 0 && !a.ground
-                && (a.ra >= AP_MIN_H || airTicks >= AP_MIN_TICKS);
+        return apAvailable(L, a, 1);
+    }
+
+    /** Wave 7: AP `which` (1 / 2) may engage - the above and its side's ADIRS (LinerAdirs.apOk). */
+    public boolean apAvailable(LinerSystems L, Air a, int which) {
+        return a.insReady && L.fctl.law < LinerFctl.DIRECT && L.acPowered() && L.adrCount() > 0 && L.irCount() > 0 && !a.ground
+                && (a.ra >= AP_MIN_H || airTicks >= AP_MIN_TICKS) && adirsOk(L, which);
+    }
+
+    /** Wave 7: AP `which`'s side of the ADIRS (two IRs / ADRs in agreement, its own side's data through the pedestal's selectors). */
+    static boolean adirsOk(LinerSystems L, int which) {
+        return L.adirs.apOk(which, L.at(LinerControls.ATT_HDG), L.at(LinerControls.AIR_DATA));
     }
 
     /** An AP's failure (it drops off with the aural) - the conditions that keep one engaged (the height once flying is no matter). */
     boolean apFault(LinerSystems L, Air a) {
-        return !a.insReady || L.fctl.law == LinerFctl.DIRECT || !L.acPowered() || L.adrCount() == 0 || L.irCount() == 0;
+        return !a.insReady || L.fctl.law >= LinerFctl.DIRECT || !L.acPowered() || L.adrCount() == 0 || L.irCount() == 0
+                || ap1 && !adirsOk(L, 1) || ap2 && !adirsOk(L, 2);
     }
 
     /** Engaging an AP (or the FD in the air) without modes: HDG (the heading flown) and V/S (the rate flown) - or ALT when level. */
@@ -841,7 +854,7 @@ public final class LinerAfs {
         } else {
             cavPhase = 0;
         }
-        msg = L.fctl.law == LinerFctl.DIRECT && !a.ground ? MSG_TRIM : gaFlapsTicks > 0 ? MSG_GA_FLAPS : a.fmsMsg;
+        msg = L.fctl.manualTrim() && !a.ground ? MSG_TRIM : gaFlapsTicks > 0 ? MSG_GA_FLAPS : a.fmsMsg;
         if (gaFlapsTicks > 0 && L.fctl.flapSetting() <= 2) {
             gaFlapsTicks = 0;
         }
@@ -1064,7 +1077,12 @@ public final class LinerAfs {
 
     /** The A/THR may work: AC, an ADR, the engines running. */
     static boolean athrAvail(LinerSystems L) {
-        return L.acPowered() && L.adrCount() > 0 && L.anyRunning();
+        return L.acPowered() && L.adrCount() > 0 && L.anyRunning() && L.adirs.athrOk() && !toBlocked(L);   // wave 7: the ADIRS, the doors
+    }
+
+    /** Wave 7: the take-off blocked on the ground by the configuration (a door open, the chocks in): no A/THR, a CONFIG warning. */
+    static boolean toBlocked(LinerSystems L) {
+        return L.onGround && (L.doorsOpen() != 0 || L.chocks);
     }
 
     private void athrTick(LinerSystems L, Air a) {
@@ -1074,7 +1092,8 @@ public final class LinerAfs {
             athrOff(false);
         }
         // alpha floor (NORMAL law, an ADR, in the air over AFLOOR_MIN_H, not on the landing's last part)
-        boolean prot = L.fctl.law == LinerFctl.NORMAL && L.adrCount() >= 1 && !a.ground && a.ra >= AFLOOR_MIN_H && L.anyRunning() && !landing;
+        boolean prot = L.fctl.law == LinerFctl.NORMAL && L.adrCount() >= 1 && L.adirs.protOk() && !a.ground && a.ra >= AFLOOR_MIN_H && L.anyRunning()
+                && !landing;
         if (prot && a.speed < aFloorV) {
             if (!aFloor) {
                 boxThr = 0;

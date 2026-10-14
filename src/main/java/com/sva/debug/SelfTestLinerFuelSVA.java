@@ -650,7 +650,7 @@ final class SelfTestLinerFuelSVA {
         String old = s.substring(0, s.lastIndexOf('|'));
         LinerSystems O = new LinerSystems();
         O.unpack(old);
-        check(same && saved && O.tankL == C.tankL && s.length() < 720, "liner ECAM / FUEL sync: the messages, the cleared ones, the phase, the"
+        check(same && saved && O.tankL == C.tankL && s.length() < SelfTestLinerW7SVA.SYNC_LIMIT, "liner ECAM / FUEL sync: the messages, the cleared ones, the phase, the"
                 + " pumps, the cells, FU, the lamps round-trip (" + s.length() + " chars); saved: the cells, FU, the transfer; a wave-2 string reads");
     }
 

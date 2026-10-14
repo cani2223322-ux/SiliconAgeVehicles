@@ -160,7 +160,11 @@ public final class LinerDisplaysSVA {
         int rangeI = L.at(captain ? LinerControls.ND_RANGE_L : LinerControls.ND_RANGE_R);
         float range = Integer.parseInt(LinerControls.ND_RANGES[rangeI]) * 10F;            // blocks to the outer ring
         boolean plan = mode == 4;
-        if (mode == 0 && v.insReady()) {
+        // wave 7: this side's IR (its heading) and a НАВ IR somewhere (the position: the FMS mixes it with GPS)
+        com.sva.vehicle.LinerAdirs A = L.adirs;
+        int side = captain ? 0 : 1, attSw = L.at(LinerControls.ATT_HDG);
+        boolean hdgOk = A.sideHdg(side, attSw), map = hdgOk && A.navCount() > 0;
+        if (mode == 0 && hdgOk) {
             // wave 4: ROSE ILS - the course pointer and the deviations (LinerPfdSVA)
             LinerPfdSVA.roseIls(LinerPfdSVA.fromEntity(v, L, pt, captain), L, w, h, range);
             return;
@@ -170,17 +174,19 @@ public final class LinerDisplaysSVA {
         LinerGfxSVA.text(String.valueOf(Math.round(spd)), 22 * s, 10 * s, 9 * s, GRN, -1);
         LinerGfxSVA.text("TAS", 52 * s, 10 * s, 8 * s, WHT, -1);
         LinerGfxSVA.text(String.valueOf(Math.round(spd)), 72 * s, 10 * s, 9 * s, GRN, -1);
-        if (!v.insReady()) {
-            flag(tr("flag.hdg"), w / 2, 50 * s, 11 * s);
-            LinerGfxSVA.text(tr("noMap"), w / 2, h / 2, 12 * s, RED, 0);
-            String sub = GlassCockpitSVA.insSub(v);
-            if (sub != null) {
-                LinerGfxSVA.text(sub, w / 2, h / 2 + 18 * s, 8 * s, WHT, 0);
+        if (!map) {
+            if (!hdgOk) {
+                flag(tr("flag.hdg"), w / 2, 50 * s, 11 * s);
             }
-            LinerGfxSVA.text("GPS PRIMARY", w / 2, 270 * s, 8 * s, WHT, 0);
+            LinerGfxSVA.text(tr("noMap"), w / 2, h / 2, 12 * s, RED, 0);
+            if (A.secondsLeft > 0) {
+                LinerGfxSVA.text(tr("insAlign", Integer.valueOf(A.secondsLeft)), w / 2, h / 2 + 18 * s, 8 * s, WHT, 0);
+                LinerGfxSVA.text(tr("insStill"), w / 2, h / 2 + 30 * s, 7 * s, GREY, 0);
+            }
+            LinerGfxSVA.text(A.gps ? "GPS PRIMARY" : "IRS ONLY", w / 2, 270 * s, 8 * s, WHT, 0);
             return;
         }
-        float hdg = heading(v, pt);
+        float hdg = (float) ((heading(v, pt) + A.hdgOff(com.sva.vehicle.LinerAdirs.source(side, attSw))) % 360 + 360) % 360;
         float cx = w / 2, cy = plan ? h / 2 : 240 * s, R = plan ? 110 * s : 200 * s;
         float rot = plan ? 0 : hdg;                                  // ARC: track up; PLAN: north up
         // the compass arc / rose
@@ -286,7 +292,7 @@ public final class LinerDisplaysSVA {
         LinerGfxSVA.rect(90 * s, 262 * s, 190 * s, 276 * s, 0x000000);
         LinerGfxSVA.layer();
         LinerGfxSVA.frameRect(90 * s, 262 * s, 190 * s, 276 * s, 1F * s, WHT);
-        LinerGfxSVA.text("GPS PRIMARY", w / 2, 269 * s, 8 * s, WHT, 0);
+        LinerGfxSVA.text(A.gps ? "GPS PRIMARY" : "IRS ONLY", w / 2, 269 * s, 8 * s, WHT, 0);
         LinerGfxSVA.text(Lang.tr("sva.liner.pos." + LinerControls.ND_MODES[mode]), 6 * s, 269 * s, 7 * s, GRN, -1);
         LinerGfxSVA.text(tr("range", Integer.valueOf(Math.round(range))), 274 * s, 269 * s, 7 * s, CYN, 1);
     }
@@ -637,10 +643,18 @@ public final class LinerDisplaysSVA {
 
     // ---------------------------------------------------------------- ISIS
 
+    /**
+     * ISIS (wave 7: the standby - its own probe / static port and the battery bus, independent of the three ADIRUs: it reads
+     * with all of them lost).
+     */
     static void isis(EntityVehicleSVA v, float w, float h, float pt) {
+        isis(v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt, v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt, kmh(v), alt(v, pt),
+                heading(v, pt), w, h);
+    }
+
+    /** ISIS from its own sensors' values (the preview draws the same). */
+    static void isis(float pitch, float roll, float kmh, float alt, float hdg, float w, float h) {
         float s = w / 98F;
-        float pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
-        float roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
         float cx = 49 * s, cy = 50 * s, per = 1.4F * s;
         double a = Math.toRadians(roll);
         float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
@@ -654,8 +668,8 @@ public final class LinerDisplaysSVA {
         LinerGfxSVA.rect(1 * s, 40 * s, 21 * s, 60 * s, 0x000000);
         LinerGfxSVA.rect(77 * s, 40 * s, 97 * s, 60 * s, 0x000000);
         LinerGfxSVA.layer();
-        LinerGfxSVA.text(String.valueOf(Math.round(kmh(v))), 11 * s, 50 * s, 8 * s, WHT, 0, 19 * s);
-        LinerGfxSVA.text(String.valueOf(Math.round(alt(v, pt))), 87 * s, 50 * s, 8 * s, WHT, 0, 19 * s);
-        LinerGfxSVA.text(String.valueOf(Math.round(heading(v, pt)) % 360), cx, 94 * s, 7 * s, WHT, 0);
+        LinerGfxSVA.text(String.valueOf(Math.round(kmh)), 11 * s, 50 * s, 8 * s, WHT, 0, 19 * s);
+        LinerGfxSVA.text(String.valueOf(Math.round(alt)), 87 * s, 50 * s, 8 * s, WHT, 0, 19 * s);
+        LinerGfxSVA.text(String.valueOf(Math.round(hdg) % 360), cx, 94 * s, 7 * s, WHT, 0);
     }
 }

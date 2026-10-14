@@ -471,9 +471,10 @@ final class SelfTestLinerW6SVA {
     // ---------------------------------------------------------------- ECAM, sync, save, lang
 
     private static void ecam() {
-        boolean table = LinerEcam.N == 64 && LinerEcam.KEYS[LinerEcam.M_CAB_ALT] != null && LinerEcam.LEVEL[LinerEcam.M_IAS] == LinerEcam.CAUT
-                && LinerEcam.ACT_KEYS.length == LinerEcam.ACTS && LinerEcam.INOP_KEYS.length == 17 && LinerEcam.LIM_KEYS.length == 8
-                && LinerSystems.MEMO_KEYS.length == 31 && (LinerSystems.M_ENG_AI & LinerSystems.MEMO_AMBER) == 0;
+        // (wave 7 widened the table past 64 and added STATUS / memo entries: "at least" now)
+        boolean table = LinerEcam.N >= 64 && LinerEcam.KEYS[LinerEcam.M_CAB_ALT] != null && LinerEcam.LEVEL[LinerEcam.M_IAS] == LinerEcam.CAUT
+                && LinerEcam.ACT_KEYS.length == LinerEcam.ACTS && LinerEcam.INOP_KEYS.length >= 17 && LinerEcam.LIM_KEYS.length >= 8
+                && LinerSystems.MEMO_KEYS.length >= 31 && (LinerSystems.M_ENG_AI & LinerSystems.MEMO_AMBER) == 0;
         // the ice caution's action lines tick off as the anti-ice comes on
         LinerSystems L = cold();
         LinerSystems.Env e = running(L);
@@ -510,9 +511,10 @@ final class SelfTestLinerW6SVA {
         boolean same = C.pack().equals(s) && C.lights.ext == L.lights.ext && (C.lights.ext & LinerLights.X_LAND_R) != 0 && C.lights.readingOn(7)
                 && C.lights.landR == 1 && C.ice.wingOn && SelfTestLinerSVA.near(C.ice.eng[0], 0.4) && C.ice.frozenKmh[2] == 280 && C.loadHeat == L.loadHeat
                 && C.at(LinerControls.TEMP_CAB) == 5 && SelfTestLinerSVA.near(C.ice.oatNow, -6);
-        // an older string (no sixth part) leaves the wave-6 words alone
+        // an older string (no sixth part) leaves the wave-6 words alone (wave 7 appended a seventh part: both cut)
         LinerSystems O = new LinerSystems();
-        O.unpack(s.substring(0, s.lastIndexOf('|')));
+        String o6 = s.substring(0, s.lastIndexOf('|'));
+        O.unpack(o6.substring(0, o6.lastIndexOf('|')));
         boolean old = O.lights.ext == 0 && O.ice.wing == 0;
         System.out.println("[SVA-TEST] liner w6 sync string: " + s.length() + " chars");
         check(same && old, "liner sync wave 6: the lights (every client sees them), the reading lights, the landing lights' travel, the ice, the"

@@ -58,7 +58,7 @@ public final class LinerModelSVA {
     static final float ATTITUDE_Y = 2.1F;
     /** Groups left out in the own view (the interior is the inside) and the stairs while stowed. */
     private static final java.util.Set<String> SHELL = new java.util.HashSet<String>(java.util.Arrays.asList("airframe", "details", "doorL1",
-            "stairs", "nlgwell", "mlgwell_L", "mlgwell_R"));
+            "stairs", "nlgwell", "mlgwell_L", "mlgwell_R", "doorR1", "cargoF", "cargoA"));
 
     /** One group's lists. */
     private static final class GL {
@@ -363,6 +363,9 @@ public final class LinerModelSVA {
             if (lists != null) {
                 pose = pose(v, pt);
                 exterior(v, lists, pose, ownView, pt);
+                if (!ownView) {
+                    ground(v, v.liner());                           // wave 7: the chocks, the tow bar
+                }
             }
             // wave 6: the exterior lights' beams and halos (LOD-independent: the strobes / beacons seen from afar)
             LinerLightsSVA.render(v, v.liner(), pose, ownView, pt);
@@ -379,6 +382,77 @@ public final class LinerModelSVA {
         }
         // wave 6: the light pools on the ground (a world-aligned frame)
         LinerLightsSVA.pools(v, v.liner(), lists != null ? lastPose : null, x, y, z, pt);
+    }
+
+    /**
+     * Wave 7: the wheel chocks (yellow wedges fore and aft of each main gear) and the tow bar (the nose gear to the tug's
+     * hitch), in the model's frame - plain coloured geometry.
+     */
+    static void ground(EntityVehicleSVA v, LinerSystems L) {
+        if (L == null || !L.chocks && !L.towed) {
+            return;
+        }
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        if (L.chocks) {
+            GL11.glColor3f(0.95F, 0.78F, 0.1F);
+            for (double z : new double[] {-1.95, 1.95}) {
+                for (double x : new double[] {-0.55 - 0.42, -0.55 + 0.42}) {
+                    box((float) x - 0.09F, 0F, (float) z - 0.3F, (float) x + 0.09F, 0.16F, (float) z + 0.3F);
+                }
+            }
+        }
+        if (L.towed) {
+            net.minecraft.entity.Entity t = v.worldObj.getEntityByID(L.tugId);
+            if (t instanceof EntityVehicleSVA) {
+                EntityVehicleSVA tug = (EntityVehicleSVA) t;
+                double[] h = tug.toWorld(L.tugSign * (tug.getVehicleType().halfLength + 0.3), 0);
+                double dx = tug.posX + h[0] - v.posX, dz = tug.posZ + h[1] - v.posZ;
+                double r = Math.toRadians(v.rotationYaw), s = Math.sin(r), c = Math.cos(r);
+                float fx = (float) (-s * dx + c * dz), fz = (float) (-c * dx - s * dz);
+                GL11.glDisable(GL11.GL_LIGHTING);
+                GL11.glColor3f(0.85F, 0.85F, 0.2F);
+                GL11.glLineWidth(5F);
+                GL11.glBegin(GL11.GL_LINES);
+                GL11.glVertex3f(6.55F, 0.3F, 0F);
+                GL11.glVertex3f(fx, 0.4F, fz);
+                GL11.glEnd();
+                GL11.glLineWidth(1F);
+                GL11.glEnable(GL11.GL_LIGHTING);
+            }
+        }
+        GL11.glColor3f(1F, 1F, 1F);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+    }
+
+    /** An axis-aligned box (model frame) with its face normals. */
+    static void box(float x0, float y0, float z0, float x1, float y1, float z1) {
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glNormal3f(0, 1, 0);
+        GL11.glVertex3f(x0, y1, z0);
+        GL11.glVertex3f(x0, y1, z1);
+        GL11.glVertex3f(x1, y1, z1);
+        GL11.glVertex3f(x1, y1, z0);
+        GL11.glNormal3f(1, 0, 0);
+        GL11.glVertex3f(x1, y0, z0);
+        GL11.glVertex3f(x1, y1, z0);
+        GL11.glVertex3f(x1, y1, z1);
+        GL11.glVertex3f(x1, y0, z1);
+        GL11.glNormal3f(-1, 0, 0);
+        GL11.glVertex3f(x0, y0, z0);
+        GL11.glVertex3f(x0, y0, z1);
+        GL11.glVertex3f(x0, y1, z1);
+        GL11.glVertex3f(x0, y1, z0);
+        GL11.glNormal3f(0, 0, 1);
+        GL11.glVertex3f(x0, y0, z1);
+        GL11.glVertex3f(x1, y0, z1);
+        GL11.glVertex3f(x1, y1, z1);
+        GL11.glVertex3f(x0, y1, z1);
+        GL11.glNormal3f(0, 0, -1);
+        GL11.glVertex3f(x0, y0, z0);
+        GL11.glVertex3f(x0, y1, z0);
+        GL11.glVertex3f(x1, y1, z0);
+        GL11.glVertex3f(x1, y0, z0);
+        GL11.glEnd();
     }
 
     /** Wave 6: the last pose drawn (the pools' landing light housings). */
@@ -428,7 +502,9 @@ public final class LinerModelSVA {
         double rolled = animate ? an.prevRoll + (an.roll - an.prevRoll) * pt : 0;
         float wm = AnimMath.wheelAngle(rolled, 0.30F), wn = AnimMath.wheelAngle(rolled, 0.20F);
         p.set("mlgwheels_R", wm, 0).set("mlgwheels_L", wm, 0).set("nlgwheels", wn, 0);
-        if (L != null && L.gear.nws) {
+        if (L != null && L.towed) {
+            p.set("nlgsteer", -(float) L.towSteer, 0);              // wave 7: the nose wheel turned by the tow bar
+        } else if (L != null && L.gear.nws) {
             // wave 2: the nose wheel by the tiller (slow) / the pedals (fast) on Yellow; without it it castors
             double mx = v.posX - v.prevPosX, mz = v.posZ - v.prevPosZ;
             p.set("nlgsteer", -(float) L.gear.steerAngle(an.ctlYaw, Math.sqrt(mx * mx + mz * mz)), 0);
@@ -442,6 +518,10 @@ public final class LinerModelSVA {
         p.set("reverser_R", 0, LinerAnim.REV_TRAVEL * LinerAnim.lerp(la.prevRevR, la.revR, pt));
         float door = LinerAnim.lerp(la.prevDoor, la.door, pt), st = LinerAnim.lerp(la.prevStairs, la.stairs, pt);
         p.set("doorL1", LinerAnim.DOOR_DEG * door, 0).set("stairs", (1F - st) * 90F, 0);
+        // wave 7: R1 (as L1, the other way) and the cargo doors (up and out)
+        p.set("doorR1", LinerAnim.DOOR_DEG * LinerAnim.lerp(la.prevDoorR1, la.doorR1, pt), 0);
+        p.set("cargoF", LinerAnim.CARGO_DEG * LinerAnim.lerp(la.prevCargoF, la.cargoF, pt), 0);
+        p.set("cargoA", LinerAnim.CARGO_DEG * LinerAnim.lerp(la.prevCargoA, la.cargoA, pt), 0);
         if (L != null) {
             p.set("apu_inlet", (float) (LinerAnim.APU_FLAP_DEG * L.apuFlap), 0);
             // wave 6: the housings swing out / in at the synced travel (LinerLights: ~3 s, on AC)

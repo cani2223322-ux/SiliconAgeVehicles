@@ -291,6 +291,14 @@ public final class LinerClickSVA {
         if (c == LinerControls.TL1 || c == LinerControls.TL2) {
             return new String[] {name + ": " + leverWord(L), Lang.tr("sva.liner.gui.hint.lever")};
         }
+        if (c == LinerControls.TRIM_L || c == LinerControls.TRIM_R) {
+            // wave 7: the trim wheels work in DIRECT / MECH (the auto-trim otherwise)
+            String t = L.fctl.manualTrim() ? Lang.tr("sva.liner.gui.trimMan", LinerGfxSVA.num(L.fctl.manTrim, 1)) : Lang.tr("sva.liner.gui.trimAuto");
+            return new String[] {name + ": " + t, Lang.tr("sva.liner.gui.hint.trim")};
+        }
+        if (c == LinerControls.AI_PROBE && L.at(c) == 0) {
+            return new String[] {name + ": " + Lang.tr("sva.liner.pos.auto"), Lang.tr("sva.liner.gui.hint.pb")};   // wave 7: out = АВТО
+        }
         String hint = c.guard && !L.guard[c.index] ? Lang.tr("sva.liner.gui.guard") : c.kind == LinerControls.INFO ? "" : c.kind == LinerControls.KNOB
                 ? Lang.tr("sva.liner.gui.hint.knob") : Lang.tr(
                 c.kind == LinerControls.PB || c.kind == LinerControls.PBM ? "sva.liner.gui.hint.pb" : c.kind == LinerControls.TOG
@@ -304,8 +312,8 @@ public final class LinerClickSVA {
             Minecraft.getMinecraft().displayGuiScreen(new GuiMcduSVA(v, c == LinerControls.MCDU1 ? 0 : 1));
             return;
         }
-        if (c.kind == LinerControls.INFO && c != LinerControls.TL1 && c != LinerControls.TL2) {
-            return;                                                 // wave 4: the thrust levers click through their detents
+        if (c.kind == LinerControls.INFO && c != LinerControls.TL1 && c != LinerControls.TL2 && c != LinerControls.TRIM_L && c != LinerControls.TRIM_R) {
+            return;                                                 // wave 4: the thrust levers click through their detents; wave 7: the trim wheels
         }
         NetSVA.CHANNEL.sendToServer(new NetSVA.LinerControl(v.getEntityId(), c.index, action));
         Minecraft.getMinecraft().getSoundHandler().playSound(net.minecraft.client.audio.PositionedSoundRecord.func_147674_a(
@@ -317,7 +325,8 @@ public final class LinerClickSVA {
         if (c.kind == LinerControls.KNOB) {
             return w > 0 ? (shift ? LinerControls.A_FINE_UP : LinerControls.A_WHEEL_UP) : shift ? LinerControls.A_FINE_DOWN : LinerControls.A_WHEEL_DOWN;
         }
-        if (c.kind == LinerControls.ROT || c.kind == LinerControls.LEV || c.kind == LinerControls.TOG || c == LinerControls.TL1 || c == LinerControls.TL2) {
+        if (c.kind == LinerControls.ROT || c.kind == LinerControls.LEV || c.kind == LinerControls.TOG || c == LinerControls.TL1 || c == LinerControls.TL2
+                || c == LinerControls.TRIM_L || c == LinerControls.TRIM_R) {
             return w > 0 ? LinerControls.A_WHEEL_UP : LinerControls.A_WHEEL_DOWN;
         }
         return -1;

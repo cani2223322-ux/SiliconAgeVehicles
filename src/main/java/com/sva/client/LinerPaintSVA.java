@@ -134,6 +134,8 @@ public final class LinerPaintSVA {
         final double k, x0, y0, gk, gx0, gy0, wu, hu;
         final Color lab = LINE;
         Color base = PANEL;
+        /** Wave 7 (the «Пульты» screen's own bake): the least text height in image px (0: none - the atlas). */
+        double minPx;
 
         P(BufferedImage day, BufferedImage glow, double ux, double uy, double wu, double hu, double k, Color bg, long seed, double matte) {
             this.k = k;
@@ -307,9 +309,10 @@ public final class LinerPaintSVA {
             if (t == null || t.length() == 0) {
                 return;
             }
-            draw(g, x0, y0, k, x, y, t, size, col, anchor, kind);
+            double sz = minPx > 0 ? Math.max(size, minPx / k) : size;      // wave 7: never under the screen's floor
+            draw(g, x0, y0, k, x, y, t, sz, col, anchor, kind);
             if (glow != null && gl != null) {
-                draw(gl, gx0, gy0, gk, x, y, t, size, glow, anchor, kind);
+                draw(gl, gx0, gy0, gk, x, y, t, sz, glow, anchor, kind);
             }
         }
 
@@ -675,10 +678,19 @@ public final class LinerPaintSVA {
         p.pb(330, 1015, "ВСУ", "ОТКАЗ", O, "ВКЛ", BLU);
         p.pb(550, 1015, "ДВ 2", "ОТКАЗ", O, "ВЫКЛ", WHT);
         p.window(220, 1050, null, 64, 18, GRN, 12, 'm');
+        // wave 6's zone temperature selectors, painted in wave 7 (the bar is drawn at run time; the °C under them)
+        for (double tx : new double[] {220, 440}) {
+            p.ell(tx, 960, 16, rgb(28, 29, 31), rgb(62, 64, 68), 1.2, 0, null);
+            p.label(tx - 26, 946, "ХОЛ", 8, "rm");
+            p.label(tx + 26, 946, "ТЕПЛ", 8, "lm");
+        }
+        p.label(220, 937, "T КАБИНА", 9);
+        p.label(440, 937, "T САЛОН", 9);
         // ANTI ICE
         p.group(680, 800, 940, 1060, "ПОС");
         p.pb(745, 880, "КРЫЛО", "ОТКАЗ", O, "ВКЛ", BLU);
         p.pb(875, 880, "ПВД /\nСТЁКЛА", null, null, "ВКЛ", BLU);
+        p.label(875, 922, "АВТО / ВКЛ", 9.5);                      // wave 7: out = automatic (with the engines / in flight)
         p.pb(745, 1005, "ДВ 1", "ОТКАЗ", O, "ВКЛ", BLU);
         p.pb(875, 1005, "ДВ 2", "ОТКАЗ", O, "ВКЛ", BLU);
         // APU
@@ -838,6 +850,17 @@ public final class LinerPaintSVA {
         p.label(1262, 350, "УБР", 9, "lm");
         p.label(1262, 580, "ВЫП", 9, "lm");
         p.label(1000, 610, "ECAM", 10);
+        // wave 7: the doors from the cockpit (L1, R1, the cargo doors - amber ОТКР when open) and the cabin call, in the F/O's
+        // knee recess
+        p.module(1420, 376, 1930, 510);
+        p.group(1436, 392, 1914, 500, "ДВЕРИ / САЛОН", 12);
+        String[] dn = {"L1", "R1", "ГРУЗ П", "ГРУЗ З"};
+        for (int i = 0; i < 4; i++) {
+            p.pb(1470 + i * 100, 450, null, "ОТКР", AMB, null, null, 48, false, 12, 0);
+            p.label(1470 + i * 100, 488, dn[i], 9.5);
+        }
+        p.pb(1880, 450, null, null, null, "ВЫЗОВ", WHT, 48, false, 12, 0);
+        p.label(1880, 488, "ПАСС.", 9.5);
     }
 
     // ---------------------------------------------------------------- PEDESTAL (760 x 1660)
@@ -995,9 +1018,9 @@ public final class LinerPaintSVA {
         p.ell(140, 1255, 30, rgb(30, 31, 34), rgb(70, 72, 76), 1.5, 0, null);
         String[] sw = {"ИНС КВС", "ВОЗД. ДАННЫЕ"};
         for (int i = 0; i < 2; i++) {
+            // wave 7: live selectors now (LinerControls.ATT_HDG / AIR_DATA: the bar is drawn at run time)
             p.rotary(380 + i * 120, 1262, new String[] {"КВС НА 3", "НОРМ", "2П НА 3"}, null, 14, 100, 8.5);
             p.label(380 + i * 120, 1290, sw[i], 9);
-            drawBar(p, 380 + i * 120, 1262, 14, 0);
         }
         p.window(660, 1255, "Н 0.0", 80, 22, AMB, 14, 'm');
         p.label(660, 1228, "ТРИММ РН", 10);
@@ -1069,6 +1092,10 @@ public final class LinerPaintSVA {
         }
         double xp = right ? 390 : 110, xt = right ? 200 : 300;
         p.pb(xp, 222, "PFD/ND", null, null, "СМЕНА", WHT, 42, false, 11, 8.5);
+        // wave 6's flood light knob, painted in wave 7 (its pointer is drawn at run time)
+        double xf = right ? 80 : 420;
+        p.knob(xf, 225, 20, 0, true, rgb(34, 35, 38), false);
+        p.label(xf, 260, "ЗАЛИВ. СВЕТ", 9);
         p.toggle(xt, 225, new String[] {"ЯРКО", "ТУСКЛ", "ВЫКЛ"}, null, false, 10, !right, 1);
         p.label(xt, 182, "ПОДСВ. ПУЛЬТА / ПОЛА", 10.5);
         double xtil = right ? 360 : 140, xs = right ? 130 : 370;
@@ -1285,6 +1312,32 @@ public final class LinerPaintSVA {
         }
     }
 
+    /**
+     * Wave 7: one panel (LinerControls.OVH / PED / GS / MP) for the «Пульты» screen at exactly k image px a panel unit (the
+     * screen's device scale: a texel is a pixel - sharp at any resolution / GUI scale), its text never under minPx px.
+     */
+    public static BufferedImage bakePanel(int panel, double k, double minPx) {
+        int w = com.sva.vehicle.PanelViewMath.texSize(LinerControls.PANEL_W[panel], k), h = com.sva.vehicle.PanelViewMath.texSize(LinerControls.PANEL_H[panel], k);
+        BufferedImage day = new BufferedImage(Math.max(1, w), Math.max(1, h), BufferedImage.TYPE_INT_RGB);
+        Color bg = panel == LinerControls.GS ? rgb(64, 76, 88) : panel == LinerControls.PED ? rgb(80, 95, 108) : PANEL;
+        long seed = panel == LinerControls.GS ? 5 : panel == LinerControls.PED ? 7 : panel == LinerControls.MP ? 3 : 11;
+        P p = new P(day, null, 0, 0, LinerControls.PANEL_W[panel], LinerControls.PANEL_H[panel], k, bg, seed, 0.04);
+        p.minPx = minPx;
+        if (panel == LinerControls.OVH) {
+            overhead(p);
+        } else if (panel == LinerControls.GS) {
+            glareshield(p);
+        } else if (panel == LinerControls.MP) {
+            mainPanel(p);
+        } else if (panel == LinerControls.PED) {
+            pedestal(p);
+        } else {
+            sideConsole(p, panel == LinerControls.SCR);
+        }
+        p.dispose();
+        return day;
+    }
+
     /** Paints the cockpit / cabin atlas at `size` px (LinerTexMath.size: 512 .. 4096). */
     public static Baked bake(int size) {
         BufferedImage day = new BufferedImage(size, size, BufferedImage.TYPE_INT_RGB);
@@ -1405,7 +1458,9 @@ public final class LinerPaintSVA {
     public static final double FX0 = -9.3, FX1 = 9.3;
     public static final int FUS_W = (int) ((FX1 - FX0) * LIV_PX), FUS_H = 304;
     /** Livery regions {x, y}: fuselage right / left (with the L1 doorway) / left without it (the door's own skin), fin right / left. */
-    public static final int[] R_FUS_R = {0, 0}, R_FUS_L = {0, 308}, R_DOOR = {0, 616}, R_FIN_R = {1496, 0}, R_FIN_L = {1496, 268};
+    public static final int[] R_FUS_R = {0, 0}, R_FUS_L = {0, 308}, R_DOOR = {0, 616}, R_FIN_R = {1496, 0}, R_FIN_L = {1496, 268},
+            /** Wave 7: the R1 / cargo doors' panels (three 64 px columns of the right fuselage, x from 4.95 / 3.40 / -3.00). */
+            R_DOORS = {1840, 0};
     public static final double FIN_X0 = -8.2, FIN_X1 = -4.0, FIN_Y0 = 2.6, FIN_Y1 = 5.9;
     public static final int FIN_W = (int) ((FIN_X1 - FIN_X0) * LIV_PX), FIN_H = (int) ((FIN_Y1 - FIN_Y0) * LIV_PX);
     /** The nacelle's colour strip (u along x -0.2..2.2), the white pylon / doors patch. */
@@ -1436,6 +1491,16 @@ public final class LinerPaintSVA {
         fuselage(g, R_FUS_R[0], R_FUS_R[1], 1, true, reg);
         fuselage(g, R_FUS_L[0], R_FUS_L[1], -1, true, reg);
         fuselage(g, R_DOOR[0], R_DOOR[1], -1, false, reg);
+        // wave 7: the right side's door panels - crops of the right fuselage without the openings, a column each (R_DOORS)
+        Fus fr = new Fus(1);
+        double[] x0 = {4.95, 3.40, -3.00};
+        for (int k = 0; k < 3; k++) {
+            int cx = R_DOORS[0] + k * 64;
+            Graphics2D gc = (Graphics2D) g.create();
+            gc.clipRect(cx, R_DOORS[1], 64, FUS_H);
+            fuselage(gc, cx - (int) Math.round(fr.u(x0[k])), R_DOORS[1], 1, false, reg);
+            gc.dispose();
+        }
         fin(g, R_FIN_R[0], R_FIN_R[1], 1, board);
         fin(g, R_FIN_L[0], R_FIN_L[1], -1, board);
         // the nacelle strip: white, a navy and an EV band behind the lip, the bare-metal anti-ice lip at the front
@@ -1532,6 +1597,12 @@ public final class LinerPaintSVA {
         if (side < 0 && doorway) {
             f.rrect(g, DOOR_X0 + 0.01, DOOR_X1 - 0.01, 42, 106, 11, rgb(40, 42, 48), null, 0);       // the open doorway
             f.rrect(g, DOOR_X0, DOOR_X1, 41, 107, 12, null, rgb(140, 146, 154), 3);
+        }
+        if (side > 0 && doorway) {
+            // wave 7: the right side's openings (dark) under the R1 / cargo door panels (their groups cover them shut)
+            f.rrect(g, DOOR_X0 + 0.01, DOOR_X1 - 0.01, 42, 106, 11, rgb(40, 42, 48), null, 0);
+            f.rrect(g, 3.46, 4.14, 113, 149, 7, rgb(36, 38, 42), null, 0);
+            f.rrect(g, -2.94, -2.26, 113, 149, 7, rgb(36, 38, 42), null, 0);
         }
         if (side > 0) {
             f.rrect(g, 3.45, 4.15, 112, 150, 8, null, rgb(150, 154, 162), 3);

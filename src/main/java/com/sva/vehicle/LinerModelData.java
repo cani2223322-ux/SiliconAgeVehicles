@@ -353,7 +353,7 @@ public final class LinerModelData {
 
     /** Livery kinds: the textured materials of the export. */
     public static boolean livery(String mat) {
-        return "fus".equals(mat) || "door".equals(mat) || "fin".equals(mat) || "nacelle".equals(mat) || "skin".equals(mat);
+        return "fus".equals(mat) || "door".equals(mat) || "doorR".equals(mat) || "fin".equals(mat) || "nacelle".equals(mat) || "skin".equals(mat);
     }
 
     public static boolean pattern(String mat) {
@@ -366,6 +366,17 @@ public final class LinerModelData {
      */
     public static void uv(String mat, float x, float y, float z, float cz, float[] out) {
         double W = 2048, H = 1024, PX = 80;
+        if ("doorR".equals(mat)) {
+            // wave 7: the right side's doors (R1, the cargo doors) - their crops of the right fuselage without the openings
+            // (LinerPaintSVA.R_DOORS: one column each, the strip's full theta height)
+            double th = Math.toDegrees(Math.atan2(Math.abs(z), y - fcy(x)));
+            int col = x > 4.6 ? 0 : x > 0 ? 1 : 2;
+            double[] x0 = {4.95, 3.40, -3.00};
+            double u = 1840 + col * 64 + Math.max(0, Math.min(63, (x - x0[col]) * PX));
+            out[0] = (float) (u / W);
+            out[1] = (float) ((Math.max(0, Math.min(180, th)) / 180.0 * 304) / H);
+            return;
+        }
         if ("fus".equals(mat) || "door".equals(mat)) {
             double th = Math.toDegrees(Math.atan2(Math.abs(z), y - fcy(x)));
             boolean right = cz >= 0 && !"door".equals(mat);

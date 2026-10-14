@@ -48,6 +48,14 @@ public final class LinerFlight {
             boolean protect = L.fctl.law == LinerFctl.NORMAL;
             double cap = PlaneMath.climbCapacity(p, speed) * FlightMath.ceilingFactor(b.y);
             double pitchStick = ap && !Double.isNaN(cmd.pitch) ? cmd.pitch : (k.up ? 1 : 0) - (k.down ? 1 : 0);
+            // wave 7: the laws' handling - MECH: the stick has no pitch (the trim wheel flies it); NORMAL: the alpha
+            // protection takes the up stick away between alpha-prot and alpha-max
+            double aProt = p.stall * LinerAfs.K_APROT, aMax = p.stall * LinerAfs.K_AMAX;
+            if (L.fctl.law == LinerFctl.MECH) {
+                pitchStick = 0;
+            } else if (protect) {
+                pitchStick = LinerFctl.alphaStick(pitchStick, speed, aProt, aMax);
+            }
             if (PlaneMath.stalled(p, speed) || !powered) {
                 vy = PlaneMath.airVy(p, speed, b.motionY, pitchStick > 0.5, pitchStick < -0.5, powered, b.y);
             } else {
@@ -55,6 +63,8 @@ public final class LinerFlight {
                 if (protect && speed > LinerAfs.VMO) {
                     target += (speed - LinerAfs.VMO) * LinerGuide.OVERSPEED_PITCH;   // the normal law's overspeed protection
                 }
+                // wave 7: ALTN's low-speed stability, DIRECT's / MECH's speed stability (no auto-trim: it pitches with the speed)
+                target += L.fctl.lawVy(speed, aProt, pitchStick);
                 vy = FlightMath.approach(b.motionY, target, PlaneMath.VACC);
                 if (pitchStick != 0) {
                     // wave 2: the elevators / THS that work give the stick its share (all lost - the trim wheel's)
@@ -86,6 +96,9 @@ public final class LinerFlight {
             speed -= g.decel(k.back && lever <= 0 && F.rev <= 0, speed, mu, L.on(LinerControls.PARK_BRK));
             speed -= g.diffDrag(steer);
             speed = Math.max(0, speed);
+            if (L.chocks) {
+                speed = 0;                                          // wave 7: the chocks hold it whatever the thrust
+            }
             vy = k.up && powered && speed >= p.liftOff ? p.rotateVy : -0.08;
             double steerCmd = steer;
             if (F.lat == LinerAfs.L_ROLLOUT && ap) {

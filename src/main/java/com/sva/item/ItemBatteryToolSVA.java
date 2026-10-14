@@ -27,9 +27,10 @@ import net.minecraft.util.IIcon;
  */
 public class ItemBatteryToolSVA extends Item {
 
-    public static final int ELECTROLYTE = 0, KIT = 1, CABLES = 2, HYD_FLUID = 3, KINDS = 4;
+    /** Liner wave 7: + «Колодки» (the wheel chocks: right-click a liner's main gear - LinerGroundSVA). */
+    public static final int ELECTROLYTE = 0, KIT = 1, CABLES = 2, HYD_FLUID = 3, CHOCKS = 4, KINDS = 5;
     /** Lang / icon keys (APPEND-ONLY with the metas). */
-    public static final String[] KEYS = {"electrolyte", "batteryKit", "jumpCables", "hydFluid"};
+    public static final String[] KEYS = {"electrolyte", "batteryKit", "jumpCables", "hydFluid", "chocks"};
     /** The cables' NBT: the donor vehicle's entity id and its vehicle id. */
     public static final String K_DONOR = "Donor", K_DONOR_ID = "DonorVeh";
 
@@ -83,6 +84,10 @@ public class ItemBatteryToolSVA extends Item {
                 }
                 TooltipSC.more(list, Lang.tr(key + ".details", Integer.valueOf((int) Math.round(BatteryMath.DONOR_MIN * 100)),
                         Integer.valueOf((int) BatteryMath.JUMP_RANGE)), Lang.tr("sva.tooltip.howto." + KEYS[k]));
+                break;
+            case CHOCKS:
+                list.add(Lang.tr(key));
+                TooltipSC.more(list, Lang.tr(key + ".details"), Lang.tr("sva.tooltip.howto." + KEYS[k]));
                 break;
             case HYD_FLUID:
                 list.add(Lang.tr(key));

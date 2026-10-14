@@ -773,7 +773,7 @@ final class SelfTestLinerHydSVA {
             C.clientTick(0.5F, 0, 0, 0, true, 0);
         }
         boolean mirror = Math.abs(C.fctl.angle[LinerFctl.AIL_L] - 12.5F) < 0.01F && C.fctl.on(LinerFctl.SPL_R + 2);
-        check(same && mirror && s.length() < 760,
+        check(same && mirror && s.length() < SelfTestLinerW7SVA.SYNC_LIMIT,                // wave 7: the bound raised (was 760)
                 "liner sync wave 2: the third part (" + s.length() + " chars in all) round-trips - pressures, flaps, brake temps, flat tyres, the"
                         + " autobrake, the steering, the SD page; a client's surfaces move from the mirror like the server's");
         NBTTagCompound t = new NBTTagCompound();
