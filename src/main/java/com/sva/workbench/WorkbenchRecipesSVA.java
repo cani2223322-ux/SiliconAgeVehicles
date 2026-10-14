@@ -400,5 +400,12 @@ public final class WorkbenchRecipesSVA {
                 "GCFCG", "WTHTW", "KPEPK", " XIX ", "R R R",
                 'G', gasTank, 'C', cabin, 'F', computer, 'W', wing, 'T', part(ComponentType.TURBO_ENGINE), 'H', part(ComponentType.HULL_III),
                 'K', coil, 'P', tiPlate, 'E', part(ComponentType.ENERGY_BLOCK_EV), 'X', tiCasing, 'I', ti, 'R', part(ComponentType.WHEEL));
+
+        // ---- liner wave 4 (appended: the list index is the sync id)
+        // «Курсо-глиссадный маяк» (HV): the localizer's antenna (iron bars) with redstone, two sensors (the beams), a compass
+        // either side of the controller (the course), steel casings and the HV energy cell below
+        block("ils", new ItemStack(ModContentSVA.ils), Tier.HV, "BRB", "MCM", "NEN",
+                'B', new ItemStack(Blocks.iron_bars), 'R', Items.redstone, 'M', new ItemStack(Items.compass), 'C', controller, 'N', sensor,
+                'E', cellHV);
     }
 }

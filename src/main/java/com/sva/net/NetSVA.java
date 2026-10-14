@@ -3,6 +3,7 @@ package com.sva.net;
 import com.sva.SVAMod;
 import com.sva.entity.EntityVehicleSVA;
 
+import cpw.mods.fml.common.network.ByteBufUtils;
 import cpw.mods.fml.common.network.NetworkRegistry;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
@@ -62,6 +63,80 @@ public final class NetSVA {
         CHANNEL.registerMessage(RouteSetHandler.class, RouteSet.class, 14, Side.SERVER);
         CHANNEL.registerMessage(RouteInfoHandler.class, RouteInfo.class, 15, Side.CLIENT);
         CHANNEL.registerMessage(LinerControlHandler.class, LinerControl.class, 16, Side.SERVER);
+        CHANNEL.registerMessage(IlsSetHandler.class, IlsSet.class, 17, Side.SERVER);
+    }
+
+    // ---------------------------------------------------------------- liner wave 4: the ILS beacon's screen
+
+    /**
+     * IlsSet (C->S): «Курсо-глиссадный маяк»'s screen saved - the block, the course (deg), the angle (tenths), the ident, the
+     * frequency (hundredths of MHz), the centre line's offset (blocks). The server checks the sender stands within 8 blocks
+     * and sanitises (TileEntityIlsSVA.set).
+     */
+    public static class IlsSet implements IMessage {
+        public int x, y, z, course, angle10, freq, offset;
+        public String ident = "";
+
+        public IlsSet() {
+        }
+
+        public IlsSet(int x, int y, int z, int course, int angle10, String ident, int freq, int offset) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.course = course;
+            this.angle10 = angle10;
+            this.ident = ident == null ? "" : ident;
+            this.freq = freq;
+            this.offset = offset;
+        }
+
+        @Override
+        public void fromBytes(ByteBuf buf) {
+            x = buf.readInt();
+            y = buf.readInt();
+            z = buf.readInt();
+            course = buf.readShort();
+            angle10 = buf.readShort();
+            freq = buf.readShort();
+            offset = buf.readShort();
+            ident = ByteBufUtils.readUTF8String(buf);
+            if (ident.length() > 8) {
+                ident = ident.substring(0, 8);
+            }
+        }
+
+        @Override
+        public void toBytes(ByteBuf buf) {
+            buf.writeInt(x);
+            buf.writeInt(y);
+            buf.writeInt(z);
+            buf.writeShort(course);
+            buf.writeShort(angle10);
+            buf.writeShort(freq);
+            buf.writeShort(offset);
+            ByteBufUtils.writeUTF8String(buf, ident.length() > 8 ? ident.substring(0, 8) : ident);
+        }
+    }
+
+    public static class IlsSetHandler implements IMessageHandler<IlsSet, IMessage> {
+        @Override
+        public IMessage onMessage(final IlsSet m, MessageContext ctx) {
+            final EntityPlayerMP p = ctx.getServerHandler().playerEntity;
+            ServerQueueSVA.INSTANCE.queue(p, new Runnable() {
+                @Override
+                public void run() {
+                    if (p.worldObj == null || p.getDistanceSq(m.x + 0.5, m.y + 0.5, m.z + 0.5) > 64) {
+                        return;
+                    }
+                    net.minecraft.tileentity.TileEntity te = p.worldObj.getTileEntity(m.x, m.y, m.z);
+                    if (te instanceof com.sva.block.TileEntityIlsSVA) {
+                        ((com.sva.block.TileEntityIlsSVA) te).set(m.course, m.angle10 / 10.0, m.ident, m.freq, m.offset);
+                    }
+                }
+            });
+            return null;
+        }
     }
 
     // ---------------------------------------------------------------- liner wave 1: a cockpit control clicked

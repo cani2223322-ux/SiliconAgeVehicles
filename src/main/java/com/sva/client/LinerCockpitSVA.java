@@ -509,6 +509,9 @@ public final class LinerCockpitSVA {
             brakeGauge(L);
             gearLights(L);
         }
+        if (panel == LinerControls.GS) {
+            fcuWindows(L);                                          // wave 4: the FCU
+        }
         if (panel == LinerControls.PED && pass != 0) {
             // wave 2: the gravity extension - the crank's turns, the red ШАССИ lamp while it falls / disagrees
             LinerControls.Ctl k = LinerControls.GEAR_GRAV;
@@ -586,10 +589,9 @@ public final class LinerCockpitSVA {
         // the pedestal's top: thrust levers, flaps, speed brake, ENG MASTERs, the parking brake
         panelFrame(LinerControls.PED, true, 0F);
         LinerGfxSVA.resetLayer();
-        double thr = v.getThrottle();
-        float ty = (float) (LinerPaintSVA.TL_IDLE - thr * (LinerPaintSVA.TL_IDLE - LinerPaintSVA.TL_TOGA));
+        float ty = leverY(L);
         for (float x : new float[] {330, 430}) {
-            box(x - 7, ty, x + 7, LinerPaintSVA.TL_IDLE + 40, 0.002F, 0.06F, 0x82868C);
+            box(x - 7, ty, x + 7, LinerPaintSVA.TL_MREV + 15, 0.002F, 0.06F, 0x82868C);
             box(x - 46, ty - 18, x + 46, ty + 18, 0.06F, 0.10F, 0x2E3034);
             box(x - 40, ty - 15, x + 40, ty - 6, 0.10F, 0.104F, 0x5A5C62);
         }
@@ -621,6 +623,91 @@ public final class LinerCockpitSVA {
         box(1206, gy - 16, 1252, gy + 16, 0.06F, 0.085F, 0xE2E4E6);
         GL11.glPopMatrix();
         sticks(v, pt);
+    }
+
+    /**
+     * Wave 4: the thrust levers' knob on the quadrant (pedestal units): the painted detents TOGA / FLX / CL / IDLE at the
+     * LinerAfs detents' thrust (linear between), the reverse from REV IDLE to REV MAX below idle.
+     */
+    static float leverY(LinerSystems L) {
+        com.sva.vehicle.LinerAfs F = L.afs;
+        if (F.rev > 0) {
+            double k = (F.rev - com.sva.vehicle.LinerAfs.REV_IDLE) / (1 - com.sva.vehicle.LinerAfs.REV_IDLE);
+            return (float) (LinerPaintSVA.TL_REV + Math.max(0, Math.min(1, k)) * (LinerPaintSVA.TL_MREV - LinerPaintSVA.TL_REV));
+        }
+        double[] d = com.sva.vehicle.LinerAfs.DETENTS;
+        float[] y = {LinerPaintSVA.TL_IDLE, LinerPaintSVA.TL_CL, LinerPaintSVA.TL_FLX, LinerPaintSVA.TL_TOGA};
+        double l = Math.max(0, Math.min(1, F.lever));
+        for (int i = 1; i < d.length; i++) {
+            if (l <= d[i]) {
+                double k = (l - d[i - 1]) / (d[i] - d[i - 1]);
+                return (float) (y[i - 1] + k * (y[i] - y[i - 1]));
+            }
+        }
+        return LinerPaintSVA.TL_TOGA;
+    }
+
+    /**
+     * Wave 4: the FCU's windows and lamps on the glare shield (panel units, LinerPaintSVA.fcu's layout): SPD / HDG / ALT /
+     * V/S (dashes and the white managed dot when managed), the AP 1 / AP 2 / A/THR / LOC / EXPED / APPR green bars, the
+     * EFIS baro windows (QNH / STD).
+     */
+    static void fcuWindows(LinerSystems L) {
+        com.sva.vehicle.LinerAfs F = L.afs;
+        int amb = 0xFFB030;
+        boolean spdWin = !F.spdMan || F.spdPrev > 0;
+        win(685, spdWin ? String.valueOf(F.spd) : "---", amb);
+        if (F.spdMan) {
+            LinerGfxSVA.disc(745, 52, 4.5F, L_WHT);
+        }
+        boolean hdgWin = !F.hdgMan || F.lat == com.sva.vehicle.LinerAfs.L_HDG || F.hdgPrev > 0;
+        win(845, hdgWin ? String.format("%03d", Integer.valueOf(F.hdg)) : "---", amb);
+        if (F.hdgMan && F.lat != com.sva.vehicle.LinerAfs.L_HDG) {
+            LinerGfxSVA.disc(905, 52, 4.5F, L_WHT);
+        }
+        win(1145, String.valueOf(F.alt), amb);
+        boolean altMan = F.ver == com.sva.vehicle.LinerAfs.V_CLB || F.ver == com.sva.vehicle.LinerAfs.V_DES
+                || (F.verArm & (com.sva.vehicle.LinerAfs.AV_CLB | com.sva.vehicle.LinerAfs.AV_DES)) != 0;
+        if (altMan) {
+            LinerGfxSVA.disc(1205, 52, 4.5F, L_WHT);
+        }
+        boolean vsWin = F.ver == com.sva.vehicle.LinerAfs.V_VS || F.vsPrev > 0;
+        String vs = F.trk ? LinerGfxSVA.num(F.fpa10 / 10.0, 1) : LinerGfxSVA.num(F.vs10 / 10.0, 1);
+        if (!vs.startsWith("-")) {
+            vs = "+" + vs;
+        }
+        win(1315, vsWin ? vs : "-----", amb);
+        // the TRK-FPA labels: «ПУ» / «УН» lit instead of «КУРС» / «В/С»
+        LinerGfxSVA.text(F.trk ? "TRK FPA" : "HDG V/S", 770, 140, 9, L_WHT, 0, 60);
+        // the buttons' green bars
+        bar(975, 49, F.ap1);
+        bar(1025, 49, F.ap2);
+        bar(1000, 117, F.athr || F.aFloor || F.togaLk);
+        boolean locOnly = (F.latArm & com.sva.vehicle.LinerAfs.AL_LOC) != 0 && (F.verArm & com.sva.vehicle.LinerAfs.AV_GS) == 0
+                || (F.lat == com.sva.vehicle.LinerAfs.L_LOC || F.lat == com.sva.vehicle.LinerAfs.L_LOC_CAP) && F.ver != com.sva.vehicle.LinerAfs.V_GS
+                && F.ver != com.sva.vehicle.LinerAfs.V_GS_CAP;
+        boolean appr = !locOnly && F.approachArmedOrOn();
+        bar(910, 161.5F, locOnly);
+        bar(1085, 161.5F, F.exped);
+        bar(1250, 161.5F, appr);
+        // the EFIS baro windows
+        for (float x : new float[] {190, 1550}) {
+            LinerGfxSVA.rect(x - 34, 34, x + 34, 58, 0x050607);
+            LinerGfxSVA.layer();
+            LinerGfxSVA.text(F.std ? "Std" : String.valueOf(F.qnh), x, 46, 20, amb, 0, 64);
+        }
+    }
+
+    private static void win(float cx, String t, int c) {
+        LinerGfxSVA.rect(cx - 50, 38, cx + 50, 66, 0x050607);
+        LinerGfxSVA.layer();
+        LinerGfxSVA.text(t, cx, 52, 24, c, 0, 96);
+    }
+
+    private static void bar(float cx, float cy, boolean on) {
+        if (on) {
+            LinerGfxSVA.rect(cx - 13, cy - 2.5F, cx + 13, cy + 2.5F, L_GRN);
+        }
     }
 
     /** Wave 2: the console point of the sidesticks' bases (lateral console units) and the base's height over it. */

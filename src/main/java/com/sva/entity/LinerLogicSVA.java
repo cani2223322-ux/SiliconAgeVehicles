@@ -2,7 +2,14 @@ package com.sva.entity;
 
 import com.sva.ConfigSVA;
 import com.sva.vehicle.BatteryMath;
+import com.sva.vehicle.FlightMath;
 import com.sva.vehicle.FuelMath;
+import com.sva.vehicle.LinerAfs;
+import com.sva.vehicle.LinerGuide;
+import com.sva.vehicle.LinerIls;
+import com.sva.vehicle.PlaneMath;
+import com.sva.vehicle.PlaneParams;
+import com.sva.vehicle.RouteMath;
 import com.sva.vehicle.LinerControls;
 import com.sva.vehicle.LinerSystems;
 import com.sva.vehicle.SystemsMath;
@@ -52,8 +59,24 @@ public final class LinerLogicSVA {
         e.bat1 = v.state.batIn ? v.state.energy : 0;
         e.bat1Cap = v.state.maxEnergy();
         e.extAvail = v.extPowerNow();
-        e.throttle = v.throttle;
         e.ground = !v.wasAirborneNow();
+        e.ground = e.ground && !v.debugLinerAir;
+        // wave 4: the thrust levers are the AFS' (detents, the reverse zone): a throttle set from outside (an older test, a
+        // reload) moves them; the pilot's W / S step them; the old throttle follows them
+        LinerAfs F = L.afs;
+        if (Double.isNaN(v.linerThrSet) || Math.abs(v.throttle - v.linerThrSet) > 1e-9) {
+            F.lever = Math.max(0, Math.min(1, v.throttle));
+        }
+        boolean keyUp = (in & EntityVehicleSVA.IN_FWD) != 0, keyDown = (in & EntityVehicleSVA.IN_BACK) != 0;
+        boolean keyRev = (in & (EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BOOST)) != 0;
+        if (pilot) {
+            F.leverKeys(keyUp, keyDown, keyRev && e.ground, e.ground);
+        } else if (!e.ground) {
+            F.rev = 0;
+        }
+        v.throttle = F.lever;
+        v.linerThrSet = F.lever;
+        e.throttle = v.throttle;
         e.airspeed = v.airspeedNow();
         e.random = v.rand().nextDouble();
         e.failChance = Math.max(0, Math.min(0.5, ConfigSVA.linerStartFailChance));
@@ -63,11 +86,10 @@ public final class LinerLogicSVA {
         boolean up = (in & EntityVehicleSVA.IN_BRAKE) != 0, down = (in & (EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BOOST)) != 0;
         e.roll = e.yaw = (right ? 1F : 0F) - (left ? 1F : 0F);
         e.pitch = (up ? 1F : 0F) - (down ? 1F : 0F);
-        e.ground = e.ground && !v.debugLinerAir;
-        e.pedal = e.ground && (in & EntityVehicleSVA.IN_BACK) != 0 && v.throttle <= 0;
+        e.pedal = e.ground && (in & EntityVehicleSVA.IN_BACK) != 0 && v.throttle <= 0 && F.rev <= 0;
         e.speed = Math.max(0, v.speed);
         e.mu = v.linerMu();
-        e.height = v.debugLinerAir ? 100 : v.linerHeight();
+        e.height = v.debugLinerAir ? 100 : v.linerRadio();          // wave 4: the radio altimeter every tick
         e.leakChance = Math.max(0, ConfigSVA.linerHydLeakChance);
         // wave 3: the altitude (the gravity fuel feed's ceiling), the LDG MEMO's height
         e.alt = v.posY;
@@ -84,6 +106,7 @@ public final class LinerLogicSVA {
             e.instant = true;
             e.instantHyd = !v.debugLinerAir;                        // wave 2's gear test wants the real timing
         }
+        air(v, L, e, in);                                           // wave 4: the aircraft for the AFS
         // the tanks against the vehicle's H2 (a station / a cell / the column filled it)
         L.reconcile(h2(v), FuelMath.tank(VehicleType.LINER));
         int quickBefore = L.quick;
@@ -145,10 +168,87 @@ public final class LinerLogicSVA {
             v.vanillaSound("random.fizz", 0.8F, 0.7F);
             v.tellRidersKey("sva.liner.msg.fusePlug");
         }
+        // wave 4: the AP's cavalry charge (a rising arpeggio, repeating), the callouts (the heli's radar-altimeter tones),
+        // RETARD (two low notes), V1
+        if (F.cavNote >= 0) {
+            int k = F.cavNote;
+            if (k == 0 || k == 3 || k == 6 || k == 9) {
+                float[] pitch = {1.0F, 1.26F, 1.5F, 2.0F};
+                v.vanillaSound("note.harp", 0.9F, pitch[k / 3]);
+            }
+        }
+        if (F.soundCall != 0) {
+            int c = F.soundCall;
+            if (c == LinerAfs.CALL_RETARD) {
+                v.vanillaSound("note.bass", 1.0F, 0.6F);
+                v.vanillaSound("note.bass", 1.0F, 0.5F);
+            } else if (c == LinerAfs.CALL_V1) {
+                v.vanillaSound("note.pling", 0.6F, 1.0F);
+            } else {
+                v.vanillaSound("note.pling", 0.45F, (float) (0.8F + (100 - Math.min(100, c)) / 100.0));
+            }
+        }
         if (quickBefore != LinerSystems.QUICK_OFF && L.quick == LinerSystems.QUICK_OFF) {
             v.tellRidersKey("done".equals(L.quickWhy) ? "sva.liner.quick.done" : "sva.liner.quick.stopped." + L.quickWhy);
         }
         return 0;
+    }
+
+    /**
+     * Wave 4: the aircraft the AFS sees this tick - position, compass heading, the measured vertical speed, the flight
+     * parameters of the configuration (stall, lift-off, drag, thrust, climb / dive), the gross mass (the SD's GW), the INS,
+     * a stick key held (the AP override), the route's guidance (NAV), the ILS stations near (the world data) and the configs.
+     */
+    static void air(EntityVehicleSVA v, LinerSystems L, LinerSystems.Env e, int in) {
+        LinerAfs.Air a = e.air;
+        VehicleType t = VehicleType.LINER;
+        a.x = v.posX;
+        a.y = v.posY;
+        a.z = v.posZ;
+        a.hdg = LinerGuide.compass(v.rotationYaw);
+        double dy = Double.isNaN(v.linerLastY) ? 0 : v.posY - v.linerLastY;
+        if (Math.abs(dy) > 4) {
+            dy = 0;                                                 // a teleport
+        }
+        v.linerVy = v.linerVy * 0.5 + dy * 0.5;
+        v.linerLastY = v.posY;
+        a.vy = v.linerVy;
+        PlaneParams p = v.flightParams(t);
+        a.stall = p.stall;
+        a.liftOff = p.liftOff;
+        a.drag = p.drag;
+        a.thrustK = p.thrust;
+        a.top = t.topSpeed;
+        double sp = Math.max(e.airspeed, e.speed);
+        a.cap = PlaneMath.climbCapacity(p, sp) * FlightMath.ceilingFactor(v.posY);
+        a.dive = p.dive;
+        a.mass = LinerAfs.MASS0 + L.tanks() / 48000.0 * 2600 + v.ridersNow() * 80;
+        a.insReady = v.insReady();
+        a.stick = !e.ground && (in & (EntityVehicleSVA.IN_LEFT | EntityVehicleSVA.IN_RIGHT | EntityVehicleSVA.IN_BRAKE | EntityVehicleSVA.IN_DOWN
+                | EntityVehicleSVA.IN_BOOST)) != 0;
+        RouteMath.Plan plan = v.plan();
+        a.hasRoute = plan != null && !plan.isEmpty() && !plan.done();
+        a.routeHdg = Double.NaN;
+        a.routeAlt = Double.NaN;
+        if (a.hasRoute && (L.afs.lat == LinerAfs.L_NAV || (L.afs.latArm & LinerAfs.AL_NAV) != 0 || L.afs.hdgMan)) {
+            RouteMath.Guide g = v.routeGuide();
+            if (g != null) {
+                a.routeHdg = g.heading;
+                a.routeAlt = g.alt;
+                if (g.switched) {
+                    v.syncNow();
+                }
+            }
+        }
+        a.ilsRange = Math.max(500, ConfigSVA.linerIlsRange);
+        a.accelH = ConfigSVA.linerAccelHeight;
+        a.callouts = ConfigSVA.linerCallouts;
+        if (v.ticksExisted - v.linerIlsAt >= 20 || v.ticksExisted < v.linerIlsAt || v.linerIls == null) {
+            v.linerIlsAt = v.ticksExisted;
+            com.sva.block.IlsDataSVA d = com.sva.block.IlsDataSVA.get(v.worldObj);
+            v.linerIls = d == null ? new java.util.ArrayList<LinerIls.Station>() : d.near(v.worldObj.provider.dimensionId, v.posX, v.posZ, a.ilsRange * 1.2);
+        }
+        a.ils = v.linerIls;
     }
 
     /** The vehicle's H2 now (mB, the spent part below one mB taken off). */

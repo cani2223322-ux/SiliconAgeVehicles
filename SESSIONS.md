@@ -331,3 +331,18 @@
   docs/mockups/veh_liner_impl_w3_sd.png, veh_liner_impl_w3_ewd.png.
 - Осталось / next steps: проверка в клиенте (страницы, лампы насосов/КОЛЬЦЕВ., звон, клавиши ECAM); волна 4 (FCU, FMA,
   A/THR, ILS, "кавалерийский сигнал" отключения AP).
+
+## 2026-10-14 — Лайнер SA-320: волна 4 (ветка wave-liner4)
+- Сделано: FCU на козырьке (ручки СКОР / КУРС / ВЫС / В/С: нажать - управляемый, вытянуть - выбранный, колесо и Shift; АП 1 / 2,
+  А/ТЯГА, КРМ, ЗАХОД, УСКОР, ПУ-УН, шаг 10 / 50, QNH / STD, ДК / КГС / режимы ND и ОГР / АЭР), автопилот и директор A320-образные
+  (LinerAfs: RWY / NAV / HDG / LOC / LAND / ROLL OUT, SRS / CLB / OP CLB / ALT* / ALT / DES / V/S / G/S / FLARE, FMA в 5 колонок с
+  рамками), АП через тот же "ручку" (LinerGuide / LinerFlight: крен со скоростью 15 гр./с, защита 33 / 67, тангаж вертикальной
+  скоростью), отключения с "кавалерийским сигналом" и "АВТОПИЛОТ ОТКЛ", автомат тяги и РУД с упорами МГ / НАБОР / ГИБК / ВЗЛЁТ и
+  реверсом (створки на С / Ж, анимация), альфа-защита / VMO / полосы скоростей / V1-VR-V2, новый блок "Курсо-глиссадный маяк" (окно,
+  рецепт, данные мира IlsDataSVA), ROSE ILS, автопосадка с FLARE / RETARD / ROLL OUT, отсчёт высоты, уход на второй круг; ECAM AP OFF /
+  A/THR OFF / LIMITED / РУД НЕ НА УПОРАХ, LDG MEMO автотормоз; клавиши "Откл. автопилота" (,) и "Откл. автомата тяги" (-); настройки
+  linerAccelHeight / linerIlsRange / linerCallouts; lang ru/en, CHANGELOG. Тесты: self 1465/0 (SelfTestLinerAfsSVA + симулятор
+  LinerSimSVA), world с WorldTestLinerAfsSVA (HDG, ALT, V/S, SPEED, автопосадка на ВПП по КГС, отключение АП). Превью
+  docs/mockups/veh_liner_impl_w4_pfd / fcu / nd / ils_gui.png.
+- Осталось / next steps: проверка в клиенте (FCU и РУД в кабине, PFD / ND, звуки, окно маяка, реверс); волна 5 (MCDU: PERF V1/VR/V2
+  и FLEX, RAD NAV, F-PLN, вертикальный профиль).

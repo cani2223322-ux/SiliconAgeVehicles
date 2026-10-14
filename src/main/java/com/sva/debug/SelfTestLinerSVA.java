@@ -55,6 +55,7 @@ final class SelfTestLinerSVA {
         SelfTestLinerHydSVA.run();                                  // liner wave 2: hydraulics, flight controls, gear, brakes
         SelfTestLinerFuelSVA.run();                                 // liner wave 3: fuel, ECAM, checklists
         SelfTestLinerFuelSVA.run();                                 // liner wave 3: fuel, ECAM, checklists
+        SelfTestLinerAfsSVA.run();                                  // liner wave 4: FCU, AP / FD, A/THR, levers, ILS, autoland
         saves();
     }
 
@@ -236,7 +237,8 @@ final class SelfTestLinerSVA {
         for (int i = 0; i < all.size(); i++) {
             for (int j = i + 1; j < all.size(); j++) {
                 LinerControls.Ctl a = all.get(i), b = all.get(j);
-                if (a.panel == b.panel && Math.abs(a.cx - b.cx) * 2 < a.w + b.w && Math.abs(a.cy - b.cy) * 2 < a.h + b.h) {
+                if (a.panel == b.panel && a.kind != LinerControls.VIRT && b.kind != LinerControls.VIRT && Math.abs(a.cx - b.cx) * 2 < a.w + b.w
+                        && Math.abs(a.cy - b.cy) * 2 < a.h + b.h) {
                     ov.append(' ').append(a.id).append('/').append(b.id);
                 }
             }
@@ -245,7 +247,7 @@ final class SelfTestLinerSVA {
         // the hit test finds each row at its centre; a panel point maps into the cockpit (overhead above the eye, pedestal low)
         boolean hits = true;
         for (LinerControls.Ctl c : all) {
-            hits &= LinerControls.hit(c.panel, c.cx, c.cy) == c;
+            hits &= c.kind == LinerControls.VIRT || LinerControls.hit(c.panel, c.cx, c.cy) == c;   // wave 4: VIRT has no place
         }
         float[] o = LinerControls.point(LinerControls.OVH, 900, 700, new float[3]);
         float[] pd = LinerControls.point(LinerControls.PED, 380, 1160, new float[3]);
@@ -662,7 +664,7 @@ final class SelfTestLinerSVA {
             System.out.println("[SVA-TEST] liner sync: " + s + " / " + round);
         }
         // wave 3 added its ECAM / fuel / cabin part (the bound was 400)
-        check(same && s.length() < 520 && C.apu == L.apu, "liner sync: the string (" + s.length() + " chars) round-trips; junk is ignored");
+        check(same && s.length() < 720 && C.apu == L.apu, "liner sync: the string (" + s.length() + " chars) round-trips; junk is ignored");
         // the save: positions by id, engines / APU running, tanks, АКБ 2; the vehicle state carries it
         NBTTagCompound t = new NBTTagCompound();
         run(L, e, 400, null);

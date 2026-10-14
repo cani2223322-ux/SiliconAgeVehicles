@@ -54,6 +54,8 @@ public final class ModContentSVA {
     // aircraft round 2, stage D1: ★1 PAPI, ★2 approach lights
     public static com.sva.block.BlockPapiSVA papi;
     public static com.sva.block.BlockApproachLightSVA approachLight;
+    /** Liner wave 4: «Курсо-глиссадный маяк» (the ILS beacon). */
+    public static com.sva.block.BlockIlsSVA ils;
     // hydrogen wave: the vehicles' removable batteries, the electrolyte / service kit / jump leads
     public static com.sva.item.ItemBatterySVA battery;
     public static com.sva.item.ItemBatteryToolSVA batteryTool;
@@ -180,6 +182,11 @@ public final class ModContentSVA {
         codeCard = new com.sva.item.ItemCodeCardSVA();
         codeCard.setCreativeTab(TAB);
         GameRegistry.registerItem(codeCard, "codeCard");
+        // liner wave 4: the ILS beacon (Engineering Workbench - WorkbenchRecipesSVA)
+        ils = new com.sva.block.BlockIlsSVA();
+        ils.setCreativeTab(TAB);
+        GameRegistry.registerBlock(ils, com.sva.block.ItemBlockIlsSVA.class, "ils");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityIlsSVA.class, ReferenceSVA.MODID + ":ils");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);

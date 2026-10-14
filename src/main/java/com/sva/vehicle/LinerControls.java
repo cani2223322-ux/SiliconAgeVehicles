@@ -91,7 +91,14 @@ public final class LinerControls {
 
     // ---------------------------------------------------------------- rows
 
-    public static final int PB = 0, PBM = 1, ROT = 2, TOG = 3, LEV = 4, INFO = 5;
+    public static final int PB = 0, PBM = 1, ROT = 2, TOG = 3, LEV = 4, INFO = 5,
+            /**
+             * Wave 4: an FCU knob (push / pull / turn - the A320's): LMB pushes (managed), RMB pulls (selected), the wheel turns
+             * (Shift + wheel: a fine step); its position stays 0, the systems act on the click (LinerAfs.knob).
+             */
+            KNOB = 6,
+            /** Wave 4: no place on a panel (no hitbox, never drawn): the «Пульты» screen's buttons set it (A_SET + n). */
+            VIRT = 7;
 
     /** One control. */
     public static final class Ctl {
@@ -349,6 +356,37 @@ public final class LinerControls {
     public static final Ctl ECAM_EMER = pbm("ecamEmerCanc", PED, 692, 526, 72, 28);
     public static final Ctl TO_CONFIG = pbm("toConfig", PED, 692, 574, 72, 28);
 
+    // wave 4: the FCU on the glare shield (LinerPaintSVA.fcu, x0 600: the windows at y 52, the knobs at y 120, the buttons) -
+    // the knobs push (managed) / pull (selected) / turn; AP 1 / AP 2 / A/THR, LOC, EXPED, APPR, HDG-V/S / TRK-FPA; the ALT
+    // step selector (10 / 50 m); the EFIS panels' baro knobs (QNH / STD) at the painted «ДАВЛ.» window's knob
+    public static final Ctl FCU_SPD = knob("fcuSpd", GS, 685, 120, 30);
+    public static final Ctl FCU_HDG = knob("fcuHdg", GS, 845, 120, 30);
+    public static final Ctl FCU_ALT = knob("fcuAlt", GS, 1145, 120, 30);
+    public static final Ctl FCU_VS = knob("fcuVs", GS, 1315, 120, 30);
+    public static final Ctl FCU_AP1 = pbm("fcuAp1", GS, 975, 60, 44, 36);
+    public static final Ctl FCU_AP2 = pbm("fcuAp2", GS, 1025, 60, 44, 36);
+    public static final Ctl FCU_ATHR = pbm("fcuAthr", GS, 1000, 128, 44, 36);
+    public static final Ctl FCU_LOC = pbm("fcuLoc", GS, 910, 155, 38, 38);
+    public static final Ctl FCU_EXPED = pbm("fcuExped", GS, 1085, 155, 38, 38);
+    public static final Ctl FCU_APPR = pbm("fcuAppr", GS, 1250, 155, 38, 38);
+    public static final Ctl FCU_TRK = pbm("fcuTrkFpa", GS, 770, 160, 30, 30);
+    public static final Ctl FCU_ALT_STEP = rot("fcuAltStep", GS, 1212, 128, 11, new String[] {"step10", "step50"}, 0);
+    public static final Ctl BARO_L = knob("baroL", GS, 190, 118, 26);
+    public static final Ctl BARO_R = knob("baroR", GS, 1550, 118, 26);
+    // wave 4: the sidesticks' red AP disconnect buttons (on the stick tops - the console point under each stick), the thrust
+    // levers' instinctive A/THR disconnect buttons (beside the quadrant)
+    public static final Ctl AP_DISC_L = pbm("apDiscL", SCL, 370, 500, 70, 70);
+    public static final Ctl AP_DISC_R = pbm("apDiscR", SCR, 130, 500, 70, 70);
+    public static final Ctl ATHR_DISC_L = pbm("athrDiscL", PED, 283, 700, 30, 30);
+    public static final Ctl ATHR_DISC_R = pbm("athrDiscR", PED, 477, 700, 30, 30);
+    /** Wave 4: the ILS tuned by hand from the «Пульты» screen's list (0 automatic, 1..4 the list's stations - A_SET + n). */
+    public static final Ctl ILS_SEL = add("ilsSel", GS, VIRT, new String[] {"auto", "1", "2", "3", "4"}, 0, 0, 0, 0, 0);
+
+    /** Wave 4: an FCU knob (r: its radius in panel units; the hitbox a little larger). */
+    private static Ctl knob(String id, int panel, float cx, float cy, float r) {
+        return add(id, panel, KNOB, null, 0, cx, cy, 2 * r + 12, 2 * r + 12);
+    }
+
     static {
         RAT.guard = true;
         EMER_EXIT.guard = true;
@@ -387,7 +425,7 @@ public final class LinerControls {
     /** The row whose hitbox holds the panel point (tx, ty), or null. */
     public static Ctl hit(int panel, float tx, float ty) {
         for (Ctl c : ROWS) {
-            if (c.panel == panel && c.contains(tx, ty)) {
+            if (c.panel == panel && c.kind != VIRT && c.contains(tx, ty)) {
                 return c;
             }
         }
@@ -398,6 +436,8 @@ public final class LinerControls {
 
     /** Click actions: LMB (next / up / toggle / lift the guard), RMB (previous / down / close the guard), wheel +1 / -1. */
     public static final int A_PRIMARY = 0, A_SECONDARY = 1, A_WHEEL_UP = 2, A_WHEEL_DOWN = 3,
+            /** Wave 4: Shift + the wheel on an FCU knob - the fine step. */
+            A_FINE_UP = 4, A_FINE_DOWN = 5,
             /** Set a lever / selector to an exact position (a drag in the flat screen): A_SET + position. */
             A_SET = 16;
 
@@ -412,6 +452,12 @@ public final class LinerControls {
         int event = 0;
         if (c.kind == INFO) {
             return new int[] {p, g ? 1 : 0, 0};
+        }
+        if (c.kind == KNOB) {
+            return new int[] {p, g ? 1 : 0, 1};                     // wave 4: LinerAfs.knob reads the action itself
+        }
+        if (c.kind == VIRT) {
+            return new int[] {action >= A_SET ? Math.max(0, Math.min(n - 1, action - A_SET)) : p, 0, 0};
         }
         if (c.guard && !g) {
             if (action == A_PRIMARY) {

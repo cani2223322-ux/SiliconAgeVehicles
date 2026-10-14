@@ -28,6 +28,18 @@ public final class LinerAnim {
     /** Wave 2: the gear fell by gravity (the doors stay open, the legs without the sequence). */
     public boolean gravity;
     public float fanL, prevFanL, fanR, prevFanR;
+    /** Wave 4: the reversers' translating cowls (0 stowed .. 1 deployed) following the synced positions. */
+    public float revL, prevRevL, revR, prevRevR;
+    /** The cowl's travel (the rig's reverser_* track limit, model units). */
+    public static final float REV_TRAVEL = 0.34F;
+
+    /** Wave 4, one client tick of the reversers toward the synced cowl positions (engine 1 left, 2 right). */
+    public void tickReversers(float l, float r) {
+        prevRevL = revL;
+        prevRevR = revR;
+        revL = step(revL, Math.max(0F, Math.min(1F, l)), 1.5F / com.sva.vehicle.LinerAfs.REV_TICKS);
+        revR = step(revR, Math.max(0F, Math.min(1F, r)), 1.5F / com.sva.vehicle.LinerAfs.REV_TICKS);
+    }
     public boolean inited;
     /** The level of detail drawn last (LinerTexMath.lod's hysteresis; -1 none yet). */
     public int lod = -1;

@@ -317,8 +317,9 @@ final class SelfTestLinerFuelSVA {
             table &= LinerSystems.CAUT_KEYS[i].equals(LinerEcam.KEYS[LinerEcam.FIRST_CAUT + i]);
         }
         for (int id = 0; id < LinerEcam.N; id++) {
-            table &= LinerEcam.KEYS[id] != null && LinerEcam.ACT[id] != null && LinerEcam.PAGE[id] >= 0
-                    && (LinerEcam.LEVEL[id] == LinerEcam.WARN) == (id < LinerEcam.FIRST_CAUT);
+            // wave 4: the AUTO FLT messages have no SD page (-1)
+            table &= LinerEcam.KEYS[id] != null && LinerEcam.ACT[id] != null && (LinerEcam.PAGE[id] >= 0 || id >= LinerEcam.M_AP_OFF)
+                    && ((LinerEcam.LEVEL[id] == LinerEcam.WARN) == (id < LinerEcam.FIRST_CAUT) || id >= LinerEcam.M_AP_OFF);
         }
         check(red && sorted && legacy && table, "liner ECAM: one engine for all " + LinerEcam.N + " messages - red first («ГИДР З+Ж НИЗК ДАВЛ»), then"
                 + " amber in the table's order (" + l.length + " lines); the wave 1-2 bits kept");
@@ -524,6 +525,7 @@ final class SelfTestLinerFuelSVA {
         D.set(LinerControls.FLAPS, 4);
         D.set(LinerControls.SEAT_BELTS, 0);
         D.set(LinerControls.SPD_BRK, 0);
+        D.gear.abMode = 2;                                          // wave 4: the LDG MEMO's autobrake line (LO / MED)
         int l1 = LinerEcam.ldgMemo(D);
         check(shown && m0 == 1 << LinerEcam.TM_NOSMOKE && m1 == (1 << LinerEcam.TO_KEYS.length) - 1 && ldg
                         && l0 == (1 << LinerEcam.LM_GEAR | 1 << LinerEcam.LM_NOSMOKE) && l1 == (1 << LinerEcam.LDG_KEYS.length) - 1,
@@ -648,7 +650,7 @@ final class SelfTestLinerFuelSVA {
         String old = s.substring(0, s.lastIndexOf('|'));
         LinerSystems O = new LinerSystems();
         O.unpack(old);
-        check(same && saved && O.tankL == C.tankL && s.length() < 520, "liner ECAM / FUEL sync: the messages, the cleared ones, the phase, the"
+        check(same && saved && O.tankL == C.tankL && s.length() < 720, "liner ECAM / FUEL sync: the messages, the cleared ones, the phase, the"
                 + " pumps, the cells, FU, the lamps round-trip (" + s.length() + " chars); saved: the cells, FU, the transfer; a wave-2 string reads");
     }
 

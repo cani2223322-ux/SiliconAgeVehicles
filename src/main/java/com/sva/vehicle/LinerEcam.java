@@ -68,12 +68,14 @@ public final class LinerEcam {
     public static final int A_MODE_START = 0, A_THR_IDLE = 1, A_MASTER1_OFF = 2, A_MASTER2_OFF = 3, A_PTU_OFF = 4, A_BRK_FAN_ON = 5, A_GEAR_DOWN = 6,
             A_FLAPS_TO = 7, A_SPDBRK_RET = 8, A_PARK_OFF = 9, A_RAT_MAN = 10, A_APU_BLEED_ON = 11, A_GEN1_ON = 12, A_GEN2_ON = 13,
             A_APU_MASTER_OFF = 14, A_XBLEED_OPEN = 15, A_BUS_TIE_ON = 16, A_EDP1_OFF = 17, A_BLUE_OFF = 18, A_EDP2_OFF = 19, A_PUMP_OFF = 20,
-            A_XFEED_ON = 26, A_LIGHT_PUMPS_OFF = 27, A_CTR_MAN = 28, A_DOOR_SHUT = 29, ACTS = 30;
+            A_XFEED_ON = 26, A_LIGHT_PUMPS_OFF = 27, A_CTR_MAN = 28, A_DOOR_SHUT = 29,
+            // wave 4: the levers to FLX / TOGA (not set), to CL (A/THR limited)
+            A_THR_TO = 30, A_THR_CL = 31, ACTS = 32;
     /** Lang sva.liner.act.KEY = «WHAT|SETTING» (drawn «- WHAT ...... SETTING»). */
     public static final String[] ACT_KEYS = {"modeStart", "thrIdle", "master1Off", "master2Off", "ptuOff", "brkFanOn", "gearDown", "flapsTo",
             "spdBrkRet", "parkOff", "ratMan", "apuBleedOn", "gen1On", "gen2On", "apuMasterOff", "xbleedOpen", "busTieOn", "edp1Off", "blueOff",
             "edp2Off", "pumpL1Off", "pumpL2Off", "pumpC1Off", "pumpC2Off", "pumpR1Off", "pumpR2Off", "xfeedOn", "lightPumpsOff", "ctrMan",
-            "doorShut"};
+            "doorShut", "thrTo", "thrCl"};
 
     // ---------------------------------------------------------------- the messages
 
@@ -83,7 +85,9 @@ public final class LinerEcam {
             M_BUS2 = 21, M_HYD_G_LO = 22, M_HYD_B_LO = 23, M_HYD_Y_LO = 24, M_HYD_G_QTY = 25, M_HYD_B_QTY = 26, M_HYD_Y_QTY = 27, M_HYD_G_HOT = 28,
             M_HYD_B_HOT = 29, M_HYD_Y_HOT = 30, M_BRK_HOT = 31, M_FLAP_JAM = 32, M_SLAT_JAM = 33, M_GEAR_DISAGREE = 34, M_TYRE = 35, M_LAW_ALTN = 36,
             M_LAW_DIRECT = 37, M_FCTL_COMP = 38, M_FUEL_PUMP = 39, M_FUEL_IMBAL = 45, M_FUEL_LO_L = 46, M_FUEL_LO_R = 47, M_FUEL_OUT_L = 48,
-            M_FUEL_OUT_R = 49, M_FUEL_AUTO = 50, M_DOOR = 51, N = 52;
+            M_FUEL_OUT_R = 49, M_FUEL_AUTO = 50, M_DOOR = 51,
+            // wave 4: the AP off (red, the cavalry charge - not the chime), the A/THR off / limited, the levers not set at take-off
+            M_AP_OFF = 52, M_ATHR_OFF = 53, M_ATHR_LIM = 54, M_THR_LVRS = 55, N = 56;
     /** The first red / amber with a wave 1-2 bit (LinerSystems.warn bit = id; caut bit = id - FIRST_CAUT for ids under LEGACY_CAUT_END). */
     public static final int LEGACY_WARN_END = 7, FIRST_CAUT = 12, LEGACY_CAUT_END = 39;
 
@@ -157,6 +161,11 @@ public final class LinerEcam {
         def(M_FUEL_OUT_R, "fuelOutR", CAUT, P_FUEL, INH, I_FUEL_R, LIM_FUEL, A_XFEED_ON);
         def(M_FUEL_AUTO, "fuelAutoFeed", CAUT, P_FUEL, INH, 0, 0, A_CTR_MAN);
         def(M_DOOR, "doorL1", CAUT, P_DOOR, INH, 0, 0, A_DOOR_SHUT);
+        // wave 4 (never inhibited - the A320's AUTO FLT messages; no SD page of their own)
+        def(M_AP_OFF, "apOff", WARN, -1, 0, 0, 0);
+        def(M_ATHR_OFF, "athrOff", CAUT, -1, 0, 0, 0);
+        def(M_ATHR_LIM, "athrLimited", CAUT, -1, 0, 0, 0, A_THR_CL);
+        def(M_THR_LVRS, "thrLevers", CAUT, P_ENG, 0, 0, 0, A_THR_TO);
     }
 
     // ---------------------------------------------------------------- state
@@ -226,8 +235,12 @@ public final class LinerEcam {
         long fresh = s & ~prevShown;
         if ((fresh & levelMask(WARN)) != 0) {
             L.masterWarn = true;
-            silenced = false;
-            L.events |= LinerSystems.E_CHIME_WARN;
+            // wave 4: the AP off sounds the cavalry charge (LinerAfs), not the continuous repetitive chime
+            boolean apOnly = (fresh & levelMask(WARN)) == 1L << M_AP_OFF && (s & levelMask(WARN) & ~(1L << M_AP_OFF)) == 0;
+            silenced = apOnly;
+            if (!apOnly) {
+                L.events |= LinerSystems.E_CHIME_WARN;
+            }
         }
         if ((fresh & levelMask(CAUT)) != 0) {
             L.masterCaut = true;
@@ -425,6 +438,14 @@ public final class LinerEcam {
                 return L.fuel.modeFault;
             case M_DOOR:
                 return L.door && live(L, e);
+            case M_AP_OFF:
+                return L.afs.apWarn != 0;
+            case M_ATHR_OFF:
+                return L.afs.athrWarn != 0;
+            case M_ATHR_LIM:
+                return L.afs.athrLimited;
+            case M_THR_LVRS:
+                return L.afs.leversNotSet && L.afs.lever >= LinerFctl.TO_THR;
             default:
                 return false;
         }
@@ -510,6 +531,12 @@ public final class LinerEcam {
                 return L.on(LinerControls.FUEL_MODE);
             case A_DOOR_SHUT:
                 return !L.door;
+            case A_THR_TO: {
+                int d = LinerAfs.detent(L.afs.lever);
+                return d == 2 || d == 3;
+            }
+            case A_THR_CL:
+                return LinerAfs.detent(L.afs.lever) == 1;
             default:
                 return false;
         }
@@ -667,8 +694,9 @@ public final class LinerEcam {
 
     public static final int TM_AUTOBRK = 0, TM_BELTS = 1, TM_NOSMOKE = 2, TM_SPLRS = 3, TM_FLAPS = 4, TM_CONFIG = 5;
     public static final String[] TO_KEYS = {"autoBrk", "belts", "noSmoke", "splrs", "flaps", "config"};
-    public static final int LM_GEAR = 0, LM_BELTS = 1, LM_NOSMOKE = 2, LM_SPLRS = 3, LM_FLAPS = 4;
-    public static final String[] LDG_KEYS = {"gear", "belts", "noSmoke", "splrs", "flaps"};
+    public static final int LM_GEAR = 0, LM_BELTS = 1, LM_NOSMOKE = 2, LM_SPLRS = 3, LM_FLAPS = 4, LM_AUTOBRK = 5;
+    /** Wave 4: + the autobrake (LO / MED armed). */
+    public static final String[] LDG_KEYS = {"gear", "belts", "noSmoke", "splrs", "flaps", "autoBrk"};
 
     /** T.O. MEMO on the E/WD: on the ground with both engines running (or the T.O. CONFIG test), below take-off power. */
     public boolean toMemoShown(LinerSystems L) {
@@ -700,6 +728,7 @@ public final class LinerEcam {
         m |= L.at(LinerControls.NO_SMOKING) != 2 ? 1 << LM_NOSMOKE : 0;
         m |= L.at(LinerControls.SPD_BRK) == 0 ? 1 << LM_SPLRS : 0;
         m |= L.at(LinerControls.FLAPS) >= 3 ? 1 << LM_FLAPS : 0;
+        m |= L.gear.abMode == 1 || L.gear.abMode == 2 ? 1 << LM_AUTOBRK : 0;
         return m;
     }
 
