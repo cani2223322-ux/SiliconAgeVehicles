@@ -532,6 +532,14 @@ public final class LinerCockpitSVA {
                 }
             }
         }
+        if (panel == LinerControls.PED && pass != 1 && com.sva.ConfigSVA.linerMcdu3d) {
+            // wave 5: the two MCDUs' screens (what the server sent the pilots - McduScreenSVA, as the keyboard screen)
+            for (int i = 0; i < 2; i++) {
+                float x0 = (i == 0 ? 15 : 385) + 62;
+                McduScreenSVA.draw(McduClientSVA.screen(v.getEntityId(), i), x0, 30, 236, 182, L.powered());
+                LinerGfxSVA.layer();
+            }
+        }
         if (panel == LinerControls.PED && pass != 1) {
             int page = L.autoPage();
             // wave 3: the checklists light ВСЕ (its cycle reaches them); the cruise page has no key

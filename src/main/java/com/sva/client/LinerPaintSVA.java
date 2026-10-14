@@ -859,7 +859,8 @@ public final class LinerPaintSVA {
             p.key(x0 + 14, y - 8, x0 + 46, y + 8, "-", 10, rgb(62, 65, 70));
             p.key(x0 + 314, y - 8, x0 + 346, y + 8, "-", 10, rgb(62, 65, 70));
         }
-        String[][] rows = {{"НАПР", "ПРОГ", "ПАРАМ", "ИНИЦ", "ДАННЫЕ", ""}, {"ПЛАН", "РАДИО", "ТОПЛ", "РЕЗ.ПЛ", "СВЯЗЬ", "МЕНЮ"}};
+        // wave 5: the function keys as the MCDU's keyboard screen names them (GuiMcduSVA / McduPanelSVA)
+        String[][] rows = {{"НАПР", "ПРОГ", "ХАР", "ИНИЦ", "ДАННЫЕ", ""}, {"ПЛАН", "РАДИО", "ТОПЛ", "ПЛАН 2", "СВЯЗЬ", "МЕНЮ"}};
         for (int r = 0; r < 2; r++) {
             for (int c = 0; c < 6; c++) {
                 double xx = x0 + 18 + c * 55, yy = y0 + 214 + r * 30;
@@ -879,8 +880,9 @@ public final class LinerPaintSVA {
             String t = digits.substring(i, i + 1);
             p.key(xx, y, xx + 34, y + 32, "-".equals(t) ? "+/-" : t, 12, rgb(58, 61, 66));
         }
-        String[] letters = {"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X",
-                "Y", "Z", "_", "/", "СБР", "ПРОЛ"};
+        // wave 5 (plan-next §7: the MCDU's keyboard in Cyrillic): the 30 letters of the keyboard screen (Latin from the PC's)
+        String[] letters = {"А", "Б", "В", "Г", "Д", "Е", "Ж", "З", "И", "Й", "К", "Л", "М", "Н", "О", "П", "Р", "С", "Т", "У", "Ф", "Х", "Ц", "Ч",
+                "Ш", "Щ", "Ы", "Э", "Ю", "Я"};
         for (int i = 0; i < letters.length; i++) {
             int r = i / 5, c = i % 5;
             double xx = x0 + 150 + c * 40, y = y0 + 304 + r * 27;

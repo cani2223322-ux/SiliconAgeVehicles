@@ -381,6 +381,12 @@ public final class LinerControls {
     public static final Ctl ATHR_DISC_R = pbm("athrDiscR", PED, 477, 700, 30, 30);
     /** Wave 4: the ILS tuned by hand from the «Пульты» screen's list (0 automatic, 1..4 the list's stations - A_SET + n). */
     public static final Ctl ILS_SEL = add("ilsSel", GS, VIRT, new String[] {"auto", "1", "2", "3", "4"}, 0, 0, 0, 0, 0);
+    /**
+     * Wave 5: the two MCDUs on the pedestal (LinerPaintSVA.mcdu: 360 x 470 at x 15 / 385, y 12) - a click opens the MCDU's
+     * keyboard screen (client.GuiMcduSVA) of that side; no position of their own (the FMS is LinerSystems.fms).
+     */
+    public static final Ctl MCDU1 = add("mcdu1", PED, INFO, null, 0, 195, 247, 360, 470);
+    public static final Ctl MCDU2 = add("mcdu2", PED, INFO, null, 0, 565, 247, 360, 470);
 
     /** Wave 4: an FCU knob (r: its radius in panel units; the hitbox a little larger). */
     private static Ctl knob(String id, int panel, float cx, float cy, float r) {

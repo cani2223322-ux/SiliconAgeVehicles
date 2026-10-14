@@ -39,14 +39,23 @@ public class IlsDataSVA extends WorldSavedData {
         return d;
     }
 
+    /** Liner wave 5: bumped on every change (the MCDU's database - NavDataSVA - rebuilds after one). */
+    private transient int version;
+
+    public int version() {
+        return version;
+    }
+
     /** A station placed or changed (a copy is kept). */
     public void put(LinerIls.Station s) {
         stations.put(s.key(), s.copy());
+        version++;
         markDirty();
     }
 
     public void remove(String key) {
         if (stations.remove(key) != null) {
+            version++;
             markDirty();
         }
     }

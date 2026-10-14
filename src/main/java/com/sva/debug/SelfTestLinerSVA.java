@@ -53,9 +53,9 @@ final class SelfTestLinerSVA {
         model();
         lang();
         SelfTestLinerHydSVA.run();                                  // liner wave 2: hydraulics, flight controls, gear, brakes
-        SelfTestLinerFuelSVA.run();                                 // liner wave 3: fuel, ECAM, checklists
-        SelfTestLinerFuelSVA.run();                                 // liner wave 3: fuel, ECAM, checklists
+        SelfTestLinerFuelSVA.run();                                 // liner wave 3: fuel, ECAM, checklists (once: it ran twice before wave 5)
         SelfTestLinerAfsSVA.run();                                  // liner wave 4: FCU, AP / FD, A/THR, levers, ILS, autoland
+        SelfTestLinerFmsSVA.run();                                  // liner wave 5: the MCDU, the FMS, the profile, NAV by the plan
         saves();
     }
 

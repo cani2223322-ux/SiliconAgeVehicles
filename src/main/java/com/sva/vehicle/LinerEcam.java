@@ -87,7 +87,9 @@ public final class LinerEcam {
             M_LAW_DIRECT = 37, M_FCTL_COMP = 38, M_FUEL_PUMP = 39, M_FUEL_IMBAL = 45, M_FUEL_LO_L = 46, M_FUEL_LO_R = 47, M_FUEL_OUT_L = 48,
             M_FUEL_OUT_R = 49, M_FUEL_AUTO = 50, M_DOOR = 51,
             // wave 4: the AP off (red, the cavalry charge - not the chime), the A/THR off / limited, the levers not set at take-off
-            M_AP_OFF = 52, M_ATHR_OFF = 53, M_ATHR_LIM = 54, M_THR_LVRS = 55, N = 56;
+            M_AP_OFF = 52, M_ATHR_OFF = 53, M_ATHR_LIM = 54, M_THR_LVRS = 55,
+            // wave 5: the take-off speeds not entered on the MCDU (the T.O. CONFIG test / take-off thrust)
+            M_TO_SPEEDS = 56, N = 57;
     /** The first red / amber with a wave 1-2 bit (LinerSystems.warn bit = id; caut bit = id - FIRST_CAUT for ids under LEGACY_CAUT_END). */
     public static final int LEGACY_WARN_END = 7, FIRST_CAUT = 12, LEGACY_CAUT_END = 39;
 
@@ -166,6 +168,8 @@ public final class LinerEcam {
         def(M_ATHR_OFF, "athrOff", CAUT, -1, 0, 0, 0);
         def(M_ATHR_LIM, "athrLimited", CAUT, -1, 0, 0, 0, A_THR_CL);
         def(M_THR_LVRS, "thrLevers", CAUT, P_ENG, 0, 0, 0, A_THR_TO);
+        // wave 5 (the A320's «T.O SPEEDS NOT INSERTED»)
+        def(M_TO_SPEEDS, "toSpeeds", CAUT, -1, INH, 0, 0);
     }
 
     // ---------------------------------------------------------------- state
@@ -212,7 +216,8 @@ public final class LinerEcam {
         }
         active = a;
         // the configuration found good by the test (and kept while it stays good, on the ground, engines running)
-        boolean cfgBad = (a & (1L << M_CFG_FLAPS | 1L << M_CFG_SPDBRK | 1L << M_CFG_TRIM | 1L << M_TO_BRK)) != 0 || !configGood(L);
+        boolean cfgBad = (a & (1L << M_CFG_FLAPS | 1L << M_CFG_SPDBRK | 1L << M_CFG_TRIM | 1L << M_TO_BRK | 1L << M_TO_SPEEDS)) != 0 || !configGood(L)
+                || speedsMissing(L);
         if (toTest > 0 && !cfgBad) {
             toCfgOk = true;
         }
@@ -337,6 +342,14 @@ public final class LinerEcam {
         return Math.abs(L.fctl.angle[LinerFctl.THS] - LinerSystems.thsTrim(L.fctl.flapPos)) <= TRIM_TOL;
     }
 
+    /**
+     * Wave 5: the take-off speeds are missing - a flight plan is in the MCDU (FROM / TO entered) and no V1 / VR / V2 (an
+     * aircraft flown without the MCDU is not nagged; with a plan the A320's «T.O SPEEDS NOT INSERTED» holds the T.O. CONFIG).
+     */
+    static boolean speedsMissing(LinerSystems L) {
+        return L.fms.hasPlan() && !L.afs.vsEntered;
+    }
+
     /** The systems' state that should have pressure / fuel flowing: an engine running or in the air. */
     static boolean live(LinerSystems L, LinerSystems.Env e) {
         return L.anyRunning() || !e.ground;
@@ -446,6 +459,8 @@ public final class LinerEcam {
                 return L.afs.athrLimited;
             case M_THR_LVRS:
                 return L.afs.leversNotSet && L.afs.lever >= LinerFctl.TO_THR;
+            case M_TO_SPEEDS:
+                return cfgCheck(L, e) && speedsMissing(L);
             default:
                 return false;
         }

@@ -212,6 +212,13 @@ public final class ConfigSVA {
     public static double linerIlsRange = 4000;
     /** Liner wave 4: the height callouts (100, 50, 40, 30, 20, 10), RETARD and V1 as sounds. */
     public static boolean linerCallouts = true;
+    /**
+     * Liner wave 5: the IRS INIT is confirmed by itself (the INS finishes its alignment without the MCDU's «ВЫСТАВИТЬ»);
+     * off - the alignment waits for it (the amber memo, the MCDU's message).
+     */
+    public static boolean linerIrsAutoInit = true;
+    /** Liner wave 5 (client): the MCDU's screen drawn live on the 3D cockpit's two MCDUs. */
+    public static boolean linerMcdu3d = true;
     /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
     public static boolean radarAltCallouts = true;
     /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
@@ -504,6 +511,11 @@ public final class ConfigSVA {
             linerCallouts = c.getBoolean("linerCallouts", v, true,
                     "Liner: the height callouts 100.. 50.. 40.. 30.. 20.. 10, RETARD and V1 as sounds / Лайнер: отсчёт высоты 100.. 50.. 40.."
                             + " 30.. 20.. 10, RETARD и V1 - звуком");
+            linerIrsAutoInit = c.getBoolean("linerIrsAutoInit", v, true,
+                    "Liner: the IRS INIT confirms itself (the INS aligns without the MCDU's 'ALIGN' key) / Лайнер: ИНС ИНИЦ подтверждается"
+                            + " сам (выставка ИНС заканчивается без кнопки 'ВЫСТАВИТЬ' на МФПУ)");
+            linerMcdu3d = c.getBoolean("linerMcdu3d", v, true,
+                    "Liner: the MCDU screens drawn live in the 3D cockpit (client) / Лайнер: экраны МФПУ в 3D-кабине (клиент)");
             linerPtuSound = c.getBoolean("linerPtuSound", v, true,
                     "Liner: the PTU's 'barking' during single-engine taxi as a sound / Лайнер: 'лай' PTU при рулении на одном двигателе - звуком");
             radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,

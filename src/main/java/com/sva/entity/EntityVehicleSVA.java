@@ -493,6 +493,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     public double linerBank;
     double linerThrSet = Double.NaN, linerLastY = Double.NaN, linerVy;
     java.util.List<com.sva.vehicle.LinerIls.Station> linerIls;
+    /** Liner wave 5: the MCDU screens / the ND's plan last sent to the pilots (LinerLogicSVA.mcduPush) and to whom. */
+    final String[] mcduSent = new String[3];
+    int mcduPilots;
     int linerIlsAt = -100;
 
     /**
@@ -1503,6 +1506,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return false;
         }
         state.plan = RouteMath.sanitize(flat, 0);
+        if (state.type == VehicleType.LINER && state.liner() != null) {
+            state.liner().fms.importMap(state.plan);                // liner wave 5: the map's route becomes the FMS' plan (NAV flies that)
+        }
         planDirty = true;
         syncWatcher();
         sendPlan(p);
@@ -1534,6 +1540,13 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         planSentTo = d;
         planDirty = false;
+    }
+
+    /** Liner wave 5: the FMS' bridge replaced the route (NAV's, the ND's, the driver's client's - sent to him next tick). */
+    public void setFmsRoute(RouteMath.Plan p) {
+        state.plan = p == null ? new RouteMath.Plan() : p;
+        planDirty = true;
+        syncWatcher();
     }
 
     /** World test: the plan set directly (as the RouteSet packet would, without a player). */
@@ -2228,7 +2241,21 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (on && power && testInstantEngine && !debugInsManual && !ins.ready) {
             ins.align();                                            // world tests: the INS aligned at once (as the engine)
         }
-        insNow = ins.tick(on, power, moving, SystemsMath.alignTicks(ConfigSVA.insAlignSeconds));
+        // liner wave 5: the IRS INIT gate - without the config's automatic confirmation the alignment waits at its end for
+        // the MCDU's «ВЫСТАВИТЬ»; the state goes to the ECAM memo and the MCDU (afs.irsState)
+        int total = SystemsMath.alignTicks(ConfigSVA.insAlignSeconds);
+        com.sva.vehicle.LinerSystems ls = t == VehicleType.LINER ? state.liner() : null;
+        boolean gate = ls == null || com.sva.vehicle.LinerFms.irsGate(ConfigSVA.linerIrsAutoInit, ls.fms.irsDone);
+        insNow = ins.tick(on, power, moving, com.sva.vehicle.LinerFms.alignTotal(total, gate));
+        if (!gate && ins.done > total) {
+            ins.done = total;                                       // held at the end: done the tick IRS INIT is confirmed
+        }
+        if (ls != null) {
+            if (insNow == SystemsMath.INS_OFF || insNow == SystemsMath.INS_FAULT) {
+                ls.fms.irsDone = false;
+            }
+            ls.afs.irsState = insNow == SystemsMath.INS_ALIGN ? (!gate && ins.done >= total ? 2 : 1) : 0;
+        }
         if (was != insNow) {
             if (insNow == SystemsMath.INS_READY && was == SystemsMath.INS_ALIGN) {
                 tellRiders("sva.msg.ins.ready");                     // «ИНС выставлена»

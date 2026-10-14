@@ -63,7 +63,9 @@ final class SelfTestKeysSVA {
         Set<Integer> seen = new HashSet<Integer>();
         StringBuilder bad = new StringBuilder();
         for (VehicleFn f : VehicleFn.values()) {
-            if (!KeyBindMath.validKey(f.defaultKey) || f.defaultKey <= 0 || !seen.add(Integer.valueOf(f.defaultKey))
+            // liner wave 5: the MCDU shares M with the map on purpose (in the liner's pilot seats the MCDU wins)
+            boolean shared = f == VehicleFn.MCDU && f.defaultKey == VehicleFn.MAP.defaultKey;
+            if (!KeyBindMath.validKey(f.defaultKey) || f.defaultKey <= 0 || !shared && !seen.add(Integer.valueOf(f.defaultKey))
                     || f.defaultKey == VehicleFn.MENU_DEFAULT) {
                 bad.append(' ').append(f.key);
             }
@@ -78,8 +80,8 @@ final class SelfTestKeysSVA {
                 bad.append(" menu=reserved");
             }
         }
-        check(bad.length() == 0 && VehicleFn.values().length == 22 && VehicleFn.MENU_DEFAULT == 41,
-                "keys: 22 functions (cockpit wave: «Страница MFD» ', air-defence wave: IDENT on the backslash, liner wave 1: «Шасси» . and «Курсор кабины» Left Alt, liner wave 4: the AP disconnect , and the A/THR disconnect -), every default a real key, all different, none the menu's ` and none vanilla's / the core's"
+        check(bad.length() == 0 && VehicleFn.values().length == 23 && VehicleFn.MENU_DEFAULT == 41,
+                "keys: 23 functions (cockpit wave: «Страница MFD» ', air-defence wave: IDENT on the backslash, liner wave 1: «Шасси» . and «Курсор кабины» Left Alt, liner wave 4: the AP disconnect , and the A/THR disconnect -, liner wave 5: «МФПУ» M - the map's letter, the MCDU wins in the liner), every default a real key, all different but that pair, none the menu's ` and none vanilla's / the core's"
                         + bad);
         int[] old = {33, 45, 48, 49, 47, 21, 44, 46, 24, 38, 50};       // F X B N V Y Z C O L M - the old KeyBindings' defaults
         boolean same = true;
@@ -113,10 +115,11 @@ final class SelfTestKeysSVA {
                     }
                     continue;
                 }
-                if (!keys.add(Integer.valueOf(f.defaultKey))) {
+                if (!keys.add(Integer.valueOf(f.defaultKey)) && f != VehicleFn.MCDU) {
                     bad.append(' ').append(t.key).append('/').append(f.key).append(" default clash");
                 }
-                boolean packet = !f.hold && f != VehicleFn.CRUISE && f != VehicleFn.MAP && f != VehicleFn.AP_PANEL && f != VehicleFn.MFD_PAGE;
+                boolean packet = !f.hold && f != VehicleFn.CRUISE && f != VehicleFn.MAP && f != VehicleFn.AP_PANEL && f != VehicleFn.MFD_PAGE
+                        && f != VehicleFn.MCDU;
                 if (packet != (f.action(t) >= 0)) {
                     bad.append(' ').append(t.key).append('/').append(f.key).append(" action ").append(f.action(t));
                 }

@@ -65,7 +65,7 @@ public final class LinerAfs {
     public static final int DETENT_HOLD = 6;
     /** The levers' detents in order (the clicks step through them). */
     public static final double[] DETENTS = {DET_IDLE, DET_CL, DET_FLX, DET_TOGA};
-    /** The FLEX temperature until the MCDU's PERF page (wave 5) sets one. */
+    /** Wave 5: the FLEX temperature comes from the MCDU's PERF page (LinerFms.flex; none - the FLX detent is plain MCT). */
     public static final int FLEX_TEMP = 45;
     /** Reversers: the cowls' travel (ticks), REV MAX's N1 (%), the reverse thrust's share of the forward (efficiency), the lever's step. */
     public static final int REV_TICKS = 40;
@@ -101,11 +101,17 @@ public final class LinerAfs {
     /** Approach capability (column 4). */
     public static final int CAP_NONE = 0, CAP_CAT1 = 1, CAP_CAT3_DUAL = 2;
     /** Callout codes past the heights: RETARD, V1. */
-    public static final int CALL_RETARD = 1000, CALL_V1 = 1001;
+    public static final int CALL_RETARD = 1000, CALL_V1 = 1001,
+            /** Wave 5: «MINIMUM» - the radio height through the DH or the altitude through the MDA (the MCDU's PERF APPR). */
+            CALL_MINIMUM = 1002;
     public static final int[] CALLOUTS = {100, 50, 40, 30, 20, 10};
     /** The FMA's message line (lang sva.liner.fma.KEY): none, man pitch trim, flaps (go-around), set the levers. */
-    public static final int MSG_NONE = 0, MSG_TRIM = 1, MSG_GA_FLAPS = 2, MSG_DECEL = 3;
-    public static final String[] MSG_KEYS = {"", "trim", "gaFlaps", "decel"};
+    public static final int MSG_NONE = 0, MSG_TRIM = 1, MSG_GA_FLAPS = 2, MSG_DECEL = 3,
+            /** Wave 5 (the FMS): T/D passed in cruise with the FCU altitude not set lower. */
+            MSG_FCU_ALT = 4;
+    public static final String[] MSG_KEYS = {"", "trim", "gaFlaps", "decel", "fcuAlt"};
+    /** Wave 5: the managed descent's path - the climb back onto it per block off it (b/t a block). */
+    public static final double PATH_GAIN = 0.02;
 
     // ---------------------------------------------------------------- state: the FCU
 
@@ -144,11 +150,20 @@ public final class LinerAfs {
     /** The ILS tuned (null none), the hand-picked station's key (empty: automatic), the stations near (the «Пульты» list). */
     public LinerIls.Station ils;
     public String ilsChosen = "";
+    /**
+     * Wave 5 (LinerFms, synced): FLEX (deg, 0 none), the V-speeds entered on the MCDU, the minimums (DH radio / MDA baro,
+     * m; -1 none), the IRS (0 nothing, 1 aligning, 2 waiting for IRS INIT), the managed descent's path altitude here (NaN
+     * none); server only: the plan's ILS (the destination runway's, key) - the auto-tuning's choice before the nearest.
+     */
+    public int flexTemp, dh = -1, mda = -1, irsState;
+    public boolean vsEntered;
+    public double pathAlt = Double.NaN;
+    public String ilsPlan = "";
     public final List<LinerIls.Station> ilsNear = new ArrayList<LinerIls.Station>();
 
     // server-only working values
     private int keyHold, override, airTicks, athrDisArm;
-    private double athrI, lastRa = Double.NaN, lastSpeed;
+    private double athrI, lastRa = Double.NaN, lastSpeed, lastShown = Double.NaN;
     private boolean retardDone, v1Done, wasGround = true, apIntent;
     /** Sound events this tick (the entity plays them): a callout's code, the cavalry charge's note (-1 none). */
     public int soundCall;
@@ -575,6 +590,15 @@ public final class LinerAfs {
         public double ilsRange = 4000, accelH = 30;
         /** The callouts on (config). */
         public boolean callouts = true;
+        /**
+         * Wave 5, the FMS (LinerFms.tick): the descent path's altitude here (NaN none), T/D passed, the V-speeds entered
+         * (b/t), FLEX (deg, 0 none), the managed speeds by the cost index (b/t), the approach phase and VAPP (b/t), the
+         * minimums (m, -1 none), the plan's ILS (key), the FMS' FMA message (MSG_*).
+         */
+        public double pathAlt = Double.NaN, v1In, vrIn, v2In, clbSpd = SPD_CLB, crzSpd = SPD_CRZ, desSpd = SPD_CRZ, vapp;
+        public boolean tdPassed, vEntered, apprActive;
+        public int flex, dh = -1, mda = -1, fmsMsg;
+        public String ilsPlan = "";
     }
 
     // ---------------------------------------------------------------- the levers
@@ -693,16 +717,25 @@ public final class LinerAfs {
             ceil = Math.min(ceil, HighLiftMath.LINER.maxSpeed[Math.max(1, Math.min(4, flaps))] - 5 / 72.0);
         }
         double t;
+        double clb = a == null ? SPD_CLB : a.clbSpd, crz = a == null ? SPD_CRZ : a.crzSpd, des = a == null ? SPD_CRZ : a.desSpd;
+        boolean appr = a != null && a.apprActive;
         if (ver == V_SRS) {
             t = Math.max(v2 > 0 ? v2 + V_SRS_ADD : floor, gaSpeed);
         } else if (flaps >= 1 || approachArmedOrOn()) {
             t = vls + V_APP_ADD;
+            if (appr && flaps >= 3 && a.vapp > 0) {
+                t = Math.max(t, a.vapp);                            // wave 5: the MCDU's VAPP in the landing configuration
+            }
+        } else if (appr) {
+            t = vls + 20 / 72.0;                                    // wave 5: the approach phase, clean - the manoeuvring speed
         } else if (ver == V_CLB || ver == V_OP_CLB || ver == V_EXP_CLB || ver == V_SRS) {
-            t = ver == V_EXP_CLB ? floor + 5 / 72.0 : SPD_CLB;
+            t = ver == V_EXP_CLB ? floor + 5 / 72.0 : clb;
         } else if (ver == V_EXP_DES) {
             t = ceil;
+        } else if (ver == V_DES || ver == V_OP_DES) {
+            t = des;
         } else {
-            t = SPD_CRZ;
+            t = crz;
         }
         return Math.max(floor, Math.min(ceil, t));
     }
@@ -735,12 +768,23 @@ public final class LinerAfs {
         aFloorV = a.stall * K_AFLOOR;
         aProt = a.stall * K_APROT;
         if (a.ground && a.speed < 0.3 && ver != V_SRS) {
-            double[] vs = vspeeds(a.liftOff, a.stall, a.mass);
-            v1 = vs[0];
-            vr = vs[1];
-            v2 = vs[2];
+            if (a.vEntered) {
+                v1 = a.v1In;                                        // wave 5: the MCDU's PERF TAKE OFF
+                vr = a.vrIn;
+                v2 = a.v2In;
+            } else {
+                double[] vs = vspeeds(a.liftOff, a.stall, a.mass);  // none entered: the guidance's own estimate (no PFD marks)
+                v1 = vs[0];
+                vr = vs[1];
+                v2 = vs[2];
+            }
+            vsEntered = a.vEntered;
             v1Done = false;
         }
+        flexTemp = a.flex;
+        dh = a.dh;
+        mda = a.mda;
+        ilsPlan = a.ilsPlan == null ? "" : a.ilsPlan;
         // ---- the ILS tuned
         tuneIls(a);
         // ---- AP: failures, the override
@@ -775,6 +819,7 @@ public final class LinerAfs {
         if (!a.ground && apOn() && !(ap1 && ap2) && (lat == L_LAND || ver == V_FLARE || ver == V_GS && a.ra < SINGLE_MIN) && a.ra < SINGLE_MIN) {
             apOff(false);
         }
+        pathAlt = ver == V_DES && !Double.isNaN(a.pathAlt) ? a.pathAlt : Double.NaN;   // wave 5: the managed descent's path
         targets(L, a);                                              // again with the modes as they now are
         // ---- thrust
         athrTick(L, a);
@@ -796,7 +841,7 @@ public final class LinerAfs {
         } else {
             cavPhase = 0;
         }
-        msg = L.fctl.law == LinerFctl.DIRECT && !a.ground ? MSG_TRIM : gaFlapsTicks > 0 ? MSG_GA_FLAPS : MSG_NONE;
+        msg = L.fctl.law == LinerFctl.DIRECT && !a.ground ? MSG_TRIM : gaFlapsTicks > 0 ? MSG_GA_FLAPS : a.fmsMsg;
         if (gaFlapsTicks > 0 && L.fctl.flapSetting() <= 2) {
             gaFlapsTicks = 0;
         }
@@ -961,7 +1006,7 @@ public final class LinerAfs {
                 setVer(V_ALT);
             }
         }
-        if (ver == V_ALT && cst && !Double.isNaN(a.routeAlt) && Math.abs(a.routeAlt - altT) > 1) {
+        if (ver == V_ALT && cst && (Double.isNaN(a.routeAlt) || Math.abs(a.routeAlt - altT) > 1)) {
             // ALT CST: the route's next constraint (or none in the way) - managed CLB / DES on to the FCU altitude
             cst = false;
             double target = indicatedToY(alt);
@@ -970,6 +1015,10 @@ public final class LinerAfs {
             } else if (target < a.y - 2) {
                 setVer(V_DES);
             }
+        }
+        // wave 5: the managed descent begins at the FMS' T/D (NAV, the FCU altitude set lower, not held by a constraint)
+        if (ver == V_ALT && !cst && lat == L_NAV && hdgMan && a.tdPassed && !Double.isNaN(a.pathAlt) && indicatedToY(alt) < a.y - 2) {
+            setVer(V_DES);
         }
         if (ver == V_ALT && (verArm & AV_CLB) != 0 && indicatedToY(alt) > a.y + 2 && lat != L_GA_TRK) {
             verArm &= ~AV_CLB;
@@ -1056,9 +1105,15 @@ public final class LinerAfs {
         } else if (!athr) {
             cmd = leverThr;
             mode = det == 3 ? T_MAN_TOGA : det == 2 ? (a.ground || ver == V_SRS && lat == L_RWY_TRK ? T_MAN_FLX : T_MAN_MCT) : T_NONE;
+            if (mode == T_MAN_FLX && flexTemp > 0) {
+                cmd = LinerFms.flexShare(flexTemp);                 // wave 5: the FLEX temperature's thrust
+            }
         } else if (lever > DET_CL + DET_EPS) {
             cmd = leverThr;                                         // above CL: manual thrust, the A/THR armed (blue)
             mode = det == 3 ? T_MAN_TOGA : det == 2 ? (a.ground || ver == V_SRS && lat == L_RWY_TRK ? T_MAN_FLX : T_MAN_MCT) : T_MAN_THR;
+            if (mode == T_MAN_FLX && flexTemp > 0) {
+                cmd = LinerFms.flexShare(flexTemp);
+            }
             lvrClb = !a.ground && a.ra >= a.accelH && (det == 2 || det == 3);
         } else {
             double limit = leverThr;
@@ -1068,7 +1123,7 @@ public final class LinerAfs {
             } else if (ver == V_SRS || ver == V_CLB || ver == V_OP_CLB || ver == V_EXP_CLB) {
                 cmd = limit;
                 mode = T_THR_CLB;
-            } else if (ver == V_DES || ver == V_OP_DES || ver == V_EXP_DES) {
+            } else if ((ver == V_DES || ver == V_OP_DES || ver == V_EXP_DES) && !(ver == V_DES && !Double.isNaN(pathAlt))) {
                 cmd = 0;
                 mode = T_THR_IDLE;
             } else {
@@ -1118,6 +1173,16 @@ public final class LinerAfs {
         if (!a.ground && a.ra > FLARE_H * 2) {
             retardDone = false;
         }
+        // wave 5: «MINIMUM» through the DH (radio) or the MDA (the altitude shown), descending with the gear down
+        double shown = shownAlt(a.y), wasShown = lastShown;
+        lastShown = shown;
+        if (!a.ground && L.gear.downLocked() && a.vy < 0) {
+            boolean viaDh = dh >= 0 && !Double.isNaN(was) && was > dh && a.ra <= dh;
+            boolean viaMda = mda >= 0 && !Double.isNaN(wasShown) && wasShown > mda && shown <= mda;
+            if (viaDh || viaMda) {
+                call(CALL_MINIMUM, a);
+            }
+        }
         // V1 on the take-off roll
         if (a.ground && v1 > 0 && !v1Done && lastSpeed < v1 && a.speed >= v1 && lever >= LinerFctl.TO_THR) {
             v1Done = true;
@@ -1147,9 +1212,11 @@ public final class LinerAfs {
             for (int i = 0; i < Math.min(4, l.size()); i++) {
                 ilsNear.add(l.get(i));
             }
-            LinerIls.Station s = LinerIls.pick(l, ilsChosen, a.x, a.y, a.z, a.hdg, a.ilsRange);
+            // wave 5: the MCDU's RAD NAV choice, else the plan's (the destination runway's ILS), else the nearest inbound
+            String want = ilsChosen != null && ilsChosen.length() > 0 ? ilsChosen : ilsPlan;
+            LinerIls.Station s = LinerIls.pick(l, want, a.x, a.y, a.z, a.hdg, a.ilsRange);
             // keep the tuned one while it stays in range (no hopping between parallel beacons)
-            if (ils != null && s != ils && (ilsChosen == null || ilsChosen.length() == 0)) {
+            if (ils != null && s != ils && (want == null || want.length() == 0)) {
                 for (LinerIls.Station o : l) {
                     if (o.key().equals(ils.key()) && LinerIls.dev(o, a.x, a.y, a.z, a.ilsRange * 1.2).locValid) {
                         s = o;
@@ -1254,7 +1321,11 @@ public final class LinerAfs {
             case V_OP_DES:
             case V_EXP_DES:
                 vy = Math.min(0, Math.max(-g.dive, LinerGuide.speedOnPitch(g.thrAcc, g.speed, spdT)));
-                if (ver == V_DES) {
+                if (ver == V_DES && !Double.isNaN(pathAlt)) {
+                    // wave 5: the FMS' descent path - its slope at this ground speed and back onto it (the A/THR keeps the speed)
+                    vy = -Math.max(0.3, g.gs) * Math.tan(Math.toRadians(LinerFms.DES_ANGLE)) + PATH_GAIN * (pathAlt - g.y);
+                    vy = Math.max(-g.dive, Math.min(0.05, vy));
+                } else if (ver == V_DES) {
                     vy = Math.max(vy, -0.25);
                 }
                 vy = Math.max(vy, LinerGuide.capture(altT - g.y));
@@ -1303,7 +1374,7 @@ public final class LinerAfs {
     /** Column 1: the thrust mode's text ("MAN FLX 45" with the temperature). */
     public String thrText() {
         if (thr == T_MAN_FLX) {
-            return T_NAMES[thr] + " " + FLEX_TEMP;
+            return flexTemp > 0 ? T_NAMES[thr] + " " + flexTemp : T_NAMES[thr];   // wave 5: the MCDU's FLEX
         }
         return T_NAMES[Math.max(0, Math.min(T_NAMES.length - 1, thr))];
     }
@@ -1369,7 +1440,7 @@ public final class LinerAfs {
     // ---------------------------------------------------------------- sync
 
     /** Words in pack(). */
-    public static final int WORDS = 54;
+    public static final int WORDS = 60;
 
     public int[] pack() {
         int f = (ap1 ? 1 : 0) | (ap2 ? 2 : 0) | (athr ? 4 : 0) | (spdMan ? 8 : 0) | (hdgMan ? 16 : 0) | (trk ? 32 : 0) | (std ? 64 : 0) | (cst ? 128 : 0)
@@ -1381,7 +1452,9 @@ public final class LinerAfs {
                 r(v1 * 7200), r(v2 * 7200), r(vr * 7200), r(lever * 1000), r(rev * 1000), r(revPos[0] * 100) | r(revPos[1] * 100) << 8, call, callSeq,
                 ils == null ? 0 : r(ils.tx() * 10), ils == null ? 0 : r(ils.tz() * 10), ils == null ? 0 : r(ils.elev * 10),
                 ils == null ? 0 : r(ils.course * 10), ils == null ? 0 : r(ils.angle * 100), ils == null ? 0 : ils.freq, id[0], id[1], r(thrCmd * 1000),
-                r(vsT * 20000), cavalry != 0 ? 1 : 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+                r(vsT * 20000), cavalry != 0 ? 1 : 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // wave 5: FLEX, the V-speeds entered + the IRS state, the minimums, the descent path
+                flexTemp, (vsEntered ? 1 : 0) | irsState << 1, dh, mda, Double.isNaN(pathAlt) ? Integer.MIN_VALUE : r(pathAlt * 10), 0};
         // the stations near (the «Пульты» list: ident, frequency) and which one is hand-picked (0 automatic)
         int chosen = 0;
         for (int i = 0; i < Math.min(4, ilsNear.size()); i++) {
@@ -1395,7 +1468,7 @@ public final class LinerAfs {
             }
         }
         w[52] = Math.min(4, ilsNear.size()) | chosen << 4;
-        w[53] = 0;
+        w[53] = ilsChosen != null && ilsChosen.length() > 0 ? 1 : ilsPlan != null && ilsPlan.length() > 0 && ils != null && ilsPlan.equals(ils.key()) ? 2 : 0;
         return w;
     }
 
@@ -1476,6 +1549,13 @@ public final class LinerAfs {
         thrCmd = w[o + 37] / 1000.0;
         vsT = w[o + 38] / 20000.0;
         cavalry = w[o + 39] != 0 ? -1 : 0;
+        ilsSource = w[o + 53];
+        flexTemp = w[o + 54];
+        vsEntered = (w[o + 55] & 1) != 0;
+        irsState = w[o + 55] >> 1 & 3;
+        dh = w[o + 56];
+        mda = w[o + 57];
+        pathAlt = w[o + 58] == Integer.MIN_VALUE ? Double.NaN : w[o + 58] / 10.0;
         ilsNear.clear();
         int n = w[o + 52] & 15;
         nearChosen = w[o + 52] >> 4 & 15;
@@ -1489,6 +1569,8 @@ public final class LinerAfs {
 
     /** A client's mirror: the «Пульты» list's hand-picked station (1..4; 0 automatic). */
     public int nearChosen;
+    /** Wave 5, a client's mirror: how the ILS is tuned - 0 automatic (the nearest), 1 by hand (the MCDU / the list), 2 by the plan. */
+    public int ilsSource;
 
     static int r(double v) {
         return (int) Math.round(v);

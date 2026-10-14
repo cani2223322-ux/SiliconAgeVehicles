@@ -178,6 +178,8 @@ public final class LinerSystems {
         // wave 4
         /** The aircraft for the auto flight system (the entity fills it; ground / height / altitude / speed are copied from above). */
         public LinerAfs.Air air = new LinerAfs.Air();
+        /** Wave 5: the fuel's consumption multiplier (the config) for the FMS' predictions. */
+        public double burn = 1;
     }
 
     // ---------------------------------------------------------------- state
@@ -266,6 +268,14 @@ public final class LinerSystems {
 
     /** The FCU, AP / FD, A/THR, the levers and the reversers, the ILS, the callouts (LinerAfs). */
     public final LinerAfs afs = new LinerAfs();
+    /**
+     * Wave 5: the FMGC (the plan, INIT, PERF, the profile - the data both MCDUs share) and the two MCDUs (each its own page
+     * and scratchpad). Server-authoritative; the clients get the MCDU screens and the ND's plan as their own packets.
+     */
+    public final LinerFms fms = new LinerFms();
+    public final LinerMcdu mcdu = new LinerMcdu();
+    /** Wave 5: ticks counted (the FMS' profile runs every few). */
+    private int ticks;
     /** The last tick's aircraft (the FCU's clicks between ticks read it; null before the first tick). */
     public LinerAfs.Air lastAir;
     /** Events of this tick past E_*: the AP's cavalry charge note, a callout (the entity plays them - LinerAfs.cavNote / soundCall). */
@@ -1396,12 +1406,14 @@ public final class LinerSystems {
             // gravity feed, the STATUS reminder
             M_REFUEL = 1 << 20, M_XFEED = 1 << 21, M_TO_NORMAL = 1 << 22, M_NORMAL = 1 << 23, M_GRAV_FEED = 1 << 24, M_STS = 1 << 25,
             // wave 4: the reversers deployed (green «РЕВ»)
-            M_REV = 1 << 26;
+            M_REV = 1 << 26,
+            // wave 5: the IRS aligning (green «ИНС ВЫСТ.»), waiting for the MCDU's IRS INIT (amber)
+            M_IRS_ALIGN = 1 << 27, M_IRS_INIT = 1 << 28;
     public static final String[] MEMO_KEYS = {"apuAvail", "apuBleed", "park", "beaconOff", "ext", "door", "stairs", "galley", "seatBelts", "noSmoking",
             "onBat", "engStart", "idle", "quick", "splArm", "autoBrk", "rat", "ptu", "gravity", "brkFan", "refuel", "xfeed", "toNormal", "normal",
-            "gravFeed", "sts", "rev"};
+            "gravFeed", "sts", "rev", "irsAlign", "irsInit"};
     /** Memos drawn amber (the rest green). */
-    public static final int MEMO_AMBER = M_BEACON_OFF | M_DOOR | M_GALLEY | M_ON_BAT | M_RAT | M_GRAVITY | M_GRAV_FEED;
+    public static final int MEMO_AMBER = M_BEACON_OFF | M_DOOR | M_GALLEY | M_ON_BAT | M_RAT | M_GRAVITY | M_GRAV_FEED | M_IRS_INIT;
 
     /** The memo bits now (both sides compute them from the synced state). */
     public int memos(boolean ground) {
@@ -1484,6 +1496,11 @@ public final class LinerSystems {
         }
         if (afs.revPos[0] > 0.05 || afs.revPos[1] > 0.05) {
             m |= M_REV;
+        }
+        if (afs.irsState == 1) {
+            m |= M_IRS_ALIGN;
+        } else if (afs.irsState == 2) {
+            m |= M_IRS_INIT;
         }
         return m;
     }
@@ -1718,6 +1735,17 @@ public final class LinerSystems {
         a.y = e.alt;
         a.speed = Math.max(e.airspeed, e.speed);
         afs.lever = clamp(e.throttle, 0, 1);
+        // wave 5: the FMS first - the constraints, the path, the V-speeds, FLEX, the managed speeds for the AFS
+        LinerFms.Ctx c = new LinerFms.Ctx();
+        c.x = a.x;
+        c.z = a.z;
+        c.y = a.y;
+        c.gs = a.speed;
+        c.ground = a.ground;
+        c.fob = tanks();
+        c.gw = a.mass;
+        c.burn = e.burn;
+        fms.tick(this, a, c, ticks++);
         afs.tick(this, e, a);
         lastAir = a;
         if (afs.cavNote >= 0 || afs.soundCall != 0) {
@@ -1979,7 +2007,13 @@ public final class LinerSystems {
         NBTTagCompound a = new NBTTagCompound();
         afs.writeNBT(a);
         t.setTag(K_W4, a);
+        NBTTagCompound f = new NBTTagCompound();
+        fms.writeNBT(f);
+        t.setTag(K_W5, f);
     }
+
+    /** Wave 5: the FMS (INIT, the fuel, PERF, the plan and its TMPY). */
+    public static final String K_W5 = "W5Fms";
 
     /** Wave 4: the FCU's values, the levers, the hand-picked ILS. */
     public static final String K_W4 = "W4Afs";
@@ -2048,6 +2082,9 @@ public final class LinerSystems {
         }
         if (t.hasKey(K_W4)) {
             afs.readNBT(t.getCompoundTag(K_W4));
+        }
+        if (t.hasKey(K_W5)) {
+            fms.readNBT(t.getCompoundTag(K_W5));
         }
         int[] w3 = t.getIntArray(K_W3);
         if (w3.length == 5) {

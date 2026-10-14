@@ -70,6 +70,10 @@ public class CommonProxySVA {
     public void openIls(com.sva.block.TileEntityIlsSVA te) {
     }
 
+    /** Liner wave 5: an MCDU's screen (kind 0 / 1) or the ND's plan (kind 2) of a liner arrived (client: kept for the drawing). */
+    public void mcduData(int entity, int kind, String data) {
+    }
+
     /** A server correction for the local driver (applied on the client thread). */
     public void queueCorrection(NetSVA.Correct m) {
     }

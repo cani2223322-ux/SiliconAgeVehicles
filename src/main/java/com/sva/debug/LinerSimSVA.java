@@ -36,6 +36,8 @@ final class LinerSimSVA {
     int touchAt = -1, ticks;
     boolean insReady = true;
     double mass = 17500;
+    /** Wave 5: the vehicle's route (the FMS' bridge keeps it). */
+    com.sva.vehicle.RouteMath.Plan route;
 
     LinerSimSVA() {
         L = new LinerSystems();
@@ -135,6 +137,14 @@ final class LinerSimSVA {
         a.ilsRange = 4000;
         a.accelH = 30;
         a.callouts = true;
+        if (L.fms.hasPlan()) {
+            // wave 5: NAV through the FMS' bridge, as the entity does (LinerLogicSVA.air)
+            double rate = VehicleType.LINER.turnRate * Math.max(0, Math.min(1, b.speed / Math.max(1e-6, p.stall)));
+            com.sva.vehicle.LinerFms.Nav n = L.fms.nav(route, b.x, b.z, a.hdg, b.speed, rate);
+            route = n.plan;
+            a.hasRoute = route != null && !route.isEmpty() && !route.done();
+            b.routeHdg = n.g == null || !a.hasRoute ? Double.NaN : n.g.heading;
+        }
         a.hasRoute = !Double.isNaN(b.routeHdg);
         a.routeHdg = b.routeHdg;
         L.tick(e);
