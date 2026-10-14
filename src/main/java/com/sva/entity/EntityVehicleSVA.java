@@ -164,7 +164,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
              */
             A_LINER_QUICK = 42, A_LINER_DOOR = 43, A_BATTERY2_OUT = 44, A_LINER_GEAR = 45,
             /** Liner wave 4 (the pilots): the sidestick's red AP disconnect, the thrust levers' instinctive A/THR disconnect. */
-            A_LINER_APDISC = 46, A_LINER_ATHRDISC = 47;
+            A_LINER_APDISC = 46, A_LINER_ATHRDISC = 47,
+            /** Liner wave 6 (a passenger): his own reading light on / off (LinerLights.reading). */
+            A_LINER_READING = 48;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -482,6 +484,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     private int linerAglAt = -100, linerMuAt = -100;
     /** World tests: the liner's systems believe it flies (the gear's logic) while it stands on its test strip. */
     public boolean debugLinerAir;
+    /**
+     * Liner wave 6, world tests: the icing for this liner (the world tests' liners fly without it), visible moisture forced,
+     * a biome temperature (NaN: the biome's own) and the height the air is taken at (NaN: its own).
+     */
+    public boolean debugLinerIcing, debugLinerWet;
+    public double debugLinerOat = Double.NaN, debugLinerAirY = Double.NaN;
 
     void vanillaSound(String name, float volume, float pitch) {
         vanillaShot(name, volume, pitch);
@@ -1853,7 +1861,14 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return t.plane;
         }
         boolean ab = isAirbrake(), air = !onGround;
-        return HighLiftMath.params(s, t.plane, getFlaps(), slatsOut(), ab && air, !air && (ab || groundSpoilersUp()));
+        PlaneParams p = HighLiftMath.params(s, t.plane, getFlaps(), slatsOut(), ab && air, !air && (ab || groundSpoilersUp()));
+        com.sva.vehicle.LinerSystems ls = t == VehicleType.LINER ? state.liner() : null;
+        if (ls != null && ls.ice.wing > 0.001) {
+            // liner wave 6: wing ice - the stall and lift-off speeds up, more drag (both sides read the synced amount)
+            com.sva.vehicle.LinerIce ic = ls.ice;
+            p = p.derive(p.stall * ic.stallFactor(), p.liftOff * ic.liftOffFactor(), p.drag * ic.dragFactor(), p.cost, p.brake, p.airbrake);
+        }
+        return p;
     }
 
     /**
@@ -5578,6 +5593,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 syncWatcher();
             } else {
                 LinerLogicSVA.quick(this, p);
+            }
+            return;
+        }
+        if (a == A_LINER_READING && state.type == VehicleType.LINER) {
+            if (carries(p)) {
+                LinerLogicSVA.reading(this, p);                     // liner wave 6: any passenger, his own seat's light
             }
             return;
         }

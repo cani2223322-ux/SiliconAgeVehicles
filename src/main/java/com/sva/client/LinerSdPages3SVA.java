@@ -204,7 +204,7 @@ public final class LinerSdPages3SVA {
             float x = zx[z] * s;
             LinerGfxSVA.text(zone[z], x, 72 * s, 7.5F * s, WHT, 0, 60 * s);
             LinerGfxSVA.text(String.valueOf(Math.round(L.cabT[z])), x, 92 * s, 12 * s, GRN, 0);
-            LinerGfxSVA.text(String.valueOf(Math.round(LinerSystems.CAB_T[z])), x, 110 * s, 8 * s, CYN, 0);
+            LinerGfxSVA.text(String.valueOf(Math.round(com.sva.vehicle.LinerIce.zoneTarget(L, z))), x, 110 * s, 8 * s, CYN, 0);
             // the trim air valves into the hot-air line below
             LinerGfxSVA.line(x, y1, x, 150 * s, 1.2F * s, p1 || p2 ? GRN : WHT);
             LinerDisplaysSVA.valve(x, 142 * s, p1 || p2, s);
@@ -212,12 +212,18 @@ public final class LinerSdPages3SVA {
         LinerGfxSVA.line(zx[0] * s, 150 * s, 236 * s, 150 * s, 1.2F * s, p1 || p2 ? GRN : WHT);
         LinerDisplaysSVA.valve(244 * s, 150 * s, p1 || p2, s);
         LinerGfxSVA.text(tr("cond.hot"), 262 * s, 164 * s, 7 * s, WHT, 1);
-        // packs, the cabin altitude and its rate
+        // packs (wave 6: their flow, %), the cabin altitude and its rate, the outside air
         for (int i = 0; i < 2; i++) {
             boolean on = L.on(i == 0 ? LinerControls.PACK1 : LinerControls.PACK2), flow = i == 0 ? p1 : p2;
             float x = (i == 0 ? 20 : 150) * s;
             LinerGfxSVA.text(tr("pack", Integer.valueOf(i + 1)), x, 186 * s, 8 * s, WHT, -1);
-            LinerGfxSVA.text(lang(on ? "sva.liner.pos.on" : "sva.liner.pos.off"), x + 50 * s, 186 * s, 8 * s, flow ? GRN : on ? AMB : WHT, -1);
+            String st = flow ? (i == 0 ? L.ice.pack1Flow : L.ice.pack2Flow) + " %" : lang(on ? "sva.liner.pos.on" : "sva.liner.pos.off");
+            LinerGfxSVA.text(st, x + 50 * s, 186 * s, 8 * s, flow ? GRN : on ? AMB : WHT, -1);
+        }
+        LinerGfxSVA.text(tr("cond.oat"), 20 * s, 36 * s, 8 * s, WHT, -1);
+        LinerGfxSVA.text(Math.round(L.ice.oatNow) + " C", 96 * s, 36 * s, 9 * s, GRN, -1);
+        if (L.ice.freezing()) {
+            LinerGfxSVA.text(tr("cond.cold"), 110 * s, 166 * s, 8 * s, AMB, 0, 150 * s);
         }
         LinerGfxSVA.text(tr("cond.cabAlt"), 20 * s, 204 * s, 8 * s, WHT, -1);
         LinerGfxSVA.text(Math.round(L.cabAlt) + " " + tr("m"), 132 * s, 204 * s, 9 * s, GRN, 1);
@@ -358,7 +364,8 @@ public final class LinerSdPages3SVA {
             LinerSystems.Eng g = L.eng[i];
             LinerGfxSVA.text(mb(L.fuel.used[i]), x, 50 * s, 9 * s, GRN, 0);
             LinerGfxSVA.text(LinerGfxSVA.num(15.5 - (g.running() ? 0.3 : 0), 1), x, 72 * s, 9 * s, GRN, 0);
-            LinerGfxSVA.text(LinerGfxSVA.num(g.running() ? 0.8 + 0.1 * i : 0, 1), x, 92 * s, 9 * s, GRN, 0);
+            double vib = L.ice.vib(i, g.running());                 // wave 6: the engine's ice shakes it
+            LinerGfxSVA.text(LinerGfxSVA.num(vib, 1), x, 92 * s, 9 * s, vib > 3 ? AMB : GRN, 0);
         }
         LinerGfxSVA.text(mb(L.fuel.usedTotal()) + " " + tr("mb"), 140 * s, 62 * s, 7.5F * s, GRN, 0);
         LinerGfxSVA.line(10 * s, 110 * s, 270 * s, 110 * s, 1F * s, GREY);

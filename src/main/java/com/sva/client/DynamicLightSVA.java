@@ -113,8 +113,7 @@ public final class DynamicLightSVA {
             double d2 = v.getDistanceSqToEntity(player);
             boolean own = HudVehicleSVA.vehicleOf(Minecraft.getMinecraft().thePlayer) == v;
             double range = ConfigSVA.dynamicLightRange;
-            if (v.isDead || !own && (ConfigSVA.dynamicLightVehicles <= 0 || d2 > range * range) || !v.powered() || !VehicleLights.hasHead(v.getVehicleType().model)
-                    || !v.lightOn(VehicleLights.HEAD)) {
+            if (v.isDead || !own && (ConfigSVA.dynamicLightVehicles <= 0 || d2 > range * range) || !v.powered() || !headlights(v)) {
                 continue;
             }
             double key = own ? -1 : d2;
@@ -136,6 +135,10 @@ public final class DynamicLightSVA {
      */
     private static void beamCells(World w, EntityVehicleSVA v, Map<Long, Integer> want) {
         VehicleType t = v.getVehicleType();
+        if (t == VehicleType.LINER) {
+            LinerLightsSVA.cells(w, v, want);                       // liner wave 6: its landing / taxi / turn-off beams
+            return;
+        }
         if (t.movement.flies && v.anim.height > LANDING_HEIGHT || VehicleLightsSVA.darkness(v) < 0.3F) {
             return;
         }
@@ -179,7 +182,21 @@ public final class DynamicLightSVA {
         }
     }
 
-    private static void put(World w, Map<Long, Integer> want, int x, int y, int z, int level) {
+    /**
+     * Has lit headlights: the vehicles' HEAD lamps by their switch; liner wave 6 - the SA-320's landing, take-off, taxi or
+     * turn-off lights shining (config vehicles.linerDynamicLight).
+     */
+    static boolean headlights(EntityVehicleSVA v) {
+        if (v.getVehicleType() == VehicleType.LINER) {
+            com.sva.vehicle.LinerSystems L = v.liner();
+            int beams = com.sva.vehicle.LinerLights.X_LAND_L | com.sva.vehicle.LinerLights.X_LAND_R | com.sva.vehicle.LinerLights.X_TAXI
+                    | com.sva.vehicle.LinerLights.X_TO | com.sva.vehicle.LinerLights.X_RTO;
+            return ConfigSVA.linerDynamicLight && L != null && (L.lights.ext & beams) != 0;
+        }
+        return VehicleLights.hasHead(v.getVehicleType().model) && v.lightOn(VehicleLights.HEAD);
+    }
+
+    static void put(World w, Map<Long, Integer> want, int x, int y, int z, int level) {
         if (level <= 0 || !w.blockExists(x, y, z) || w.getBlock(x, y, z).isOpaqueCube()) {
             return;
         }

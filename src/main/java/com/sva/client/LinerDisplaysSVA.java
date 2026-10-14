@@ -433,7 +433,7 @@ public final class LinerDisplaysSVA {
         LinerGfxSVA.line(0, 244 * s, w, 244 * s, 1F * s, WHT);
         LinerGfxSVA.line(90 * s, 244 * s, 90 * s, h, 1F * s, WHT);
         LinerGfxSVA.line(190 * s, 244 * s, 190 * s, h, 1F * s, WHT);
-        int sat = (int) Math.round(15 - Math.max(0, v.posY - 64) * 0.0065 * 10);
+        int sat = (int) Math.round(L.ice.oatNow);                  // wave 6: the outside air by the biome and the height (LinerIce)
         int tat = sat + (int) Math.round(kmh(v) / 72 * 4);
         LinerGfxSVA.text("TAT", 6 * s, 254 * s, 8 * s, WHT, -1);
         LinerGfxSVA.text((tat >= 0 ? "+" : "") + tat + " C", 84 * s, 254 * s, 8 * s, GRN, 1);
@@ -565,7 +565,7 @@ public final class LinerDisplaysSVA {
         }
     }
 
-    private static void sdElec(LinerSystems L, float s) {
+    static void sdElec(LinerSystems L, float s) {
         // АКБ 1 / 2 over the ШИНА АКБ
         box(16 * s, 28 * s, 70 * s, 64 * s, tr("bat", Integer.valueOf(1)), L.bat1V > 0 ? LinerGfxSVA.num(L.bat1V, 1) + " " + tr("v") : "",
                 L.bat1V > 0 ? signed(L.bat1A) + " " + tr("a") : "", L.bat1On, s);
@@ -586,14 +586,21 @@ public final class LinerDisplaysSVA {
         LinerGfxSVA.text(tr("tie"), 140 * s, 142 * s, 7 * s, WHT, 0);
         valve(140 * s, 152 * s, L.on(LinerControls.BUS_TIE) && (ac1 || ac2), s);
         if (L.galleyShed) {
-            LinerGfxSVA.text(Lang.tr("sva.liner.memo.galley"), 140 * s, 168 * s, 8 * s, AMB, 0);
+            LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.memo.galley"), 140 * s, 168 * s, 8 * s, AMB, 0);
         }
+        // wave 6: the loads - the heaters, the lights, the galley (shed: off)
+        LinerGfxSVA.text(tr("loads"), 140 * s, 66 * s, 7 * s, WHT, 0);
+        LinerGfxSVA.text(tr("load.heat") + " " + L.loadHeat + " %", 140 * s, 80 * s, 7.5F * s, GRN, 0, 76 * s);
+        LinerGfxSVA.text(tr("load.light") + " " + L.loadLights + " %", 140 * s, 92 * s, 7.5F * s, GRN, 0, 76 * s);
+        boolean galley = L.on(LinerControls.GALLEY) && L.acPowered();
+        LinerGfxSVA.text(tr("load.galley") + " " + (L.galleyShed ? LinerSdPagesSVA.lang("sva.liner.pos.off") : galley ? LinerSystems.LOAD_GALLEY * 2 + " %" : "0 %"),
+                140 * s, 104 * s, 7.5F * s, L.galleyShed ? AMB : GRN, 0, 76 * s);
         // the sources: ГЕН 1, ГЕН ВСУ, ВНЕШН. ПИТ, ГЕН 2
         src(10 * s, 180 * s, 66 * s, 236 * s, tr("gen", Integer.valueOf(1)), L.gen1On, L.loadGen1, s);
         src(72 * s, 180 * s, 130 * s, 236 * s, tr("apugen"), L.apuGenOn, L.loadApu, s);
         LinerGfxSVA.frameRect(136 * s, 180 * s, 206 * s, 206 * s, 1.2F * s, L.extOn ? WHT : GREY);
         LinerGfxSVA.text(tr("ext"), 171 * s, 188 * s, 7 * s, WHT, 0);
-        LinerGfxSVA.text(L.extOn ? L.loadExt + " %" : L.extAvail ? Lang.tr("sva.liner.pos.avail") : tr("none"), 171 * s, 199 * s, 8 * s,
+        LinerGfxSVA.text(L.extOn ? L.loadExt + " %" : L.extAvail ? LinerSdPagesSVA.lang("sva.liner.pos.avail") : tr("none"), 171 * s, 199 * s, 8 * s,
                 L.extOn || L.extAvail ? GRN : WHT, 0);
         src(212 * s, 180 * s, 270 * s, 236 * s, tr("gen", Integer.valueOf(2)), L.gen2On, L.loadGen2, s);
         LinerGfxSVA.text(tr("rat"), 171 * s, 224 * s, 7 * s, GREY, 0);
@@ -624,7 +631,7 @@ public final class LinerDisplaysSVA {
             LinerGfxSVA.text("115 " + tr("v"), (x0 + x1) / 2, y0 + 32 * s, 8 * s, GRN, 0);
             LinerGfxSVA.text("400 " + tr("hz"), (x0 + x1) / 2, y0 + 44 * s, 8 * s, GRN, 0);
         } else {
-            LinerGfxSVA.text(Lang.tr("sva.liner.pos.off"), (x0 + x1) / 2, y0 + 28 * s, 8 * s, WHT, 0);
+            LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.pos.off"), (x0 + x1) / 2, y0 + 28 * s, 8 * s, WHT, 0);
         }
     }
 

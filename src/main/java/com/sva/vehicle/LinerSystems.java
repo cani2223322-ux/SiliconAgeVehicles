@@ -180,6 +180,9 @@ public final class LinerSystems {
         public LinerAfs.Air air = new LinerAfs.Air();
         /** Wave 5: the fuel's consumption multiplier (the config) for the FMS' predictions. */
         public double burn = 1;
+        /** Wave 6: the outside air (°C, moisture, the icing model on) - LinerIce; the true airspeed (km/h) a probe freezes at. */
+        public LinerIce.Air iceAir = new LinerIce.Air();
+        public double kmh;
     }
 
     // ---------------------------------------------------------------- state
@@ -280,6 +283,15 @@ public final class LinerSystems {
     public LinerAfs.Air lastAir;
     /** Events of this tick past E_*: the AP's cavalry charge note, a callout (the entity plays them - LinerAfs.cavNote / soundCall). */
     public static final int E_AFS = 2048;
+    /** Wave 6: the exterior / interior lights and the signs (LinerLights), the anti-ice, icing and air conditioning (LinerIce). */
+    public final LinerLights lights = new LinerLights();
+    public final LinerIce ice = new LinerIce();
+    /** Wave 6: the heaters' and the lights' share of the generators' load (%: the ЭЛЕКТР page). */
+    public int loadHeat, loadLights;
+    /** Wave 6: events of this tick past E_*: a cabin sign changed (the chime), ice shed off by the anti-ice (chunks fly). */
+    public static final int E_SIGN = 4096, E_ICE_SHED = 8192;
+    /** Wave 6: the airspeed was unreliable last tick (the AP / A/THR let go once when it becomes so). */
+    private boolean unreliableBefore;
 
     // EU / mB of this tick (outputs for the entity)
     /** EU taken from АКБ 1 this tick (negative: charged into it). */
@@ -490,6 +502,11 @@ public final class LinerSystems {
         // ---- loads: per bus, then per source; one generator in flight (or any over 100 %) sheds the galley
         int l1 = LOAD_BUS + LOAD_DU + (on(LinerControls.PACK1) ? LOAD_PACK : 0) + LOAD_CABIN / 2;
         int l2 = LOAD_BUS + LOAD_DU + (on(LinerControls.PACK2) ? LOAD_PACK : 0) + LOAD_CABIN / 2;
+        // wave 6: the heaters (window / probe heat) and the lights (the last tick's) - half on each bus
+        loadHeat = ice.load();
+        loadLights = LinerLights.load(lights.ext, LinerLights.cabinStep(this, acBefore || extOn, galleyShed), lights.reading);
+        l1 += (loadHeat + loadLights + 1) / 2;
+        l2 += (loadHeat + loadLights) / 2;
         int galley = on(LinerControls.GALLEY) ? LOAD_GALLEY : 0;
         int sources = (gen1On ? 1 : 0) + (gen2On ? 1 : 0) + (apuGenOn ? 1 : 0) + (extOn ? 1 : 0);
         int[] load = loads(l1 + galley, l2 + galley);
@@ -538,6 +555,22 @@ public final class LinerSystems {
         }
         burnFuel();
         wave2Tick(e);
+        // wave 6: the anti-ice and the icing (after the bleed and the engines), the lights and the signs (after the gear)
+        ice.tick(this, e, e.iceAir, e.kmh);
+        if (ice.shed) {
+            events |= E_ICE_SHED;
+        }
+        boolean unrel = ice.unreliable();
+        if (unrel && !unreliableBefore && !e.ground) {
+            afs.apOff(false);                                       // simplified until the ADIRS wave: the AP / A/THR let go
+            if (afs.athr) {
+                afs.athrOff(false);
+            }
+        }
+        unreliableBefore = unrel;
+        if (lights.tick(this, powered(), acPowered(), e.ground, gear.pos, at(LinerControls.FLAPS))) {
+            events |= E_SIGN;
+        }
         // wave 3: every warning / caution through the ECAM, then the SD's automatic page; the cabin
         ecam.tick(this, e);
         autoSd = ecam.autoPage(this, e);
@@ -874,14 +907,23 @@ public final class LinerSystems {
                     g.ticks = 0;
                     break;
                 }
-                // wave 4: the AFS' thrust (the levers' own without the A/THR) or the reverse's N1
-                double want = afs.n1Want(i);
-                double d = want - g.n1;
-                g.n1 += clamp(d * SPOOL, -SPOOL_MAX, SPOOL_MAX);
+                if (ice.flameout(i)) {
+                    g.fault = F_FLAMEOUT;                           // wave 6: severe ice on its lip - the engine flames out
+                    g.state = E_DOWN;
+                    g.ticks = 0;
+                    break;
+                }
+                // wave 4: the AFS' thrust (the levers' own without the A/THR) or the reverse's N1; wave 6: the anti-ice's
+                // bleed takes off the N1 limit, the engine's ice shakes the N1
+                double want = Math.min(afs.n1Want(i), TOGA_N1 - ice.n1Loss(i));
+                double jit = ice.jitter(i, ticks);
+                double d = want - (g.n1 - ice.jit[i]);
+                g.n1 += clamp(d * SPOOL, -SPOOL_MAX, SPOOL_MAX) + jit - ice.jit[i];
+                ice.jit[i] = jit;
                 double k = clamp((g.n1 - IDLE_N1) / (TOGA_N1 - IDLE_N1), 0, 1);
                 g.n2 = IDLE_N2 + (99 - IDLE_N2) * Math.pow(k, 0.6);
                 g.egt += (IDLE_EGT + (EGT_MAX - 40 - IDLE_EGT) * Math.pow(k, 1.3) - g.egt) * 0.06;
-                g.ff = IDLE_FF + (TOGA_FF - IDLE_FF) * Math.pow(k, 1.4);
+                g.ff = (IDLE_FF + (TOGA_FF - IDLE_FF) * Math.pow(k, 1.4)) * ice.ffFactor(i);
                 break;
             }
             case E_ABORT:
@@ -1075,10 +1117,11 @@ public final class LinerSystems {
      */
     private void cabinTick(Env e) {
         boolean p1 = on(LinerControls.PACK1) && ductL > 0, p2 = on(LinerControls.PACK2) && ductR > 0;
-        double out = sat(e.alt) + (e.ground ? 6 : 0);
+        // wave 6: the outside air by the biome and the height (LinerIce.oat), the zones' targets from the selectors
+        double out = (Double.isNaN(e.iceAir.oat) ? sat(e.alt) : e.iceAir.oat) + (e.ground ? 6 : 0);
         for (int z = 0; z < 3; z++) {
             boolean blow = z < 2 ? p1 || p2 : p2 || p1;
-            double t = blow ? CAB_T[z] : out;
+            double t = blow ? LinerIce.zoneTarget(this, z) : out;
             cabT[z] += (t - cabT[z]) * (blow ? 0.004 : 0.0005);
         }
         double above = Math.max(0, e.alt - 64);
@@ -1273,6 +1316,13 @@ public final class LinerSystems {
         if (c == LinerControls.BRK_FAN) {
             return gear.hot();
         }
+        // wave 6: the anti-ice's ОТКАЗ - the wing's without the bleed's pressure, an engine's without its own bleed in flight
+        if (c == LinerControls.AI_WING) {
+            return ice.wingFault;
+        }
+        if (c == LinerControls.AI_ENG1 || c == LinerControls.AI_ENG2) {
+            return ice.engFault[c == LinerControls.AI_ENG1 ? 0 : 1];
+        }
         LinerControls.Ctl[] pb = computers();
         for (int i = 0; i < pb.length; i++) {
             if (c == pb[i]) {
@@ -1408,10 +1458,12 @@ public final class LinerSystems {
             // wave 4: the reversers deployed (green «РЕВ»)
             M_REV = 1 << 26,
             // wave 5: the IRS aligning (green «ИНС ВЫСТ.»), waiting for the MCDU's IRS INIT (amber)
-            M_IRS_ALIGN = 1 << 27, M_IRS_INIT = 1 << 28;
+            M_IRS_ALIGN = 1 << 27, M_IRS_INIT = 1 << 28,
+            // wave 6: the wing's / the engines' anti-ice on (green «ПОС КРЫЛА», «ПОС ДВ»)
+            M_WING_AI = 1 << 29, M_ENG_AI = 1 << 30;
     public static final String[] MEMO_KEYS = {"apuAvail", "apuBleed", "park", "beaconOff", "ext", "door", "stairs", "galley", "seatBelts", "noSmoking",
             "onBat", "engStart", "idle", "quick", "splArm", "autoBrk", "rat", "ptu", "gravity", "brkFan", "refuel", "xfeed", "toNormal", "normal",
-            "gravFeed", "sts", "rev", "irsAlign", "irsInit"};
+            "gravFeed", "sts", "rev", "irsAlign", "irsInit", "wingAi", "engAi"};
     /** Memos drawn amber (the rest green). */
     public static final int MEMO_AMBER = M_BEACON_OFF | M_DOOR | M_GALLEY | M_ON_BAT | M_RAT | M_GRAVITY | M_GRAV_FEED | M_IRS_INIT;
 
@@ -1501,6 +1553,12 @@ public final class LinerSystems {
             m |= M_IRS_ALIGN;
         } else if (afs.irsState == 2) {
             m |= M_IRS_INIT;
+        }
+        if (ice.wingOn) {
+            m |= M_WING_AI;
+        }
+        if (ice.engOn[0] || ice.engOn[1]) {
+            m |= M_ENG_AI;
         }
         return m;
     }
@@ -1710,7 +1768,7 @@ public final class LinerSystems {
 
     /** Wave 4: engine i's forward thrust (0 with the reverser's cowls opening). */
     public double fwd(int i) {
-        return afs.revPos[i] > 0.05 ? 0 : eng[i].thrust();
+        return afs.revPos[i] > 0.05 ? 0 : eng[i].thrust() * ice.thrustFactor();     // wave 6: the wing's anti-ice takes bleed
     }
 
     /** Wave 4: the reverse thrust (0..1 of the forward's scale, both engines' mean): the cowls deployed, REV_EFF of the N1's share. */
@@ -1801,7 +1859,36 @@ public final class LinerSystems {
             }
             b.append(w4[i]);
         }
+        b.append('|');                                              // wave 6: the lights, the ice, the loads
+        int[] w6 = wave6Numbers();
+        for (int i = 0; i < w6.length; i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append(w6[i]);
+        }
         return b.toString();
+    }
+
+    /** The sixth part (wave 6): LinerLights' words, LinerIce's words, the heaters' / lights' loads. */
+    private int[] wave6Numbers() {
+        int[] a = lights.pack(), c = ice.pack();
+        int[] all = new int[a.length + c.length + 2];
+        System.arraycopy(a, 0, all, 0, a.length);
+        System.arraycopy(c, 0, all, a.length, c.length);
+        all[a.length + c.length] = loadHeat;
+        all[a.length + c.length + 1] = loadLights;
+        return all;
+    }
+
+    private void unpackWave6(int[] w) {
+        if (w.length < LinerLights.WORDS + LinerIce.WORDS + 2) {
+            return;
+        }
+        lights.unpack(w, 0);
+        ice.unpack(w, LinerLights.WORDS);
+        loadHeat = w[LinerLights.WORDS + LinerIce.WORDS];
+        loadLights = w[LinerLights.WORDS + LinerIce.WORDS + 1];
     }
 
     /** The fourth part (wave 3): the ECAM's words (LinerEcam.pack), the fuel's flags and cells, FU, temperatures, the cabin. */
@@ -1881,6 +1968,7 @@ public final class LinerSystems {
         int[] w = part.length > 1 ? ints(part[1]) : null;
         int[] w3 = part.length > 2 ? ints(part[2]) : null;
         int[] w4 = part.length > 3 ? ints(part[3]) : null;
+        int[] w6 = part.length > 4 ? ints(part[4]) : null;
         if (v == null || v.length < 36) {
             return;
         }
@@ -1892,6 +1980,9 @@ public final class LinerSystems {
         }
         if (w4 != null) {
             afs.unpack(w4, 0);                                      // wave 4: the AFS
+        }
+        if (w6 != null) {
+            unpackWave6(w6);                                        // wave 6: the lights, the ice, the loads
         }
         int f = v[0];
         masterWarn = (f & 1) != 0;
@@ -2010,7 +2101,14 @@ public final class LinerSystems {
         NBTTagCompound f = new NBTTagCompound();
         fms.writeNBT(f);
         t.setTag(K_W5, f);
+        NBTTagCompound l6 = new NBTTagCompound();
+        lights.write(l6);
+        ice.write(l6);
+        t.setTag(K_W6, l6);
     }
+
+    /** Wave 6: the lights (the reading lights, the emergency batteries, the landing lights' travel) and the ice. */
+    public static final String K_W6 = "W6Lights";
 
     /** Wave 5: the FMS (INIT, the fuel, PERF, the plan and its TMPY). */
     public static final String K_W5 = "W5Fms";
@@ -2085,6 +2183,10 @@ public final class LinerSystems {
         }
         if (t.hasKey(K_W5)) {
             fms.readNBT(t.getCompoundTag(K_W5));
+        }
+        if (t.hasKey(K_W6)) {
+            lights.read(t.getCompoundTag(K_W6));
+            ice.read(t.getCompoundTag(K_W6));
         }
         int[] w3 = t.getIntArray(K_W3);
         if (w3.length == 5) {

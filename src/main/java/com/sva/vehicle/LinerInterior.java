@@ -39,12 +39,18 @@ public final class LinerInterior {
         public int rgb;
         public boolean emit, glow;
         public int part;
+        /** Wave 6: which light an emitter is (LIGHT_*: the cabin's cove lights, the emergency floor path; 0 other). */
+        public int light;
         /** The face normal (unit). */
         public final float[] n = new float[3];
     }
 
     private final List<Tri> tris = new ArrayList<Tri>();
     private int part;
+    /** Wave 6: the light tag of the triangles being made (Tri.light). */
+    private int lightTag;
+    /** Wave 6: Tri.light - the cabin's cove lights (САЛОН), the emergency floor path (АВАР. ВЫХОД). */
+    public static final int LIGHT_COVE = 1, LIGHT_PATH = 2;
     /** The frame: model = (ox + x, oy + y * sy, z * sz) (x scaled by sx). */
     private float ox, oy, sx = 1, sy = 1, sz = 1;
 
@@ -95,6 +101,7 @@ public final class LinerInterior {
         t.emit = emit;
         t.glow = glow;
         t.part = part;
+        t.light = emit ? lightTag : 0;
         tris.add(t);
     }
 
@@ -425,7 +432,9 @@ public final class LinerInterior {
                         default:
                             break;
                     }
+                    lightTag = emit ? LIGHT_COVE : 0;
                     secQuad(xa, xb, s, i, tex, uv, rgb, emit);
+                    lightTag = 0;
                 }
             }
         }
@@ -434,6 +443,7 @@ public final class LinerInterior {
             float x0 = -k * 1.0F;
             quad(new float[] {x0, 0, -1.02F}, new float[] {0, 0, 2.04F}, new float[] {-1.0F, 0, 0}, 0xFFFFFF, LinerTexMath.T_CARPET, null, false, false);
         }
+        lightTag = LIGHT_PATH;
         for (float z : new float[] {-0.30F, 0.30F}) {
             for (int k = 0; k < 28; k++) {
                 float x = -0.3F - k * 0.16F;
@@ -443,6 +453,7 @@ public final class LinerInterior {
                 quad(new float[] {x, 0.004F, z - 0.012F}, new float[] {0, 0, 0.024F}, new float[] {-0.06F, 0, 0}, rgb(230, 240, 230), -1, null, true, false);
             }
         }
+        lightTag = 0;
         // the front bulkhead (its cabin side: the cockpit door, signs, EXIT) and the rear wall
         quad4(new float[] {X_FRONT - 0.002F, 2.04F, -1.10F}, new float[] {X_FRONT - 0.002F, 2.04F, 1.10F}, new float[] {X_FRONT - 0.002F, 0, 1.10F},
                 new float[] {X_FRONT - 0.002F, 0, -1.10F}, 0xFFFFFF, LinerTexMath.T_BULK, null, false, false);

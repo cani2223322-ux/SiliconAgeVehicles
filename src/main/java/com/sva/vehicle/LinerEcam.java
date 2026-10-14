@@ -57,11 +57,15 @@ public final class LinerEcam {
     // ---------------------------------------------------------------- inoperative systems / limitations (STATUS)
 
     public static final int I_ENG1 = 1, I_ENG2 = 2, I_GEN1 = 4, I_GEN2 = 8, I_APU = 16, I_BLEED1 = 32, I_BLEED2 = 64, I_G = 128, I_B = 256,
-            I_Y = 512, I_FUEL_L = 1024, I_FUEL_R = 2048, I_PUMP = 4096, I_FCTL = 8192;
+            I_Y = 512, I_FUEL_L = 1024, I_FUEL_R = 2048, I_PUMP = 4096, I_FCTL = 8192,
+            /** Wave 6: the wing's / the engines' anti-ice, the probe heat. */
+            I_WING_AI = 16384, I_ENG_AI = 32768, I_PROBE = 65536;
     public static final String[] INOP_KEYS = {"eng1", "eng2", "gen1", "gen2", "apu", "bleed1", "bleed2", "hydG", "hydB", "hydY", "fuelL", "fuelR",
-            "fuelPump", "fctl"};
-    public static final int LIM_LAND = 1, LIM_GRAV = 2, LIM_ALTN = 4, LIM_DIRECT = 8, LIM_IMBAL = 16, LIM_FLAPS = 32, LIM_FUEL = 64;
-    public static final String[] LIM_KEYS = {"land", "grav", "altn", "direct", "imbal", "flaps", "fuel"};
+            "fuelPump", "fctl", "wingAi", "engAi", "probe"};
+    public static final int LIM_LAND = 1, LIM_GRAV = 2, LIM_ALTN = 4, LIM_DIRECT = 8, LIM_IMBAL = 16, LIM_FLAPS = 32, LIM_FUEL = 64,
+            /** Wave 6: stay out of icing. */
+            LIM_ICING = 128;
+    public static final String[] LIM_KEYS = {"land", "grav", "altn", "direct", "imbal", "flaps", "fuel", "icing"};
 
     // ---------------------------------------------------------------- action lines
 
@@ -70,12 +74,14 @@ public final class LinerEcam {
             A_APU_MASTER_OFF = 14, A_XBLEED_OPEN = 15, A_BUS_TIE_ON = 16, A_EDP1_OFF = 17, A_BLUE_OFF = 18, A_EDP2_OFF = 19, A_PUMP_OFF = 20,
             A_XFEED_ON = 26, A_LIGHT_PUMPS_OFF = 27, A_CTR_MAN = 28, A_DOOR_SHUT = 29,
             // wave 4: the levers to FLX / TOGA (not set), to CL (A/THR limited)
-            A_THR_TO = 30, A_THR_CL = 31, ACTS = 32;
+            A_THR_TO = 30, A_THR_CL = 31,
+            // wave 6: the engines' / the wing's anti-ice on, the probe heat on, the crew's oxygen masks, an emergency descent
+            A_ENG_AI_ON = 32, A_WING_AI_ON = 33, A_PROBE_ON = 34, A_MASK = 35, A_DESCEND = 36, ACTS = 37;
     /** Lang sva.liner.act.KEY = «WHAT|SETTING» (drawn «- WHAT ...... SETTING»). */
     public static final String[] ACT_KEYS = {"modeStart", "thrIdle", "master1Off", "master2Off", "ptuOff", "brkFanOn", "gearDown", "flapsTo",
             "spdBrkRet", "parkOff", "ratMan", "apuBleedOn", "gen1On", "gen2On", "apuMasterOff", "xbleedOpen", "busTieOn", "edp1Off", "blueOff",
             "edp2Off", "pumpL1Off", "pumpL2Off", "pumpC1Off", "pumpC2Off", "pumpR1Off", "pumpR2Off", "xfeedOn", "lightPumpsOff", "ctrMan",
-            "doorShut", "thrTo", "thrCl"};
+            "doorShut", "thrTo", "thrCl", "engAiOn", "wingAiOn", "probeOn", "mask", "descend"};
 
     // ---------------------------------------------------------------- the messages
 
@@ -89,7 +95,11 @@ public final class LinerEcam {
             // wave 4: the AP off (red, the cavalry charge - not the chime), the A/THR off / limited, the levers not set at take-off
             M_AP_OFF = 52, M_ATHR_OFF = 53, M_ATHR_LIM = 54, M_THR_LVRS = 55,
             // wave 5: the take-off speeds not entered on the MCDU (the T.O. CONFIG test / take-off thrust)
-            M_TO_SPEEDS = 56, N = 57;
+            M_TO_SPEEDS = 56,
+            // wave 6: ice detected (its anti-ice off), the wing's / an engine's anti-ice failed, the probe heat failed, the
+            // airspeed unreliable (an iced probe), the cabin altitude (red). The table is full now (64 bits): the ADIRS wave
+            // widens the words.
+            M_ICE = 57, M_WING_AI = 58, M_ENG1_AI = 59, M_ENG2_AI = 60, M_PROBE_HEAT = 61, M_IAS = 62, M_CAB_ALT = 63, N = 64;
     /** The first red / amber with a wave 1-2 bit (LinerSystems.warn bit = id; caut bit = id - FIRST_CAUT for ids under LEGACY_CAUT_END). */
     public static final int LEGACY_WARN_END = 7, FIRST_CAUT = 12, LEGACY_CAUT_END = 39;
 
@@ -170,6 +180,14 @@ public final class LinerEcam {
         def(M_THR_LVRS, "thrLevers", CAUT, P_ENG, 0, 0, 0, A_THR_TO);
         // wave 5 (the A320's «T.O SPEEDS NOT INSERTED»)
         def(M_TO_SPEEDS, "toSpeeds", CAUT, -1, INH, 0, 0);
+        // wave 6: anti-ice, icing, the air data, the cabin's pressure
+        def(M_ICE, "iceDetected", CAUT, -1, INH, 0, 0, A_ENG_AI_ON, A_WING_AI_ON);
+        def(M_WING_AI, "wingAiFault", CAUT, P_BLEED, INH, I_WING_AI, LIM_ICING, A_XBLEED_OPEN);
+        def(M_ENG1_AI, "eng1AiFault", CAUT, P_ENG, INH, I_ENG_AI, LIM_ICING);
+        def(M_ENG2_AI, "eng2AiFault", CAUT, P_ENG, INH, I_ENG_AI, LIM_ICING);
+        def(M_PROBE_HEAT, "probeHeat", CAUT, -1, INH, I_PROBE, 0, A_PROBE_ON);
+        def(M_IAS, "iasUnreliable", CAUT, -1, 0, 0, 0);
+        def(M_CAB_ALT, "cabAlt", WARN, P_COND, 0, 0, 0, A_MASK, A_DESCEND);
     }
 
     // ---------------------------------------------------------------- state
@@ -461,6 +479,22 @@ public final class LinerEcam {
                 return L.afs.leversNotSet && L.afs.lever >= LinerFctl.TO_THR;
             case M_TO_SPEEDS:
                 return cfgCheck(L, e) && speedsMissing(L);
+            case M_ICE:
+                // ice on the wing with its anti-ice off, or on a running engine with its own off
+                return L.ice.wing > LinerIce.DETECT && !L.ice.wingOn && !e.ground
+                        || L.ice.eng[0] > LinerIce.DETECT && !L.ice.engOn[0] && e1.running() || L.ice.eng[1] > LinerIce.DETECT && !L.ice.engOn[1] && e2.running();
+            case M_WING_AI:
+                return L.ice.wingFault;
+            case M_ENG1_AI:
+                return L.ice.engFault[0];
+            case M_ENG2_AI:
+                return L.ice.engFault[1];
+            case M_PROBE_HEAT:
+                return L.ice.probeFault;
+            case M_IAS:
+                return !e.ground && L.ice.unreliable();
+            case M_CAB_ALT:
+                return !e.ground && L.cabAlt > LinerIce.CAB_ALT_WARN;
             default:
                 return false;
         }
@@ -552,6 +586,16 @@ public final class LinerEcam {
             }
             case A_THR_CL:
                 return LinerAfs.detent(L.afs.lever) == 1;
+            case A_ENG_AI_ON:
+                return L.on(LinerControls.AI_ENG1) && L.on(LinerControls.AI_ENG2);
+            case A_WING_AI_ON:
+                return L.on(LinerControls.AI_WING);
+            case A_PROBE_ON:
+                return L.on(LinerControls.AI_PROBE);
+            case A_MASK:
+                return false;                                       // the crew's masks: a reminder, never ticked
+            case A_DESCEND:
+                return L.cabAlt <= LinerIce.CAB_ALT_WARN;
             default:
                 return false;
         }

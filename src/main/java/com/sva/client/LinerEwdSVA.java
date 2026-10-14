@@ -144,6 +144,12 @@ public final class LinerEwdSVA {
                 LinerGfxSVA.text("IGN " + (i == 0 ? "A" : "B"), cx, 134 * s, 7 * s, WHT, 0);
             }
             LinerGfxSVA.text(dead ? "XX" : String.valueOf(Math.round(g.ff)), cx, 166 * s, 10 * s, dead ? AMB : GRN, 0);
+            if (L.ice.engOn[i]) {
+                LinerGfxSVA.text(tr("ai"), cx, 76 * s, 7.5F * s, GRN, 0);    // wave 6: this engine's anti-ice on
+            }
+        }
+        if (L.ice.detected()) {
+            LinerGfxSVA.text(tr("ice"), 106 * s, 76 * s, 7.5F * s, AMB, 0);    // wave 6: ice detected
         }
         LinerGfxSVA.text("N1", 106 * s, 34 * s, 8 * s, WHT, 0);
         LinerGfxSVA.text("%", 106 * s, 44 * s, 7 * s, CYN, 0);

@@ -98,6 +98,9 @@ public final class LinerLogicSVA {
         e.alt = v.posY;
         e.gravAlt = ConfigSVA.linerFuelGravityAlt;
         e.ldgMemoH = ConfigSVA.linerLdgMemoHeight;
+        // wave 6: the outside air at the aircraft (the biome's temperature, the cloud layer, rain / snow) for the icing; the
+        // older world tests fly without it (their own weather must not ice them), the wave-6 one asks for it
+        air6(v, e);
         boolean instant = EntityVehicleSVA.testInstantEngine && !v.debugEngineManual;
         if (instant && pilot) {
             // the older world tests fly every aircraft at once: the liner's batteries and masters on, the engines at idle
@@ -156,6 +159,18 @@ public final class LinerLogicSVA {
         if ((L.events & LinerSystems.E_CLICK) != 0) {
             v.vanillaClick(0.3F, 1.5F);
         }
+        // wave 6: a cabin sign changed - the cabin's chime (two soft notes); ice shed by the anti-ice - chunks fly off the
+        // wings / the nacelles; the passengers cold for long - «замерзание» (config, off by default)
+        if ((L.events & LinerSystems.E_SIGN) != 0 && ConfigSVA.linerSignChime) {
+            v.vanillaSound("note.pling", 0.45F, 1.05F);
+            v.vanillaSound("note.pling", 0.4F, 0.79F);
+        }
+        if ((L.events & LinerSystems.E_ICE_SHED) != 0) {
+            shedIce(v);
+        }
+        if (ConfigSVA.linerColdEffect && L.ice.freezing() && v.ticksExisted % 40 == 0) {
+            freeze(v);
+        }
         // wave 2: the PTU's bark (single-engine taxi), the RAT dropping out, the gear's thump, a fuse plug blowing
         if ((L.events & LinerSystems.E_PTU) != 0 && ConfigSVA.linerPtuSound) {
             v.vanillaSound("mob.wolf.bark", 0.18F, 0.55F);
@@ -201,6 +216,74 @@ public final class LinerLogicSVA {
             mcduPush(v, L, me, false);
         }
         return 0;
+    }
+
+    /**
+     * Wave 6: the air at the aircraft for LinerIce - the outside temperature (the biome's at sea level falling with the
+     * height), visible moisture (the cloud layer, rain / snow at the aircraft, a snowy biome's air high up), the true
+     * airspeed (km/h - a probe freezes at it), the icing on (config; the world tests only for a liner that asks).
+     */
+    static void air6(EntityVehicleSVA v, LinerSystems.Env e) {
+        int x = net.minecraft.util.MathHelper.floor_double(v.posX), y = net.minecraft.util.MathHelper.floor_double(v.posY),
+                z = net.minecraft.util.MathHelper.floor_double(v.posZ);
+        net.minecraft.world.biome.BiomeGenBase b = v.worldObj.getBiomeGenForCoords(x, z);
+        double temp = b == null ? 0.8 : b.temperature;
+        boolean snowy = b != null && b.getEnableSnow();
+        boolean precip = v.worldObj.isRaining() && b != null && b.getIntRainfall() > 0;
+        double ay = Double.isNaN(v.debugLinerAirY) ? v.posY : v.debugLinerAirY;
+        if (!Double.isNaN(v.debugLinerOat)) {
+            temp = v.debugLinerOat;                                // world test: a biome temperature of its choosing
+        }
+        e.iceAir.oat = com.sva.vehicle.LinerIce.oat(ay, temp);
+        e.iceAir.moisture = com.sva.vehicle.LinerIce.moisture(ay, precip || v.debugLinerWet, snowy);
+        e.iceAir.icing = ConfigSVA.linerIcing && (!EntityVehicleSVA.testInstantEngine || v.debugLinerIcing);
+        e.kmh = Math.max(e.airspeed, 0) * 72;
+    }
+
+    /** Wave 6: ice shed by the anti-ice - snowball puffs off both wings' leading edges and the nacelles. */
+    static void shedIce(EntityVehicleSVA v) {
+        if (!(v.worldObj instanceof net.minecraft.world.WorldServer)) {
+            return;
+        }
+        net.minecraft.world.WorldServer ws = (net.minecraft.world.WorldServer) v.worldObj;
+        for (int s = -1; s <= 1; s += 2) {
+            for (double[] p : new double[][] {{0.6, 4.0}, {-1.0, 7.0}, {1.7, 2.6}}) {
+                double[] w = v.toWorld(p[0], s * p[1]);
+                ws.func_147487_a("snowballpoof", v.posX + w[0], v.posY + 1.6, v.posZ + w[1], 6, 0.3, 0.1, 0.3, 0.05);
+            }
+        }
+        v.vanillaSound("dig.glass", 0.4F, 1.6F);
+    }
+
+    /**
+     * Wave 6 (config vehicles.linerColdEffect, off by default - the core has no body temperature): passengers in a cabin
+     * cold for COLD_TICKS get a mild slowness (and the pilots too - the cockpit cools with it); a helmet keeps it off.
+     */
+    static void freeze(EntityVehicleSVA v) {
+        for (Entity r : v.riders()) {
+            if (r instanceof EntityPlayer && ((EntityPlayer) r).getCurrentArmor(3) == null) {
+                ((EntityPlayer) r).addPotionEffect(new net.minecraft.potion.PotionEffect(net.minecraft.potion.Potion.moveSlowdown.getId(), 60, 0, true));
+            }
+        }
+    }
+
+    /** Wave 6: a passenger's reading light toggled (the Action packet; the pilots have none - they are told so). */
+    static void reading(EntityVehicleSVA v, EntityPlayer p) {
+        LinerSystems L = v.state.liner();
+        if (L == null) {
+            return;
+        }
+        Entity m = p.ridingEntity;
+        int seat = m instanceof EntitySeatSVA && ((EntitySeatSVA) m).getParent() == v ? ((EntitySeatSVA) m).getIndex() : m == v ? 0 : -1;
+        if (seat < 0) {
+            return;
+        }
+        if (!L.lights.toggleReading(seat)) {
+            v.msgTo(p, "sva.liner.msg.readingPilot");
+            return;
+        }
+        v.vanillaClick(0.2F, 1.9F);
+        v.syncNow();
     }
 
     /** The MCDU screens are checked for a change this often (ticks); a key sends at once. */
@@ -347,7 +430,7 @@ public final class LinerLogicSVA {
         double sp = Math.max(e.airspeed, e.speed);
         a.cap = PlaneMath.climbCapacity(p, sp) * FlightMath.ceilingFactor(v.posY);
         a.dive = p.dive;
-        a.mass = LinerAfs.MASS0 + L.tanks() / 48000.0 * 2600 + v.ridersNow() * 80;
+        a.mass = LinerAfs.MASS0 + L.tanks() / 48000.0 * 2600 + v.ridersNow() * 80 + L.ice.mass();     // wave 6: + the ice
         a.insReady = v.insReady();
         a.stick = !e.ground && (in & (EntityVehicleSVA.IN_LEFT | EntityVehicleSVA.IN_RIGHT | EntityVehicleSVA.IN_BRAKE | EntityVehicleSVA.IN_DOWN
                 | EntityVehicleSVA.IN_BOOST)) != 0;

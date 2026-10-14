@@ -56,6 +56,7 @@ final class SelfTestLinerSVA {
         SelfTestLinerFuelSVA.run();                                 // liner wave 3: fuel, ECAM, checklists (once: it ran twice before wave 5)
         SelfTestLinerAfsSVA.run();                                  // liner wave 4: FCU, AP / FD, A/THR, levers, ILS, autoland
         SelfTestLinerFmsSVA.run();                                  // liner wave 5: the MCDU, the FMS, the profile, NAV by the plan
+        SelfTestLinerW6SVA.run();                                   // liner wave 6: lights, signs, anti-ice, icing, air conditioning, loads
         saves();
     }
 

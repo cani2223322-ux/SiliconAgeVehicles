@@ -79,12 +79,33 @@ public final class LinerClickSVA {
             return;
         }
         EntityVehicleSVA v = HudVehicleSVA.vehicleOf(mc.thePlayer);
+        if (v != null && v.getVehicleType() == VehicleType.LINER && !pilotSeat(mc.thePlayer, v)) {
+            readingKeys(mc, v);                                     // wave 6: a passenger's reading light
+            return;
+        }
+        readHeld = org.lwjgl.input.Mouse.isButtonDown(1) || VehicleKeyBindsSVA.cursorHeld();
         if (v == null || v.getVehicleType() != VehicleType.LINER || !pilotSeat(mc.thePlayer, v)) {
             return;
         }
         if (VehicleKeyBindsSVA.cursorHeld()) {
             mc.displayGuiScreen(new Cursor(v));
         }
+    }
+
+    /** Wave 6: the passenger's reading light keys were down last tick (a press is their edge). */
+    private static boolean readHeld = true;
+
+    /**
+     * Wave 6: a passenger (not a pilot seat) toggles his own reading light - the «Курсор кабины» key (Left Alt) or the right
+     * mouse button with an empty hand; one press, one toggle (the server checks the seat).
+     */
+    static void readingKeys(Minecraft mc, EntityVehicleSVA v) {
+        boolean rmb = org.lwjgl.input.Mouse.isButtonDown(1) && mc.thePlayer.getCurrentEquippedItem() == null;
+        boolean down = rmb || VehicleKeyBindsSVA.cursorHeld();
+        if (down && !readHeld) {
+            com.sva.net.NetSVA.CHANNEL.sendToServer(new com.sva.net.NetSVA.Action(v.getEntityId(), EntityVehicleSVA.A_LINER_READING));
+        }
+        readHeld = down;
     }
 
     // ---------------------------------------------------------------- the ray

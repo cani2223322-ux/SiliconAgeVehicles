@@ -52,6 +52,22 @@ public final class LinerPreviewHookSVA {
         LinerEwdSVA.draw(L, w, h, thr, (float) L.fctl.flapPos, (float) L.fctl.slatPos, L.at(LinerControls.FLAPS), ground, 17);
     }
 
+    /** Wave 6: the ЭЛЕКТР page (280 x 280 units) with its title - the loads. */
+    public static void elec(LinerSystems L, float w, float h) {
+        float s = w / 280F;
+        LinerGfxSVA.resetLayer();
+        LinerGfxSVA.rect(0, 0, w, h, LinerDisplaysSVA.BG);
+        LinerGfxSVA.layer();
+        LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.sd.elec"), 8 * s, 12 * s, 11 * s, LinerDisplaysSVA.WHT, -1);
+        LinerGfxSVA.line(8 * s, 19 * s, 52 * s, 19 * s, 1F * s, LinerDisplaysSVA.WHT);
+        LinerDisplaysSVA.sdElec(L, s);
+    }
+
+    /** Wave 6: an SD page (LinerEcam.P_*) through the pages' preview. */
+    public static void sd(int page, LinerSystems L, float w, float h) {
+        LinerSdPagesSVA.preview(page, L, w, h);
+    }
+
     /** Wave 5: the MCDU's keyboard screen (GuiMcduSVA's panel, W x H units) with this screen. */
     public static void mcduPanel(int side, com.sva.vehicle.LinerMcdu.Screen sc) {
         LinerGfxSVA.resetLayer();

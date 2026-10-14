@@ -219,6 +219,22 @@ public final class ConfigSVA {
     public static boolean linerIrsAutoInit = true;
     /** Liner wave 5 (client): the MCDU's screen drawn live on the 3D cockpit's two MCDUs. */
     public static boolean linerMcdu3d = true;
+    /** Liner wave 6: ice builds up in cold cloud / precipitation (the wing, the engines, the probes, the windscreen). */
+    public static boolean linerIcing = true;
+    /** Liner wave 6: a long stay in a cold cabin slows the riders («замерзание»; the core has no body temperature). Off. */
+    public static boolean linerColdEffect = false;
+    /** Liner wave 6: the cabin's chime when a sign (seat belts / no smoking) changes. */
+    public static boolean linerSignChime = true;
+    /** Liner wave 6 (client): the exterior lights' halos and beams (landing, taxi / take-off, turn-off, wing, logo). */
+    public static boolean linerExtLights = true;
+    /** Liner wave 6 (client): the light pools on the ground under the beams. */
+    public static boolean linerGroundPools = true;
+    /** Liner wave 6 (client): the landing / taxi lights really light the blocks (vehicles.dynamicLight's mechanism). */
+    public static boolean linerDynamicLight = true;
+    /** Liner wave 6 (client): the ice on the model, the frost on the windscreen. */
+    public static boolean linerIceVisuals = true;
+    /** Liner wave 6 (client): the cockpit's / cabin's light levels (dome, flood, cabin steps, night blue, reading lights). */
+    public static boolean linerCabinLighting = true;
     /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
     public static boolean radarAltCallouts = true;
     /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
@@ -516,6 +532,28 @@ public final class ConfigSVA {
                             + " сам (выставка ИНС заканчивается без кнопки 'ВЫСТАВИТЬ' на МФПУ)");
             linerMcdu3d = c.getBoolean("linerMcdu3d", v, true,
                     "Liner: the MCDU screens drawn live in the 3D cockpit (client) / Лайнер: экраны МФПУ в 3D-кабине (клиент)");
+            linerIcing = c.getBoolean("linerIcing", v, true,
+                    "Liner: ice builds up in cold cloud / rain / snow (wing, engines, probes, windscreen) / Лайнер: обледенение в холодных"
+                            + " облаках, дожде и снеге (крыло, двигатели, ПВД, стёкла)");
+            linerColdEffect = c.getBoolean("linerColdEffect", v, false,
+                    "Liner: a long stay in a cold cabin slows the riders (no helmet) / Лайнер: долгое пребывание в холодном салоне замедляет"
+                            + " (без шлема)");
+            linerSignChime = c.getBoolean("linerSignChime", v, true,
+                    "Liner: the cabin chime when the seat-belt / no-smoking signs change / Лайнер: сигнал в салоне при смене табло ремней"
+                            + " и 'не курить'");
+            linerExtLights = c.getBoolean("linerExtLights", v, true,
+                    "Liner: exterior light halos and beams (client) / Лайнер: ореолы и лучи внешних огней (клиент)");
+            linerGroundPools = c.getBoolean("linerGroundPools", v, true,
+                    "Liner: light pools on the ground under the beams (client) / Лайнер: пятна света на земле под фарами (клиент)");
+            linerDynamicLight = c.getBoolean("linerDynamicLight", v, true,
+                    "Liner: the landing / taxi lights light the blocks (as dynamicLight, client) / Лайнер: посадочные и рулёжные фары"
+                            + " освещают блоки (как dynamicLight, клиент)");
+            linerIceVisuals = c.getBoolean("linerIceVisuals", v, true,
+                    "Liner: ice on the wings / nacelles and frost on the windscreen (client) / Лайнер: лёд на крыле и мотогондолах, иней"
+                            + " на стёклах (клиент)");
+            linerCabinLighting = c.getBoolean("linerCabinLighting", v, true,
+                    "Liner: the cockpit / cabin light levels - dome, flood, cabin steps, night blue, reading lights (client) / Лайнер:"
+                            + " освещение кабины и салона - плафон, заливающий свет, ступени, ночной синий, лампы чтения (клиент)");
             linerPtuSound = c.getBoolean("linerPtuSound", v, true,
                     "Liner: the PTU's 'barking' during single-engine taxi as a sound / Лайнер: 'лай' PTU при рулении на одном двигателе - звуком");
             radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,

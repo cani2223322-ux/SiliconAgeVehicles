@@ -9,6 +9,7 @@ import com.sva.ConfigSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.vehicle.LinerControls;
 import com.sva.vehicle.LinerInterior;
+import com.sva.vehicle.LinerLights;
 import com.sva.vehicle.LinerSystems;
 import com.sva.vehicle.SystemsMath;
 
@@ -36,6 +37,8 @@ public final class LinerCockpitSVA {
     static final int L_AMB = 0xFFA828, L_WHT = 0xF4F4EC, L_BLU = 0x46AAFF, L_GRN = 0x3CE86E, L_RED = 0xF0302A;
     /** Lists: cockpit plain / textured / glow, cabin plain / textured / emitters. */
     private static int ckPlain, ckTex, ckGlow, cabPlain, cabTex, cabEmit;
+    /** Wave 6: the cabin's cove lights and the emergency floor path (no colour of their own: the light's colour is set). */
+    private static int cabCove, cabPath;
     private static boolean compiled;
     /** The control under the mouse in the cursor mode (-1 none) - LinerClickSVA sets it. */
     static int hovered = -1;
@@ -55,6 +58,8 @@ public final class LinerCockpitSVA {
         cabPlain = list(tris, LinerInterior.CABIN, 0);
         cabTex = list(tris, LinerInterior.CABIN, 1);
         cabEmit = list(tris, LinerInterior.CABIN, 3);
+        cabCove = list(tris, LinerInterior.CABIN, 4);
+        cabPath = list(tris, LinerInterior.CABIN, 5);
     }
 
     /** kind 0 plain (no uv, not emitting), 1 textured, 2 the glow panels (textured, glow flag), 3 emitters. */
@@ -66,12 +71,16 @@ public final class LinerCockpitSVA {
             if (t.part != part) {
                 continue;
             }
-            boolean ok = kind == 0 ? t.uv == null && !t.emit : kind == 1 ? t.uv != null : kind == 2 ? t.uv != null && t.glow : t.emit;
+            // wave 6: the emitters split - 3 the others (their own colour), 4 the cove lights, 5 the floor path (colour at draw)
+            boolean ok = kind == 0 ? t.uv == null && !t.emit : kind == 1 ? t.uv != null : kind == 2 ? t.uv != null && t.glow
+                    : kind == 3 ? t.emit && t.light == 0 : kind == 4 ? t.emit && t.light == LinerInterior.LIGHT_COVE : t.emit && t.light == LinerInterior.LIGHT_PATH;
             if (!ok) {
                 continue;
             }
             int c = t.rgb;
-            GL11.glColor3f((c >> 16 & 255) / 255F, (c >> 8 & 255) / 255F, (c & 255) / 255F);
+            if (kind < 4) {
+                GL11.glColor3f((c >> 16 & 255) / 255F, (c >> 8 & 255) / 255F, (c & 255) / 255F);
+            }
             for (int k = 0; k < 3; k++) {
                 if (t.uv != null) {
                     GL11.glTexCoord2f(t.uv[k * 2], t.uv[k * 2 + 1]);
@@ -108,8 +117,13 @@ public final class LinerCockpitSVA {
             GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_TEXTURE_ENV_MODE, GL11.GL_MODULATE);
             float night = VehicleLightsSVA.darkness(v);
             if (pilot) {
-                boolean dome = power && L.at(LinerControls.DOME) != 2;
-                if (dome) {
+                if (ConfigSVA.linerCabinLighting) {
+                    // wave 6: the dome, the flood knobs, the console / floor lights over the world's own light (night + all off: dark)
+                    float k = LinerLights.cockpitLight(L, power);
+                    if (k > 0) {
+                        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, Math.max(bx, k), Math.max(by, k));
+                    }
+                } else if (power && L.at(LinerControls.DOME) != 2) {
                     float k = L.at(LinerControls.DOME) == 0 ? 240F : 200F;
                     OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, Math.max(bx, k), Math.max(by, k));
                 }
@@ -138,18 +152,26 @@ public final class LinerCockpitSVA {
                 screens(v, L, pt);
                 overlays(v, L, power);
                 levers(v, L, pt);
+                frost(L);                                           // wave 6: the windscreen's frost rim (inside the glass)
                 GL11.glPopMatrix();
                 OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
             }
             if (cabin) {
-                if (power && L.at(LinerControls.CABIN_LT) > 0) {
-                    float k = 120F + 40F * L.at(LinerControls.CABIN_LT);
+                // wave 6: САЛОН's step (one dimmer with the galley shed; dark without AC), НОЧЬ - dim with the cove lights blue
+                int step = power ? LinerLights.cabinStep(L, L.acPowered(), L.galleyShed) : -1;
+                if (!ConfigSVA.linerCabinLighting) {
+                    step = power && L.at(LinerControls.CABIN_LT) > 0 ? L.at(LinerControls.CABIN_LT) : -1;
+                }
+                int k = LinerLights.cabinLight(step);
+                if (k > 0) {
                     OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, Math.max(bx, k), Math.max(by, k));
                 }
                 draw(cabPlain, cabTex, atlas);
                 OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, power ? 240F : bx, power ? 240F : by);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
                 GL11.glCallList(cabEmit);
+                OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+                cabinLights(L, step);
                 OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
             }
         } finally {
@@ -157,6 +179,140 @@ public final class LinerCockpitSVA {
             GL11.glPopAttrib();
             GL11.glColor4f(1F, 1F, 1F, 1F);
         }
+    }
+
+    /**
+     * Wave 6: the cabin's own lights - the cove lights by САЛОН's step (warm white; НОЧЬ dim blue; dark: unlit grey), the
+     * emergency floor path (lit green-white with S_EMER), the signs on the front bulkhead (ПРИСТЕГНИТЕ РЕМНИ / НЕ КУРИТЬ /
+     * ВЫХОД), the passengers' reading lights (a bright lamp on the PSU and a soft cone down to the seat).
+     */
+    static void cabinLights(LinerSystems L, int step) {
+        float[] cove = step < 0 ? new float[] {0.42F, 0.42F, 0.40F} : step == 0 ? new float[] {0.20F, 0.32F, 0.85F}
+                : new float[] {0.62F + 0.12F * step, 0.60F + 0.12F * step, 0.52F + 0.12F * step};
+        GL11.glColor3f(cove[0], cove[1], cove[2]);
+        GL11.glCallList(cabCove);
+        boolean emer = (L.lights.signs & LinerLights.S_EMER) != 0;
+        if (emer) {
+            GL11.glColor3f(0.75F, 1F, 0.72F);
+        } else {
+            GL11.glColor3f(0.36F, 0.40F, 0.36F);
+        }
+        GL11.glCallList(cabPath);
+        float cx = LinerInterior.CAB_X - 0.006F, cy = LinerInterior.CAB_Y, s = LinerInterior.CAB_S;
+        // the signs: dark boxes, lit with their words
+        sign(cx, cy + 1.86F * s, -0.55F * s, s, (L.lights.signs & LinerLights.S_BELTS) != 0, "belts", 0xFFFFFF);
+        sign(cx, cy + 1.86F * s, 0.55F * s, s, (L.lights.signs & LinerLights.S_NOSMOKE) != 0, "noSmoke", 0xFFFFFF);
+        sign(cx, cy + 1.62F * s, 0F, s, emer, "exit", 0x40F070);
+        // the reading lights
+        if (L.lights.reading != 0) {
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+            GL11.glDepthMask(false);
+            GL11.glShadeModel(GL11.GL_SMOOTH);
+            for (int seat = LinerLights.FIRST_PAX; seat < LinerLights.FIRST_PAX + LinerLights.PAX; seat++) {
+                if (!L.lights.readingOn(seat)) {
+                    continue;
+                }
+                int i = seat - LinerLights.FIRST_PAX;
+                float x = LinerInterior.CAB_X + READ_ROWS[i / 2] + 0.05F, z = (i % 2 == 0 ? -0.82F : 0.82F) * s, y = cy + 1.585F * s;
+                readingLamp(x, y, z, cy + 0.55F * s);
+            }
+            GL11.glDepthMask(true);
+            GL11.glDisable(GL11.GL_BLEND);
+        }
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /** The cabin's seat rows (icabin.py, behind the front bulkhead) - LinerInterior.ROWS. */
+    static final float[] READ_ROWS = {-1.30F, -2.15F, -3.00F, -3.85F};
+
+    /** A cabin sign on the front bulkhead (facing aft): centre (cy, cz), lit - its word in `col`, else a dark box. */
+    private static void sign(float x, float cy, float cz, float s, boolean lit, String word, int col) {
+        float w = 0.40F * s, h = 0.11F * s;
+        LinerGfxSVA.frame(new float[] {x, cy + h / 2, cz - w / 2}, new float[] {0, 0, w}, new float[] {0, -h, 0}, 400, 110, 0.002F);
+        LinerGfxSVA.resetLayer();
+        LinerGfxSVA.bright = 1F;
+        LinerGfxSVA.rect(0, 0, 400, 110, lit ? 0x1A1C20 : 0x24262A);
+        if (lit) {
+            LinerGfxSVA.layer();
+            LinerGfxSVA.text(Lang.tr("sva.liner.sign." + word), 200, 55, 60, col, 0, 380);
+        }
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glPopMatrix();
+    }
+
+    /** A reading light: a bright disc facing down on the PSU and a soft cone to the seat (additive). */
+    private static void readingLamp(float x, float y, float z, float floorY) {
+        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+        GL11.glColor4f(1F, 0.95F, 0.80F, 1F);
+        GL11.glVertex3f(x, y - 0.004F, z);
+        for (int k = 0; k <= 12; k++) {
+            double a = k * Math.PI * 2 / 12;
+            GL11.glVertex3f(x + (float) Math.cos(a) * 0.035F, y - 0.004F, z + (float) Math.sin(a) * 0.035F);
+        }
+        GL11.glEnd();
+        GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
+        for (int k = 0; k <= 12; k++) {
+            double a = k * Math.PI * 2 / 12;
+            float c = (float) Math.cos(a), sn = (float) Math.sin(a);
+            GL11.glColor4f(1F, 0.92F, 0.75F, 0.16F);
+            GL11.glVertex3f(x + c * 0.03F, y - 0.01F, z + sn * 0.03F);
+            GL11.glColor4f(1F, 0.92F, 0.75F, 0F);
+            GL11.glVertex3f(x - 0.1F + c * 0.28F, floorY, z * 0.85F + sn * 0.28F);
+        }
+        GL11.glEnd();
+    }
+
+    /**
+     * Wave 6: the windscreen's frost (config vehicles.linerIceVisuals) - a white rime creeping in from each pane's frame on the
+     * inside of the glass (the cockpit frame: LinerInterior's windshield and corner panes), its band and opacity by the
+     * synced frost; the window heat clears it.
+     */
+    static void frost(LinerSystems L) {
+        double f = L.ice.frost;
+        if (f < 0.02 || !ConfigSVA.linerIceVisuals) {
+            return;
+        }
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glDepthMask(false);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glShadeModel(GL11.GL_SMOOTH);
+        float band = (float) (0.12 + 0.30 * f), a = (float) Math.min(0.85, 0.25 + 0.6 * f);
+        for (float[][] q : PANES) {
+            rim(q, band, a);
+        }
+        GL11.glDepthMask(true);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /** The windshield's panes (cockpit frame, pulled 0.012 toward the crew): the two front, the two corner panes. */
+    static final float[][][] PANES = {
+            {{0.648F, 0.36F, -0.45F}, {0.648F, 0.36F, 0F}, {0.968F, -0.04F, 0F}, {0.968F, -0.04F, -0.62F}},
+            {{0.648F, 0.36F, 0F}, {0.648F, 0.36F, 0.45F}, {0.968F, -0.04F, 0.62F}, {0.968F, -0.04F, 0F}},
+            {{0.44F, 0.36F, -0.79F}, {0.648F, 0.36F, -0.45F}, {0.968F, -0.04F, -0.62F}, {0.69F, -0.04F, -0.94F}},
+            {{0.648F, 0.36F, 0.45F}, {0.44F, 0.36F, 0.79F}, {0.69F, -0.04F, 0.94F}, {0.968F, -0.04F, 0.62F}}};
+
+    /** One pane's rim: from each edge (alpha a) in toward the pane's centre by `band` of the way (alpha 0). */
+    private static void rim(float[][] q, float band, float a) {
+        float[] c = {0, 0, 0};
+        for (float[] p : q) {
+            for (int i = 0; i < 3; i++) {
+                c[i] += p[i] / 4;
+            }
+        }
+        GL11.glBegin(GL11.GL_QUADS);
+        for (int e = 0; e < 4; e++) {
+            float[] p0 = q[e], p1 = q[(e + 1) % 4];
+            GL11.glColor4f(0.88F, 0.94F, 1F, a);
+            GL11.glVertex3f(p0[0], p0[1], p0[2]);
+            GL11.glVertex3f(p1[0], p1[1], p1[2]);
+            GL11.glColor4f(0.88F, 0.94F, 1F, 0F);
+            GL11.glVertex3f(p1[0] + (c[0] - p1[0]) * band, p1[1] + (c[1] - p1[1]) * band, p1[2] + (c[2] - p1[2]) * band);
+            GL11.glVertex3f(p0[0] + (c[0] - p0[0]) * band, p0[1] + (c[1] - p0[1]) * band, p0[2] + (c[2] - p0[2]) * band);
+        }
+        GL11.glEnd();
     }
 
     private static void draw(int plain, int tex, int[] atlas) {
@@ -210,6 +366,7 @@ public final class LinerCockpitSVA {
 
     /** The PFD / ND / E/WD / SD / ISIS: each screen's quad on the main panel, its brightness. */
     static void screens(EntityVehicleSVA v, LinerSystems L, float pt) {
+        float night = ConfigSVA.linerCabinLighting ? VehicleLightsSVA.darkness(v) : 0F;
         for (int du = 0; du < LinerSystems.DUS; du++) {
             float[] s = LinerPaintSVA.SCREENS[du];
             float[] tl = LinerControls.point(LinerControls.MP, s[0], s[1], new float[3]);
@@ -218,7 +375,7 @@ public final class LinerCockpitSVA {
             float[] u = {tr[0] - tl[0], tr[1] - tl[1], tr[2] - tl[2]}, vv = {bl[0] - tl[0], bl[1] - tl[1], bl[2] - tl[2]};
             float w = s[2] - s[0], h = s[3] - s[1];
             LinerGfxSVA.frame(tl, u, vv, w, h, 0.004F);
-            LinerGfxSVA.bright = brightness(L, du);
+            LinerGfxSVA.bright = brightness(L, du) * LinerLights.screenAuto(night);     // wave 6: + the ambient light
             LinerGfxSVA.lift = 0.0003F;
             try {
                 LinerDisplaysSVA.draw(du, v, L, w, h, pt);
@@ -430,6 +587,11 @@ public final class LinerCockpitSVA {
         if (L.greenLamp(c)) {
             top = L_GRN;                                            // wave 2: the autobrake's ТОРМОЖ.
         }
+        if (L.at(LinerControls.ANN_LT) == 0 && L.powered() && c.kind == LinerControls.PB) {
+            // wave 6: АННУНЦ. ТЕСТ - every push button's halves lit (amber over, its own colour under)
+            top = c.top != null ? L_AMB : top;
+            bot = c.bottom != null ? ("on".equals(c.bottom) ? L_BLU : L_WHT) : bot;
+        }
         boolean flash = (System.currentTimeMillis() / 400) % 2 == 0;
         if ((c == LinerControls.MW_L || c == LinerControls.MW_R) && L.masterWarn && flash) {
             top = bot = L_RED;
@@ -504,6 +666,15 @@ public final class LinerCockpitSVA {
             // wave 2: the law window of the F/CTL group
             int law = L.fctl.law;
             LinerGfxSVA.text(Lang.tr("sva.liner.law." + com.sva.vehicle.LinerFctl.LAW_KEYS[law]), 1670, 350, 13, law == 0 ? L_GRN : L_AMB, 0, 74);
+            // wave 6: the anti-ice group's «ЛЁД» lamp (ice detected) between the push buttons; the zone selectors' °C
+            if (L.ice.detected()) {
+                LinerGfxSVA.rect(810 - 30, 942 - 12, 810 + 30, 942 + 12, scale(L_AMB, 0.2F));
+                LinerGfxSVA.layer();
+                LinerGfxSVA.text(Lang.tr("sva.liner.du.ice"), 810, 942, 15, L_AMB, 0, 56);
+            }
+            for (LinerControls.Ctl t : new LinerControls.Ctl[] {LinerControls.TEMP_CK, LinerControls.TEMP_CAB}) {
+                LinerGfxSVA.text(Math.round(com.sva.vehicle.LinerIce.TEMP[L.at(t)]) + " C", t.cx, t.cy + 30, 11, L_GRN, 0, 50);
+            }
         }
         if (panel == LinerControls.MP) {
             brakeGauge(L);

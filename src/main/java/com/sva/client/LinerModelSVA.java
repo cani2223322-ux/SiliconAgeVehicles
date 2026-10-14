@@ -17,6 +17,7 @@ import com.sva.vehicle.AnimMath;
 import com.sva.vehicle.HighLiftMath;
 import com.sva.vehicle.LinerAnim;
 import com.sva.vehicle.LinerControls;
+import com.sva.vehicle.LinerLights;
 import com.sva.vehicle.LinerModelData;
 import com.sva.vehicle.LinerSystems;
 import com.sva.vehicle.LinerTexMath;
@@ -65,6 +66,8 @@ public final class LinerModelSVA {
         int plain, livery, spinner, cascade;
         /** Wave 2: the main wheels' hubs (material "gear") split inner / outer - the brakes' glow. */
         int hubIn, hubOut;
+        /** Wave 6: the forward-facing skin of the wing / slats / nacelles (the leading edges, the intake lips) - the ice. */
+        int ice;
         final List<String> emitMat = new ArrayList<String>();
         final List<Integer> emitList = new ArrayList<Integer>();
 
@@ -172,6 +175,9 @@ public final class LinerModelSVA {
                 GL11.glEnd();
                 GL11.glEndList();
             }
+            if (iceGroup(g.name) >= 0) {
+                gl.ice = iceList(g);
+            }
             if (g.name.startsWith("mlgwheels")) {
                 for (LinerModelData.Mat mt : g.mats) {
                     if ("gear".equals(mt.name)) {
@@ -231,6 +237,44 @@ public final class LinerModelSVA {
             out.add(gl);
         }
         return out;
+    }
+
+    /** Wave 6: which ice a group carries - 0 the wing's (wing, slats), 1 / 2 an engine's (nacelle L / R); -1 none. */
+    static int iceGroup(String name) {
+        if (name.startsWith("wing_") || name.startsWith("slat")) {
+            return 0;
+        }
+        return "nacelle_L".equals(name) ? 1 : "nacelle_R".equals(name) ? 2 : -1;
+    }
+
+    /** A face's forward share (its normal's x) over which it gathers ice; the ice's thickness off the skin (blocks). */
+    static final float ICE_FACING = 0.35F, ICE_LIFT = 0.012F;
+
+    /**
+     * Wave 6: the group's forward-facing triangles (normal x over ICE_FACING - the leading edges, the intake lips) lifted
+     * ICE_LIFT off the skin along their normals: drawn white-blue over the skin by the ice's amount.
+     */
+    private static int iceList(LinerModelData.Group g) {
+        int l = GL11.glGenLists(1);
+        GL11.glNewList(l, GL11.GL_COMPILE);
+        GL11.glBegin(GL11.GL_TRIANGLES);
+        for (LinerModelData.Mat mt : g.mats) {
+            float[] v = mt.v;
+            for (int t = 0; t + 18 <= v.length; t += 18) {
+                float nx = (v[t + 3] + v[t + 9] + v[t + 15]) / 3;
+                if (nx < ICE_FACING) {
+                    continue;
+                }
+                for (int k = 0; k < 3; k++) {
+                    int o = t + k * 6;
+                    GL11.glNormal3f(v[o + 3], v[o + 4], v[o + 5]);
+                    GL11.glVertex3f(v[o] + v[o + 3] * ICE_LIFT, v[o + 1] + v[o + 4] * ICE_LIFT, v[o + 2] + v[o + 5] * ICE_LIFT);
+                }
+            }
+        }
+        GL11.glEnd();
+        GL11.glEndList();
+        return l;
     }
 
     /** Wave 2: |z| of the main wheels' axle centre - the inner wheel's triangles are nearer the fuselage. */
@@ -315,10 +359,13 @@ public final class LinerModelSVA {
             GL11.glLightModeli(GL11.GL_LIGHT_MODEL_TWO_SIDE, GL11.GL_TRUE);
             GL11.glShadeModel(GL11.GL_SMOOTH);
             GL11.glDisable(GL11.GL_BLEND);
+            LinerModelData.Pose pose = null;
             if (lists != null) {
-                LinerModelData.Pose pose = pose(v, pt);
+                pose = pose(v, pt);
                 exterior(v, lists, pose, ownView, pt);
             }
+            // wave 6: the exterior lights' beams and halos (LOD-independent: the strobes / beacons seen from afar)
+            LinerLightsSVA.render(v, v.liner(), pose, ownView, pt);
             GL11.glLightModeli(GL11.GL_LIGHT_MODEL_TWO_SIDE, GL11.GL_FALSE);
             // the inside: the cockpit for its crew, the cabin for the passengers and anyone at the open door
             LinerCockpitSVA.render(v, pt, ownView, mc.thePlayer);
@@ -330,7 +377,12 @@ public final class LinerModelSVA {
             GL11.glPopMatrix();
             GL11.glColor4f(1F, 1F, 1F, 1F);
         }
+        // wave 6: the light pools on the ground (a world-aligned frame)
+        LinerLightsSVA.pools(v, v.liner(), lists != null ? lastPose : null, x, y, z, pt);
     }
+
+    /** Wave 6: the last pose drawn (the pools' landing light housings). */
+    private static LinerModelData.Pose lastPose;
 
     /** The pose of every moving group now. */
     static LinerModelData.Pose pose(EntityVehicleSVA v, float pt) {
@@ -392,8 +444,10 @@ public final class LinerModelSVA {
         p.set("doorL1", LinerAnim.DOOR_DEG * door, 0).set("stairs", (1F - st) * 90F, 0);
         if (L != null) {
             p.set("apu_inlet", (float) (LinerAnim.APU_FLAP_DEG * L.apuFlap), 0);
-            p.set("landlight_L", L.at(LinerControls.LAND_L) != 2 ? 80F : 0F, 0).set("landlight_R", L.at(LinerControls.LAND_R) != 2 ? 80F : 0F, 0);
+            // wave 6: the housings swing out / in at the synced travel (LinerLights: ~3 s, on AC)
+            p.set("landlight_L", LinerLights.landAngle(L.lights.landL), 0).set("landlight_R", LinerLights.landAngle(L.lights.landR), 0);
         }
+        lastPose = p;
         return p;
     }
 
@@ -458,6 +512,13 @@ public final class LinerModelSVA {
             if (g.hubIn != 0 && L != null && ConfigSVA.linerBrakeGlow) {
                 brakeGlow(g, L, lastBx, lastBy);
             }
+            if (g.ice != 0 && L != null && ConfigSVA.linerIceVisuals) {
+                int k = iceGroup(g.name);
+                iceCoat(g.ice, k == 0 ? L.ice.wing : L.ice.eng[k - 1]);
+            }
+            if (g.livery != 0 && livery > 0 && "fin".equals(g.name) && L != null && power && (L.lights.ext & LinerLights.X_LOGO) != 0) {
+                logoWash(g.livery, VehicleLightsSVA.darkness(v), lastBx, lastBy);
+            }
             for (int i = 0; i < g.emitList.size(); i++) {
                 String m = g.emitMat.get(i);
                 LinerModelData.Material ma = mats.get(m);
@@ -478,6 +539,45 @@ public final class LinerModelSVA {
             GL11.glPopMatrix();
         }
         GL11.glDisable(GL11.GL_TEXTURE_2D);
+    }
+
+    /** Wave 6: the ice over the skin - white-blue, lit, its opacity by the amount (0..1). */
+    private static void iceCoat(int list, double amount) {
+        if (amount < 0.02) {
+            return;
+        }
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glDepthMask(false);
+        GL11.glColor4f(0.90F, 0.95F, 1F, (float) Math.min(0.9, 0.15 + 0.8 * amount));
+        GL11.glCallList(list);
+        GL11.glDepthMask(true);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /**
+     * Wave 6: the logo lights' wash over the fin - its livery drawn again unlit and additive in the lamps' warm white, by the
+     * darkness (by day it is lost in the sunlight), brighter low on the fin is left to the texture.
+     */
+    private static void logoWash(int livery, float dark, float bx, float by) {
+        if (dark < 0.05F) {
+            return;
+        }
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE);
+        GL11.glDepthFunc(GL11.GL_LEQUAL);
+        GL11.glDepthMask(false);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+        float k = 0.55F * dark;
+        GL11.glColor3f(k, k * 0.93F, k * 0.80F);
+        GL11.glCallList(livery);
+        GL11.glDepthMask(true);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glEnable(GL11.GL_LIGHTING);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
     }
 
     /** The glow's share at a brake temperature (0 under GLOW_FROM °C, 1 at GLOW_FULL). */
@@ -523,28 +623,33 @@ public final class LinerModelSVA {
         if (L == null) {
             return false;
         }
-        int t = v.ticksExisted;
-        if ("nav_r".equals(mat) || "nav_g".equals(mat) || "nav_w".equals(mat) || "logo".equals(mat)) {
-            return L.at(LinerControls.NAV_LOGO) != 1;
+        // wave 6: what the server says shines (LinerLights' synced bits), the strobes' double flash, the beacons' turn
+        int x = L.lights.ext;
+        long t = v.worldObj.getTotalWorldTime();
+        int phase = AnimMath.phase(v.getEntityId());
+        if ("nav_r".equals(mat) || "nav_g".equals(mat) || "nav_w".equals(mat)) {
+            return (x & LinerLights.X_NAV) != 0;
+        }
+        if ("logo".equals(mat)) {
+            return (x & LinerLights.X_LOGO) != 0;
         }
         if ("strobe".equals(mat)) {
-            boolean sw = L.at(LinerControls.STROBE) == 0 || L.at(LinerControls.STROBE) == 1 && v.anim.height > 1;
-            return sw && t % AnimMath.STROBE_PERIOD < AnimMath.STROBE_ON;
+            return (x & LinerLights.X_STROBE) != 0 && LinerLights.strobeAt(t, phase);
         }
         if ("beacon".equals(mat)) {
-            return L.at(LinerControls.BEACON) == 0 && (t + ("beacon_bot".equals(group) ? 10 : 0)) % AnimMath.BEACON_PERIOD < 5;
+            return (x & LinerLights.X_BEACON) != 0 && LinerLights.beaconAt(t + phase, "beacon_bot".equals(group)) > 0.3F;
         }
         if ("land".equals(mat)) {
-            return "landlight_L".equals(group) ? L.at(LinerControls.LAND_L) == 0 : L.at(LinerControls.LAND_R) == 0;
+            return (x & ("landlight_L".equals(group) ? LinerLights.X_LAND_L : LinerLights.X_LAND_R)) != 0;
         }
         if ("taxi".equals(mat)) {
-            return L.at(LinerControls.NOSE_LT) != 2;
+            return (x & (LinerLights.X_TAXI | LinerLights.X_TO)) != 0;
         }
         if ("rto".equals(mat)) {
-            return L.at(LinerControls.RWY_TURN) == 0;
+            return (x & LinerLights.X_RTO) != 0;
         }
         if ("wingl".equals(mat)) {
-            return L.at(LinerControls.WING_LT) == 0;
+            return (x & LinerLights.X_WING) != 0;
         }
         return false;
     }

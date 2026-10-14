@@ -388,6 +388,20 @@ public final class LinerControls {
     public static final Ctl MCDU1 = add("mcdu1", PED, INFO, null, 0, 195, 247, 360, 470);
     public static final Ctl MCDU2 = add("mcdu2", PED, INFO, null, 0, 565, 247, 360, 470);
 
+    /**
+     * Wave 6: the main panel's flood lights - a knob on each lateral console beside the console / floor light switch (0 off
+     * .. 4 bright; the brighter of the two lights the cockpit: LinerLights.cockpitLight).
+     */
+    public static final Ctl FLOOD_L = rot("floodL", SCL, 420, 225, 20, new String[] {"0", "1", "2", "3", "4"}, 0);
+    public static final Ctl FLOOD_R = rot("floodR", SCR, 80, 225, 20, new String[] {"0", "1", "2", "3", "4"}, 0);
+    /**
+     * Wave 6: the air conditioning's zone temperature selectors in the bleed group (the A320's COCKPIT / CABIN knobs) between
+     * the packs and the X BLEED selector: 18..30 °C, the packs hold their zones there (LinerIce.zoneTarget).
+     */
+    public static final String[] TEMP_POS = {"t18", "t20", "t22", "t24", "t26", "t28", "t30"};
+    public static final Ctl TEMP_CK = rot("tempCk", OVH, 220, 960, 16, TEMP_POS, 2);
+    public static final Ctl TEMP_CAB = rot("tempCab", OVH, 440, 960, 16, TEMP_POS, 2);
+
     /** Wave 4: an FCU knob (r: its radius in panel units; the hitbox a little larger). */
     private static Ctl knob(String id, int panel, float cx, float cy, float r) {
         return add(id, panel, KNOB, null, 0, cx, cy, 2 * r + 12, 2 * r + 12);

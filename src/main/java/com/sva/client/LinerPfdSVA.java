@@ -64,7 +64,8 @@ public final class LinerPfdSVA {
         d.captain = captain;
         d.pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
         d.roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
-        d.kmh = LinerDisplaysSVA.kmh(v);
+        // wave 6: the airspeed through this side's probe - an iced one is frozen where it iced (the captain's probe 1, the F/O's 2)
+        d.kmh = (float) L.ice.indicated(captain ? 0 : 1, LinerDisplaysSVA.kmh(v));
         d.y = LinerDisplaysSVA.alt(v, pt);
         d.vs = (float) ((v.posY - v.prevPosY) * 20);
         d.vy = v.posY - v.prevPosY;
