@@ -3646,6 +3646,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             movesRefused++;
             if (now - lastCorrectTick >= 5 && p.playerNetServerHandler != null) {
                 lastCorrectTick = now;
+                // DIAG (liner snap-back, temporary): why the server refused the driver's move
+                System.out.println(String.format(java.util.Locale.ROOT,
+                        "[SVA-MOVE] refuse type=%s why=%d bh=%.3f by=%.3f dt=%d y=%.1f lift=%b thrust=%b motor=%b eng=%d spd=%.3f ema=%.3f air=%b/%b",
+                        t.name(), refuseWhy, bh, by, dt, y, lift, canThrust(), motorDrives(), engineState(), clientSpeed, speedEma,
+                        airborneAt(posX, posY, posZ), airborneAt(x, y, z)));
                 NetSVA.CHANNEL.sendTo(new NetSVA.Correct(getEntityId(), posX, posY, posZ, rotationYaw), p);
             }
         }
