@@ -39,6 +39,10 @@ import net.minecraft.nbt.NBTTagCompound;
  * <p>
  * <b>Quick start</b> (vehicles.linerQuickStart): «Быстрый запуск» walks the steps of sheet 15 by itself in ~40 s
  * (QUICK_* steps; a start fault stops it). Units: psi, °C, %, mB/min; ticks of 1/20 s.
+ * <p>
+ * <b>Wave 3</b>: the fuel system (LinerFuel - pumps, centre first, crossfeed, gravity feed, transfer, FU) feeds the engines
+ * from their sides; every warning, caution and memo goes through the ECAM (LinerEcam - priorities, action lines, phases,
+ * CLR / RCL / STS / EMER CANC, T.O. CONFIG, the SD's automatic page); the cabin's zones and altitude (cosmetic).
  */
 public final class LinerSystems {
 
@@ -168,6 +172,9 @@ public final class LinerSystems {
         public boolean instantHyd;
         /** The height over the ground (blocks; the КОЛЁСА page's auto-display), the config's hydraulic leak chance per hour. */
         public double height, leakChance;
+        // wave 3
+        /** The altitude (absolute Y), the gravity fuel feed's ceiling (Y), LDG MEMO / the approach phase under this height (blocks). */
+        public double alt = 64, gravAlt = 160, ldgMemoH = 60;
     }
 
     // ---------------------------------------------------------------- state
@@ -203,10 +210,10 @@ public final class LinerSystems {
     /** H2 tanks (mB). */
     public double tankL, tankC, tankR;
 
-    /** The SD page (0 automatic, 1.. LinerControls.SD_PAGES index + 1). */
+    /** The SD page (0 automatic, 1.. LinerEcam.P_* + 1: LinerControls.SD_PAGES and the ECAM's own pages). */
     public int sdPage;
-    /** Warnings now (W_* bits), the ones already acknowledged by MASTER WARN / CAUT, the lamps. */
-    public int warn, ackWarn, caut, ackCaut;
+    /** Warnings / cautions now (the wave 1-2 W_* / C_* bits - raw conditions, LinerEcam sets them), the master lamps. */
+    public int warn, caut;
     public boolean masterWarn, masterCaut;
     /** Sound events of this tick (the entity plays them): E_CHIME_WARN, E_CHIME_CAUT, E_CLICK, E_APU_AVAIL, E_LIGHT_OFF. */
     public int events;
@@ -239,6 +246,19 @@ public final class LinerSystems {
     /** Events of this tick past E_*: the PTU's bark, the RAT out, the gear moving / locked, a tyre's fuse plug. */
     public static final int E_PTU = 64, E_RAT = 128, E_FUSE = 256, E_GEAR = 512;
 
+    // ---------------------------------------------------------------- wave 3: fuel, ECAM, the cabin
+
+    /** The fuel system (the tanks' insides, pumps, crossfeed, feeding) and the ECAM's message engine. */
+    public final LinerFuel fuel = new LinerFuel();
+    public final LinerEcam ecam = new LinerEcam();
+    /** The cabin's zones (cockpit, forward, aft: °C, cosmetic - the packs warm / cool them to CAB_T), the cabin altitude (m) and its rate (m/s). */
+    public final double[] cabT = {15, 15, 15};
+    public double cabAlt, cabVs;
+    /** The packs' zone temperatures (°C): cockpit / forward / aft. */
+    public static final double[] CAB_T = {22, 21, 22};
+    /** Events of this tick past E_*: the tanks grew (a refuel). */
+    public static final int E_REFUEL = 1024;
+
     // EU / mB of this tick (outputs for the entity)
     /** EU taken from АКБ 1 this tick (negative: charged into it). */
     public double bat1Eu;
@@ -264,7 +284,7 @@ public final class LinerSystems {
         apuStartLit = apuFault = false;
         quick = QUICK_OFF;
         sdPage = 0;
-        warn = ackWarn = caut = ackCaut = 0;
+        warn = caut = 0;
         bat2.charge = 0;
         autoSd = 3;
     }
@@ -349,24 +369,33 @@ public final class LinerSystems {
             }
             return false;
         }
+        // wave 3: the masters, the ECAM control panel - LinerEcam
         if (c == LinerControls.MW_L || c == LinerControls.MW_R) {
-            ackWarn |= warn;
-            masterWarn = false;
+            ecam.masterWarn(this);
             return true;
         }
         if (c == LinerControls.MC_L || c == LinerControls.MC_R) {
-            ackCaut |= caut;
             masterCaut = false;
             return true;
         }
         if (c == LinerControls.ECAM_CLR) {
-            ackCaut |= caut;
-            masterCaut = false;
-            sdPage = 0;
+            ecam.clr(this);
             return true;
         }
         if (c == LinerControls.ECAM_RCL) {
-            ackWarn = ackCaut = 0;                                  // recall: everything shows again
+            ecam.rcl();
+            return true;
+        }
+        if (c == LinerControls.ECAM_EMER) {
+            ecam.emerCanc(this);
+            return true;
+        }
+        if (c == LinerControls.TO_CONFIG) {
+            ecam.toConfig(onGround);
+            return true;
+        }
+        if (c == LinerControls.ECAM[LinerEcam.P_ALL]) {
+            sdPage = LinerEcam.allNext(sdPage);                     // ВСЕ: the next page of the cycle (the checklists among them)
             return true;
         }
         for (int i = 0; i < LinerControls.ECAM.length; i++) {
@@ -455,13 +484,20 @@ public final class LinerSystems {
         bat2A = -drain2 * 0.5;
         // ---- bleed, then the engines (their starters read the ducts)
         bleedTick();
+        fuelPrepare(e, ac);                                         // wave 3: the pumps, crossfeed, transfer - who feeds each engine
         burnEng = 0;
         for (int i = 0; i < 2; i++) {
             engineTick(e, i, ac || dcBat1 || dcBat2 || extOn);
         }
         burnFuel();
         wave2Tick(e);
-        warnings(e);
+        // wave 3: every warning / caution through the ECAM, then the SD's automatic page; the cabin
+        ecam.tick(this, e);
+        autoSd = ecam.autoPage(this, e);
+        if (autoPage() == LinerEcam.P_STS) {
+            ecam.stsSeen = true;
+        }
+        cabinTick(e);
     }
 
     /** The loads (%) per source for these bus loads (a source feeding both buses carries both). */
@@ -653,7 +689,8 @@ public final class LinerSystems {
         Eng g = eng[i];
         boolean master = on(i == 0 ? LinerControls.ENG_MASTER1 : LinerControls.ENG_MASTER2);
         int mode = at(LinerControls.ENG_MODE);
-        double fuelLeft = tankL + tankC + tankR;
+        // wave 3: fuel from this engine's side (LinerFuel: centre / wing pumps / gravity / crossfeed), not just any tank
+        boolean feedable = fuel.feedable(i), fed = fuel.fed[i];
         g.ticks++;
         if (!master) {
             if (g.state != E_OFF && g.state != E_DOWN) {
@@ -674,10 +711,13 @@ public final class LinerSystems {
                     }
                     if (mode == 2) {
                         g.state = E_WAIT;                           // ЗАПУСК: the start valve opens when there is air
+                        if (e.ground) {
+                            fuel.used[i] = 0;                       // wave 3: the fuel used counts from the start
+                        }
                         g.ticks = 0;
                         g.noAir = 0;
                         g.rolled = e.random < e.failChance ? F_HOT : e.random < 2 * e.failChance ? F_HUNG : F_NONE;
-                    } else if (g.n2 > 15 && fuelLeft > 0) {
+                    } else if (g.n2 > 15 && feedable) {
                         // a relight (in flight, windmilling - or a master flicked off and on while still spinning)
                         g.state = E_LIGHT;
                         g.ticks = 0;
@@ -725,7 +765,7 @@ public final class LinerSystems {
                     // the starter alone: up to a ceiling that sinks with the air (packs on - slower; too little - it hangs)
                     double ceil = MOTOR_CEIL * Math.min(1.1, 0.4 + 0.6 * f);
                     rate = g.starter ? MOTOR_RATE * f * clamp((ceil - g.n2) / 4, 0, 1) : -DOWN_N2;
-                    if (g.n2 >= FUEL_N2 && fuelLeft > 0) {
+                    if (g.n2 >= FUEL_N2 && feedable) {
                         g.fuel = true;                              // fuel at 22 %: light-off LIGHT_DELAY later
                         g.state = E_LIGHT;
                         g.ticks = 0;
@@ -753,7 +793,7 @@ public final class LinerSystems {
                         abort(g, F_HOT);
                         break;
                     }
-                    if (fuelLeft <= 0) {
+                    if (!fed) {
                         abort(g, F_FLAMEOUT);
                         break;
                     }
@@ -781,8 +821,8 @@ public final class LinerSystems {
             case E_RUN: {
                 g.starter = false;
                 g.ign = false;
-                if (fuelLeft <= 0) {
-                    g.fault = F_FLAMEOUT;                           // out of hydrogen: a flameout
+                if (!fed) {
+                    g.fault = F_FLAMEOUT;                           // its side out of hydrogen (no crossfeed): a flameout
                     g.state = E_DOWN;
                     g.ticks = 0;
                     break;
@@ -887,6 +927,11 @@ public final class LinerSystems {
             tankL += l;
             tankR += r;
             tankC += d - add;
+            fuel.wingCap = wing;
+            fuel.qty[LinerFuel.L] = tankL;
+            fuel.qty[LinerFuel.R] = tankR;
+            fuel.refuelled(l, r);                                   // wave 3: the outer cells first, «ЗАПРАВКА» on the ТОПЛ page
+            events |= E_REFUEL;
         } else {
             take(-d);
         }
@@ -913,15 +958,87 @@ public final class LinerSystems {
         }
     }
 
-    /** This tick's burn out of the tanks: the engines centre first, the APU from the left tank. */
+    /**
+     * Wave 3: the fuel system before the engines - the tanks into LinerFuel, its pumps (AC), the centre's mode, the
+     * crossfeed, the slats, each engine burning or not and its thrust, the altitude for the gravity feed.
+     */
+    private void fuelPrepare(Env e, boolean ac) {
+        fuel.qty[LinerFuel.L] = tankL;
+        fuel.qty[LinerFuel.C] = tankC;
+        fuel.qty[LinerFuel.R] = tankR;
+        LinerFuel.In f = new LinerFuel.In();
+        for (int p = 0; p < LinerFuel.PUMPS; p++) {
+            f.pb[p] = on(LinerEcam.pump(p));
+        }
+        f.manual = on(LinerControls.FUEL_MODE);
+        f.xfeed = on(LinerControls.XFEED);
+        f.ac = ac;
+        f.slatsIn = fctl.slatPos < 0.05;
+        f.ground = e.ground;
+        for (int i = 0; i < 2; i++) {
+            Eng g = eng[i];
+            f.run[i] = g.state == E_RUN || g.state == E_LIGHT && g.fuel;
+            f.thrust[i] = g.state == E_RUN ? clamp((g.n1 - IDLE_N1) / (TOGA_N1 - IDLE_N1), 0, 1) : 0;
+        }
+        f.alt = e.alt;
+        f.gravAlt = e.gravAlt;
+        f.sat = sat(e.alt);
+        f.instant = e.instant;
+        fuel.prepare(f);
+        tankL = fuel.qty[LinerFuel.L];
+        tankC = fuel.qty[LinerFuel.C];
+        tankR = fuel.qty[LinerFuel.R];
+    }
+
+    /** The outside air (°C) at altitude Y: 15 at sea level (Y 64), -6.5 every 100 blocks. */
+    public static double sat(double alt) {
+        return 15 - Math.max(0, alt - 64) * 0.065;
+    }
+
+    /**
+     * This tick's burn out of the tanks (wave 3: through LinerFuel - each engine from its side's sources, centre first; the
+     * APU from the left wing); burnEng / burnApu what was really taken.
+     */
     private void burnFuel() {
-        take(burnEng);
-        burnApu = 0;
+        double apuWant = 0;
         if (apu == A_START || apuRunning()) {
             double ff = APU_FF + (apuBleedOpen || apuGenOn && (ac1Src == S_APU || ac2Src == S_APU) ? APU_FF_LOAD : 0);
-            burnApu = Math.min(tankL, ff / 1200.0);
-            tankL -= burnApu;
+            apuWant = ff / 1200.0;
         }
+        fuel.qty[LinerFuel.L] = tankL;
+        fuel.qty[LinerFuel.C] = tankC;
+        fuel.qty[LinerFuel.R] = tankR;
+        double[] got = fuel.draw(new double[] {eng[0].ff / 1200.0, eng[1].ff / 1200.0}, apuWant);
+        burnEng = got[0];
+        burnApu = got[1];
+        tankL = fuel.qty[LinerFuel.L];
+        tankC = fuel.qty[LinerFuel.C];
+        tankR = fuel.qty[LinerFuel.R];
+    }
+
+    /** The roll tendency of uneven wing tanks (-1 left heavy .. 1; the physics' small roll bias). */
+    public double fuelRoll() {
+        return fuel.rollBias();
+    }
+
+    /**
+     * Wave 3, cosmetic (the КОНД / ДВЕРИ pages): each zone warms / cools to its CAB_T while its pack blows (pack 1 the
+     * cockpit and the front, pack 2 the aft; one pack does all), else drifts to the outside air; the cabin altitude climbs to
+     * ~30 % of the aircraft's with the packs and the door shut (unpressurised: the aircraft's own), its rate in m/s.
+     */
+    private void cabinTick(Env e) {
+        boolean p1 = on(LinerControls.PACK1) && ductL > 0, p2 = on(LinerControls.PACK2) && ductR > 0;
+        double out = sat(e.alt) + (e.ground ? 6 : 0);
+        for (int z = 0; z < 3; z++) {
+            boolean blow = z < 2 ? p1 || p2 : p2 || p1;
+            double t = blow ? CAB_T[z] : out;
+            cabT[z] += (t - cabT[z]) * (blow ? 0.004 : 0.0005);
+        }
+        double above = Math.max(0, e.alt - 64);
+        double want = e.ground ? 0 : (p1 || p2) && !door ? Math.min(2400, above * 0.3) : above;
+        double before = cabAlt;
+        cabAlt += clamp(want - cabAlt, -1.5, 1.5);
+        cabVs = (cabAlt - before) * 20;
     }
 
     // ---------------------------------------------------------------- wave 2: hydraulics, flight controls, gear, brakes
@@ -1064,7 +1181,6 @@ public final class LinerSystems {
             fctlChecked = false;                                    // a new ground run (or the aircraft shut down): check again
         }
         onGround = e.ground;
-        autoSd = autoSdPage(e);
     }
 
     /**
@@ -1080,45 +1196,17 @@ public final class LinerSystems {
         fctl.law = law;
     }
 
-    /**
-     * The SD's automatic page (sheet 13a's rules): a hydraulic fault - ГИДР; an engine starting or ЗАПУСК - ДВИГ; the APU
-     * starting - ВСУ; its bleed - ОТБОР; the F/CTL check - УПР; taxiing (an engine running on the ground) - КОЛЁСА; in the
-     * air with the gear lever down under WHEEL_ALT - КОЛЁСА; flying - ДВИГ; else ЭЛЕКТР.
-     */
-    private int autoSdPage(Env e) {
-        int hydBits = C_HYD_G_LO | C_HYD_B_LO | C_HYD_Y_LO | C_HYD_G_QTY | C_HYD_B_QTY | C_HYD_Y_QTY | C_HYD_G_HOT | C_HYD_B_HOT | C_HYD_Y_HOT;
-        if ((caut & hydBits) != 0 || (warn & (W_HYD_GB | W_HYD_GY | W_HYD_BY)) != 0) {
-            return 4;
-        }
-        for (Eng g : eng) {
-            if (g.state == E_WAIT || g.state == E_CRANK || g.state == E_LIGHT || g.state == E_ABORT) {
-                return 0;
-            }
-        }
-        if (at(LinerControls.ENG_MODE) == 2) {
-            return 0;
-        }
-        if (apu == A_START || apu == A_FLAP && apuStartLit) {
-            return 6;
-        }
-        if (apuBleedOpen) {
-            return 1;
-        }
-        if (fctlCheck > 0) {
-            return 7;
-        }
-        boolean run = eng[0].running() || eng[1].running();
-        if (e.ground && run) {
-            return 9;
-        }
-        if (!e.ground && at(LinerControls.GEAR) == 1 && e.height < WHEEL_ALT) {
-            return 9;
-        }
-        return run ? 0 : 3;
-    }
-
     /** A push button's amber ОТКАЗ / ГОРЯЧ half lit (wave 2's: the hydraulic pumps, the F/CTL computers, the brake fans). */
     public boolean faultLamp(LinerControls.Ctl c) {
+        // wave 3: a fuel pump in without pressure; the centre mode's A320 MODE SEL fault (amber «ЦЕНТР»)
+        for (int p = 0; p < LinerFuel.PUMPS; p++) {
+            if (c == LinerEcam.pump(p)) {
+                return (fuel.lowPr & 1 << p) != 0;
+            }
+        }
+        if (c == LinerControls.FUEL_MODE) {
+            return fuel.modeFault;
+        }
         int f = hyd.faults;
         if (c == LinerControls.HYD_ENG1) {
             return (f & LinerHyd.F_EDP1) != 0;
@@ -1149,6 +1237,9 @@ public final class LinerSystems {
 
     /** A push button's green upper half lit: the autobrake's ТОРМОЖ. (decelerating at its rate). */
     public boolean greenLamp(LinerControls.Ctl c) {
+        if (c == LinerControls.XFEED) {
+            return fuel.xfeedOpen;                                  // wave 3: КОЛЬЦЕВ. «ОТКР» - the valve fully open
+        }
         return gear.abDecel && (c == LinerControls.ABRK_LO && gear.abMode == 1 || c == LinerControls.ABRK_MED && gear.abMode == 2
                 || c == LinerControls.ABRK_MAX && gear.abMode == 3);
     }
@@ -1236,7 +1327,11 @@ public final class LinerSystems {
 
     // ---------------------------------------------------------------- warnings and memos
 
-    /** Warnings (red, W_*) and cautions (amber, C_*) - bits; each a line on the E/WD (lang sva.liner.msg.KEY). */
+    /**
+     * Warnings (red, W_*) and cautions (amber, C_*) of waves 1-2 - bits of `warn` / `caut` (lang sva.liner.msg.KEY). Wave 3:
+     * every message (these and the new ones) lives in LinerEcam's table, which evaluates them and keeps these bits as the
+     * raw conditions (LinerEcam.M_* ids 0..6 and 12..38 in this order).
+     */
     public static final int W_ENG1_FAIL = 1, W_ENG2_FAIL = 2,
             C_ENG1_START = 1, C_ENG2_START = 2, C_ENG1_AIR = 4, C_ENG2_AIR = 8, C_GEN1 = 16, C_GEN2 = 32, C_APU = 64, C_BLEED = 128,
             C_BUS1 = 256, C_BUS2 = 512;
@@ -1254,127 +1349,20 @@ public final class LinerSystems {
             "hydGLo", "hydBLo", "hydYLo", "hydGQty", "hydBQty", "hydYQty", "hydGHot", "hydBHot", "hydYHot", "brkHot", "flapJam", "slatJam",
             "gearDisagree", "tyreFlat", "lawAltn", "lawDirect", "fctlComp"};
 
-    private void warnings(Env e) {
-        int w = 0, c = 0;
-        for (int i = 0; i < 2; i++) {
-            Eng g = eng[i];
-            if (g.fault == F_FLAMEOUT && !e.ground) {
-                w |= i == 0 ? W_ENG1_FAIL : W_ENG2_FAIL;
-            }
-            if (g.fault == F_HOT || g.fault == F_HUNG || g.fault == F_NO_AIR || g.fault == F_FLAMEOUT && e.ground) {
-                c |= i == 0 ? C_ENG1_START : C_ENG2_START;
-            }
-            if (g.state == E_WAIT && g.ticks > 20) {
-                c |= i == 0 ? C_ENG1_AIR : C_ENG2_AIR;
-            }
-            if (g.running() && !on(i == 0 ? LinerControls.GEN1 : LinerControls.GEN2)) {
-                c |= i == 0 ? C_GEN1 : C_GEN2;
-            }
-        }
-        if (apuFault) {
-            c |= C_APU;
-        }
-        if ((eng[0].running() && on(LinerControls.BLEED1) && ductL < LOW_PSI && !apuBleedOpen)
-                || (eng[1].running() && on(LinerControls.BLEED2) && ductR < LOW_PSI && !apuBleedOpen)) {
-            c |= C_BLEED;
-        }
-        boolean any = ac1Src != S_NONE || ac2Src != S_NONE;
-        if (any && ac1Src == S_NONE) {
-            c |= C_BUS1;
-        }
-        if (any && ac2Src == S_NONE) {
-            c |= C_BUS2;
-        }
-        // ---- wave 2: hydraulics (low pressure only while it should have it: an engine running or in flight)
-        boolean live = anyRunning() || !e.ground;
-        int[] lo = {C_HYD_G_LO, C_HYD_B_LO, C_HYD_Y_LO}, qty = {C_HYD_G_QTY, C_HYD_B_QTY, C_HYD_Y_QTY}, hot = {C_HYD_G_HOT, C_HYD_B_HOT, C_HYD_Y_HOT};
-        boolean[] low = new boolean[3];
-        for (int s = 0; s < 3; s++) {
-            low[s] = live && hyd.psi[s] < LinerHyd.LO_PSI;
-            if (low[s]) {
-                c |= lo[s];
-            }
-            if (hyd.low(s)) {
-                c |= qty[s];
-            }
-            if (hyd.hot[s]) {
-                c |= hot[s];
-            }
-        }
-        if (low[LinerHyd.G] && low[LinerHyd.B]) {
-            w |= W_HYD_GB;
-        }
-        if (low[LinerHyd.G] && low[LinerHyd.Y]) {
-            w |= W_HYD_GY;
-        }
-        if (low[LinerHyd.B] && low[LinerHyd.Y]) {
-            w |= W_HYD_BY;
-        }
-        if (gear.hot()) {
-            c |= C_BRK_HOT;
-            if (e.ground && e.throttle >= LinerFctl.TO_THR) {
-                w |= W_TO_BRK;                                      // the take-off configuration warning
-            }
-        }
-        if (!e.ground && !gear.downLocked() && e.height < 150 && e.throttle < 0.2 && at(LinerControls.FLAPS) >= 3) {
-            w |= W_GEAR_NOT_DOWN;
-        }
-        if (fctl.flapJam) {
-            c |= C_FLAP_JAM;
-        }
-        if (fctl.slatJam) {
-            c |= C_SLAT_JAM;
-        }
-        if (gear.disagree > LinerGear.DISAGREE_TICKS) {
-            c |= C_GEAR_DISAGREE;
-        }
-        if (gear.flat != 0) {
-            c |= C_TYRE;
-        }
-        if (!e.ground && fctl.law == LinerFctl.ALTN) {
-            c |= C_LAW_ALTN;
-        }
-        if (!e.ground && fctl.law == LinerFctl.DIRECT) {
-            c |= C_LAW_DIRECT;
-        }
-        if (powered()) {
-            LinerControls.Ctl[] pb = computers();
-            for (int i = 0; i < pb.length; i++) {
-                if ((fctl.comp & 1 << i) == 0 && (acPowered() || i == 0 || i == 2 || i == 5)) {
-                    c |= C_FCTL_COMP;                               // out or dead (with its bus up)
-                }
-            }
-        }
-        // a new warning / caution lights its master lamp and chimes; gone ones are forgotten (acknowledged or not)
-        int newW = w & ~warn & ~ackWarn, newC = c & ~caut & ~ackCaut;
-        ackWarn &= w;
-        ackCaut &= c;
-        if (newW != 0) {
-            masterWarn = true;
-            events |= E_CHIME_WARN;
-        }
-        if (newC != 0) {
-            masterCaut = true;
-            events |= E_CHIME_CAUT;
-        }
-        if ((w & ~ackWarn) == 0) {
-            masterWarn = false;
-        }
-        if ((c & ~ackCaut) == 0) {
-            masterCaut = false;
-        }
-        warn = w;
-        caut = c;
-    }
-
     /** Memos (green / amber notes on the E/WD's right): M_* bits. */
     public static final int M_APU_AVAIL = 1, M_APU_BLEED = 2, M_PARK = 4, M_BEACON_OFF = 8, M_EXT = 16, M_DOOR = 32, M_STAIRS = 64, M_GALLEY = 128,
             M_SEATBELTS = 256, M_NO_SMOKING = 512, M_ON_BAT = 1024, M_ENG_START = 2048, M_IDLE = 4096, M_QUICK = 8192,
             // wave 2: the ground spoilers armed, the autobrake armed (its mode in the line), the RAT out, the PTU running, the
             // gravity extension, the brake fans on
-            M_SPL_ARM = 16384, M_AUTOBRK = 32768, M_RAT = 65536, M_PTU = 131072, M_GRAVITY = 262144, M_BRK_FAN = 524288;
+            M_SPL_ARM = 16384, M_AUTOBRK = 32768, M_RAT = 65536, M_PTU = 131072, M_GRAVITY = 262144, M_BRK_FAN = 524288,
+            // wave 3: refuelling, the crossfeed open, «ТО КОНФИГ НОРМ» (the T.O. CONFIG test passed), RCL's «НОРМА», the fuel's
+            // gravity feed, the STATUS reminder
+            M_REFUEL = 1 << 20, M_XFEED = 1 << 21, M_TO_NORMAL = 1 << 22, M_NORMAL = 1 << 23, M_GRAV_FEED = 1 << 24, M_STS = 1 << 25;
     public static final String[] MEMO_KEYS = {"apuAvail", "apuBleed", "park", "beaconOff", "ext", "door", "stairs", "galley", "seatBelts", "noSmoking",
-            "onBat", "engStart", "idle", "quick", "splArm", "autoBrk", "rat", "ptu", "gravity", "brkFan"};
+            "onBat", "engStart", "idle", "quick", "splArm", "autoBrk", "rat", "ptu", "gravity", "brkFan", "refuel", "xfeed", "toNormal", "normal",
+            "gravFeed", "sts"};
+    /** Memos drawn amber (the rest green). */
+    public static final int MEMO_AMBER = M_BEACON_OFF | M_DOOR | M_GALLEY | M_ON_BAT | M_RAT | M_GRAVITY | M_GRAV_FEED;
 
     /** The memo bits now (both sides compute them from the synced state). */
     public int memos(boolean ground) {
@@ -1437,6 +1425,24 @@ public final class LinerSystems {
         if (on(LinerControls.BRK_FAN)) {
             m |= M_BRK_FAN;
         }
+        if (fuel.refuel > 0) {
+            m |= M_REFUEL;
+        }
+        if (fuel.xfeedOpen) {
+            m |= M_XFEED;
+        }
+        if (ecam.toNormal()) {
+            m |= M_TO_NORMAL;
+        }
+        if (ecam.rclNormal > 0) {
+            m |= M_NORMAL;
+        }
+        if ((fuel.src & (LinerFuel.S_GRAV_L | LinerFuel.S_GRAV_R)) != 0 && anyRunning()) {
+            m |= M_GRAV_FEED;
+        }
+        if (ecam.hasStatus() && autoPage() != LinerEcam.P_STS && ecam.top() < 0) {
+            m |= M_STS;
+        }
         return m;
     }
 
@@ -1469,7 +1475,7 @@ public final class LinerSystems {
         return ac1Src != S_NONE || ac2Src != S_NONE;
     }
 
-    /** The automatic SD page (sheet 13a): the APU starting - ВСУ, an engine starting (or ЗАПУСК) - ДВИГ, else ЭЛЕКТР on the ground. */
+    /** The SD page shown: the pilot's key, else the server's automatic page (wave 3: LinerEcam.autoPage, sheet 13a). */
     public int autoPage() {
         return sdPage > 0 ? sdPage - 1 : autoSd;                    // wave 2: the server judges the automatic page (autoSdPage)
     }
@@ -1680,7 +1686,57 @@ public final class LinerSystems {
             }
             b.append(w[i]);
         }
+        b.append('|');                                              // wave 3: the ECAM, the fuel, the cabin
+        int[] w3 = wave3Numbers();
+        for (int i = 0; i < w3.length; i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append(w3[i]);
+        }
         return b.toString();
+    }
+
+    /** The fourth part (wave 3): the ECAM's words (LinerEcam.pack), the fuel's flags and cells, FU, temperatures, the cabin. */
+    private int[] wave3Numbers() {
+        int[] ec = ecam.pack();
+        int f = fuel.running | fuel.lowPr << 6 | fuel.src << 12 | (fuel.xferL ? 1 << 22 : 0) | (fuel.xferR ? 1 << 23 : 0) | (fuel.modeFault ? 1 << 24 : 0)
+                | (fuel.refuel > 0 ? 1 << 25 : 0) | (fuel.xfeedOpen ? 1 << 26 : 0);
+        int[] tail = {f, r(fuel.outerL), r(fuel.outerR), r(fuel.used[0]), r(fuel.used[1]), r(fuel.tempL), r(fuel.tempR), r(cabT[0]), r(cabT[1]),
+                r(cabT[2]), r(cabAlt / 10), r(cabVs * 10)};
+        int[] all = new int[ec.length + tail.length];
+        System.arraycopy(ec, 0, all, 0, ec.length);
+        System.arraycopy(tail, 0, all, ec.length, tail.length);
+        return all;
+    }
+
+    private void unpackWave3(int[] w) {
+        int o = LinerEcam.WORDS;
+        if (w.length < o + 12) {
+            return;
+        }
+        ecam.unpack(w, 0);
+        int f = w[o];
+        fuel.running = f & 63;
+        fuel.lowPr = f >> 6 & 63;
+        fuel.src = f >> 12 & 1023;
+        fuel.xferL = (f & 1 << 22) != 0;
+        fuel.xferR = (f & 1 << 23) != 0;
+        fuel.modeFault = (f & 1 << 24) != 0;
+        fuel.refuel = (f & 1 << 25) != 0 ? 1 : 0;
+        fuel.xfeedOpen = (f & 1 << 26) != 0;
+        fuel.xfeedPos = fuel.xfeedOpen ? 1 : 0;
+        fuel.outerL = w[o + 1];
+        fuel.outerR = w[o + 2];
+        fuel.used[0] = w[o + 3];
+        fuel.used[1] = w[o + 4];
+        fuel.tempL = w[o + 5];
+        fuel.tempR = w[o + 6];
+        for (int z = 0; z < 3; z++) {
+            cabT[z] = w[o + 7 + z];
+        }
+        cabAlt = w[o + 10] * 10.0;
+        cabVs = w[o + 11] / 10.0;
     }
 
     private int[] numbers() {
@@ -1713,15 +1769,18 @@ public final class LinerSystems {
             guard[i] = c >= 16;
             pos[i] = c & 15;
         }
-        String rest = s.substring(bar + 1);
-        int bar2 = rest.indexOf('|');
-        int[] v = ints(bar2 < 0 ? rest : rest.substring(0, bar2));
-        int[] w = bar2 < 0 ? null : ints(rest.substring(bar2 + 1));
+        String[] part = s.substring(bar + 1).split("\\|", -1);
+        int[] v = ints(part[0]);
+        int[] w = part.length > 1 ? ints(part[1]) : null;
+        int[] w3 = part.length > 2 ? ints(part[2]) : null;
         if (v == null || v.length < 36) {
             return;
         }
         if (w != null) {
             unpackWave2(w);
+        }
+        if (w3 != null) {
+            unpackWave3(w3);                                        // wave 3: the ECAM, the fuel, the cabin
         }
         int f = v[0];
         masterWarn = (f & 1) != 0;
@@ -1776,6 +1835,9 @@ public final class LinerSystems {
         tankL = v[28];
         tankC = v[29];
         tankR = v[30];
+        fuel.qty[LinerFuel.L] = tankL;
+        fuel.qty[LinerFuel.C] = tankC;
+        fuel.qty[LinerFuel.R] = tankR;
         warn = v[31];
         caut = v[32];
         sdPage = v[33];
@@ -1803,6 +1865,8 @@ public final class LinerSystems {
     /** Wave 2: the marker (and its data): hydraulic quantities / leaks / the accumulator, the gear, brake temps, flat tyres, high lift. */
     public static final String K_W2 = "W2", K_HYD_QTY = "HydQty", K_HYD_LEAK = "HydLeak", K_ACCU = "Accu", K_GEAR = "GearPos", K_BRK_T = "BrkT",
             K_FLAT = "Flat", K_FLAPS = "FlapPos", K_SLATS = "SlatPos";
+    /** Wave 3: the fuel's outer cells, the fuel used per engine, the transfer valves latched. */
+    public static final String K_W3 = "W3Fuel";
 
     /** Saved: the control positions by id, the engines / APU running or not (a running liner reloads running), tanks, АКБ 2. */
     public void writeNBT(NBTTagCompound t) {
@@ -1828,6 +1892,7 @@ public final class LinerSystems {
         t.setByte(K_FLAT, (byte) gear.flat);
         t.setInteger(K_FLAPS, r(fctl.flapPos * 100));
         t.setInteger(K_SLATS, r(fctl.slatPos * 100));
+        t.setIntArray(K_W3, new int[] {r(fuel.outerL), r(fuel.outerR), r(fuel.used[0]), r(fuel.used[1]), (fuel.xferL ? 1 : 0) | (fuel.xferR ? 2 : 0)});
     }
 
     public void readNBT(NBTTagCompound t) {
@@ -1891,6 +1956,15 @@ public final class LinerSystems {
             gear.flat = t.getByte(K_FLAT) & 15;
             fctl.flapPos = Math.max(0, Math.min(4, t.getInteger(K_FLAPS) / 100.0));
             fctl.slatPos = Math.max(0, Math.min(1, t.getInteger(K_SLATS) / 100.0));
+        }
+        int[] w3 = t.getIntArray(K_W3);
+        if (w3.length == 5) {
+            fuel.outerL = Math.max(0, Math.min(tankL, w3[0]));
+            fuel.outerR = Math.max(0, Math.min(tankR, w3[1]));
+            fuel.used[0] = Math.max(0, w3[2]);
+            fuel.used[1] = Math.max(0, w3[3]);
+            fuel.xferL = (w3[4] & 1) != 0;
+            fuel.xferR = (w3[4] & 2) != 0;
         }
         if (running) {
             // a running liner reloads with its pumps' pressure (the engines run again at once)

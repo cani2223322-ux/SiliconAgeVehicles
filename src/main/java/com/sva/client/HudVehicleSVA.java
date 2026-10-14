@@ -258,16 +258,10 @@ public class HudVehicleSVA {
     private void drawLiner(Minecraft mc, FontRenderer fr, int sw, EntityVehicleSVA v, com.sva.vehicle.LinerSystems L) {
         String msg = null;
         int mc0 = AMBER;
-        for (int i = 0; i < com.sva.vehicle.LinerSystems.WARN_KEYS.length && msg == null; i++) {
-            if ((L.warn & 1 << i) != 0) {
-                msg = Lang.tr("sva.liner.msg." + com.sva.vehicle.LinerSystems.WARN_KEYS[i]);
-                mc0 = WARN;
-            }
-        }
-        for (int i = 0; i < com.sva.vehicle.LinerSystems.CAUT_KEYS.length && msg == null; i++) {
-            if ((L.caut & 1 << i) != 0) {
-                msg = Lang.tr("sva.liner.msg." + com.sva.vehicle.LinerSystems.CAUT_KEYS[i]);
-            }
+        int top = L.ecam.top();                                     // wave 3: the ECAM's top message (red before amber)
+        if (top >= 0) {
+            msg = Lang.tr("sva.liner.msg." + com.sva.vehicle.LinerEcam.KEYS[top]);
+            mc0 = com.sva.vehicle.LinerEcam.LEVEL[top] == com.sva.vehicle.LinerEcam.WARN ? WARN : AMBER;
         }
         int rows = 5 + (msg != null ? 1 : 0);
         int pw = 190, ph = rows * 11 + 8, px = sw - pw - 4, py = 4;

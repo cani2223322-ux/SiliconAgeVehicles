@@ -746,9 +746,9 @@ final class SelfTestLinerHydSVA {
         e.height = 120;
         run(L, e, 2, null);
         int low = L.autoPage();
-        check(taxi == 9 && check1 == 7 && after == 9 && again == 9 && high == 0 && low == 9,
+        check(taxi == 9 && check1 == 7 && after == 9 && again == 9 && high == com.sva.vehicle.LinerEcam.P_CRZ && low == 9,
                 "liner SD auto pages: taxiing - КОЛЁСА; the first stick deflection on the ground - УПР (the F/CTL check) for 30 s, not again;"
-                        + " flying high - ДВИГ; the gear lever down under 200 blocks - КОЛЁСА");
+                        + " flying high - the cruise page (wave 3; wave 2 had ДВИГ); the gear lever down under 200 blocks - КОЛЁСА");
     }
 
     private static void syncSave() {

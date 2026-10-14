@@ -58,6 +58,28 @@ public final class LangKeysSVA {
         return s;
     }
 
+    /** Liner wave 3: a lang file's key -> value (null when it is missing). */
+    public static java.util.Map<String, String> map(String path) throws IOException {
+        InputStream in = LangKeysSVA.class.getResourceAsStream(path);
+        if (in == null) {
+            return null;
+        }
+        java.util.Map<String, String> m = new java.util.HashMap<String, String>();
+        BufferedReader r = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+        try {
+            String line;
+            while ((line = r.readLine()) != null) {
+                int eq = line.indexOf('=');
+                if (eq > 0 && !line.startsWith("#")) {
+                    m.put(line.substring(0, eq).trim(), line.substring(eq + 1));
+                }
+            }
+        } finally {
+            r.close();
+        }
+        return m;
+    }
+
     /** Is s shaped like a full key: "sva." then letters, digits, '_' and dots, not ending with a dot? */
     public static boolean keyLike(String s) {
         if (!s.startsWith("sva.") || s.length() < 5 || s.endsWith(".")) {

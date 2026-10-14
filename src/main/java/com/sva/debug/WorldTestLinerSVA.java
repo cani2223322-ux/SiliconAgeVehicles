@@ -46,17 +46,26 @@ import net.minecraft.world.World;
  * <li>wave 2, «rto» (a 200-block strip): spoilers armed, autobrake MAX, the take-off roll at 1.25 b/t, the thrust to
  * idle - the ground spoilers and MAX braking stop it; the brakes come out hot («ТОРМ ГОРЯЧ»);</li>
  * <li>wave 2, «quick» after its start: both engines off - the three systems bleed down, every surface droops.</li>
+ * <li>wave 3, «fuel» (instant start, then the real systems): the centre feeds first and its pumps stop when it runs dry (the
+ * wings untouched until then); the left pumps off, КОЛЬЦЕВ. on - the right wing feeds both engines;</li>
+ * <li>wave 3, «flame»: the left wing dry, the centre pumps off, КОЛЬЦЕВ. shut - engine 1 flames out, engine 2 runs;</li>
+ * <li>wave 3, «cfg»: T.O. CONFIG with the flaps up - «КОНФИГ ВЗЛЁТ ЗАКР» (MASTER WARN), flaps 1 - normal; a fuel pump fault -
+ * MASTER CAUT, pressed - out; two faults - CLR brings the next message up.</li>
  * </ul>
  */
 final class WorldTestLinerSVA {
 
     private static final String OWNER = "00000000-5bad-4e57-0000-0000001a3201";
     static final int START = 1700;
-    private static final int Y = 150, LEN = 30, LANE = 26, LANES = 7, MAX_TICKS = 1400, RTO_LEN = 200, RTO_LANE = 6;
+    private static final int Y = 150, LEN = 30, LANE = 26, LANES = 10, MAX_TICKS = 1400, RTO_LEN = 200, RTO_LANE = 6;
 
     private final WorldTestSVA t;
     private int phase, t0, x0, z0;
     private EntityVehicleSVA seq, noair, quick, riders, ground, gear, rto;
+    // wave 3
+    private EntityVehicleSVA fuel, flame, cfg;
+    private int ctrEmptyAt = -1, xfeedAt = -1, flameAt = -1, cfgDone = -1;
+    private double wingL0, wingR0, xL, xR;
     // wave 2
     private int rtoAt = -1, rtoStop = -1, droopAt = -1, hydSeqAt = -1;
     private double rtoX, rtoPeak;
@@ -79,7 +88,8 @@ final class WorldTestLinerSVA {
             com.sva.ConfigSVA.linerStartFailChance = 0;
             setup(w);
             t0 = ticks;
-            phase = seq == null || noair == null || quick == null || riders == null || ground == null || gear == null || rto == null ? 9 : 1;
+            phase = seq == null || noair == null || quick == null || riders == null || ground == null || gear == null || rto == null || fuel == null
+                    || flame == null || cfg == null ? 9 : 1;
             return;
         }
         int n = ticks - t0;
@@ -92,7 +102,7 @@ final class WorldTestLinerSVA {
     }
 
     private EntityVehicleSVA[] all() {
-        return new EntityVehicleSVA[] {seq, noair, quick, riders, ground, gear, rto};
+        return new EntityVehicleSVA[] {seq, noair, quick, riders, ground, gear, rto, fuel, flame, cfg};
     }
 
     private static void click(EntityVehicleSVA v, LinerControls.Ctl c) {
@@ -227,7 +237,9 @@ final class WorldTestLinerSVA {
                     "liner world: ВНЕШН. ПИТ pressed - both AC buses on the station, the board powered without the batteries' push buttons");
         }
         wave2(n);
-        boolean finished = eng1At >= 0 && quickAt >= 0 && n > 100 && hydSeqAt >= 0 && n > 900 && rtoStop >= 0 && droopAt >= 0;
+        wave3(n);
+        boolean finished = eng1At >= 0 && quickAt >= 0 && n > 100 && hydSeqAt >= 0 && n > 900 && rtoStop >= 0 && droopAt >= 0 && xfeedAt >= 0
+                && flameAt >= 0 && cfgDone >= 0;
         if (finished || n >= MAX_TICKS) {
             check(eng1At >= 0, "liner world: the cold-and-dark start-up finished");
             phase = 9;
@@ -355,6 +367,112 @@ final class WorldTestLinerSVA {
         }
     }
 
+    /** Wave 3's checks (see the class comment): the three liners start at once (instant), then run on the real systems. */
+    private void wave3(int n) {
+        if (n == 3) {
+            for (EntityVehicleSVA v : new EntityVehicleSVA[] {fuel, flame, cfg}) {
+                v.debugDrive(EntityVehicleSVA.IN_LEFT | EntityVehicleSVA.IN_RIGHT);    // a «pilot»: the instant start's masters
+            }
+        }
+        if (n == 30) {
+            for (EntityVehicleSVA v : new EntityVehicleSVA[] {fuel, flame, cfg}) {
+                v.debugEngineManual = true;                         // running now - from here the real systems (no instant restarts)
+            }
+        }
+        // «fuel»: the centre down to 4 mB (the vehicle's H2 drained - the tanks follow, centre first), then dry
+        LinerSystems F = fuel.state.liner();
+        if (n == 40) {
+            check(F.anyRunning() && F.fuel.runs(com.sva.vehicle.LinerFuel.P_C1) && F.fuel.runs(com.sva.vehicle.LinerFuel.P_C2),
+                    "liner world «fuel»: engines running, the centre pumps running (АВТО)");
+            fuel.state.drainGas(com.sva.vehicle.FuelMath.H2, (int) Math.floor(F.tankC - 4), false);
+        }
+        if (n == 42) {
+            wingL0 = F.tankL;
+            wingR0 = F.tankR;
+        }
+        if (n > 42 && ctrEmptyAt < 0 && F.tankC <= 0) {
+            ctrEmptyAt = n;
+            check(Math.abs(F.tankL - wingL0) < 0.2 && Math.abs(F.tankR - wingR0) < 0.2 && n < 200, "liner world «fuel»: the centre fed both engines first - empty after "
+                    + (n - 42) / 20.0 + " s, the wings untouched until then");
+        }
+        if (n == 400 && ctrEmptyAt < 0) {
+            ctrEmptyAt = xfeedAt = n;
+            check(false, "liner world «fuel»: the centre did not empty (" + F.tankC + " mB)");
+        }
+        if (ctrEmptyAt >= 0 && xfeedAt < 0 && n == ctrEmptyAt + 30) {
+            check(!F.fuel.runs(com.sva.vehicle.LinerFuel.P_C1) && !F.fuel.runs(com.sva.vehicle.LinerFuel.P_C2) && F.fuel.lowPr == 0 && F.tankL < wingL0
+                            && F.tankR < wingR0 && !F.masterCaut && F.anyRunning(),
+                    "liner world «fuel»: the centre dry - Ц1 / Ц2 stopped by themselves (no ОТКАЗ, no caution), the wings feed");
+            click(fuel, LinerControls.PUMP_L1);
+            click(fuel, LinerControls.PUMP_L2);
+            click(fuel, LinerControls.XFEED);
+        }
+        if (ctrEmptyAt >= 0 && xfeedAt < 0 && n == ctrEmptyAt + 60) {
+            xL = F.tankL;
+            xR = F.tankR;
+        }
+        if (ctrEmptyAt >= 0 && xfeedAt < 0 && n == ctrEmptyAt + 120) {
+            xfeedAt = n;
+            check(F.fuel.xfeedOpen && F.tankL == xL && F.tankR < xR && F.eng[0].running() && F.eng[1].running(),
+                    "liner world «fuel»: the left pumps off, КОЛЬЦЕВ. on - the right wing feeds both engines ("
+                            + Math.round((xR - F.tankR) * 10) / 10.0 + " mB in 3 s), the left untouched");
+        }
+        // «flame»: the left wing emptied (the vehicle's H2 with it), the centre pumps off, КОЛЬЦЕВ. shut
+        LinerSystems M = flame.state.liner();
+        if (n == 40) {
+            int d = (int) Math.floor(M.tankL);
+            flame.state.drainGas(com.sva.vehicle.FuelMath.H2, d, false);
+            M.tankL -= d;
+            click(flame, LinerControls.PUMP_C1);
+            click(flame, LinerControls.PUMP_C2);
+        }
+        if (n > 40 && flameAt < 0 && M.eng[0].fault == LinerSystems.F_FLAMEOUT) {
+            flameAt = n;
+            check(M.eng[1].running() && !M.fuel.xfeedOpen && n - 40 < 80, "liner world «flame»: its side dry, no crossfeed - engine 1 flamed out "
+                    + (n - 40) / 20.0 + " s later, engine 2 runs");
+        }
+        if (n == 300 && flameAt < 0) {
+            flameAt = n;
+            check(false, "liner world «flame»: engine 1 did not flame out (" + M.eng[0].state + ", L " + M.tankL + ")");
+        }
+        // «cfg»: T.O. CONFIG, MASTER CAUT, CLR
+        LinerSystems C = cfg.state.liner();
+        if (n == 40) {
+            click(cfg, LinerControls.TO_CONFIG);
+        }
+        if (n == 42) {
+            check(C.ecam.top() == com.sva.vehicle.LinerEcam.M_CFG_FLAPS && C.masterWarn && C.at(LinerControls.FLAPS) == 0,
+                    "liner world «cfg»: T.O. CONFIG with the flaps up - «КОНФИГ ВЗЛЁТ ЗАКР», MASTER WARN");
+            click(cfg, LinerControls.MW_L);
+            click(cfg, LinerControls.FLAPS);
+        }
+        if (n == 50) {
+            click(cfg, LinerControls.TO_CONFIG);
+        }
+        if (n == 52) {
+            check(!C.masterWarn && C.ecam.toCfgOk && C.ecam.top() < 0, "liner world «cfg»: flaps 1, T.O. CONFIG again - «ТО КОНФИГ НОРМ»");
+            C.fuel.faults = 1 << com.sva.vehicle.LinerFuel.P_R1;
+        }
+        if (n == 55) {
+            check(C.masterCaut && C.ecam.top() == com.sva.vehicle.LinerEcam.M_FUEL_PUMP + 4 && C.faultLamp(LinerControls.PUMP_R1),
+                    "liner world «cfg»: a fuel pump fault - «ТОПЛ П НАСОС 1 НИЗК ДАВЛ», ОТКАЗ on its button, MASTER CAUT");
+            click(cfg, LinerControls.MC_L);
+        }
+        if (n == 57) {
+            check(!C.masterCaut && C.ecam.top() == com.sva.vehicle.LinerEcam.M_FUEL_PUMP + 4, "liner world «cfg»: MASTER CAUT pressed - out, the"
+                    + " message stays");
+            C.fuel.faults |= 1 << com.sva.vehicle.LinerFuel.P_L1;
+        }
+        if (n == 60) {
+            int top = C.ecam.top();
+            click(cfg, LinerControls.ECAM_CLR);
+            int next = C.ecam.top();
+            cfgDone = n;
+            check(top == com.sva.vehicle.LinerEcam.M_FUEL_PUMP && next == com.sva.vehicle.LinerEcam.M_FUEL_PUMP + 4 && C.ecam.list().length == 1,
+                    "liner world «cfg»: two faults - CLR takes «ТОПЛ Л НАСОС 1» off, «ТОПЛ П НАСОС 1» comes up");
+        }
+    }
+
     private double[] doorSpot(EntityVehicleSVA v) {
         double[] w = v.toWorld(LinerLogicSVA.DOOR_X, -2.9);
         return new double[] {v.posX + w[0], v.posY, v.posZ + w[1]};
@@ -392,14 +510,18 @@ final class WorldTestLinerSVA {
         ground = spawn(w, 4, "ground");
         gear = spawn(w, 5, "gear");
         rto = spawn(w, RTO_LANE, "rto");
+        fuel = spawn(w, 7, "fuel");
+        flame = spawn(w, 8, "flame");
+        cfg = spawn(w, 9, "cfg");
         for (EntityVehicleSVA v : all()) {
             if (v != null) {
-                v.debugEngineManual = v != gear && v != rto;         // the real systems, not the instant engines (wave 2's two: instant)
+                // the real systems, not the instant engines (wave 2's two and wave 3's three start instantly)
+                v.debugEngineManual = v != gear && v != rto && v != fuel && v != flame && v != cfg;
             }
         }
         check(seq != null && noair != null && quick != null && riders != null && ground != null && gear != null && rto != null && station != null
-                        && seq.getVehicleType() == VehicleType.LINER && seq.state.liner() != null,
-                "liner world: seven liners placed (one on a charging station, one on a 200-block strip)");
+                        && fuel != null && flame != null && cfg != null && seq.getVehicleType() == VehicleType.LINER && seq.state.liner() != null,
+                "liner world: ten liners placed (one on a charging station, one on a 200-block strip)");
     }
 
     private EntityVehicleSVA spawn(World w, int lane, String name) {
@@ -450,7 +572,7 @@ final class WorldTestLinerSVA {
                 v.setDead();
             }
         }
-        seq = noair = quick = riders = ground = gear = rto = null;
+        seq = noair = quick = riders = ground = gear = rto = fuel = flame = cfg = null;
         if (x0 != 0 || z0 != 0) {
             area(w, false);
             w.setBlock(x0 + 15, Y, z0 + 4 * LANE, Blocks.air, 0, 3);

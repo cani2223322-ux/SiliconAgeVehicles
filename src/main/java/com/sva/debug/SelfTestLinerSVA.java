@@ -53,6 +53,8 @@ final class SelfTestLinerSVA {
         model();
         lang();
         SelfTestLinerHydSVA.run();                                  // liner wave 2: hydraulics, flight controls, gear, brakes
+        SelfTestLinerFuelSVA.run();                                 // liner wave 3: fuel, ECAM, checklists
+        SelfTestLinerFuelSVA.run();                                 // liner wave 3: fuel, ECAM, checklists
         saves();
     }
 
@@ -659,7 +661,8 @@ final class SelfTestLinerSVA {
         if (!same) {
             System.out.println("[SVA-TEST] liner sync: " + s + " / " + round);
         }
-        check(same && s.length() < 400 && C.apu == L.apu, "liner sync: the string (" + s.length() + " chars) round-trips; junk is ignored");
+        // wave 3 added its ECAM / fuel / cabin part (the bound was 400)
+        check(same && s.length() < 520 && C.apu == L.apu, "liner sync: the string (" + s.length() + " chars) round-trips; junk is ignored");
         // the save: positions by id, engines / APU running, tanks, АКБ 2; the vehicle state carries it
         NBTTagCompound t = new NBTTagCompound();
         run(L, e, 400, null);

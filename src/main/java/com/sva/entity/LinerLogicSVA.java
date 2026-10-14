@@ -29,8 +29,10 @@ public final class LinerLogicSVA {
     public static final double ASYM_AIR = 0.35, ASYM_GROUND = 0.15;
     /** The parking brake's deceleration on the ground (b/t a tick). */
     public static final double PARK_BRAKE = 0.06;
-    /** A chime repeats this often while MASTER WARN is lit. */
-    private static final int WARN_REPEAT = 40;
+    /** The red chime repeats this often while MASTER WARN is lit (the A320's continuous repetitive chime). */
+    private static final int WARN_REPEAT = 10;
+    /** The fuel imbalance's yaw (deg a tick at a full LinerFuel.ROLL_FULL imbalance, in the air): the heavy wing drops. */
+    public static final double IMBAL_YAW = 0.08;
 
     private LinerLogicSVA() {
     }
@@ -67,6 +69,10 @@ public final class LinerLogicSVA {
         e.mu = v.linerMu();
         e.height = v.debugLinerAir ? 100 : v.linerHeight();
         e.leakChance = Math.max(0, ConfigSVA.linerHydLeakChance);
+        // wave 3: the altitude (the gravity fuel feed's ceiling), the LDG MEMO's height
+        e.alt = v.posY;
+        e.gravAlt = ConfigSVA.linerFuelGravityAlt;
+        e.ldgMemoH = ConfigSVA.linerLdgMemoHeight;
         boolean instant = EntityVehicleSVA.testInstantEngine && !v.debugEngineManual;
         if (instant && pilot) {
             // the older world tests fly every aircraft at once: the liner's batteries and masters on, the engines at idle
@@ -103,12 +109,14 @@ public final class LinerLogicSVA {
             L.door = false;
             v.oneShot("door", 0.5F, 0.8F);
         }
-        // sounds of this tick
-        if ((L.events & LinerSystems.E_CHIME_WARN) != 0 || L.masterWarn && v.ticksExisted % WARN_REPEAT == 0) {
-            v.oneShot("alarm", 0.5F, 1.2F);
+        // sounds of this tick (wave 3, vanilla): MASTER WARN - the continuous repetitive chime until pressed (or EMER CANC);
+        // MASTER CAUT - a single chime
+        if ((L.events & LinerSystems.E_CHIME_WARN) != 0 || L.masterWarn && !L.ecam.silenced && v.ticksExisted % WARN_REPEAT == 0) {
+            v.vanillaSound("note.pling", 0.7F, 1.6F);
+            v.vanillaSound("note.pling", 0.5F, 1.25F);
         }
         if ((L.events & LinerSystems.E_CHIME_CAUT) != 0) {
-            v.oneShot("ding", 0.6F, 1.0F);
+            v.vanillaSound("note.harp", 0.8F, 0.9F);
         }
         if ((L.events & LinerSystems.E_APU_AVAIL) != 0) {
             v.oneShot("ding", 0.3F, 1.6F);

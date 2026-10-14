@@ -196,6 +196,13 @@ public final class ConfigSVA {
     public static boolean linerPtuSound = true;
     /** Liner wave 2 (client): hot brakes glow red on the model. */
     public static boolean linerBrakeGlow = true;
+    /**
+     * Liner wave 3: the gravity fuel feed's ceiling (absolute Y): a side with its pumps off feeds its engine by gravity under
+     * it; above it the engine starves (flames out) over 60 % thrust.
+     */
+    public static double linerFuelGravityAlt = 160;
+    /** Liner wave 3: the LDG MEMO / the ECAM's approach phase - the gear lever down under this height over the ground (blocks). */
+    public static double linerLdgMemoHeight = 60;
     /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
     public static boolean radarAltCallouts = true;
     /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
@@ -468,6 +475,15 @@ public final class ConfigSVA {
                     0.03F, 0F, 1F);
             linerBrakeGlow = c.getBoolean("linerBrakeGlow", v, true,
                     "Liner: hot brakes glow red on the model (client) / Лайнер: горячие тормоза светятся красным на модели (клиент)");
+            linerFuelGravityAlt = sanitize((float) c.getFloat("linerFuelGravityAlt", v, 160F, 64F, 512F,
+                    "Liner: the gravity fuel feed's ceiling (Y). Pumps off on a side: under it the engine is fed by gravity, above it the engine"
+                            + " flames out over 60 % thrust / Лайнер: потолок самотёчной подачи топлива (Y). Насосы стороны выключены: ниже - двигатель"
+                            + " питается самотёком, выше - глохнет на тяге больше 60 %"),
+                    160F, 64F, 512F);
+            linerLdgMemoHeight = sanitize((float) c.getFloat("linerLdgMemoHeight", v, 60F, 10F, 250F,
+                    "Liner: LDG MEMO (and the ECAM's approach phase) under this height over the ground with the gear lever down (blocks)"
+                            + " / Лайнер: памятка LDG MEMO (и фаза захода ECAM) ниже этой высоты над землёй при рычаге шасси вниз (блоки)"),
+                    60F, 10F, 250F);
             linerPtuSound = c.getBoolean("linerPtuSound", v, true,
                     "Liner: the PTU's 'barking' during single-engine taxi as a sound / Лайнер: 'лай' PTU при рулении на одном двигателе - звуком");
             radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,

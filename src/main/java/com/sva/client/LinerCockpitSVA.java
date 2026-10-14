@@ -531,8 +531,12 @@ public final class LinerCockpitSVA {
         }
         if (panel == LinerControls.PED && pass != 1) {
             int page = L.autoPage();
-            LinerControls.Ctl k = LinerControls.ECAM[page];
-            LinerGfxSVA.rect(k.cx - 20, k.cy + 9, k.cx + 20, k.cy + 12, L_GRN);
+            // wave 3: the checklists light ВСЕ (its cycle reaches them); the cruise page has no key
+            int key = page == com.sva.vehicle.LinerEcam.P_CHECK ? com.sva.vehicle.LinerEcam.P_ALL : page;
+            if (key < LinerControls.ECAM.length) {
+                LinerControls.Ctl k = LinerControls.ECAM[key];
+                LinerGfxSVA.rect(k.cx - 20, k.cy + 9, k.cx + 20, k.cy + 12, L_GRN);
+            }
         }
         if (panel == LinerControls.MP) {
             long tod = v.worldObj.getWorldTime() % 24000;

@@ -57,7 +57,7 @@ public final class LinerSdPagesSVA {
         LinerGfxSVA.resetLayer();
         LinerGfxSVA.rect(0, 0, w, h, BG);
         LinerGfxSVA.layer();
-        LinerGfxSVA.text(lang("sva.liner.sd." + LinerControls.SD_PAGES[page]), 8 * s, 12 * s, 11 * s, WHT, -1);
+        LinerGfxSVA.text(lang("sva.liner.sd." + com.sva.vehicle.LinerEcam.PAGE_KEYS[page]), 8 * s, 12 * s, 11 * s, WHT, -1);
         LinerGfxSVA.line(8 * s, 19 * s, 52 * s, 19 * s, 1F * s, WHT);
         draw(page, L, s);
         LinerGfxSVA.line(0, 244 * s, w, 244 * s, 1F * s, WHT);
@@ -76,7 +76,7 @@ public final class LinerSdPagesSVA {
                 wheels(L, s);
                 return true;
             default:
-                return false;
+                return LinerSdPages3SVA.draw(page, L, s);              // wave 3: ТОПЛ, КОНД, ДВЕРИ, СТАТУС, the checklists, cruise
         }
     }
 

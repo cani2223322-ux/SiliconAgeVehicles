@@ -21,8 +21,9 @@ import cpw.mods.fml.relauncher.SideOnly;
  * the route data (magenta / green), GS / TAS, the active point's bearing, distance and the time; GPS PRIMARY.</li>
  * <li>E/WD: N1 and EGT dials, N2 (its start background) and FF per engine, FOB, the thrust mode, the flaps' S / F; the
  * warnings (red / amber) left, the memos right.</li>
- * <li>SD: ДВИГ, ВСУ, ОТБОР, ЭЛЕКТР; wave 2: ГИДР, УПР, КОЛЁСА (LinerSdPagesSVA); the other pages a placeholder; the TAT /
- * SAT / time / gross weight strip.</li>
+ * <li>SD: ДВИГ, ВСУ, ОТБОР, ЭЛЕКТР; wave 2: ГИДР, УПР, КОЛЁСА (LinerSdPagesSVA); wave 3: ТОПЛ, КОНД, ДВЕРИ, СТАТУС, the
+ * checklists and the cruise page (LinerSdPages3SVA); the TAT / SAT / time / gross weight strip.</li>
+ * <li>Wave 3: the E/WD is LinerEwdSVA's (the ECAM's messages with action lines, T.O. / LDG MEMO, FU).</li>
  * <li>Wave 2 on the PFD: the flight control law - amber X's on the bank scale in ALTN / DIRECT, «ТРИММ ВРУЧНУЮ» in
  * DIRECT.</li>
  * </ul>
@@ -375,106 +376,9 @@ public final class LinerDisplaysSVA {
     // ---------------------------------------------------------------- E/WD
 
     static void ewd(EntityVehicleSVA v, LinerSystems L, float w, float h) {
-        float s = w / 280F;
-        for (int i = 0; i < 2; i++) {
-            LinerSystems.Eng g = L.eng[i];
-            float cx = (i == 0 ? 62 : 150) * s;
-            boolean dead = g.fault == LinerSystems.F_FLAMEOUT;
-            // N1 dial: 0..110 % over 210 deg, the red line at 104 %
-            float R = 30 * s, cy = 46 * s;
-            LinerGfxSVA.arc(cx, cy, R, -125, 85, 1.4F * s, dead ? AMB : WHT);
-            LinerGfxSVA.layer();
-            LinerGfxSVA.line(LinerGfxSVA.px(cx, R - 4 * s, n1Ang(104)), LinerGfxSVA.py(cy, R - 4 * s, n1Ang(104)), LinerGfxSVA.px(cx, R + 4 * s, n1Ang(104)),
-                    LinerGfxSVA.py(cy, R + 4 * s, n1Ang(104)), 2F * s, RED);
-            if (!dead) {
-                float a = n1Ang((float) g.n1);
-                LinerGfxSVA.line(cx, cy, LinerGfxSVA.px(cx, R, a), LinerGfxSVA.py(cy, R, a), 1.8F * s, GRN);
-                float tl = n1Ang((float) (19.8 + 80.2 * L.thrust()));
-                LinerGfxSVA.disc(LinerGfxSVA.px(cx, R + 4 * s, tl), LinerGfxSVA.py(cy, R + 4 * s, tl), 1.5F * s, CYN);
-            }
-            LinerGfxSVA.layer();
-            LinerGfxSVA.frameRect(cx, cy + 6 * s, cx + 36 * s, cy + 20 * s, 1F * s, GREY);
-            LinerGfxSVA.text(dead ? "XX" : LinerGfxSVA.num(g.n1, 1), cx + 34 * s, cy + 13 * s, 10 * s, dead ? AMB : GRN, 1);
-            // EGT dial: 0..1000 C over 180 deg, red at the start limit
-            float R2 = 20 * s, cy2 = 108 * s;
-            LinerGfxSVA.arc(cx, cy2, R2, -90, 90, 1.3F * s, dead ? AMB : WHT);
-            LinerGfxSVA.layer();
-            float lim = egtAng((float) LinerSystems.EGT_START_LIMIT);
-            LinerGfxSVA.line(LinerGfxSVA.px(cx, R2 - 3 * s, lim), LinerGfxSVA.py(cy2, R2 - 3 * s, lim), LinerGfxSVA.px(cx, R2 + 4 * s, lim),
-                    LinerGfxSVA.py(cy2, R2 + 4 * s, lim), 2F * s, RED);
-            if (!dead) {
-                float a2 = egtAng((float) g.egt);
-                LinerGfxSVA.line(cx, cy2, LinerGfxSVA.px(cx, R2, a2), LinerGfxSVA.py(cy2, R2, a2), 1.6F * s,
-                        g.egt > LinerSystems.EGT_START_LIMIT && g.state != LinerSystems.E_RUN ? RED : GRN);
-            }
-            LinerGfxSVA.text(dead ? "XX" : String.valueOf(Math.round(g.egt)), cx, cy2 + 12 * s, 9 * s, dead ? AMB : GRN, 0);
-            // N2 (grey background while starting), IGN, FF
-            boolean starting = g.state == LinerSystems.E_CRANK || g.state == LinerSystems.E_LIGHT;
-            if (starting) {
-                LinerGfxSVA.rect(cx - 18 * s, 140 * s, cx + 18 * s, 152 * s, 0x3A3E46);
-                LinerGfxSVA.layer();
-            }
-            LinerGfxSVA.text(dead ? "XX" : LinerGfxSVA.num(g.n2, 1), cx, 146 * s, 10 * s, dead ? AMB : GRN, 0);
-            if (g.ign) {
-                LinerGfxSVA.text("IGN " + (i == 0 ? "A" : "B"), cx, 134 * s, 7 * s, WHT, 0);
-            }
-            LinerGfxSVA.text(dead ? "XX" : String.valueOf(Math.round(g.ff)), cx, 166 * s, 10 * s, dead ? AMB : GRN, 0);
-        }
-        LinerGfxSVA.text("N1", 106 * s, 34 * s, 8 * s, WHT, 0);
-        LinerGfxSVA.text("%", 106 * s, 44 * s, 7 * s, CYN, 0);
-        LinerGfxSVA.text("EGT", 106 * s, 100 * s, 8 * s, WHT, 0);
-        LinerGfxSVA.text("C", 106 * s, 110 * s, 7 * s, CYN, 0);
-        LinerGfxSVA.text("N2", 106 * s, 146 * s, 8 * s, WHT, 0);
-        LinerGfxSVA.text("FF", 106 * s, 162 * s, 8 * s, WHT, 0);
-        LinerGfxSVA.text(tr("mbmin"), 106 * s, 171 * s, 6 * s, CYN, 0);
-        // thrust mode, FOB
-        double thr = v.getThrottle();
-        String tm = thr > 0.95 ? "TOGA" : thr > 0.85 ? "FLX" : thr > 0.6 ? "CL" : "IDLE";
-        LinerGfxSVA.text(tm, 210 * s, 12 * s, 9 * s, CYN, -1);
-        LinerGfxSVA.text(LinerGfxSVA.num(19.8 + 80.2 * thr, 1), 276 * s, 12 * s, 9 * s, GRN, 1);
-        LinerGfxSVA.text(tr("fob"), 210 * s, 60 * s, 8 * s, WHT, -1);
-        LinerGfxSVA.text(com.sva.FormatSVA.group(Math.round(L.tanks())), 276 * s, 60 * s, 9 * s, GRN, 1);
-        LinerGfxSVA.text(tr("mb"), 276 * s, 70 * s, 6 * s, CYN, 1);
-        // flaps S / F
-        flapsIndicator(v, 210 * s, 100 * s, s);
-        // the memo area: warnings left, memos right
-        LinerGfxSVA.line(4 * s, 186 * s, 276 * s, 186 * s, 1.2F * s, WHT);
-        LinerGfxSVA.line(176 * s, 190 * s, 176 * s, 276 * s, 1F * s, WHT);
-        float y = 196 * s;
-        for (int i = 0; i < LinerSystems.WARN_KEYS.length; i++) {
-            if ((L.warn & 1 << i) != 0) {
-                LinerGfxSVA.text(Lang.tr("sva.liner.msg." + LinerSystems.WARN_KEYS[i]), 6 * s, y, 8 * s, RED, -1, 166 * s);
-                y += 10 * s;
-            }
-        }
-        for (int i = 0; i < LinerSystems.CAUT_KEYS.length; i++) {
-            if ((L.caut & 1 << i) != 0 && y < 270 * s) {
-                LinerGfxSVA.text(Lang.tr("sva.liner.msg." + LinerSystems.CAUT_KEYS[i]), 6 * s, y, 8 * s, AMB, -1, 166 * s);
-                y += 10 * s;
-            }
-        }
-        for (int i = 0; i < 2; i++) {
-            LinerSystems.Eng g = L.eng[i];
-            if ((g.state == LinerSystems.E_CRANK || g.state == LinerSystems.E_LIGHT || g.state == LinerSystems.E_WAIT) && y < 270 * s) {
-                LinerGfxSVA.text(tr("start", Integer.valueOf(i + 1)), 6 * s, y, 8 * s, GRN, -1, 166 * s);
-                y += 10 * s;
-            }
-        }
-        int memo = L.memos(v.anim.height < 0.6);
-        float my = 196 * s;
-        for (int i = 0; i < LinerSystems.MEMO_KEYS.length; i++) {
-            if ((memo & 1 << i) == 0 || my > 272 * s) {
-                continue;
-            }
-            int c = (1 << i) == LinerSystems.M_BEACON_OFF || (1 << i) == LinerSystems.M_DOOR || (1 << i) == LinerSystems.M_GALLEY
-                    || (1 << i) == LinerSystems.M_ON_BAT || (1 << i) == LinerSystems.M_RAT || (1 << i) == LinerSystems.M_GRAVITY ? AMB : GRN;
-            String t = (1 << i) == LinerSystems.M_ON_BAT ? Lang.tr("sva.liner.memo.onBat", Integer.valueOf((int) Math.round(L.batteryMinutes(estimateBat1(v, L)))))
-                    : (1 << i) == LinerSystems.M_AUTOBRK ? Lang.tr("sva.liner.memo.autoBrk", Lang.tr("sva.liner.du.ab."
-                            + com.sva.vehicle.LinerGear.AB_KEYS[L.gear.abMode]))
-                    : Lang.tr("sva.liner.memo." + LinerSystems.MEMO_KEYS[i]);
-            LinerGfxSVA.text(t, 180 * s, my, 8 * s, c, -1, 96 * s);
-            my += 10 * s;
-        }
+        // wave 3: LinerEwdSVA draws it from the systems alone (the preview draws the same); the entity gives the levers
+        LinerEwdSVA.draw(L, w, h, v.getThrottle(), v.linerAnim.flap, v.linerAnim.slat, L.at(LinerControls.FLAPS), v.anim.height < 0.6,
+                (int) Math.round(L.batteryMinutes(estimateBat1(v, L))));
     }
 
     /** АКБ 1's charge on a client: from its volts (the server syncs the volts, not the EU). */
@@ -491,27 +395,12 @@ public final class LinerDisplaysSVA {
         return -90 + Math.max(0, Math.min(1000, egt)) / 1000F * 180;
     }
 
-    /** The A320's flap / slat indicator: S left, F right, the setting's name. */
-    static void flapsIndicator(EntityVehicleSVA v, float x, float y, float s) {
-        float flapPos = v.linerAnim.flap, slat = v.linerAnim.slat;          // wave 2: where the hydraulics have moved them
-        LinerGfxSVA.text("S", x, y, 8 * s, WHT, 0);
-        LinerGfxSVA.text("F", x + 60 * s, y, 8 * s, WHT, 0);
-        LinerGfxSVA.rect(x + 22 * s, y - 3 * s, x + 38 * s, y + 3 * s, WHT);
-        LinerGfxSVA.layer();
-        float sl = slat * 14 * s, fl = flapPos / 4F * 18 * s;
-        LinerGfxSVA.line(x + 22 * s, y, x + 22 * s - sl, y + sl * 0.5F, 3F * s, GRN);
-        LinerGfxSVA.line(x + 38 * s, y, x + 38 * s + fl, y + fl * 0.5F, 3F * s, GRN);
-        int f = v.liner() != null ? v.liner().at(LinerControls.FLAPS) : v.getFlaps();   // the lever's setting (cyan)
-        String name = f == 0 ? (slat > 0.5F ? "1" : "") : f == 4 ? "FULL" : f == 1 ? "1+F" : String.valueOf(f);
-        LinerGfxSVA.text(name, x + 30 * s, y + 16 * s, 9 * s, CYN, 0);
-    }
-
     // ---------------------------------------------------------------- SD
 
     static void sd(EntityVehicleSVA v, LinerSystems L, float w, float h) {
         float s = w / 280F;
         int page = L.autoPage();
-        LinerGfxSVA.text(Lang.tr("sva.liner.sd." + LinerControls.SD_PAGES[page]), 8 * s, 12 * s, 11 * s, WHT, -1);
+        LinerGfxSVA.text(Lang.tr("sva.liner.sd." + com.sva.vehicle.LinerEcam.PAGE_KEYS[page]), 8 * s, 12 * s, 11 * s, WHT, -1);
         LinerGfxSVA.line(8 * s, 19 * s, 8 * s + 44 * s, 19 * s, 1F * s, WHT);
         switch (page) {
             case P_ENG:
@@ -562,7 +451,7 @@ public final class LinerDisplaysSVA {
             LinerSystems.Eng g = L.eng[i];
             float x = xs[i];
             double k = Math.min(1, g.n2 / LinerSystems.IDLE_N2);
-            LinerGfxSVA.text(String.valueOf(Math.round(g.ff * 0.5)), x, 40 * s, 9 * s, GRN, 0);
+            LinerGfxSVA.text(com.sva.FormatSVA.group(Math.round(L.fuel.used[i])), x, 40 * s, 9 * s, GRN, 0);   // wave 3: the real FU
             LinerGfxSVA.text(LinerGfxSVA.num(15.5 - (g.running() ? 0.3 : 0), 1), x, 80 * s, 9 * s, GRN, 0);
             LinerGfxSVA.text(String.valueOf(Math.round(42 * k)), x, 120 * s, 9 * s, GRN, 0);
             LinerGfxSVA.text(String.valueOf(Math.round(15 + 63 * k)), x, 150 * s, 9 * s, GRN, 0);

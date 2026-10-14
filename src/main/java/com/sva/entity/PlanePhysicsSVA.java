@@ -114,6 +114,10 @@ public final class PlanePhysicsSVA {
             // liner wave 1: one engine stronger yaws it to the weaker side's opposite (the left engine pushes the nose right)
             v.rotationYaw += (float) liner.asymYaw(air ? LinerLogicSVA.ASYM_AIR : LinerLogicSVA.ASYM_GROUND * Math.min(1, speed / 0.3));
         }
+        if (liner != null && air && !auto) {
+            // liner wave 3: uneven wing tanks - the heavy wing drops, a slow turn toward it (the pilot holds it with the stick)
+            v.rotationYaw += (float) (liner.fuelRoll() * LinerLogicSVA.IMBAL_YAW);
+        }
         move(v, speed, vy);
     }
 

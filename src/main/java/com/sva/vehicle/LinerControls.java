@@ -297,7 +297,7 @@ public final class LinerControls {
     public static final Ctl ABRK_MAX = pb("abrkMax", MP, 1175, 500, 42, "decel", "on", false, 0);
     public static final Ctl ANTISKID = tog("antiSkid", MP, 790, 460, 1, new String[] {"on", "off"}, 0);
 
-    // pedestal: the ECAM control panel (the SD's page keys), CLR / RCL
+    // pedestal: the ECAM control panel (the SD's page keys), CLR / RCL (wave 3: EMER CANC and T.O. CONFIG - below)
     public static final String[] SD_PAGES = {"eng", "bleed", "cond", "elec", "hyd", "fuel", "apu", "fctl", "door", "wheel", "all", "sts"};
     public static final Ctl[] ECAM = new Ctl[SD_PAGES.length];
 
@@ -344,6 +344,10 @@ public final class LinerControls {
     public static final Ctl GEAR_GRAV = add("gearGrav", PED, LEV, new String[] {"0", "1", "2", "3"}, 0, 380, 1565, 250, 120);
     public static final Ctl BRK_FAN = pb("brkFan", MP, 1320, 520, 42, "hot", "on", false, 0);
     public static final Ctl TOW = tog("tow", MP, 680, 460, 1, new String[] {"on", "off"}, 1);
+
+    // wave 3: the ECAM control panel's right-hand keys (painted «АВАР ОТМЕНА» / «ТО КОНФИГ»): EMER CANC and T.O. CONFIG
+    public static final Ctl ECAM_EMER = pbm("ecamEmerCanc", PED, 692, 526, 72, 28);
+    public static final Ctl TO_CONFIG = pbm("toConfig", PED, 692, 574, 72, 28);
 
     static {
         RAT.guard = true;
