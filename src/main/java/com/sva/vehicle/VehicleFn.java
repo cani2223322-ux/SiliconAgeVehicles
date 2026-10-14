@@ -97,7 +97,14 @@ public enum VehicleFn {
      * captain's MCDU 1, the F/O's MCDU 2). M - the map's letter: on the liner M opens the MCDU and the map yields there
      * (VehicleKeyBindsSVA.openMap; the map stays in the «Техника» menu); both stay rebindable.
      */
-    MCDU("mcdu", "mcdu", 50, false, true);
+    MCDU("mcdu", "mcdu", 50, false, true),
+    /**
+     * Cockpit view (plan-next 8, item 4; LinerView): «Вид кабины» - the pilots' quick views. A tap turns the view to the last
+     * picked panel (first: the own PFD / ND) and the next tap back forward; held, the mouse wheel picks the view (forward,
+     * PFD / ND, ECAM, overhead, pedestal, left / right window). Client only, a look: the liner is not steered by it. = (the
+     * equals key): free in vanilla, the core and the old letters. Both pilots (not the driver alone).
+     */
+    VIEW("view", "view", 13, true, false);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -156,6 +163,7 @@ public enum VehicleFn {
             case AP_DISC:
             case ATHR_DISC:
             case MCDU:
+            case VIEW:
                 return t == VehicleType.LINER;
             default:
                 return true;                                        // cargo, map: every vehicle

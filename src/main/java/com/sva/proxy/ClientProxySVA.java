@@ -77,6 +77,7 @@ public class ClientProxySVA extends CommonProxySVA {
         }
         MinecraftForge.EVENT_BUS.register(new HudVehicleSVA());
         MinecraftForge.EVENT_BUS.register(new com.sva.client.RiderAttitudeSVA());   // riders lean with the body
+        MinecraftForge.EVENT_BUS.register(new com.sva.client.LinerViewSVA.Events());   // cockpit view: the pilots' hand, the quick views' zoom
         MinecraftForge.EVENT_BUS.register(new WorldUnload());
         FMLCommonHandler.instance().bus().register(new com.sva.client.VehicleKeyBindsSVA.Taps());  // short taps between ticks
         FMLCommonHandler.instance().bus().register(new com.sva.client.VehiclePickSVA());       // clicks on the whole model of big vehicles
@@ -159,7 +160,9 @@ public class ClientProxySVA extends CommonProxySVA {
                 return;
             }
             int notch = e.dwheel > 0 ? 1 : -1;
-            if (com.sva.client.CruiseClientSVA.wheel(mc, notch) || com.sva.client.VehicleCameraSVA.wheel(mc, -notch)) {
+            // cockpit view first: with «Вид кабины» held the wheel picks the liner pilot's quick view
+            if (com.sva.client.LinerViewSVA.wheel(mc, notch) || com.sva.client.CruiseClientSVA.wheel(mc, notch)
+                    || com.sva.client.VehicleCameraSVA.wheel(mc, -notch)) {
                 e.setCanceled(true);
             }
         }
@@ -256,11 +259,13 @@ public class ClientProxySVA extends CommonProxySVA {
     public void onRenderTick(TickEvent.RenderTickEvent e) {
         Minecraft mc = Minecraft.getMinecraft();
         if (e.phase != TickEvent.Phase.START) {
+            com.sva.client.LinerViewSVA.frameEnd(mc);               // cockpit view: the quick view's look offset off again
             com.sva.client.VehicleCameraSVA.frameEnd(mc);           // ★3: the look pitch back after the frame
             return;
         }
         followYaw(e.renderTickTime);
         com.sva.client.VehicleCameraSVA.frameStart(mc);             // ★3: distance, the back view's height
+        com.sva.client.LinerViewSVA.frameStart(mc, e.renderTickTime);   // cockpit view: the liner pilots' quick views (a look only)
     }
 
     /**
@@ -339,6 +344,7 @@ public class ClientProxySVA extends CommonProxySVA {
         Minecraft mcc = Minecraft.getMinecraft();
         com.sva.client.VehicleKeyBindsSVA.tick(mcc);                 // the menu key; riding: the function keys (raw)
         com.sva.client.LinerClickSVA.tick(mcc);                      // liner wave 1: «Курсор кабины» held - the cockpit's cursor
+        com.sva.client.LinerViewSVA.tick(mcc);                       // cockpit view: «Вид кабины» pressed / let go
         com.sva.client.CruiseClientSVA.tick(mcc);                    // ★4: off when the driver left
         com.sva.client.VehicleSoundsSVA.tick(mcc);                   // ★1: engine loops
         com.sva.client.CockpitInstrumentsSVA.clientTick();

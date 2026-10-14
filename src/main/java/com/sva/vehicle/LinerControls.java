@@ -40,10 +40,13 @@ public final class LinerControls {
 
     /**
      * The cockpit concept's frame (icockpit.py: metres = blocks, x forward, y up, z right, origin between the pilots at
-     * the eye) sits in the liner's model space at this offset: the captain's eye (0, 0, -0.52) lands on (6.88, 2.78,
-     * -0.52) - 0.98 behind the windscreen's lower edge (exterior: x 7.86 at y 2.74, liner3d.py's cockpit windows).
+     * the eye) sits in the liner's model space at this offset: the concept's captain eye (0, 0, -0.52) landed on (6.88,
+     * 2.78, -0.52) - 0.98 behind the windscreen's lower edge (exterior: x 7.86 at y 2.74, liner3d.py's cockpit windows).
+     * Cockpit view (plan-next 8, item 3): the whole cockpit 0.07 lower (CK_Y 2.71, wave 1: 2.78) while the pilots' eyes
+     * rose 0.05 in the model (LinerView.EYE_*, the seats in VehicleType.LINER): the eye 0.12 higher over the panels, under
+     * the overhead with the head's 0.07 to spare - the floor 1.56 (the cabin's 1.40), the roof 3.27 (the cabin's 3.23).
      */
-    public static final float CK_X = 6.88F, CK_Y = 2.78F;
+    public static final float CK_X = 6.88F, CK_Y = 2.71F;
 
     /**
      * Flat panels as a parallelogram in the COCKPIT frame: top-left corner, the full U (right along the texture's x) and V
@@ -53,17 +56,23 @@ public final class LinerControls {
     public static final float[][] FLAT = {
             // overhead: rear-left (-0.02, 0.53, -0.43) .. front (0.60, 0.385); its top reads aft (looking up and back)
             {-0.02F, 0.53F, -0.43F, 0F, 0F, 0.86F, 0.62F, -0.145F, 0F},
-            // glare shield's FCU strip: x 0.74, y -0.04 (top) .. -0.215, z +-0.95
-            {0.74F, -0.04F, -0.95F, 0F, 0F, 1.90F, 0F, -0.175F, 0F},
-            // main panel: top edge (0.80, -0.20) .. bottom (0.68, -0.80), z +-0.95 (tilted back toward the crew)
-            {0.80F, -0.20F, -0.95F, 0F, 0F, 1.90F, -0.12F, -0.60F, 0F},
+            // glare shield's FCU strip: x 0.78, y -0.12 (top) .. -0.295, z +-0.95 (cockpit view: 0.08 lower and 0.04 nearer
+            // the glass than wave 1's -0.04 at x 0.74 - LinerView: the over-the-nose line; its lower lip stays over the DUs' tops)
+            {0.78F, -0.12F, -0.95F, 0F, 0F, 1.90F, 0F, -0.175F, 0F},
+            // main panel: top edge (0.80, -0.29) .. bottom (0.68, -0.89), z +-0.95 (tilted back toward the crew; cockpit view:
+            // 0.09 lower with the glare shield)
+            {0.80F, -0.29F, -0.95F, 0F, 0F, 1.90F, -0.12F, -0.60F, 0F},
             null,
             // lateral consoles: top (-0.56), forward edge x 0.62 .. aft -0.20, 0.28 wide at the outer walls
             {0.62F, -0.56F, -0.95F, 0F, 0F, 0.28F, -0.82F, 0F, 0F},
             {0.62F, -0.56F, 0.95F, 0F, 0F, -0.28F, -0.82F, 0F, 0F}};
-    /** The pedestal's faces (cockpit frame): the sloping front (ty 0..600) and the flat top (600..1660), z +-0.21. */
+    /**
+     * The pedestal's faces (cockpit frame): the sloping front (ty 0..600) and the flat top (600..1660), z +-0.21. Cockpit
+     * view: both 0.07..0.095 lower than wave 1's (0.79 / 0.86) - the front's top edge stays under the lowered main panel's
+     * lower ECAM.
+     */
     public static final float PED_Z = 0.21F, PED_SPLIT = 600F;
-    public static final float[] PED_FRONT = {0.675F, -0.79F}, PED_MID = {0.37F, -0.86F};
+    public static final float[] PED_FRONT = {0.675F, -0.885F}, PED_MID = {0.37F, -0.93F};
     public static final float PED_REAR_X = -0.26F;
 
     /** A panel point (tx, ty) -> the cockpit frame {x, y, z} (`out` filled and returned). */

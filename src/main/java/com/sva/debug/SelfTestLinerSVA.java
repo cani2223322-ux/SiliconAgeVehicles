@@ -58,6 +58,7 @@ final class SelfTestLinerSVA {
         SelfTestLinerFmsSVA.run();                                  // liner wave 5: the MCDU, the FMS, the profile, NAV by the plan
         SelfTestLinerW6SVA.run();                                   // liner wave 6: lights, signs, anti-ice, icing, air conditioning, loads
         SelfTestLinerW7SVA.run();                                   // liner wave 7: ADIRS, laws, doors, chocks, tow, belts, fire, ECAM
+        SelfTestLinerViewSVA.run();                                 // cockpit view: the hand, the eye, the quick views, the glazing
         saves();
     }
 

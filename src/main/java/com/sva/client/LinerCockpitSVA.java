@@ -286,12 +286,12 @@ public final class LinerCockpitSVA {
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
-    /** The windshield's panes (cockpit frame, pulled 0.012 toward the crew): the two front, the two corner panes. */
-    static final float[][][] PANES = {
-            {{0.648F, 0.36F, -0.45F}, {0.648F, 0.36F, 0F}, {0.968F, -0.04F, 0F}, {0.968F, -0.04F, -0.62F}},
-            {{0.648F, 0.36F, 0F}, {0.648F, 0.36F, 0.45F}, {0.968F, -0.04F, 0.62F}, {0.968F, -0.04F, 0F}},
-            {{0.44F, 0.36F, -0.79F}, {0.648F, 0.36F, -0.45F}, {0.968F, -0.04F, -0.62F}, {0.69F, -0.04F, -0.94F}},
-            {{0.648F, 0.36F, 0.45F}, {0.44F, 0.36F, 0.79F}, {0.69F, -0.04F, 0.94F}, {0.968F, -0.04F, 0.62F}}};
+    /**
+     * The windshield's panes (cockpit frame, pulled 0.012 toward the crew): the two front, the two corner panes - the
+     * interior's own (LinerInterior.panes: the cockpit view's lower sill).
+     */
+    static final float[][][] PANES = {LinerInterior.panes(-1, 0.012F)[0], LinerInterior.panes(1, 0.012F)[0], LinerInterior.panes(-1, 0.012F)[1],
+            LinerInterior.panes(1, 0.012F)[1]};
 
     /** One pane's rim: from each edge (alpha a) in toward the pane's centre by `band` of the way (alpha 0). */
     private static void rim(float[][] q, float band, float a) {
@@ -961,7 +961,7 @@ public final class LinerCockpitSVA {
             prism(0.029F, 0.114F, -s * 0.012F, 0.031F, 0.124F, -s * 0.016F, 0.0075F, 0xE11E1A);
             GL11.glPopMatrix();
             // pedals: two plates in front of each pilot
-            float zc = s * 0.52F;
+            float zc = s * 0.50F;                                  // cockpit view: under the seats' new places (LinerInterior)
             for (int k = -1; k <= 1; k += 2) {
                 float off = yaw * PEDAL_TRAVEL * k;                 // k = +1 the right pedal
                 float x = 0.56F + off, z = zc + k * 0.09F;

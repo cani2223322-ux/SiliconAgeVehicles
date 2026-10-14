@@ -80,8 +80,10 @@ final class SelfTestKeysSVA {
                 bad.append(" menu=reserved");
             }
         }
-        check(bad.length() == 0 && VehicleFn.values().length == 23 && VehicleFn.MENU_DEFAULT == 41,
-                "keys: 23 functions (cockpit wave: «Страница MFD» ', air-defence wave: IDENT on the backslash, liner wave 1: «Шасси» . and «Курсор кабины» Left Alt, liner wave 4: the AP disconnect , and the A/THR disconnect -, liner wave 5: «МФПУ» M - the map's letter, the MCDU wins in the liner), every default a real key, all different but that pair, none the menu's ` and none vanilla's / the core's"
+        check(bad.length() == 0 && VehicleFn.values().length == 24 && VehicleFn.MENU_DEFAULT == 41 && VehicleFn.VIEW.defaultKey == 13
+                        && VehicleFn.VIEW.hold && !VehicleFn.VIEW.driverOnly && VehicleFn.VIEW.appliesTo(VehicleType.LINER)
+                        && !VehicleFn.VIEW.appliesTo(VehicleType.JET) && VehicleFn.VIEW.action(VehicleType.LINER) == -1,
+                "keys: 24 functions (cockpit wave: «Страница MFD» ', air-defence wave: IDENT on the backslash, liner wave 1: «Шасси» . and «Курсор кабины» Left Alt, liner wave 4: the AP disconnect , and the A/THR disconnect -, liner wave 5: «МФПУ» M - the map's letter, the MCDU wins in the liner; cockpit view: «Вид кабины» = held, both pilots, the liner only, no packet), every default a real key, all different but that pair, none the menu's ` and none vanilla's / the core's"
                         + bad);
         int[] old = {33, 45, 48, 49, 47, 21, 44, 46, 24, 38, 50};       // F X B N V Y Z C O L M - the old KeyBindings' defaults
         boolean same = true;

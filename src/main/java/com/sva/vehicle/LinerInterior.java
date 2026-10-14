@@ -203,7 +203,64 @@ public final class LinerInterior {
     // ---------------------------------------------------------------- the cockpit (icockpit.py)
 
     static final int LINING = rgb(176, 180, 182), POST = rgb(118, 124, 130), DARKG = rgb(54, 58, 64), FLOOR = rgb(52, 56, 66);
-    static final float HW = 0.95F, GS_Y0 = -0.215F, GS_Y1 = -0.04F, GS_X = 0.74F;
+    /** The glare shield: the FCU face at GS_X from GS_Y1 (its top edge - the over-the-nose line) down to GS_Y0 (LinerControls.FLAT). */
+    public static final float HW = 0.95F, GS_Y0 = -0.295F, GS_Y1 = -0.12F, GS_X = 0.78F;
+    /** The main panel's top edge (LinerControls.FLAT[MP]) and its bottom edge's height. */
+    public static final float MP_TOP_X = 0.80F, MP_TOP_Y = -0.29F, MP_BOT_Y = -0.89F;
+
+    /*
+     * The cockpit view (plan-next 8, items 3 / 6; LinerView): A320-like glazing. Wave 1's windscreen sat on the glare
+     * shield at y -0.04 - over the rider's eye (-0.08): the horizon was the lowest thing the pilot saw ahead. Now the panes
+     * reach down to SILL_Y along the same slanted posts (the windscreen's lower edge 0.16 lower, its frame strips half as
+     * wide), the side walls come down to the sill too (the side windows larger: from about the shoulder to over the head)
+     * and the glare shield's top drops from the FCU's edge to the windscreen. Points in the cockpit frame (left side; z
+     * mirrored for the right).
+     */
+    /** The windscreen's top edge (the header) and the posts' tops: centre, front / corner post, corner / side post. */
+    public static final float TOP_X = 0.66F, TOP_Y = 0.36F, POST_Z = 0.45F, REAR_TOP_X = 0.45F, REAR_TOP_Z = 0.80F;
+    /** The sill (the windscreen's lower edge, the side walls' bottom) and the posts' feet on it (on wave 1's post lines). */
+    public static final float SILL_Y = -0.20F, FRONT_X = 1.108F, FOOT_Z = 0.688F, REAR_FOOT_X = 0.80F;
+    /** Frame strips (blocks): windscreen, corner panes, side window (wave 1: 0.045 / 0.05 / 0.025). */
+    public static final float FRAME_W = 0.022F, CORNER_W = 0.025F, SIDE_W = 0.015F;
+    /** The side window's hole in its wall (s rear -> front, t top -> bottom; wave 1: 0.32..0.88 x 0.10..0.82). */
+    public static final float[] SIDE_HOLE = {0.30F, 0.06F, 0.95F, 0.88F};
+
+    /**
+     * The windscreen pane and the corner pane of side s (-1 left, +1 right), {front, corner} x 4 corners (top-left, top-right,
+     * bottom-right, bottom-left as seen from inside), pulled `pull` toward the crew (the frost rim's 0.012).
+     */
+    public static float[][][] panes(int s, float pull) {
+        float[] t0 = {TOP_X - pull, TOP_Y, 0}, t1 = {TOP_X - pull, TOP_Y, s * POST_Z}, t2 = {REAR_TOP_X - pull, TOP_Y, s * REAR_TOP_Z};
+        float[] b0 = {FRONT_X - pull, SILL_Y, 0}, b1 = {FRONT_X - pull, SILL_Y, s * FOOT_Z}, b2 = {REAR_FOOT_X - pull, SILL_Y, s * HW};
+        return s < 0 ? new float[][][] {{t1, t0, b0, b1}, {t2, t1, b1, b2}} : new float[][][] {{t0, t1, b1, b0}, {t1, t2, b2, b1}};
+    }
+
+    /** The side wall of side s as wallWithHole's a b c d (left: rear top, front top, front bottom, rear bottom; right mirrored). */
+    static float[][] sideWall(int s) {
+        float[] wa = {REAR_TOP_X, TOP_Y, s * REAR_TOP_Z}, wbk = {CK_REAR, 0.40F, s * REAR_TOP_Z}, wc = {CK_REAR, SILL_Y, s * HW},
+                wd = {REAR_FOOT_X, SILL_Y, s * HW};
+        return s < 0 ? new float[][] {wbk, wa, wd, wc} : new float[][] {wa, wbk, wc, wd};
+    }
+
+    /** The side window hole's (s0, t0, s1, t1) in sideWall(s)'s own a b c d (the right wall runs front to rear). */
+    static float[] sideHole(int s) {
+        return s < 0 ? SIDE_HOLE : new float[] {1 - SIDE_HOLE[2], SIDE_HOLE[1], 1 - SIDE_HOLE[0], SIDE_HOLE[3]};
+    }
+
+    /** The side window's centre (cockpit frame), s = -1 left, +1 right (LinerView's side-window looks). */
+    public static float[] sideWindowCentre(int s) {
+        float[][] w = sideWall(s);
+        float[] h = sideHole(s);
+        return bil(w[0], w[1], w[2], w[3], (h[0] + h[2]) / 2, (h[1] + h[3]) / 2);
+    }
+
+    /** The side window's opening (cockpit frame): its four corners. */
+    public static float[][] sideWindow(int s) {
+        float[][] w = sideWall(s);
+        float[] h = sideHole(s);
+        return new float[][] {bil(w[0], w[1], w[2], w[3], h[0], h[1]), bil(w[0], w[1], w[2], w[3], h[2], h[1]),
+                bil(w[0], w[1], w[2], w[3], h[2], h[3]), bil(w[0], w[1], w[2], w[3], h[0], h[3])};
+    }
 
     /** A panel's flat face as a textured quad (LinerControls.FLAT): its rect in the atlas, lifted `off` toward the crew. */
     private void panelQuad(int panel, float off) {
@@ -217,10 +274,15 @@ public final class LinerInterior {
 
     private void cockpit() {
         frame(COCKPIT, LinerControls.CK_X, LinerControls.CK_Y, 1, 1, 1);
-        // glare shield: the top, the FCU strip (textured), its underside
-        quad(new float[] {GS_X, GS_Y1, -HW}, new float[] {0, 0, 2 * HW}, new float[] {0.24F, 0, 0}, DARKG);
+        // glare shield: the top (cockpit view: from the FCU's edge down to the windscreen's sill and, at the sides, to the
+        // corner panes' feet), the FCU strip (textured), its underside back to the main panel's top
+        float[] gA = {GS_X, GS_Y1, -HW}, gF = {GS_X, GS_Y1, HW}, gB = {REAR_FOOT_X, SILL_Y, -HW}, gE = {REAR_FOOT_X, SILL_Y, HW};
+        float[] gC = {FRONT_X, SILL_Y, -FOOT_Z}, gD = {FRONT_X, SILL_Y, FOOT_Z};
+        quad4(gA, gF, gD, gC, DARKG);
+        quad4(gF, gE, gD, gD, shade(DARKG, 0.9));
+        quad4(gA, gC, gB, gB, shade(DARKG, 0.9));
         panelQuad(LinerControls.GS, 0);
-        quad(new float[] {GS_X, GS_Y0, -HW}, new float[] {0, 0, 2 * HW}, new float[] {0.80F - GS_X + 0.01F, -0.20F - GS_Y0, 0}, rgb(36, 38, 42));
+        quad(new float[] {GS_X, GS_Y0, -HW}, new float[] {0, 0, 2 * HW}, new float[] {MP_TOP_X - GS_X + 0.01F, MP_TOP_Y - GS_Y0, 0}, rgb(36, 38, 42));
         // main panel (the DUs are their own quads on top, LinerCockpitSVA) and the knee panel under it
         panelQuad(LinerControls.MP, 0);
         float[] mb = LinerControls.point(LinerControls.MP, 0, LinerControls.PANEL_H[LinerControls.MP], new float[3]);
@@ -267,31 +329,21 @@ public final class LinerInterior {
             float[] cup = LinerControls.point(panel, s < 0 ? 110 : 390, 1340, new float[3]);
             cyl(add(cup, new float[] {0, -0.02F, 0}), add(cup, new float[] {0, 0.012F, 0}), 0.028F, rgb(28, 28, 30), 18, 0.028F, true, rgb(10, 10, 12));
         }
-        // the shell: windshield and corner-pane frames, side walls with the sliding windows, the roof, the floor
-        float[][] wb = {{0.98F, -0.04F, -0.62F}, {0.98F, -0.04F, 0}, {0.98F, -0.04F, 0.62F}};
-        float[][] wt = {{0.66F, 0.36F, -0.45F}, {0.66F, 0.36F, 0}, {0.66F, 0.36F, 0.45F}};
-        for (int i = 0; i < 2; i++) {
-            frameStrips(wt[i], wt[i + 1], wb[i + 1], wb[i], 0.045F, POST);
-        }
+        // the shell: windshield and corner-pane frames, side walls with the sliding windows, the roof, the floor (cockpit view:
+        // the panes down to SILL_Y, thin frames, the side windows larger - panes() / sideWall())
         for (int s = -1; s <= 1; s += 2) {
-            float[] fb = {0.98F, -0.04F, s * 0.62F}, ft = {0.66F, 0.36F, s * 0.45F}, rb = {0.70F, -0.04F, s * HW}, rt = {0.45F, 0.36F, s * 0.80F};
-            if (s < 0) {
-                frameStrips(rt, ft, fb, rb, 0.05F, POST);
-            } else {
-                frameStrips(ft, rt, rb, fb, 0.05F, POST);
-            }
-            float[] wa = {0.45F, 0.36F, s * 0.80F}, wbk = {CK_REAR, 0.40F, s * 0.80F}, wc = {CK_REAR, -0.04F, s * HW}, wd = {0.70F, -0.04F, s * HW};
-            if (s < 0) {
-                wallWithHole(wbk, wa, wd, wc, new float[] {0.32F, 0.1F, 0.88F, 0.82F}, LINING);
-            } else {
-                wallWithHole(wa, wbk, wc, wd, new float[] {0.12F, 0.1F, 0.68F, 0.82F}, LINING);
-            }
-            quad4(wd, wc, new float[] {CK_REAR, -1.15F, s * HW}, new float[] {0.70F, -1.15F, s * HW}, rgb(150, 154, 156));
-            quad4(new float[] {GS_X, GS_Y1, s * HW}, new float[] {0.98F, GS_Y1, s * HW}, new float[] {0.68F, -0.80F, s * HW},
-                    new float[] {0.68F, -0.80F, s * HW}, rgb(60, 64, 70));
-            // under the side windows' sills: closed down to the console
-            quad4(new float[] {0.70F, -0.04F, s * HW}, new float[] {0.98F, -0.04F, s * 0.62F}, new float[] {0.98F, -0.8F, s * 0.62F},
-                    new float[] {0.70F, -0.8F, s * HW}, rgb(70, 76, 84));
+            float[][][] pn = panes(s, 0);
+            frameStrips(pn[0][0], pn[0][1], pn[0][2], pn[0][3], FRAME_W, POST);
+            frameStrips(pn[1][0], pn[1][1], pn[1][2], pn[1][3], CORNER_W, POST);
+            float[][] w = sideWall(s);
+            wallWithHole(w[0], w[1], w[2], w[3], sideHole(s), LINING);
+            float[] wc = {CK_REAR, SILL_Y, s * HW}, wd = {REAR_FOOT_X, SILL_Y, s * HW};
+            quad4(wd, wc, new float[] {CK_REAR, -1.15F, s * HW}, new float[] {REAR_FOOT_X, -1.15F, s * HW}, rgb(150, 154, 156));
+            quad4(new float[] {GS_X, GS_Y1, s * HW}, new float[] {REAR_FOOT_X, SILL_Y, s * HW}, new float[] {0.68F, MP_BOT_Y, s * HW},
+                    new float[] {0.68F, MP_BOT_Y, s * HW}, rgb(60, 64, 70));
+            // under the corner panes' sills: closed down to the console
+            quad4(new float[] {REAR_FOOT_X, SILL_Y, s * HW}, new float[] {FRONT_X, SILL_Y, s * FOOT_Z}, new float[] {FRONT_X, -0.8F, s * FOOT_Z},
+                    new float[] {REAR_FOOT_X, -0.8F, s * HW}, rgb(70, 76, 84));
         }
         // the roof: the header over the windshield, the overhead panel (textured), the lining, the dome light
         quad4(new float[] {0.66F, 0.36F, -0.45F}, new float[] {0.66F, 0.36F, 0.45F}, new float[] {0.60F, 0.385F, 0.45F}, new float[] {0.60F, 0.385F, -0.45F},
@@ -317,9 +369,11 @@ public final class LinerInterior {
         quad4(new float[] {CK_REAR, 0.56F, HW}, new float[] {CK_REAR, 0.56F, -HW}, new float[] {CK_REAR, -1.15F, -HW},
                 new float[] {CK_REAR, -1.15F, HW}, rgb(150, 152, 150));
         box(new float[] {CK_REAR + 0.01F, -0.35F, 0}, new float[] {0.02F, 1.5F, 0.62F}, rgb(132, 134, 132));
-        // pilots' seats: under the eye (the rider's eye is over his hips), cushion top 0.87 under it
+        // pilots' seats: under the eye (the rider's eye is over his hips), cushion top 0.87 under it; cockpit view: moved with
+        // the riders' eyes (LinerView.EYE_*) 0.07 forward, 0.05 up and 0.02 inboard
+        frame(COCKPIT, LinerControls.CK_X + SEAT_DX, LinerControls.CK_Y + SEAT_DY, 1, 1, 1);
         for (int s = -1; s <= 1; s += 2) {
-            float cz = s * 0.52F;
+            float cz = s * (0.52F - SEAT_DZ);
             int col = rgb(60, 66, 80);
             box(new float[] {-0.10F, -0.92F, cz}, new float[] {0.46F, 0.10F, 0.46F}, col, null, LinerTexMath.T_FABRIC, null, -1, null, -1, null);
             box(new float[] {-0.40F, -0.50F, cz}, new float[] {0.12F, 0.76F, 0.46F}, col, rotZ(8));
@@ -330,6 +384,12 @@ public final class LinerInterior {
             box(new float[] {-0.12F, -1.06F, cz}, new float[] {0.30F, 0.18F, 0.20F}, rgb(40, 42, 46));
         }
     }
+
+    /**
+     * Cockpit view: the pilots' seats' shift in the cockpit frame - with the riders' eyes (0.07 forward, 0.05 up and 0.02
+     * inboard in the model) and the frame's own 0.07 drop (LinerControls.CK_Y).
+     */
+    static final float SEAT_DX = 0.07F, SEAT_DY = 0.12F, SEAT_DZ = 0.02F;
 
     /** A pedestal point (the cockpit frame). */
     private static float[] pp(float tx, float ty) {
@@ -354,7 +414,7 @@ public final class LinerInterior {
         quad4(bil(a, b, c, d, 0, t1), bil(a, b, c, d, 1, t1), bil(a, b, c, d, 1, 1), bil(a, b, c, d, 0, 1), rgb);
         quad4(bil(a, b, c, d, 0, t0), bil(a, b, c, d, s0, t0), bil(a, b, c, d, s0, t1), bil(a, b, c, d, 0, t1), rgb);
         quad4(bil(a, b, c, d, s1, t0), bil(a, b, c, d, 1, t0), bil(a, b, c, d, 1, t1), bil(a, b, c, d, s1, t1), rgb);
-        frameStrips(bil(a, b, c, d, s0, t0), bil(a, b, c, d, s1, t0), bil(a, b, c, d, s1, t1), bil(a, b, c, d, s0, t1), 0.025F, POST);
+        frameStrips(bil(a, b, c, d, s0, t0), bil(a, b, c, d, s1, t0), bil(a, b, c, d, s1, t1), bil(a, b, c, d, s0, t1), SIDE_W, POST);
     }
 
     private static float[] bil(float[] a, float[] b, float[] c, float[] d, float s, float t) {

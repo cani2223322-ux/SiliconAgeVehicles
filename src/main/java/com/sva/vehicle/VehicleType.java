@@ -156,8 +156,11 @@ public enum VehicleType {
     // scale), so the pilots sit at |z| 0.45, 0.04 lower (eye 2.74), the passengers at |z| 0.52, 0.10 lower (hips 0.09
     // into the cushions at 1.85; head tops 2.94 under the 3.03 of the tube there). Collision box 3 x 2 (like the
     // ship: the long body is the model's, the server's box only stands it on the ground). 54 cargo slots (the hold).
+    // Cockpit view (plan-next 8, item 3; LinerView): the pilots 0.07 forward, 0.05 higher and 0.02 inboard - eye (6.95,
+    // 2.75, +-0.38) = cockpit frame (0.07, 0.04, +-0.38) (the cockpit 0.07 lower, LinerControls.CK_Y): as high and as far
+    // forward as the head's outer top corner stays under the nose's skin (the rider fit on LOD2: 0.005 more pokes out at x 7.16).
     LINER("liner", "liner", Tier.EV, 4000000, 120, 4, 2.0, PlaneParams.LINER.thrust, 1.1, 10, 54, 900, 3.0F, 2.0F,
-            new double[][] {{6.88, -0.40, -0.08}, {6.88, 0.40, -0.08}, {4.46, -0.52, -0.10}, {4.46, 0.52, -0.10}, {3.61, -0.52, -0.10},
+            new double[][] {{6.95, -0.38, -0.03}, {6.95, 0.38, -0.03}, {4.46, -0.52, -0.10}, {4.46, 0.52, -0.10}, {3.61, -0.52, -0.10},
                     {3.61, 0.52, -0.10}, {2.76, -0.52, -0.10}, {2.76, 0.52, -0.10}, {1.91, -0.52, -0.10}, {1.91, 0.52, -0.10}}, 1.0F, 1.66, Movement.PLANE,
             VehicleGases.of(Gas.HYDROGEN, Integer.valueOf(48000)));
 

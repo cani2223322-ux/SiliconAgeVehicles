@@ -799,9 +799,11 @@ public final class LinerPaintSVA {
 
     // ---------------------------------------------------------------- MAIN PANEL (2000 x 620)
 
-    /** The DUs on the main panel (panel units): PFD 1, ND 1, E/WD, SD, ND 2, PFD 2, ISIS - LinerSystems.DU_* order. */
-    public static final float[][] SCREENS = {{170, 20, 450, 300}, {465, 20, 745, 300}, {860, 20, 1140, 300}, {860, 320, 1140, 600},
-            {1255, 20, 1535, 300}, {1550, 20, 1830, 300}, {754, 30, 852, 128}};
+    /**
+     * The DUs on the main panel (panel units): PFD 1, ND 1, E/WD, SD, ND 2, PFD 2, ISIS - LinerSystems.DU_* order (cockpit
+     * view: kept in the pure LinerView.DU_RECTS - the server's self-test measures them from the eye).
+     */
+    public static final float[][] SCREENS = com.sva.vehicle.LinerView.DU_RECTS;
 
     static void mainPanel(P p) {
         Color recess = rgb(40, 44, 50);
@@ -1558,10 +1560,10 @@ public final class LinerPaintSVA {
         g.setColor(rgb(170, 174, 180));
         g.setStroke(new BasicStroke(2));
         g.draw(new java.awt.geom.Line2D.Double(f.u(8.22), 0, f.u(8.22), FUS_H));
-        // cockpit windows: windscreen half + two side windows
+        // cockpit windows: windscreen half + two side windows (cockpit view, plan-next 8 item 6: as the interior's glazing -
+        // the windscreen down to theta 48..52 (wave 1: 37..43), the side windows taller and wider, the posts and frames thinner)
         Color gl = rgb(22, 30, 42), fr = rgb(60, 64, 72);
-        double[][][] panes = {{{8.32, 3}, {7.96, 3}, {7.86, 37}, {8.22, 43}}, {{7.8, 44}, {7.45, 44}, {7.42, 68}, {7.82, 64}},
-                {{7.35, 47}, {7.08, 47}, {7.08, 66}, {7.33, 66}}};
+        double[][][] panes = com.sva.vehicle.LinerView.PAINT_WINDOWS;
         for (double[][] pn : panes) {
             GeneralPath p = new GeneralPath();
             for (int i = 0; i < pn.length; i++) {
@@ -1575,12 +1577,13 @@ public final class LinerPaintSVA {
             g.setColor(gl);
             g.fill(p);
             g.setColor(fr);
-            g.setStroke(new BasicStroke(3));
+            g.setStroke(new BasicStroke(2));
             g.draw(p);
         }
         g.setColor(rgb(18, 18, 20));
         g.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g.draw(new java.awt.geom.Line2D.Double(f.u(8.18), f.v(37), f.u(8.27), f.v(12)));
+        g.draw(new java.awt.geom.Line2D.Double(f.u(com.sva.vehicle.LinerView.PAINT_WIPER[0]), f.v(com.sva.vehicle.LinerView.PAINT_WIPER[1]),
+                f.u(com.sva.vehicle.LinerView.PAINT_WIPER[2]), f.v(com.sva.vehicle.LinerView.PAINT_WIPER[3])));
         // cabin windows over the rows + the overwing exits
         for (double xw : WINDOWS) {
             f.rrect(g, xw - 0.13, xw + 0.13, 56, 73, 14, gl, rgb(150, 156, 164), 3);

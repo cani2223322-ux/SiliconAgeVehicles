@@ -242,6 +242,10 @@ public final class ConfigSVA {
     public static boolean linerIceVisuals = true;
     /** Liner wave 6 (client): the cockpit's / cabin's light levels (dome, flood, cabin steps, night blue, reading lights). */
     public static boolean linerCabinLighting = true;
+    /** Cockpit view (client, plan-next 8 item 1): no first-person hand / held item in the liner's pilot seats. */
+    public static boolean linerHideHand = true;
+    /** Cockpit view (client, item 4): the pilots' quick views («Вид кабины»: PFD / ND, ECAM, overhead, pedestal, windows). */
+    public static boolean linerQuickViews = true;
     /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
     public static boolean radarAltCallouts = true;
     /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
@@ -561,6 +565,14 @@ public final class ConfigSVA {
             linerCabinLighting = c.getBoolean("linerCabinLighting", v, true,
                     "Liner: the cockpit / cabin light levels - dome, flood, cabin steps, night blue, reading lights (client) / Лайнер:"
                             + " освещение кабины и салона - плафон, заливающий свет, ступени, ночной синий, лампы чтения (клиент)");
+            // cockpit view (plan-next 8): the hand hidden in the pilot seats, the quick views
+            linerHideHand = c.getBoolean("linerHideHand", v, true,
+                    "Liner: hide the first-person hand and the held item in the pilot seats - the lower screens stay free (client) / Лайнер:"
+                            + " скрывать руку и предмет в руке в креслах пилотов - нижние экраны не закрыты (клиент)");
+            linerQuickViews = c.getBoolean("linerQuickViews", v, true,
+                    "Liner: the pilots' quick views - the 'Cockpit view' key (default =): tap - to the last picked panel and back, hold + wheel -"
+                            + " pick a view; a look only, it does not steer (client) / Лайнер: быстрые виды пилотов - клавиша 'Вид кабины' (по умолч. =):"
+                            + " нажатие - к последней выбранной панели и обратно, удержание + колесо - выбор вида; только взгляд, не рулит (клиент)");
             // liner wave 7: GPS (kept on - the user's decision; no cockpit switch), the ADIRS' random faults, towing, the seat belts
             linerGpsAlwaysOn = c.getBoolean("linerGpsAlwaysOn", v, true,
                     "Liner: GPS always on - the IRs' drift corrected, GPS PRIMARY (no cockpit switch) / Лайнер: GPS всегда включён - дрейф"

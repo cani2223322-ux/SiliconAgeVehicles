@@ -329,6 +329,12 @@ public final class VehicleKeyBindsSVA {
 
     /** Liner wave 1: «Курсор кабины» held (LinerClickSVA frees the mouse while it is). */
     private static boolean cursorHeld;
+    /** Cockpit view: «Вид кабины» held (LinerViewSVA: its press / release, the wheel while held). */
+    private static boolean viewHeld;
+
+    public static boolean viewHeld() {
+        return viewHeld;
+    }
 
     public static boolean cursorHeld() {
         return cursorHeld;
@@ -348,7 +354,7 @@ public final class VehicleKeyBindsSVA {
         EntityVehicleSVA v = free ? HudVehicleSVA.vehicleOf(mc.thePlayer) : null;
         int held = free ? modifiersDown() : 0;
         List<int[]> all = new ArrayList<int[]>(BINDS.values());
-        boolean boost = false, down = false, cursor = false;
+        boolean boost = false, down = false, cursor = false, view = false;
         for (VehicleFn f : VehicleFn.values()) {
             int[] b = BINDS.get(f);
             boolean kd = b != null && downOrTapped(b[0]);
@@ -365,6 +371,8 @@ public final class VehicleKeyBindsSVA {
                     boost = on;
                 } else if (f == VehicleFn.CURSOR) {
                     cursor = on && f.appliesTo(v.getVehicleType());     // liner wave 1: the cockpit's mouse cursor
+                } else if (f == VehicleFn.VIEW) {
+                    view = on && f.appliesTo(v.getVehicleType());       // cockpit view: the quick views' key
                 } else {
                     down = on;
                 }
@@ -375,6 +383,7 @@ public final class VehicleKeyBindsSVA {
         boostHeld = boost;
         downHeld = down;
         cursorHeld = cursor;
+        viewHeld = view;
         TAPPED.clear();
     }
 
