@@ -175,6 +175,9 @@ public final class LinerSystems {
         // wave 3
         /** The altitude (absolute Y), the gravity fuel feed's ceiling (Y), LDG MEMO / the approach phase under this height (blocks). */
         public double alt = 64, gravAlt = 160, ldgMemoH = 60;
+        // wave 4
+        /** The aircraft for the auto flight system (the entity fills it; ground / height / altitude / speed are copied from above). */
+        public LinerAfs.Air air = new LinerAfs.Air();
     }
 
     // ---------------------------------------------------------------- state
@@ -259,6 +262,15 @@ public final class LinerSystems {
     /** Events of this tick past E_*: the tanks grew (a refuel). */
     public static final int E_REFUEL = 1024;
 
+    // ---------------------------------------------------------------- wave 4: the auto flight system, levers, reversers
+
+    /** The FCU, AP / FD, A/THR, the levers and the reversers, the ILS, the callouts (LinerAfs). */
+    public final LinerAfs afs = new LinerAfs();
+    /** The last tick's aircraft (the FCU's clicks between ticks read it; null before the first tick). */
+    public LinerAfs.Air lastAir;
+    /** Events of this tick past E_*: the AP's cavalry charge note, a callout (the entity plays them - LinerAfs.cavNote / soundCall). */
+    public static final int E_AFS = 2048;
+
     // EU / mB of this tick (outputs for the entity)
     /** EU taken from АКБ 1 this tick (negative: charged into it). */
     public double bat1Eu;
@@ -307,6 +319,27 @@ public final class LinerSystems {
         LinerControls.Ctl c = LinerControls.get(index);
         if (c == null) {
             return false;
+        }
+        if (c.kind == LinerControls.KNOB) {
+            boolean k = afs.knob(this, c, action, lastAir);         // wave 4: the FCU's knobs
+            if (k) {
+                events |= E_CLICK;
+            }
+            return k;
+        }
+        if (c == LinerControls.TL1 || c == LinerControls.TL2) {
+            // wave 4: a thrust lever clicked - the next detent up (LMB / wheel up) or down (into the reverse on the ground)
+            double l0 = afs.lever, r0 = afs.rev;
+            afs.leverClick(action == LinerControls.A_PRIMARY || action == LinerControls.A_WHEEL_UP, onGround);
+            boolean ch = l0 != afs.lever || r0 != afs.rev;
+            if (ch) {
+                events |= E_CLICK;
+            }
+            return ch;
+        }
+        if (c == LinerControls.ILS_SEL) {
+            afs.chooseIls(action >= LinerControls.A_SET ? action - LinerControls.A_SET : 0);
+            return true;
         }
         int[] r = LinerControls.apply(c, pos[index], guard[index], action);
         boolean changed = r[0] != pos[index] || (r[1] != 0) != guard[index];
@@ -362,6 +395,9 @@ public final class LinerSystems {
     }
 
     private boolean press(LinerControls.Ctl c) {
+        if (afs.press(this, c, lastAir)) {
+            return true;                                            // wave 4: the FCU's buttons, the AP / A/THR disconnects
+        }
         if (c == LinerControls.APU_START) {
             if (on(LinerControls.APU_MASTER) && (apu == A_FLAP || apu == A_OFF) && !apuFault) {
                 apuStartLit = true;
@@ -485,6 +521,7 @@ public final class LinerSystems {
         // ---- bleed, then the engines (their starters read the ducts)
         bleedTick();
         fuelPrepare(e, ac);                                         // wave 3: the pumps, crossfeed, transfer - who feeds each engine
+        afsTick(e);                                                 // wave 4: the AFS - the thrust the engines spool to
         burnEng = 0;
         for (int i = 0; i < 2; i++) {
             engineTick(e, i, ac || dcBat1 || dcBat2 || extOn);
@@ -827,8 +864,8 @@ public final class LinerSystems {
                     g.ticks = 0;
                     break;
                 }
-                double t = clamp(e.throttle, 0, 1);
-                double want = IDLE_N1 + (TOGA_N1 - IDLE_N1) * t;
+                // wave 4: the AFS' thrust (the levers' own without the A/THR) or the reverse's N1
+                double want = afs.n1Want(i);
                 double d = want - g.n1;
                 g.n1 += clamp(d * SPOOL, -SPOOL_MAX, SPOOL_MAX);
                 double k = clamp((g.n1 - IDLE_N1) / (TOGA_N1 - IDLE_N1), 0, 1);
@@ -1357,10 +1394,12 @@ public final class LinerSystems {
             M_SPL_ARM = 16384, M_AUTOBRK = 32768, M_RAT = 65536, M_PTU = 131072, M_GRAVITY = 262144, M_BRK_FAN = 524288,
             // wave 3: refuelling, the crossfeed open, «ТО КОНФИГ НОРМ» (the T.O. CONFIG test passed), RCL's «НОРМА», the fuel's
             // gravity feed, the STATUS reminder
-            M_REFUEL = 1 << 20, M_XFEED = 1 << 21, M_TO_NORMAL = 1 << 22, M_NORMAL = 1 << 23, M_GRAV_FEED = 1 << 24, M_STS = 1 << 25;
+            M_REFUEL = 1 << 20, M_XFEED = 1 << 21, M_TO_NORMAL = 1 << 22, M_NORMAL = 1 << 23, M_GRAV_FEED = 1 << 24, M_STS = 1 << 25,
+            // wave 4: the reversers deployed (green «РЕВ»)
+            M_REV = 1 << 26;
     public static final String[] MEMO_KEYS = {"apuAvail", "apuBleed", "park", "beaconOff", "ext", "door", "stairs", "galley", "seatBelts", "noSmoking",
             "onBat", "engStart", "idle", "quick", "splArm", "autoBrk", "rat", "ptu", "gravity", "brkFan", "refuel", "xfeed", "toNormal", "normal",
-            "gravFeed", "sts"};
+            "gravFeed", "sts", "rev"};
     /** Memos drawn amber (the rest green). */
     public static final int MEMO_AMBER = M_BEACON_OFF | M_DOOR | M_GALLEY | M_ON_BAT | M_RAT | M_GRAVITY | M_GRAV_FEED;
 
@@ -1442,6 +1481,9 @@ public final class LinerSystems {
         }
         if (ecam.hasStatus() && autoPage() != LinerEcam.P_STS && ecam.top() < 0) {
             m |= M_STS;
+        }
+        if (afs.revPos[0] > 0.05 || afs.revPos[1] > 0.05) {
+            m |= M_REV;
         }
         return m;
     }
@@ -1644,14 +1686,43 @@ public final class LinerSystems {
         return sw;
     }
 
-    /** The thrust the physics sees: both engines' mean (0..1). */
+    /** The thrust the physics sees: both engines' mean (0..1) - wave 4: an engine with its cowls open pushes no more forward. */
     public double thrust() {
-        return (eng[0].thrust() + eng[1].thrust()) / 2;
+        return (fwd(0) + fwd(1)) / 2;
     }
 
-    /** The yaw from uneven thrust (deg a tick, + = to the right): engine 1 (left) stronger yaws right. */
+    /** Wave 4: engine i's forward thrust (0 with the reverser's cowls opening). */
+    public double fwd(int i) {
+        return afs.revPos[i] > 0.05 ? 0 : eng[i].thrust();
+    }
+
+    /** Wave 4: the reverse thrust (0..1 of the forward's scale, both engines' mean): the cowls deployed, REV_EFF of the N1's share. */
+    public double revThrust() {
+        return (rev(0) + rev(1)) / 2;
+    }
+
+    public double rev(int i) {
+        return afs.revPos[i] >= 0.95 ? LinerAfs.REV_EFF * eng[i].thrust() : 0;
+    }
+
+    /** The yaw from uneven thrust (deg a tick, + = to the right): engine 1 (left) stronger yaws right (the reverse the other way). */
     public double asymYaw(double gain) {
-        return (eng[0].thrust() - eng[1].thrust()) * gain;
+        return (fwd(0) - rev(0) - fwd(1) + rev(1)) * gain;
+    }
+
+    /** Wave 4: the AFS' tick with this tick's aircraft (ground / height / altitude / speed from the systems' own inputs). */
+    private void afsTick(Env e) {
+        LinerAfs.Air a = e.air != null ? e.air : new LinerAfs.Air();
+        a.ground = e.ground;
+        a.ra = e.height;
+        a.y = e.alt;
+        a.speed = Math.max(e.airspeed, e.speed);
+        afs.lever = clamp(e.throttle, 0, 1);
+        afs.tick(this, e, a);
+        lastAir = a;
+        if (afs.cavNote >= 0 || afs.soundCall != 0) {
+            events |= E_AFS;
+        }
     }
 
     /** Any engine running (the old engine word: the HUD, the sounds, the regen logic). */
@@ -1693,6 +1764,14 @@ public final class LinerSystems {
                 b.append(',');
             }
             b.append(w3[i]);
+        }
+        b.append('|');                                              // wave 4: the AFS (FCU, modes, A/THR, levers, ILS)
+        int[] w4 = afs.pack();
+        for (int i = 0; i < w4.length; i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append(w4[i]);
         }
         return b.toString();
     }
@@ -1773,6 +1852,7 @@ public final class LinerSystems {
         int[] v = ints(part[0]);
         int[] w = part.length > 1 ? ints(part[1]) : null;
         int[] w3 = part.length > 2 ? ints(part[2]) : null;
+        int[] w4 = part.length > 3 ? ints(part[3]) : null;
         if (v == null || v.length < 36) {
             return;
         }
@@ -1781,6 +1861,9 @@ public final class LinerSystems {
         }
         if (w3 != null) {
             unpackWave3(w3);                                        // wave 3: the ECAM, the fuel, the cabin
+        }
+        if (w4 != null) {
+            afs.unpack(w4, 0);                                      // wave 4: the AFS
         }
         int f = v[0];
         masterWarn = (f & 1) != 0;
@@ -1893,7 +1976,13 @@ public final class LinerSystems {
         t.setInteger(K_FLAPS, r(fctl.flapPos * 100));
         t.setInteger(K_SLATS, r(fctl.slatPos * 100));
         t.setIntArray(K_W3, new int[] {r(fuel.outerL), r(fuel.outerR), r(fuel.used[0]), r(fuel.used[1]), (fuel.xferL ? 1 : 0) | (fuel.xferR ? 2 : 0)});
+        NBTTagCompound a = new NBTTagCompound();
+        afs.writeNBT(a);
+        t.setTag(K_W4, a);
     }
+
+    /** Wave 4: the FCU's values, the levers, the hand-picked ILS. */
+    public static final String K_W4 = "W4Afs";
 
     public void readNBT(NBTTagCompound t) {
         if (t == null) {
@@ -1956,6 +2045,9 @@ public final class LinerSystems {
             gear.flat = t.getByte(K_FLAT) & 15;
             fctl.flapPos = Math.max(0, Math.min(4, t.getInteger(K_FLAPS) / 100.0));
             fctl.slatPos = Math.max(0, Math.min(1, t.getInteger(K_SLATS) / 100.0));
+        }
+        if (t.hasKey(K_W4)) {
+            afs.readNBT(t.getCompoundTag(K_W4));
         }
         int[] w3 = t.getIntArray(K_W3);
         if (w3.length == 5) {

@@ -66,6 +66,10 @@ public class CommonProxySVA {
     public void adData(int kind, net.minecraft.nbt.NBTTagCompound data) {
     }
 
+    /** Liner wave 4: the ILS beacon's screen (client). */
+    public void openIls(com.sva.block.TileEntityIlsSVA te) {
+    }
+
     /** A server correction for the local driver (applied on the client thread). */
     public void queueCorrection(NetSVA.Correct m) {
     }

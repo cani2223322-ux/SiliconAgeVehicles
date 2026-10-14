@@ -203,6 +203,15 @@ public final class ConfigSVA {
     public static double linerFuelGravityAlt = 160;
     /** Liner wave 3: the LDG MEMO / the ECAM's approach phase - the gear lever down under this height over the ground (blocks). */
     public static double linerLdgMemoHeight = 60;
+    /**
+     * Liner wave 4: the acceleration / thrust reduction height (blocks over the runway): SRS -> CLB, «LVR CLB» (the A320's
+     * 1500 ft, scaled).
+     */
+    public static double linerAccelHeight = 30;
+    /** Liner wave 4: how far (blocks) an airliner hears a «Курсо-глиссадный маяк» (the auto-tuning's range). */
+    public static double linerIlsRange = 4000;
+    /** Liner wave 4: the height callouts (100, 50, 40, 30, 20, 10), RETARD and V1 as sounds. */
+    public static boolean linerCallouts = true;
     /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
     public static boolean radarAltCallouts = true;
     /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
@@ -484,6 +493,17 @@ public final class ConfigSVA {
                     "Liner: LDG MEMO (and the ECAM's approach phase) under this height over the ground with the gear lever down (blocks)"
                             + " / Лайнер: памятка LDG MEMO (и фаза захода ECAM) ниже этой высоты над землёй при рычаге шасси вниз (блоки)"),
                     60F, 10F, 250F);
+            linerAccelHeight = sanitize((float) c.getFloat("linerAccelHeight", v, 30F, 5F, 150F,
+                    "Liner: the acceleration / thrust reduction height over the runway (blocks): SRS -> CLB, 'LVR CLB' / Лайнер: высота"
+                            + " разгона / снижения тяги над ВПП (блоки): SRS -> CLB, 'LVR CLB'"),
+                    30F, 5F, 150F);
+            linerIlsRange = sanitize((float) c.getFloat("linerIlsRange", v, 4000F, 500F, 16000F,
+                    "Liner: how far an airliner receives a localizer / glide slope beacon (blocks) / Лайнер: дальность приёма курсо-"
+                            + "глиссадного маяка (блоки)"),
+                    4000F, 500F, 16000F);
+            linerCallouts = c.getBoolean("linerCallouts", v, true,
+                    "Liner: the height callouts 100.. 50.. 40.. 30.. 20.. 10, RETARD and V1 as sounds / Лайнер: отсчёт высоты 100.. 50.. 40.."
+                            + " 30.. 20.. 10, RETARD и V1 - звуком");
             linerPtuSound = c.getBoolean("linerPtuSound", v, true,
                     "Liner: the PTU's 'barking' during single-engine taxi as a sound / Лайнер: 'лай' PTU при рулении на одном двигателе - звуком");
             radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,

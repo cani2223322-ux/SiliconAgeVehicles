@@ -264,19 +264,66 @@ public final class LinerClickSVA {
                 pos = ": " + Lang.tr(L.at(c) == 1 ? "sva.liner.gui.in" : "sva.liner.gui.out");
             }
         }
-        String hint = c.guard && !L.guard[c.index] ? Lang.tr("sva.liner.gui.guard") : c.kind == LinerControls.INFO ? "" : Lang.tr(
+        if (c.kind == LinerControls.KNOB) {
+            pos = knobValue(c, L);                                  // wave 4: the FCU window's value
+        }
+        if (c == LinerControls.TL1 || c == LinerControls.TL2) {
+            return new String[] {name + ": " + leverWord(L), Lang.tr("sva.liner.gui.hint.lever")};
+        }
+        String hint = c.guard && !L.guard[c.index] ? Lang.tr("sva.liner.gui.guard") : c.kind == LinerControls.INFO ? "" : c.kind == LinerControls.KNOB
+                ? Lang.tr("sva.liner.gui.hint.knob") : Lang.tr(
                 c.kind == LinerControls.PB || c.kind == LinerControls.PBM ? "sva.liner.gui.hint.pb" : c.kind == LinerControls.TOG
                         ? "sva.liner.gui.hint.tog" : "sva.liner.gui.hint.rot");
         return hint.length() > 0 ? new String[] {name + pos, hint} : new String[] {name + pos};
     }
 
     static void send(EntityVehicleSVA v, LinerControls.Ctl c, int action) {
-        if (c.kind == LinerControls.INFO) {
-            return;
+        if (c.kind == LinerControls.INFO && c != LinerControls.TL1 && c != LinerControls.TL2) {
+            return;                                                 // wave 4: the thrust levers click through their detents
         }
         NetSVA.CHANNEL.sendToServer(new NetSVA.LinerControl(v.getEntityId(), c.index, action));
         Minecraft.getMinecraft().getSoundHandler().playSound(net.minecraft.client.audio.PositionedSoundRecord.func_147674_a(
                 new net.minecraft.util.ResourceLocation("gui.button.press"), 1.8F));
+    }
+
+    /** Wave 4: the wheel's action on a control (-1: none): an FCU knob turns (Shift: the fine step), a selector / lever / thrust lever steps. */
+    static int wheelAction(LinerControls.Ctl c, int w, boolean shift) {
+        if (c.kind == LinerControls.KNOB) {
+            return w > 0 ? (shift ? LinerControls.A_FINE_UP : LinerControls.A_WHEEL_UP) : shift ? LinerControls.A_FINE_DOWN : LinerControls.A_WHEEL_DOWN;
+        }
+        if (c.kind == LinerControls.ROT || c.kind == LinerControls.LEV || c.kind == LinerControls.TOG || c == LinerControls.TL1 || c == LinerControls.TL2) {
+            return w > 0 ? LinerControls.A_WHEEL_UP : LinerControls.A_WHEEL_DOWN;
+        }
+        return -1;
+    }
+
+    /** Wave 4: an FCU knob's value for its tooltip. */
+    static String knobValue(LinerControls.Ctl c, LinerSystems L) {
+        com.sva.vehicle.LinerAfs F = L.afs;
+        if (c == LinerControls.FCU_SPD) {
+            return ": " + (F.spdMan ? Lang.tr("sva.liner.gui.managed") + " (" + Math.round(F.spdT * 72) + ")" : F.spd + " " + Lang.tr("sva.liner.du.kmh"));
+        }
+        if (c == LinerControls.FCU_HDG) {
+            return ": " + (F.hdgMan && F.lat != com.sva.vehicle.LinerAfs.L_HDG ? Lang.tr("sva.liner.gui.managed") : String.format("%03d", Integer.valueOf(F.hdg)));
+        }
+        if (c == LinerControls.FCU_ALT) {
+            return ": " + F.alt + " " + Lang.tr("sva.liner.du.m");
+        }
+        if (c == LinerControls.FCU_VS) {
+            return ": " + (F.trk ? LinerGfxSVA.num(F.fpa10 / 10.0, 1) + " FPA" : LinerGfxSVA.num(F.vs10 / 10.0, 1) + " " + Lang.tr("sva.liner.du.ms"));
+        }
+        return ": " + (F.std ? "STD" : String.valueOf(F.qnh));
+    }
+
+    /** Wave 4: the thrust levers' position word (a detent, between, the reverse). */
+    static String leverWord(LinerSystems L) {
+        com.sva.vehicle.LinerAfs F = L.afs;
+        if (F.rev > 0) {
+            return Lang.tr(F.rev >= 0.99 ? "sva.liner.pos.revMax" : "sva.liner.pos.revIdle");
+        }
+        int d = com.sva.vehicle.LinerAfs.detent(F.lever);
+        String[] k = {"idle", "cl", "flx", "toga"};
+        return d >= 0 ? Lang.tr("sva.liner.pos." + k[d]) : Math.round(F.lever * 100) + " %";
     }
 
     // ---------------------------------------------------------------- the cursor screen
@@ -340,8 +387,9 @@ public final class LinerClickSVA {
             int w = Mouse.getEventDWheel();
             if (w != 0) {
                 LinerControls.Ctl c = pick(Mouse.getX(), Mouse.getY(), null);
-                if (c != null && (c.kind == LinerControls.ROT || c.kind == LinerControls.LEV || c.kind == LinerControls.TOG)) {
-                    send(v, c, w > 0 ? LinerControls.A_WHEEL_UP : LinerControls.A_WHEEL_DOWN);
+                int a = c == null ? -1 : wheelAction(c, w, isShiftKeyDown());
+                if (a >= 0) {
+                    send(v, c, a);
                 }
             }
         }

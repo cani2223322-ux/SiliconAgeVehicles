@@ -385,6 +385,9 @@ public final class LinerModelSVA {
         }
         // fans, the door and stairs, the APU inlet, the landing lights
         p.set("fan_R", LinerAnim.fan(la.prevFanR, la.fanR, pt), 0).set("fan_L", LinerAnim.fan(la.prevFanL, la.fanL, pt), 0);
+        // wave 4: the reversers' translating cowls slide aft and bare the cascades (engine 1 left, 2 right)
+        p.set("reverser_L", 0, LinerAnim.REV_TRAVEL * LinerAnim.lerp(la.prevRevL, la.revL, pt));
+        p.set("reverser_R", 0, LinerAnim.REV_TRAVEL * LinerAnim.lerp(la.prevRevR, la.revR, pt));
         float door = LinerAnim.lerp(la.prevDoor, la.door, pt), st = LinerAnim.lerp(la.prevStairs, la.stairs, pt);
         p.set("doorL1", LinerAnim.DOOR_DEG * door, 0).set("stairs", (1F - st) * 90F, 0);
         if (L != null) {

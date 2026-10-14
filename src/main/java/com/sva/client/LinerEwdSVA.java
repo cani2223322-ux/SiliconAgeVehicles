@@ -44,10 +44,10 @@ public final class LinerEwdSVA {
     public static void draw(LinerSystems L, float w, float h, double thr, float flap, float slat, int lever, boolean ground, int batMin) {
         float s = w / 280F;
         engines(L, s, thr);
-        // thrust mode and its N1 limit, FOB, FU
-        String tm = thr > 0.95 ? "TOGA" : thr > 0.85 ? "FLX" : "CL";
-        float lim = thr > 0.95 ? N1_TOGA : thr > 0.85 ? N1_FLX : N1_CL;
-        LinerGfxSVA.text(tm, 210 * s, 12 * s, 9 * s, CYN, -1);
+        // thrust mode and its N1 limit (wave 4: by the levers' detent - TOGA, FLX 45 / MCT, CL), FOB, FU
+        String tm = limitMode(L, thr, ground);
+        float lim = limitN1(L, thr);
+        LinerGfxSVA.text(tm, 210 * s, 12 * s, 9 * s, CYN, -1, 40 * s);
         LinerGfxSVA.text(LinerGfxSVA.num(lim, 1), 276 * s, 12 * s, 9 * s, GRN, 1);
         LinerGfxSVA.text("%", 276 * s, 21 * s, 6 * s, CYN, 1);
         LinerGfxSVA.text(tr("fob"), 210 * s, 56 * s, 8 * s, WHT, -1);
@@ -63,9 +63,30 @@ public final class LinerEwdSVA {
         right(L, s, ground, batMin);
     }
 
+    /** Wave 4: the thrust limit's mode - TOGA (the TOGA detent, alpha floor), FLX 45 / MCT (the FLX/MCT detent), else CL. */
+    static String limitMode(LinerSystems L, double thr, boolean ground) {
+        com.sva.vehicle.LinerAfs F = L.afs;
+        int det = com.sva.vehicle.LinerAfs.detent(thr);
+        if (F.aFloor || F.togaLk || det == 3) {
+            return "TOGA";
+        }
+        if (det == 2) {
+            return ground || F.thr == com.sva.vehicle.LinerAfs.T_MAN_FLX ? "FLX " + com.sva.vehicle.LinerAfs.FLEX_TEMP : "MCT";
+        }
+        return "CL";
+    }
+
+    /** Wave 4: that mode's N1 limit (%): the detent's thrust on the idle..TOGA N1 scale. */
+    static float limitN1(LinerSystems L, double thr) {
+        com.sva.vehicle.LinerAfs F = L.afs;
+        int det = com.sva.vehicle.LinerAfs.detent(thr);
+        double share = F.aFloor || F.togaLk || det == 3 ? 1 : det == 2 ? com.sva.vehicle.LinerAfs.DET_FLX : com.sva.vehicle.LinerAfs.DET_CL;
+        return (float) (LinerSystems.IDLE_N1 + (LinerSystems.TOGA_N1 - LinerSystems.IDLE_N1) * share);
+    }
+
     /** N1 / EGT / N2 / FF of both engines (wave 1's layout) with the N1 limit index. */
     static void engines(LinerSystems L, float s, double thr) {
-        float lim = thr > 0.95 ? N1_TOGA : thr > 0.85 ? N1_FLX : N1_CL;
+        float lim = limitN1(L, thr);
         for (int i = 0; i < 2; i++) {
             LinerSystems.Eng g = L.eng[i];
             float cx = (i == 0 ? 62 : 150) * s;
@@ -85,6 +106,16 @@ public final class LinerEwdSVA {
                 LinerGfxSVA.line(cx, cy, LinerGfxSVA.px(cx, R, a), LinerGfxSVA.py(cy, R, a), 1.8F * s, GRN);
                 float tl = LinerDisplaysSVA.n1Ang((float) (19.8 + 80.2 * thr));
                 LinerGfxSVA.disc(LinerGfxSVA.px(cx, R + 4 * s, tl), LinerGfxSVA.py(cy, R + 4 * s, tl), 1.5F * s, CYN);
+            }
+            double rp = L.afs.revPos[i];
+            if (rp > 0.02) {
+                // wave 4: the reverser - «REV» amber while the cowls travel, green deployed
+                int rc = rp >= 0.95 ? GRN : AMB;
+                LinerGfxSVA.layer();
+                LinerGfxSVA.rect(cx - 13 * s, cy - 14 * s, cx + 13 * s, cy - 4 * s, 0x000000);
+                LinerGfxSVA.layer();
+                LinerGfxSVA.frameRect(cx - 13 * s, cy - 14 * s, cx + 13 * s, cy - 4 * s, 0.8F * s, rc);
+                LinerGfxSVA.text("REV", cx, cy - 9 * s, 7 * s, rc, 0);
             }
             LinerGfxSVA.layer();
             LinerGfxSVA.frameRect(cx, cy + 6 * s, cx + 36 * s, cy + 20 * s, 1F * s, GREY);

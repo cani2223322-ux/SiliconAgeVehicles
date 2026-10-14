@@ -84,7 +84,14 @@ public enum VehicleFn {
      * click works the switch under the cursor (client.LinerClickSVA; the packet is NetSVA.LinerControl, not an Action).
      * Left Alt by default (rebindable here like every function).
      */
-    CURSOR("cursor", "cursor", 56, true, true);
+    CURSOR("cursor", "cursor", 56, true, true),
+    /**
+     * Liner wave 4: «Откл. автопилота» - the sidestick's red button (instinctive: the AP off with the cavalry charge once; with
+     * the warning up, it is cancelled). , (Б on a Russian keyboard): free in vanilla, the core and the old letters.
+     */
+    AP_DISC("apDisc", "apDisc", 51, false, true),
+    /** Liner wave 4: «Откл. автомата тяги» - the thrust levers' instinctive button (A/THR off, TOGA LK released). - (minus). */
+    ATHR_DISC("athrDisc", "athrDisc", 12, false, true);
 
     /** The KeyBindings the addon registers in Options > Controls: only the menu key (the self-test holds this list). */
     public static final String[] CONTROLS = {"key.sva.menu"};
@@ -140,6 +147,8 @@ public enum VehicleFn {
                 return com.sva.airdefense.XpdrMath.fitted(t);
             case GEAR:
             case CURSOR:
+            case AP_DISC:
+            case ATHR_DISC:
                 return t == VehicleType.LINER;
             default:
                 return true;                                        // cargo, map: every vehicle
@@ -182,6 +191,10 @@ public enum VehicleFn {
                 return EntityVehicleSVA.A_IDENT;
             case GEAR:
                 return EntityVehicleSVA.A_LINER_GEAR;
+            case AP_DISC:
+                return EntityVehicleSVA.A_LINER_APDISC;
+            case ATHR_DISC:
+                return EntityVehicleSVA.A_LINER_ATHRDISC;
             default:
                 return -1;
         }

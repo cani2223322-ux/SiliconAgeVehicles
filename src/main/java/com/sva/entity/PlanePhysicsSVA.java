@@ -32,6 +32,10 @@ public final class PlanePhysicsSVA {
     }
 
     public static void step(EntityVehicleSVA v, VehicleType t, int in) {
+        if (t == VehicleType.LINER && v.liner() != null) {
+            LinerPhysicsSVA.step(v, t, in, v.liner());              // liner wave 4: the bank, the AP's sticks, the reversers
+            return;
+        }
         boolean fwd = (in & EntityVehicleSVA.IN_FWD) != 0, back = (in & EntityVehicleSVA.IN_BACK) != 0,
                 left = (in & EntityVehicleSVA.IN_LEFT) != 0, right = (in & EntityVehicleSVA.IN_RIGHT) != 0,
                 up = (in & EntityVehicleSVA.IN_BRAKE) != 0, down = (in & (EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BOOST)) != 0;

@@ -78,8 +78,8 @@ final class SelfTestKeysSVA {
                 bad.append(" menu=reserved");
             }
         }
-        check(bad.length() == 0 && VehicleFn.values().length == 20 && VehicleFn.MENU_DEFAULT == 41,
-                "keys: 20 functions (cockpit wave: «Страница MFD» ', air-defence wave: IDENT on the backslash, liner wave 1: «Шасси» . and «Курсор кабины» Left Alt), every default a real key, all different, none the menu's ` and none vanilla's / the core's"
+        check(bad.length() == 0 && VehicleFn.values().length == 22 && VehicleFn.MENU_DEFAULT == 41,
+                "keys: 22 functions (cockpit wave: «Страница MFD» ', air-defence wave: IDENT on the backslash, liner wave 1: «Шасси» . and «Курсор кабины» Left Alt, liner wave 4: the AP disconnect , and the A/THR disconnect -), every default a real key, all different, none the menu's ` and none vanilla's / the core's"
                         + bad);
         int[] old = {33, 45, 48, 49, 47, 21, 44, 46, 24, 38, 50};       // F X B N V Y Z C O L M - the old KeyBindings' defaults
         boolean same = true;

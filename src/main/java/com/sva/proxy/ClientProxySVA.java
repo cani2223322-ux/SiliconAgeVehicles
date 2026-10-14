@@ -209,6 +209,11 @@ public class ClientProxySVA extends CommonProxySVA {
     }
 
     @Override
+    public void openIls(com.sva.block.TileEntityIlsSVA te) {
+        net.minecraft.client.Minecraft.getMinecraft().displayGuiScreen(new com.sva.client.GuiIlsSVA(te));   // liner wave 4
+    }
+
+    @Override
     public void adData(int kind, net.minecraft.nbt.NBTTagCompound data) {
         com.sva.client.AirDefenseClientSVA.receive(kind, data);    // queued, applied on the client thread
     }

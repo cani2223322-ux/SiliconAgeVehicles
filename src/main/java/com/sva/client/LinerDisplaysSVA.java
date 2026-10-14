@@ -41,7 +41,12 @@ public final class LinerDisplaysSVA {
     }
 
     static String tr(String k, Object... a) {
-        return Lang.tr("sva.liner.du." + k, a);
+        return LinerSdPagesSVA.lang("sva.liner.du." + k, a);       // wave 4: the preview's lang too
+    }
+
+    /** Any lang key (the preview's map when set). */
+    static String trAny(String key, Object... a) {
+        return LinerSdPagesSVA.lang(key, a);
     }
 
     /** Draws DU `du` (LinerSystems.DU_*) in its frame (the caller set it), w x h units. */
@@ -55,7 +60,8 @@ public final class LinerDisplaysSVA {
         switch (du) {
             case LinerSystems.DU_PFD1:
             case LinerSystems.DU_PFD2:
-                pfd(v, L, w, h, pt);
+                // wave 4: the PFD with the FMA, FD, bands and the ILS (LinerPfdSVA - the preview draws the same)
+                LinerPfdSVA.draw(LinerPfdSVA.fromEntity(v, L, pt, du == LinerSystems.DU_PFD1), L, w, h);
                 break;
             case LinerSystems.DU_ND1:
             case LinerSystems.DU_ND2:
@@ -90,122 +96,6 @@ public final class LinerDisplaysSVA {
     }
 
     // ---------------------------------------------------------------- PFD
-
-    static void pfd(EntityVehicleSVA v, LinerSystems L, float w, float h, float pt) {
-        float s = w / 280F;
-        // FMA: five columns
-        for (int i = 1; i < 5; i++) {
-            LinerGfxSVA.line(i * w / 5, 4 * s, i * w / 5, 36 * s, 1.2F * s, GREY);
-        }
-        LinerGfxSVA.text(tr("manual"), w * 0.9F, 14 * s, 11 * s, WHT, 0, w / 5 - 4 * s);
-        LinerGfxSVA.text(L.on(LinerControls.FD_L) ? "1FD2" : "", w * 0.9F, 28 * s, 10 * s, WHT, 0);
-        boolean ins = v.insReady();
-        float cx = 140 * s, cy = 132 * s;
-        float ax0 = 62 * s, ax1 = 218 * s, ay0 = 48 * s, ay1 = 222 * s;
-        float pitch = v.prevRenderPitch + (v.renderPitch - v.prevRenderPitch) * pt;
-        float roll = v.prevRenderRoll + (v.renderRoll - v.prevRenderRoll) * pt;
-        if (ins) {
-            float per = 3.2F * s;                                   // px a degree
-            double a = Math.toRadians(roll);
-            float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
-            // the horizon through (ox, oy); sky on the up side
-            float ox = cx + sa * pitch * per, oy = cy + ca * pitch * per;
-            float[] area = {ax0, ay0, ax1, ay0, ax1, ay1, ax0, ay1};
-            LinerGfxSVA.poly(clip(area, ox, oy, sa, -ca), SKY);
-            LinerGfxSVA.poly(clip(area, ox, oy, -sa, ca), EARTH);
-            LinerGfxSVA.layer();
-            for (int deg = -20; deg <= 20; deg += 5) {
-                float len = deg == 0 ? 90 * s : (Math.abs(deg) % 10 == 0 ? 22 : 11) * s;
-                float px = ox - sa * deg * per, py = oy - ca * deg * per;
-                float x0 = px - ca * len, y0 = py + sa * len, x1 = px + ca * len, y1 = py - sa * len;
-                if (py > ay0 + 6 * s && py < ay1 - 6 * s) {
-                    LinerGfxSVA.line(clampX(x0, ax0, ax1), y0, clampX(x1, ax0, ax1), y1, (deg == 0 ? 1.6F : 1.1F) * s, WHT);
-                    if (deg != 0 && deg % 10 == 0) {
-                        LinerGfxSVA.text(String.valueOf(Math.abs(deg)), px - ca * (len + 9 * s), py + sa * (len + 9 * s), 8 * s, WHT, 0);
-                    }
-                }
-            }
-            // bank scale (fixed, the pointer turns)
-            float R = 70 * s;
-            for (int k : new int[] {-45, -30, -20, -10, 0, 10, 20, 30, 45}) {
-                LinerGfxSVA.line(LinerGfxSVA.px(cx, R, k), LinerGfxSVA.py(cy, R, k), LinerGfxSVA.px(cx, R + (k % 30 == 0 ? 9 : 5) * s, k),
-                        LinerGfxSVA.py(cy, R + (k % 30 == 0 ? 9 : 5) * s, k), 1.2F * s, WHT);
-            }
-            LinerGfxSVA.tri(cx, cy - R - 1 * s, cx - 5 * s, cy - R - 9 * s, cx + 5 * s, cy - R - 9 * s, YEL);
-            if (L.fctl.law != com.sva.vehicle.LinerFctl.NORMAL) {
-                // wave 2: no protections - amber X's where the bank limits' green marks are (±67°, drawn at ±50)
-                for (int k : new int[] {-50, 50}) {
-                    float xx = LinerGfxSVA.px(cx, R + 4 * s, k), yy = LinerGfxSVA.py(cy, R + 4 * s, k);
-                    LinerGfxSVA.line(xx - 4 * s, yy - 4 * s, xx + 4 * s, yy + 4 * s, 1.4F * s, AMB);
-                    LinerGfxSVA.line(xx - 4 * s, yy + 4 * s, xx + 4 * s, yy - 4 * s, 1.4F * s, AMB);
-                }
-            }
-            LinerGfxSVA.tri(LinerGfxSVA.px(cx, R - 2 * s, -roll), LinerGfxSVA.py(cy, R - 2 * s, -roll), LinerGfxSVA.px(cx, R - 10 * s, -roll - 4),
-                    LinerGfxSVA.py(cy, R - 10 * s, -roll - 4), LinerGfxSVA.px(cx, R - 10 * s, -roll + 4), LinerGfxSVA.py(cy, R - 10 * s, -roll + 4), YEL);
-            LinerGfxSVA.layer();
-            // the aircraft symbol
-            LinerGfxSVA.rect(cx - 52 * s, cy - 2.5F * s, cx - 20 * s, cy + 2.5F * s, 0x000000);
-            LinerGfxSVA.rect(cx + 20 * s, cy - 2.5F * s, cx + 52 * s, cy + 2.5F * s, 0x000000);
-            LinerGfxSVA.layer();
-            LinerGfxSVA.frameRect(cx - 52 * s, cy - 2.5F * s, cx - 20 * s, cy + 2.5F * s, 1.3F * s, YEL);
-            LinerGfxSVA.frameRect(cx + 20 * s, cy - 2.5F * s, cx + 52 * s, cy + 2.5F * s, 1.3F * s, YEL);
-            LinerGfxSVA.frameRect(cx - 3 * s, cy - 3 * s, cx + 3 * s, cy + 3 * s, 1.3F * s, YEL);
-        } else {
-            flag(tr("flag.att"), cx, cy, 12 * s);
-            String sub = GlassCockpitSVA.insSub(v);
-            if (sub != null) {
-                LinerGfxSVA.text(sub, cx, cy + 20 * s, 8 * s, WHT, 0, 140 * s);
-            }
-        }
-        LinerGfxSVA.layer();
-        // the speed tape (km/h) and the altitude tape (m)
-        float spd = kmh(v), al = alt(v, pt);
-        tape(8 * s, 50 * s, ay0, ay1, cy, spd, 10, true, s);
-        tape(226 * s, 262 * s, ay0, ay1, cy, al, 10, false, s);
-        LinerGfxSVA.text(tr("kmh"), 29 * s, ay1 + 9 * s, 7 * s, WHT, 0);
-        // vertical speed (m/s): a needle on the right edge
-        float vs = (float) ((v.posY - v.prevPosY) * 20);
-        float vx = 268 * s, vm = cy, span = 70 * s;
-        LinerGfxSVA.rect(264 * s, vm - span, 278 * s, vm + span, DARK);
-        LinerGfxSVA.layer();
-        float vy = vm - Math.max(-1F, Math.min(1F, vs / 6F)) * span;
-        LinerGfxSVA.line(279 * s, vm, vx - 4 * s, vy, 1.6F * s, GRN);
-        if (Math.abs(vs) > 0.4F) {
-            LinerGfxSVA.text(LinerGfxSVA.num(Math.abs(vs), 0), 271 * s, vy + (vs > 0 ? -8 : 8) * s, 7 * s, GRN, 0);
-        }
-        // the heading band
-        float by0 = 236 * s, by1 = 258 * s;
-        LinerGfxSVA.rect(70 * s, by0, 210 * s, by1, DARK);
-        LinerGfxSVA.layer();
-        if (ins) {
-            float hdg = heading(v, pt), per = 3.5F * s;
-            int h0 = (int) Math.floor(hdg / 5) * 5;
-            for (int k = h0 - 20; k <= h0 + 25; k += 5) {
-                float x = cx + (k - hdg) * per;
-                if (x < 72 * s || x > 208 * s) {
-                    continue;
-                }
-                boolean big = ((k % 360) + 360) % 10 == 0;
-                LinerGfxSVA.line(x, by0, x, by0 + (big ? 6 : 3) * s, 1F * s, WHT);
-                if (big) {
-                    LinerGfxSVA.text(String.valueOf(((k % 360) + 360) % 360 / 10), x, by0 + 13 * s, 8 * s, WHT, 0);
-                }
-            }
-            LinerGfxSVA.line(cx, by0 - 6 * s, cx, by0 + 2 * s, 2F * s, YEL);
-        } else {
-            flag(tr("flag.hdg"), cx, (by0 + by1) / 2, 9 * s);
-        }
-        LinerGfxSVA.text("QNH", 228 * s, 247 * s, 7 * s, CYN, -1);
-        LinerGfxSVA.text("1013", 248 * s, 247 * s, 9 * s, CYN, -1);
-        if (v.isStalling() && (System.currentTimeMillis() / 250) % 2 == 0) {
-            LinerGfxSVA.layer();
-            LinerGfxSVA.text(tr("stall"), cx, cy + 40 * s, 14 * s, RED, 0);
-        }
-        if (L.fctl.law == com.sva.vehicle.LinerFctl.DIRECT && v.anim.height > 0.6) {
-            LinerGfxSVA.layer();
-            LinerGfxSVA.text(tr("manTrim"), cx, ay1 - 8 * s, 8 * s, AMB, 0, 120 * s);
-        }
-    }
 
     private static float clampX(float x, float a, float b) {
         return Math.max(a, Math.min(b, x));
@@ -270,6 +160,11 @@ public final class LinerDisplaysSVA {
         int rangeI = L.at(captain ? LinerControls.ND_RANGE_L : LinerControls.ND_RANGE_R);
         float range = Integer.parseInt(LinerControls.ND_RANGES[rangeI]) * 10F;            // blocks to the outer ring
         boolean plan = mode == 4;
+        if (mode == 0 && v.insReady()) {
+            // wave 4: ROSE ILS - the course pointer and the deviations (LinerPfdSVA)
+            LinerPfdSVA.roseIls(LinerPfdSVA.fromEntity(v, L, pt, captain), L, w, h, range);
+            return;
+        }
         float spd = kmh(v);
         LinerGfxSVA.text("GS", 6 * s, 10 * s, 8 * s, WHT, -1);
         LinerGfxSVA.text(String.valueOf(Math.round(spd)), 22 * s, 10 * s, 9 * s, GRN, -1);
@@ -338,6 +233,10 @@ public final class LinerDisplaysSVA {
                 LinerGfxSVA.layer();
                 LinerGfxSVA.frameRect(x - 3 * s, y - 3 * s, x + 3 * s, y + 3 * s, 1.2F * s, i == p.active ? WHT : GRN);
                 LinerGfxSVA.text(String.valueOf(i + 1), x + 6 * s, y, 8 * s, i == p.active ? WHT : GRN, -1);
+                if (L.on(LinerControls.EFIS_PB[captain ? 0 : 5])) {
+                    // wave 4, ОГР (CSTR): the point's altitude constraint, magenta
+                    LinerGfxSVA.text("+" + pt0[2], x + 6 * s, y + 9 * s, 7 * s, MAG, -1);
+                }
                 if (i == p.active) {
                     nearest = i;
                     nd = d;
@@ -354,6 +253,21 @@ public final class LinerDisplaysSVA {
         long tod = v.worldObj.getWorldTime() % 24000;
         int hh = (int) ((tod / 1000 + 6) % 24), mm = (int) (tod % 1000 * 60 / 1000);
         LinerGfxSVA.text(String.format("%02d:%02d", Integer.valueOf(hh), Integer.valueOf(mm)), 274 * s, 34 * s, 9 * s, GRN, 1);
+        // wave 4, АЭР (ARPT): the tuned ILS' runway - its threshold and the landing course (a white bar, the ident)
+        com.sva.vehicle.LinerIls.Station ils = L.afs.ils;
+        if (ils != null && L.on(LinerControls.EFIS_PB[captain ? 4 : 9])) {
+            double dx = ils.tx() - v.posX, dz = ils.tz() - v.posZ;
+            double br = Math.toDegrees(Math.atan2(dx, -dz));
+            float r = (float) (Math.sqrt(dx * dx + dz * dz) / range * R);
+            if (r < R * 1.2F) {
+                float a = (float) (br - rot);
+                float x = LinerGfxSVA.px(cx, r, a), y = LinerGfxSVA.py(cy, r, a);
+                float c = (float) (ils.course - rot), len = (float) (com.sva.vehicle.LinerIls.LOC_DIST / range * R);
+                LinerGfxSVA.layer();
+                LinerGfxSVA.line(x, y, LinerGfxSVA.px(x, Math.max(3 * s, len), c), LinerGfxSVA.py(y, Math.max(3 * s, len), c), 2.4F * s, WHT);
+                LinerGfxSVA.text(ils.ident, x + 6 * s, y + 8 * s, 8 * s, WHT, -1);
+            }
+        }
         // the aircraft (yellow) and the heading pointer
         LinerGfxSVA.layer();
         float ac = plan ? hdg : 0;

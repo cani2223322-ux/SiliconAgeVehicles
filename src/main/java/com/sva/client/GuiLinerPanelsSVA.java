@@ -47,12 +47,45 @@ public class GuiLinerPanelsSVA extends GuiScreen {
         for (int i = 0; i < TABS.length; i++) {
             buttonList.add(new GuiButton(i, 10 + i * (bw + 4), 6, bw, 18, Lang.tr(TAB_KEYS[i])));
         }
+        // wave 4, the FCU tab: the ILS tuned by hand - АВТО and the stations near (the server's list)
+        int iw = Math.min(90, (width - 20) / 5 - 4);
+        for (int i = 0; i < 5; i++) {
+            GuiButton b = new GuiButton(B_ILS + i, 10 + i * (iw + 4), height - 52, iw, 18, "");
+            b.visible = false;
+            buttonList.add(b);
+        }
     }
+
+    /** Wave 4: the ILS list's buttons (АВТО, then the near stations). */
+    static final int B_ILS = 100;
 
     @Override
     protected void actionPerformed(GuiButton b) {
         if (b.id >= 0 && b.id < TABS.length) {
             tab = b.id;
+        }
+        if (b.id >= B_ILS && b.id < B_ILS + 5 && LinerClickSVA.pilotSeat(mc.thePlayer, v)) {
+            LinerClickSVA.send(v, LinerControls.ILS_SEL, LinerControls.A_SET + (b.id - B_ILS));
+        }
+    }
+
+    /** Wave 4: the ILS buttons' labels and visibility (the FCU tab only). */
+    private void ilsButtons(LinerSystems L) {
+        boolean fcu = panel() == LinerControls.GS && L != null;
+        for (Object o : buttonList) {
+            GuiButton b = (GuiButton) o;
+            if (b.id < B_ILS || b.id >= B_ILS + 5) {
+                continue;
+            }
+            int i = b.id - B_ILS;
+            b.visible = fcu && (i == 0 || i <= L.afs.ilsNear.size());
+            if (!b.visible) {
+                continue;
+            }
+            boolean on = L.afs.nearChosen == i;
+            String t = i == 0 ? Lang.tr("sva.liner.gui.ilsAuto")
+                    : L.afs.ilsNear.get(i - 1).ident + " " + com.sva.vehicle.LinerIls.freqText(L.afs.ilsNear.get(i - 1).freq).replace('.', ',');
+            b.displayString = (on ? "> " : "") + t;
         }
     }
 
@@ -117,6 +150,13 @@ public class GuiLinerPanelsSVA extends GuiScreen {
         }
         GL11.glPopAttrib();
         GL11.glColor4f(1F, 1F, 1F, 1F);
+        ilsButtons(L);
+        if (panel() == LinerControls.GS && L != null) {
+            com.sva.vehicle.LinerIls.Station st = L.afs.ils;
+            String t = st == null ? Lang.tr("sva.liner.gui.ilsNone") : Lang.tr("sva.liner.gui.ilsTuned", st.ident,
+                    com.sva.vehicle.LinerIls.freqText(st.freq).replace('.', ','), String.format("%03d", Integer.valueOf((int) Math.round(st.course) % 360)));
+            drawString(fontRendererObj, t, 10, height - 64, 0xE6A0E6);
+        }
         super.drawScreen(mx, my, pt);
         LinerControls.Ctl c = hit(mx, my);
         LinerCockpitSVA.hovered = c == null ? -1 : c.index;
@@ -131,8 +171,7 @@ public class GuiLinerPanelsSVA extends GuiScreen {
     /** The levers' positions on the flat panels (the cockpit draws them in 3D). */
     private void levers(int p, LinerSystems L) {
         if (p == LinerControls.PED) {
-            double thr = v.getThrottle();
-            float ty = (float) (LinerPaintSVA.TL_IDLE - thr * (LinerPaintSVA.TL_IDLE - LinerPaintSVA.TL_TOGA));
+            float ty = LinerCockpitSVA.leverY(L);                   // wave 4: the detents and the reverse
             for (float x : new float[] {330, 430}) {
                 LinerGfxSVA.rect(x - 46, ty - 18, x + 46, ty + 18, 0x2E3034);
                 LinerGfxSVA.rect(x - 42, ty - 15, x + 42, ty - 6, 0x5A5C62);
@@ -181,9 +220,9 @@ public class GuiLinerPanelsSVA extends GuiScreen {
         if (w != 0) {
             int mx = Mouse.getEventX() * width / mc.displayWidth, my = height - Mouse.getEventY() * height / mc.displayHeight - 1;
             LinerControls.Ctl c = hit(mx, my);
-            if (c != null && LinerClickSVA.pilotSeat(mc.thePlayer, v)
-                    && (c.kind == LinerControls.ROT || c.kind == LinerControls.LEV || c.kind == LinerControls.TOG)) {
-                LinerClickSVA.send(v, c, w > 0 ? LinerControls.A_WHEEL_UP : LinerControls.A_WHEEL_DOWN);
+            int a = c == null ? -1 : LinerClickSVA.wheelAction(c, w, isShiftKeyDown());
+            if (a >= 0 && LinerClickSVA.pilotSeat(mc.thePlayer, v)) {
+                LinerClickSVA.send(v, c, a);
             }
         }
     }

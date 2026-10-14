@@ -763,8 +763,8 @@ public final class LinerPaintSVA {
             p.label(cx, cy + 6, an[i], 11);
         }
         sect(p, x0 + 545, "ВЫС", "", "35000");
-        p.label(x0 + 610, 118, "100", 10);
-        p.label(x0 + 610, 140, "1000", 10);
+        // wave 4: the ALT step selector (10 / 50 m - the A320's 100 / 1000 ft, scaled) - LinerControls.FCU_ALT_STEP
+        p.rotary(x0 + 612, 128, new String[] {"10", "50"}, null, 11, 100, 9);
         p.pb(x0 + 485, 155, "УСКОР", null, null, "", GRN, 34, false, 13.5, 0);
         p.rect(x0 + 471, 159, x0 + 499, 164, rgb(30, 50, 36));
         p.label(x0 + 690, 20, "В/С", 12.5);

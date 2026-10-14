@@ -162,7 +162,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
              * (the owner / anyone with the driving right, standing by or aboard), «Снять» АКБ 2 (as A_BATTERY_OUT), the
              * gear lever (the pilots: the «Шасси» key).
              */
-            A_LINER_QUICK = 42, A_LINER_DOOR = 43, A_BATTERY2_OUT = 44, A_LINER_GEAR = 45;
+            A_LINER_QUICK = 42, A_LINER_DOOR = 43, A_BATTERY2_OUT = 44, A_LINER_GEAR = 45,
+            /** Liner wave 4 (the pilots): the sidestick's red AP disconnect, the thrust levers' instinctive A/THR disconnect. */
+            A_LINER_APDISC = 46, A_LINER_ATHRDISC = 47;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -481,6 +483,28 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     void vanillaSound(String name, float volume, float pitch) {
         vanillaShot(name, volume, pitch);
+    }
+
+    // liner wave 4: the bank (the physics' own on its side), the levers last written into the throttle, the measured vertical
+    // speed, the ILS stations near (the world data, every 20 ticks), the radio altimeter's ground
+    /** Liner wave 4: the bank (deg, + right) the physics flies (LinerPhysicsSVA - the driving client's / the server's own). */
+    public double linerBank;
+    double linerThrSet = Double.NaN, linerLastY = Double.NaN, linerVy;
+    java.util.List<com.sva.vehicle.LinerIls.Station> linerIls;
+    int linerIlsAt = -100;
+
+    /**
+     * Liner wave 4, server: the radio height (blocks over the solid block under the centre) - every tick (a column scan of
+     * up to 64 blocks; further down the coarse linerHeight()).
+     */
+    double linerRadio() {
+        int x = MathHelper.floor_double(posX), z = MathHelper.floor_double(posZ), y0 = MathHelper.floor_double(posY);
+        for (int y = y0; y > Math.max(0, y0 - 64); y--) {
+            if (!worldObj.isAirBlock(x, y, z)) {
+                return Math.max(0, posY - (y + 1));
+            }
+        }
+        return Math.max(64, linerHeight());
     }
 
     /** Liner wave 2, server: the height over the ground (blocks; a column scan every 10 ticks, up to 250). */
@@ -1281,6 +1305,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     public int cruiseKind() {
         VehicleType t = getVehicleType();
         int k = CruiseMath.kind(t.movement, planeNow());
+        if (t == VehicleType.LINER) {
+            return CruiseMath.NONE;                                 // liner wave 4: its own FCU / AP (LinerAfs), not the panel's
+        }
         boolean remote = worldObj != null && worldObj.isRemote;
         int tune = remote ? dataWatcher.getWatchableObjectInt(DW_TUNE) : 0;
         boolean cOn = remote ? (tune & TUNE_CRUISE) != 0 : ConfigSVA.cruise;
@@ -2829,7 +2856,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         boolean tilt = t.movement == Movement.TILT;
         if (clientDriven) {
             onGround = !air;                                        // the server's fallback physics starts from the truth
-            if (plane) {
+            if (plane && t != VehicleType.LINER) {                  // liner wave 4: its levers are LinerAfs' (LinerLogicSVA)
                 throttle = PlaneMath.throttleStep(throttle, (input & IN_FWD) != 0, (input & IN_BACK) != 0, lifting);
             } else if (tilt && TiltMath.transition(state.tiltPos()) && state.tiltPlane && lifting) {
                 throttle = Math.max(throttle, TiltMath.CONVERT_THROTTLE);   // as TiltPhysicsSVA does on the client
@@ -3859,6 +3886,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             double mx = posX - prevPosX, mz = posZ - prevPosZ;
             L.clientTick(anim.ctlRoll, anim.ctlPitch, anim.ctlYaw, Math.sqrt(mx * mx + mz * mz), anim.height < 0.6, anim.trim * 0.6F);
             linerAnim.tickHighLift((float) L.fctl.flapPos, (float) L.fctl.slatPos);
+            linerAnim.tickReversers((float) L.afs.revPos[0], (float) L.afs.revPos[1]);   // liner wave 4
         }
         if (isWrecked() && ticksExisted % 4 == 0) {
             worldObj.spawnParticle("largesmoke", posX + (rand.nextDouble() - 0.5), posY + 1.0, posZ + (rand.nextDouble() - 0.5), 0, 0.05, 0);
@@ -3912,7 +3940,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         } else {
             tp = air ? (float) Math.toDegrees(Math.atan2(dy, Math.max(0.15, Math.abs(fwd)))) : 0F;
             tp = isStalling() ? -12F : MathHelper.clamp_float(tp, -20F, 20F);
-            tr = air ? MathHelper.clamp_float(yawRate * (t == VehicleType.LINER ? 18F : 10F), -25F, 25F) : 0F;
+            tr = air ? MathHelper.clamp_float(yawRate * 10F, -25F, 25F) : 0F;
+            if (t == VehicleType.LINER) {
+                // liner wave 4: the bank of a coordinated turn at this yaw rate (LinerGuide's model), up to the 67 deg limit
+                double sp = Math.sqrt(dx * dx + dz * dz);
+                tr = air ? (float) MathHelper.clamp_double(com.sva.vehicle.LinerGuide.bankOf(yawRate, sp, flightParams(t).stall, t.turnRate), -67, 67) : 0F;
+            }
         }
         renderPitch += (tp - renderPitch) * (t == VehicleType.LINER ? 0.1F : 0.2F);
         renderRoll += (tr - renderRoll) * (t == VehicleType.LINER ? 0.06F : 0.2F);  // liner wave 1: a heavy airliner rolls slowly
@@ -5453,7 +5486,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         }
         if (action == A_FLIGHT_MODE || action >= A_LONG_RANGE && action <= A_INVIS || action >= A_FLAPS_UP && action <= A_AIRBRAKE
                 || action == A_ENGINE || action >= A_SWITCH && action < A_SWITCH + SystemsMath.SWITCHES || action == A_IDENT
-                || action == A_LINER_QUICK || action == A_LINER_GEAR) {
+                || action == A_LINER_QUICK || action == A_LINER_GEAR || action == A_LINER_APDISC || action == A_LINER_ATHRDISC) {
             return driver;                                          // only the pilot turns the nacelles / works the ship / the flaps
         }
         return manage;
@@ -5477,9 +5510,19 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             battery2Out(p);                                         // liner wave 1: АКБ 2, the same rule
             return;
         }
-        if (state.type == VehicleType.LINER && (a == A_LINER_QUICK || a == A_ENGINE || a == A_LINER_GEAR)) {
+        if (state.type == VehicleType.LINER && (a == A_LINER_QUICK || a == A_ENGINE || a == A_LINER_GEAR || a == A_LINER_APDISC
+                || a == A_LINER_ATHRDISC)) {
             if (!LinerLogicSVA.pilot(this, p)) {
                 lockedMsg(p);                                       // liner wave 1: either pilot (the F/O too)
+            } else if (a == A_LINER_APDISC || a == A_LINER_ATHRDISC) {
+                // liner wave 4: the instinctive disconnects (the keys)
+                if (a == A_LINER_APDISC) {
+                    state.liner().afs.apDisc();
+                } else {
+                    state.liner().afs.athrDisc();
+                }
+                vanillaClick(0.3F, 1.9F);
+                syncWatcher();
             } else if (a == A_LINER_GEAR) {
                 state.liner().control(com.sva.vehicle.LinerControls.GEAR.index, state.liner().at(com.sva.vehicle.LinerControls.GEAR) == 0
                         ? com.sva.vehicle.LinerControls.A_PRIMARY : com.sva.vehicle.LinerControls.A_SECONDARY);
