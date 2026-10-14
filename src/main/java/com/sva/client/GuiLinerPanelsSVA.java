@@ -139,8 +139,8 @@ public class GuiLinerPanelsSVA extends GuiScreen {
             }
             float fy = LinerPaintSVA.FLAP_Y[Math.max(0, Math.min(4, L.at(LinerControls.FLAPS)))];
             LinerGfxSVA.rect(615, fy - 16, 700, fy + 16, 0xD2D4D8);
-            float[] sb = {678, 780, 890};
-            float sy = sb[Math.max(0, Math.min(2, L.at(LinerControls.SPD_BRK)))];
+            float[] sb = {642, 678, 780, 890};
+            float sy = sb[Math.max(0, Math.min(3, L.at(LinerControls.SPD_BRK)))];
             LinerGfxSVA.rect(46, sy - 14, 114, sy + 14, 0xCDD0D4);
             for (int i = 0; i < 2; i++) {
                 float x = i == 0 ? 210 : 550;

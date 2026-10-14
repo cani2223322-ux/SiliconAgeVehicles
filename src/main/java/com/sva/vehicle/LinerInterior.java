@@ -251,9 +251,8 @@ public final class LinerInterior {
             panelQuad(panel, 0.001F);
             float[] spt = LinerControls.point(panel, s < 0 ? 370 : 130, 500, new float[3]);
             cyl(spt, add(spt, new float[] {0, 0.045F, 0}), 0.034F, rgb(24, 24, 26), 16, 0.024F, true, rgb(24, 24, 26));
-            float[] g0 = add(spt, new float[] {0, 0.045F, 0}), g1 = add(g0, new float[] {0.025F, 0.12F, 0});
-            cyl(g0, g1, 0.02F, rgb(40, 40, 44), 16, 0.023F, true, rgb(48, 48, 52));
-            cyl(add(g1, new float[] {0.004F, -0.006F, -s * 0.012F}), add(g1, new float[] {0.006F, 0.004F, -s * 0.016F}), 0.0075F, rgb(225, 30, 26), 10);
+            // wave 2: the grips (with the red AP-disconnect button) move with the stick - LinerCockpitSVA.sticks draws them live
+            // on this base (STICK_TX / STICK_TY, STICK_BASE over the console)
             float[] tl = LinerControls.point(panel, s < 0 ? 140 : 360, 470, new float[3]);
             tl[1] += 0.006F;
             cyl(tl, add(tl, new float[] {0, 0.012F, 0}), 0.062F, rgb(30, 31, 34), 28, 0.062F, true, rgb(44, 46, 50));

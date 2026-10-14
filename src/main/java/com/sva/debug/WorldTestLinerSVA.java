@@ -36,18 +36,31 @@ import net.minecraft.world.World;
  * <li>«quick»: «Быстрый запуск» - both engines at idle in ~40 s;</li>
  * <li>«riders»: ten riders (villagers) seated - the captain, the F/O, eight passengers at their seats; one gets off at the
  * L1 door's stairs (the door opens for it);</li>
- * <li>«ground»: parked on a charging station - ВНЕШН. ПИТ «ДОСТУП», pressed - both AC buses on it.</li>
+ * <li>«ground»: parked on a charging station - ВНЕШН. ПИТ «ДОСТУП», pressed - both AC buses on it; wave 2: the brake
+ * accumulator drained, the parking brake doesn't hold - ЭЛ. НАСОС ЖЁЛТАЯ on: Yellow pressure, the accumulator charged, it
+ * holds;</li>
+ * <li>wave 2, «seq» after the start: the EDPs' Green / Yellow and the Blue electric pump at 3000 psi;</li>
+ * <li>wave 2, «gear» (the systems told it flies - debugLinerAir - while it stands on its strip; instant engines): Green
+ * lost - the lever UP does nothing; Green back - up in 10 s; Green lost again - the lever DOWN does nothing, the crank's
+ * three turns drop it by gravity, it won't go up again;</li>
+ * <li>wave 2, «rto» (a 200-block strip): spoilers armed, autobrake MAX, the take-off roll at 1.25 b/t, the thrust to
+ * idle - the ground spoilers and MAX braking stop it; the brakes come out hot («ТОРМ ГОРЯЧ»);</li>
+ * <li>wave 2, «quick» after its start: both engines off - the three systems bleed down, every surface droops.</li>
  * </ul>
  */
 final class WorldTestLinerSVA {
 
     private static final String OWNER = "00000000-5bad-4e57-0000-0000001a3201";
     static final int START = 1700;
-    private static final int Y = 150, LEN = 30, LANE = 26, LANES = 5, MAX_TICKS = 1400;
+    private static final int Y = 150, LEN = 30, LANE = 26, LANES = 7, MAX_TICKS = 1400, RTO_LEN = 200, RTO_LANE = 6;
 
     private final WorldTestSVA t;
     private int phase, t0, x0, z0;
-    private EntityVehicleSVA seq, noair, quick, riders, ground;
+    private EntityVehicleSVA seq, noair, quick, riders, ground, gear, rto;
+    // wave 2
+    private int rtoAt = -1, rtoStop = -1, droopAt = -1, hydSeqAt = -1;
+    private double rtoX, rtoPeak;
+    private boolean rtoSpl, rtoMax;
     private final List<Entity> mobs = new ArrayList<Entity>();
     private int startAt = -1, availAt = -1, eng2At = -1, eng1At = -1, quickAt = -1, step;
     private double h2Before;
@@ -66,7 +79,7 @@ final class WorldTestLinerSVA {
             com.sva.ConfigSVA.linerStartFailChance = 0;
             setup(w);
             t0 = ticks;
-            phase = seq == null || noair == null || quick == null || riders == null || ground == null ? 9 : 1;
+            phase = seq == null || noair == null || quick == null || riders == null || ground == null || gear == null || rto == null ? 9 : 1;
             return;
         }
         int n = ticks - t0;
@@ -79,7 +92,7 @@ final class WorldTestLinerSVA {
     }
 
     private EntityVehicleSVA[] all() {
-        return new EntityVehicleSVA[] {seq, noair, quick, riders, ground};
+        return new EntityVehicleSVA[] {seq, noair, quick, riders, ground, gear, rto};
     }
 
     private static void click(EntityVehicleSVA v, LinerControls.Ctl c) {
@@ -213,10 +226,132 @@ final class WorldTestLinerSVA {
             check(G.extOn && G.ac1Src == LinerSystems.S_EXT && G.ac2Src == LinerSystems.S_EXT && ground.powered() && !G.essOnly,
                     "liner world: ВНЕШН. ПИТ pressed - both AC buses on the station, the board powered without the batteries' push buttons");
         }
-        boolean finished = eng1At >= 0 && quickAt >= 0 && n > 100;
+        wave2(n);
+        boolean finished = eng1At >= 0 && quickAt >= 0 && n > 100 && hydSeqAt >= 0 && n > 900 && rtoStop >= 0 && droopAt >= 0;
         if (finished || n >= MAX_TICKS) {
             check(eng1At >= 0, "liner world: the cold-and-dark start-up finished");
             phase = 9;
+        }
+    }
+
+    /** Wave 2's checks (see the class comment). */
+    private void wave2(int n) {
+        LinerSystems S = seq.state.liner();
+        // «seq»: the pumps after the start
+        if (eng1At >= 0 && hydSeqAt < 0 && n >= eng1At + 60) {
+            hydSeqAt = n;
+            check(S.hyd.edp1 && S.hyd.edp2 && S.hyd.elecB && S.hyd.psi[0] >= 2900 && S.hyd.psi[1] >= 2900 && S.hyd.psi[2] >= 2900,
+                    "liner world: engines started - EDP 1 Green " + Math.round(S.hyd.psi[0]) + ", the Blue electric pump " + Math.round(S.hyd.psi[1])
+                            + ", EDP 2 Yellow " + Math.round(S.hyd.psi[2]) + " psi");
+        }
+        // «ground»: the parking brake on the accumulator, the Yellow electric pump
+        LinerSystems G = ground.state.liner();
+        if (n == 64) {
+            G.hyd.accu = 300;
+        }
+        if (n == 66) {
+            check(!G.gear.parkHold && G.hyd.psi[2] == 0, "liner world: the brake accumulator drained, no pump - the parking brake doesn't hold");
+            click(ground, LinerControls.HYD_YEL);
+        }
+        if (n == 140) {
+            check(G.hyd.elecY && G.hyd.psi[2] >= 2900 && G.hyd.accu >= 2900 && G.gear.parkHold && G.hyd.psi[0] > 2000 && ground.speed == 0,
+                    "liner world: cold liner on ground power - ЭЛ. НАСОС ЖЁЛТАЯ: Yellow " + Math.round(G.hyd.psi[2]) + " psi, the accumulator "
+                            + Math.round(G.hyd.accu) + ", the parking brake holds; Green " + Math.round(G.hyd.psi[0]) + " by the PTU");
+        }
+        // «gear»: the systems believe it flies; the engines at once (the instant start)
+        LinerSystems R = gear.state.liner();
+        if (n == 5) {
+            gear.debugLinerAir = true;
+            gear.debugDrive(EntityVehicleSVA.IN_LEFT | EntityVehicleSVA.IN_RIGHT);
+            R.set(LinerControls.HYD_ENG1, 0);
+            R.set(LinerControls.HYD_PTU, 0);
+        }
+        if (n == 30) {
+            check(R.anyRunning() && R.hyd.psi[0] < 1000 && R.hyd.psi[2] >= 2900, "liner world «gear»: engines running, Green off (ДВ 1 НАСОС, PTU out)");
+            R.control(LinerControls.GEAR.index, LinerControls.A_SECONDARY);                     // DOWN -> UP
+        }
+        if (n == 120) {
+            check(R.at(LinerControls.GEAR) == 0 && R.gear.pos == 0 && (R.caut & LinerSystems.C_GEAR_DISAGREE) != 0,
+                    "liner world: Green lost - the gear lever UP, the gear stays down («ШАССИ НЕ ПО РЫЧАГУ»)");
+            click(gear, LinerControls.HYD_ENG1);
+            click(gear, LinerControls.HYD_PTU);
+        }
+        if (n == 345) {
+            check(R.gear.pos >= 1, "liner world: Green back - the gear up in 10 s");
+            click(gear, LinerControls.HYD_ENG1);
+            click(gear, LinerControls.HYD_PTU);
+        }
+        if (n == 560) {
+            check(R.hyd.psi[0] < 1000, "liner world: Green bled down (" + Math.round(R.hyd.psi[0]) + " psi)");
+            gear.state.liner().control(LinerControls.GEAR.index, LinerControls.A_PRIMARY);   // UP -> DOWN
+        }
+        if (n == 620) {
+            check(R.gear.pos >= 1 && R.at(LinerControls.GEAR) == 1, "liner world: Green lost - the lever DOWN, the gear stays up");
+            for (int i = 0; i < 3; i++) {
+                click(gear, LinerControls.GEAR_GRAV);
+            }
+        }
+        if (n == 710) {
+            check(R.gear.downLocked() && R.gear.gravity && (R.memos(false) & LinerSystems.M_GRAVITY) != 0,
+                    "liner world: the crank's three turns - the gear down by gravity in ~4 s");
+            click(gear, LinerControls.HYD_ENG1);
+            R.control(LinerControls.GEAR.index, LinerControls.A_SECONDARY);                     // DOWN -> UP with Green back
+        }
+        if (n == 800) {
+            check(R.gear.downLocked(), "liner world: after the gravity extension the gear won't retract (the crank out)");
+            gear.debugDrive(0);
+        }
+        // «rto»: the take-off roll, the thrust to idle - the ground spoilers and MAX stop it
+        LinerSystems T = rto.state.liner();
+        if (n == 5) {
+            rto.debugDrive(EntityVehicleSVA.IN_LEFT | EntityVehicleSVA.IN_RIGHT);
+        }
+        if (n == 20) {
+            T.set(LinerControls.SPD_BRK, 0);
+            click(rto, LinerControls.ABRK_MAX);
+            rto.throttle = 1;
+            rto.speed = 1.25;
+            rto.debugDrive(EntityVehicleSVA.IN_FWD);
+        }
+        if (n == 26) {
+            check(T.gear.abMode == 3 && !T.fctl.gndSpl && rto.speed > 1.2, "liner world «rto»: MAX armed, spoilers armed, the take-off roll at "
+                    + Math.round(rto.speed * 72) + " km/h");
+            rto.throttle = 0;
+            rto.debugDrive(EntityVehicleSVA.IN_LEFT | EntityVehicleSVA.IN_RIGHT);
+            rtoAt = n;
+            rtoX = rto.posX;
+        }
+        if (rtoAt >= 0 && rtoStop < 0) {
+            rtoSpl |= T.fctl.gndSpl;
+            rtoMax |= T.gear.abActive && T.gear.abMode == 3;
+            rtoPeak = Math.max(rtoPeak, T.gear.hottest());
+            if (n > rtoAt + 2 && rto.speed < 0.005) {
+                rtoStop = n;
+                double d = rto.posX - rtoX;
+                check(rtoSpl && rtoMax && d > 20 && d < 70 && (rtoStop - rtoAt) < 140,
+                        "liner world: RTO - the ground spoilers and the autobrake MAX stopped it in " + Math.round(d) + " blocks, "
+                                + (rtoStop - rtoAt) / 20.0 + " s");
+            }
+        }
+        if (rtoStop >= 0 && n == rtoStop + 5) {
+            check(rtoPeak > com.sva.vehicle.LinerGear.HOT_C && (T.caut & LinerSystems.C_BRK_HOT) != 0,
+                    "liner world: after the hard stop the brakes are hot - " + Math.round(rtoPeak) + " C, «ТОРМ ГОРЯЧ»");
+            rto.debugDrive(0);
+        }
+        // «quick»: after its start, both engines off - everything bleeds down and droops
+        LinerSystems Q = quick.state.liner();
+        if (quickAt >= 0 && n == quickAt + 5) {
+            Q.set(LinerControls.ENG_MASTER1, 0);
+            Q.set(LinerControls.ENG_MASTER2, 0);
+        }
+        if (quickAt >= 0 && droopAt < 0 && n >= quickAt + 400) {
+            droopAt = n;
+            com.sva.vehicle.LinerFctl f = Q.fctl;
+            check(Q.hyd.mask() == 0 && f.powered == 0 && Math.abs(f.angle[com.sva.vehicle.LinerFctl.AIL_L] - com.sva.vehicle.LinerFctl.DROOP) < 0.1
+                            && Math.abs(f.angle[com.sva.vehicle.LinerFctl.ELEV_R] - com.sva.vehicle.LinerFctl.DROOP) < 0.1
+                            && f.angle[com.sva.vehicle.LinerFctl.SPL_L + 2] == 0,
+                    "liner world: engines off - all three systems bled down (" + Math.round(Q.hyd.psi[0]) + " / " + Math.round(Q.hyd.psi[1]) + " / "
+                            + Math.round(Q.hyd.psi[2]) + " psi), ailerons and elevators drooped 15 deg, spoilers flat");
         }
     }
 
@@ -255,14 +390,16 @@ final class WorldTestLinerSVA {
             station.fillForTest(station.getMaxEnergyStored());
         }
         ground = spawn(w, 4, "ground");
+        gear = spawn(w, 5, "gear");
+        rto = spawn(w, RTO_LANE, "rto");
         for (EntityVehicleSVA v : all()) {
             if (v != null) {
-                v.debugEngineManual = true;                          // the real systems, not the instant engines
+                v.debugEngineManual = v != gear && v != rto;         // the real systems, not the instant engines (wave 2's two: instant)
             }
         }
-        check(seq != null && noair != null && quick != null && riders != null && ground != null && station != null
+        check(seq != null && noair != null && quick != null && riders != null && ground != null && gear != null && rto != null && station != null
                         && seq.getVehicleType() == VehicleType.LINER && seq.state.liner() != null,
-                "liner world: five liners placed (one on a charging station)");
+                "liner world: seven liners placed (one on a charging station, one on a 200-block strip)");
     }
 
     private EntityVehicleSVA spawn(World w, int lane, String name) {
@@ -278,7 +415,7 @@ final class WorldTestLinerSVA {
             return;
         }
         net.minecraft.world.gen.ChunkProviderServer cp = ((net.minecraft.world.WorldServer) w).theChunkProviderServer;
-        for (int cx = (x0 - 48) >> 4; cx <= (x0 + LEN + 48) >> 4; cx++) {
+        for (int cx = (x0 - 48) >> 4; cx <= (x0 + RTO_LEN + 48) >> 4; cx++) {
             for (int cz = (z0 - 48) >> 4; cz <= (z0 + (LANES - 1) * LANE + 48) >> 4; cz++) {
                 cp.loadChunk(cx, cz);
             }
@@ -288,7 +425,7 @@ final class WorldTestLinerSVA {
     /** Stone strips (11 wide, LEN long) at Y under each liner; build false: air again. */
     private void area(World w, boolean build) {
         for (int lane = 0; lane < LANES; lane++) {
-            for (int x = x0; x < x0 + LEN; x++) {
+            for (int x = x0; x < x0 + (lane == RTO_LANE ? RTO_LEN : LEN); x++) {
                 for (int z = z0 + lane * LANE - 5; z <= z0 + lane * LANE + 5; z++) {
                     if (lane == 4 && x == x0 + 15 && z == z0 + 4 * LANE && build) {
                         continue;                                    // the station's place
@@ -313,7 +450,7 @@ final class WorldTestLinerSVA {
                 v.setDead();
             }
         }
-        seq = noair = quick = riders = ground = null;
+        seq = noair = quick = riders = ground = gear = rto = null;
         if (x0 != 0 || z0 != 0) {
             area(w, false);
             w.setBlock(x0 + 15, Y, z0 + 4 * LANE, Blocks.air, 0, 3);

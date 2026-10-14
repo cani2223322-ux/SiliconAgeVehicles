@@ -250,6 +250,9 @@ public final class ModContentSVA {
         GameRegistry.addRecipe(new ShapedOreRecipe(batteryTool.stackOf(com.sva.item.ItemBatteryToolSVA.CABLES, 1),
                 "K K", "RDR",
                 'K', coil, 'R', new ItemStack(ModItems.rubber), 'D', net.minecraft.init.Items.redstone));
+        // liner wave 2: «Гидрожидкость» x2 - a water bottle, the core's compound, a slime ball
+        GameRegistry.addRecipe(new net.minecraftforge.oredict.ShapelessOreRecipe(batteryTool.stackOf(com.sva.item.ItemBatteryToolSVA.HYD_FLUID, 2),
+                new ItemStack(net.minecraft.init.Items.potionitem, 1, 0), new ItemStack(ModItems.compound), net.minecraft.init.Items.slime_ball));
     }
 
     /**

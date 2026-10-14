@@ -424,6 +424,12 @@ public final class LinerCockpitSVA {
             top = L.apuRunning() ? L_GRN : 0;
             bot = L.apuStartLit ? L_BLU : 0;
         }
+        if (L.faultLamp(c)) {
+            top = L_AMB;                                            // wave 2: the hydraulic pumps, the computers, ГОРЯЧ
+        }
+        if (L.greenLamp(c)) {
+            top = L_GRN;                                            // wave 2: the autobrake's ТОРМОЖ.
+        }
         boolean flash = (System.currentTimeMillis() / 400) % 2 == 0;
         if ((c == LinerControls.MW_L || c == LinerControls.MW_R) && L.masterWarn && flash) {
             top = bot = L_RED;
@@ -495,6 +501,23 @@ public final class LinerCockpitSVA {
                 LinerGfxSVA.layer();
                 LinerGfxSVA.text(Lang.tr("sva.liner.du.onBat"), 105, 100, 12.5F, L_AMB, 0, 74);
             }
+            // wave 2: the law window of the F/CTL group
+            int law = L.fctl.law;
+            LinerGfxSVA.text(Lang.tr("sva.liner.law." + com.sva.vehicle.LinerFctl.LAW_KEYS[law]), 1670, 350, 13, law == 0 ? L_GRN : L_AMB, 0, 74);
+        }
+        if (panel == LinerControls.MP) {
+            brakeGauge(L);
+            gearLights(L);
+        }
+        if (panel == LinerControls.PED && pass != 0) {
+            // wave 2: the gravity extension - the crank's turns, the red ШАССИ lamp while it falls / disagrees
+            LinerControls.Ctl k = LinerControls.GEAR_GRAV;
+            LinerGfxSVA.text(L.at(k) + " / " + com.sva.vehicle.LinerGear.CRANK_TURNS, k.cx + 70, k.cy + 45, 14, L.at(k) > 0 ? L_AMB : L_WHT, 0, 60);
+            if (L.gearRedLamp() && (System.currentTimeMillis() / 500) % 2 == 0) {
+                LinerGfxSVA.rect(630 - 43, 1530 - 10, 630 + 43, 1530 + 10, scale(L_RED, 0.3F));
+                LinerGfxSVA.layer();
+                LinerGfxSVA.text(Lang.tr("sva.liner.du.gear"), 630, 1530, 11, L_RED, 0, 84);
+            }
         }
         if (panel == LinerControls.PED && pass != 0) {
             for (int i = 0; i < 2; i++) {
@@ -518,6 +541,40 @@ public final class LinerCockpitSVA {
         }
     }
 
+    /**
+     * Wave 2: the triple brake indicator on the main panel (the painted dial at 803 / 345): the accumulator's needle over the
+     * dial (0..3000 psi across -60..60°), the alternate system's L / R pressures as two bars under it.
+     */
+    static void brakeGauge(LinerSystems L) {
+        float cx = 803, cy = 345;
+        float a = (float) (-60 + 120 * Math.max(0, Math.min(1, L.hyd.accu / 3000.0)));
+        LinerGfxSVA.line(cx, cy, LinerGfxSVA.px(cx, 34, a), LinerGfxSVA.py(cy, 34, a), 2.5F, L_GRN);
+        LinerGfxSVA.text(Lang.tr("sva.liner.du.accu"), cx, cy - 12, 8, L_WHT, 0, 40);
+        double[] p = {L.gear.brakeL, L.gear.brakeR};
+        for (int i = 0; i < 2; i++) {
+            float x = cx + (i == 0 ? -12 : 12), top = cy + 30, h = (float) (22 * Math.max(0, Math.min(1, p[i] / 3000.0)));
+            LinerGfxSVA.rect(x - 4, top - 22, x + 4, top, 0x101010);
+            LinerGfxSVA.layer();
+            if (h > 0) {
+                LinerGfxSVA.rect(x - 3, top - h, x + 3, top, L_GRN);
+            }
+            LinerGfxSVA.text(i == 0 ? "L" : "R", x, top + 7, 7, L_WHT, 0, 12);
+        }
+    }
+
+    /** Wave 2: the gear's three lights beside the lever: green down and locked, red in transit / disagreeing. */
+    static void gearLights(LinerSystems L) {
+        boolean down = L.gear.downLocked(), up = L.gear.pos >= 1 - 1e-6;
+        int c = down ? L_GRN : up && !L.gearRedLamp() ? 0 : L_RED;
+        if (c == 0) {
+            return;
+        }
+        float[][] xy = {{1300, 395}, {1285, 425}, {1315, 425}};
+        for (float[] q : xy) {
+            LinerGfxSVA.tri(q[0] - 9, q[1] - 7, q[0] + 9, q[1] - 7, q[0], q[1] + 8, c);
+        }
+    }
+
     // ---------------------------------------------------------------- 3D levers
 
     static void levers(EntityVehicleSVA v, LinerSystems L, float pt) {
@@ -535,8 +592,8 @@ public final class LinerCockpitSVA {
         float fy = LinerPaintSVA.FLAP_Y[Math.max(0, Math.min(4, L.at(LinerControls.FLAPS)))];
         box(653, fy - 4, 661, fy + 4, 0.002F, 0.07F, 0x82868C);
         box(615, fy - 16, 700, fy + 16, 0.07F, 0.09F, 0xD2D4D8);
-        float[] sb = {678, 780, 890};
-        float sy = sb[Math.max(0, Math.min(2, L.at(LinerControls.SPD_BRK)))];
+        float[] sb = {642, 678, 780, 890};
+        float sy = sb[Math.max(0, Math.min(3, L.at(LinerControls.SPD_BRK)))];
         box(76, sy - 4, 84, sy + 4, 0.002F, 0.06F, 0x82868C);
         box(46, sy - 14, 114, sy + 14, 0.06F, 0.08F, 0xCDD0D4);
         for (int i = 0; i < 2; i++) {
@@ -559,6 +616,83 @@ public final class LinerCockpitSVA {
         box(1222, gy - 5, 1236, gy + 5, 0.002F, 0.07F, 0x96989C);
         box(1206, gy - 16, 1252, gy + 16, 0.06F, 0.085F, 0xE2E4E6);
         GL11.glPopMatrix();
+        sticks(v, pt);
+    }
+
+    /** Wave 2: the console point of the sidesticks' bases (lateral console units) and the base's height over it. */
+    static final float STICK_TX_L = 370, STICK_TX_R = 130, STICK_TY = 500, STICK_BASE = 0.045F;
+    /** The sidestick's travel (deg) at full roll / pitch, the pedals' (blocks fore / aft) at full yaw. */
+    static final float STICK_DEG = 16, PEDAL_TRAVEL = 0.035F;
+
+    /**
+     * Wave 2: the two sidesticks (the captain's commands, the F/O's moves alike - visual) tilted by the stick (pull = the top
+     * aft, right = the top to the right) and the rudder pedals (the right one forward for a right yaw) - in the cockpit frame.
+     */
+    static void sticks(EntityVehicleSVA v, float pt) {
+        com.sva.vehicle.AnimMath.State a = v.anim;
+        float roll = com.sva.vehicle.AnimMath.lerp(a.prevCtlRoll, a.ctlRoll, pt), pitch = com.sva.vehicle.AnimMath.lerp(a.prevCtlPitch, a.ctlPitch, pt);
+        float yaw = com.sva.vehicle.AnimMath.lerp(a.prevCtlYaw, a.ctlYaw, pt);
+        for (int s = -1; s <= 1; s += 2) {
+            int panel = s < 0 ? LinerControls.SCL : LinerControls.SCR;
+            float[] p = LinerControls.point(panel, s < 0 ? STICK_TX_L : STICK_TX_R, STICK_TY, new float[3]);
+            GL11.glPushMatrix();
+            GL11.glTranslatef(p[0], p[1] + STICK_BASE, p[2]);
+            GL11.glRotatef(pitch * STICK_DEG, 0F, 0F, 1F);
+            GL11.glRotatef(roll * STICK_DEG, 1F, 0F, 0F);
+            prism(0F, 0F, 0F, 0.025F, 0.12F, 0F, 0.02F, 0x28282C);
+            prism(0.029F, 0.114F, -s * 0.012F, 0.031F, 0.124F, -s * 0.016F, 0.0075F, 0xE11E1A);
+            GL11.glPopMatrix();
+            // pedals: two plates in front of each pilot
+            float zc = s * 0.52F;
+            for (int k = -1; k <= 1; k += 2) {
+                float off = yaw * PEDAL_TRAVEL * k;                 // k = +1 the right pedal
+                float x = 0.56F + off, z = zc + k * 0.09F;
+                quad(x, -1.06F, z - 0.035F, x + 0.03F, -0.95F, z - 0.035F, x + 0.03F, -0.95F, z + 0.035F, x, -1.06F, z + 0.035F, 0x3A3C40);
+            }
+        }
+    }
+
+    /** A square prism (8 sides look round enough at this size) from (x0, y0, z0) to (x1, y1, z1) of radius r. */
+    static void prism(float x0, float y0, float z0, float x1, float y1, float z1, float r, int rgb) {
+        float[] d = {x1 - x0, y1 - y0, z1 - z0};
+        float l = (float) Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        float[] u = {d[0] / l, d[1] / l, d[2] / l};
+        float[] n1 = LinerGfxSVA.cross(u, Math.abs(u[1]) < 0.9F ? new float[] {0, 1, 0} : new float[] {1, 0, 0});
+        float l1 = (float) Math.sqrt(n1[0] * n1[0] + n1[1] * n1[1] + n1[2] * n1[2]);
+        n1 = new float[] {n1[0] / l1, n1[1] / l1, n1[2] / l1};
+        float[] n2 = LinerGfxSVA.cross(u, n1);
+        int seg = 8;
+        GL11.glBegin(GL11.GL_QUADS);
+        for (int i = 0; i < seg; i++) {
+            double a0 = 2 * Math.PI * i / seg, a1 = 2 * Math.PI * (i + 1) / seg;
+            float c0 = (float) Math.cos(a0) * r, s0 = (float) Math.sin(a0) * r, c1 = (float) Math.cos(a1) * r, s1 = (float) Math.sin(a1) * r;
+            LinerGfxSVA.col(scale(rgb, 0.75F + 0.25F * (float) Math.cos(a0 - 0.8)));
+            float[] o0 = {n1[0] * c0 + n2[0] * s0, n1[1] * c0 + n2[1] * s0, n1[2] * c0 + n2[2] * s0};
+            float[] o1 = {n1[0] * c1 + n2[0] * s1, n1[1] * c1 + n2[1] * s1, n1[2] * c1 + n2[2] * s1};
+            GL11.glVertex3f(x0 + o0[0], y0 + o0[1], z0 + o0[2]);
+            GL11.glVertex3f(x0 + o1[0], y0 + o1[1], z0 + o1[2]);
+            GL11.glVertex3f(x1 + o1[0], y1 + o1[1], z1 + o1[2]);
+            GL11.glVertex3f(x1 + o0[0], y1 + o0[1], z1 + o0[2]);
+        }
+        GL11.glEnd();
+        GL11.glBegin(GL11.GL_POLYGON);
+        LinerGfxSVA.col(scale(rgb, 1.1F));
+        for (int i = 0; i < seg; i++) {
+            double an = 2 * Math.PI * i / seg;
+            float c = (float) Math.cos(an) * r, sn = (float) Math.sin(an) * r;
+            GL11.glVertex3f(x1 + n1[0] * c + n2[0] * sn, y1 + n1[1] * c + n2[1] * sn, z1 + n1[2] * c + n2[2] * sn);
+        }
+        GL11.glEnd();
+    }
+
+    static void quad(float x0, float y0, float z0, float x1, float y1, float z1, float x2, float y2, float z2, float x3, float y3, float z3, int rgb) {
+        GL11.glBegin(GL11.GL_QUADS);
+        LinerGfxSVA.col(rgb);
+        GL11.glVertex3f(x0, y0, z0);
+        GL11.glVertex3f(x1, y1, z1);
+        GL11.glVertex3f(x2, y2, z2);
+        GL11.glVertex3f(x3, y3, z3);
+        GL11.glEnd();
     }
 
     /** A box in a panel frame: x / y in panel units, z0..z1 in model units off the panel (toward the crew). */

@@ -158,6 +158,16 @@ public final class LinerSystems {
         public boolean quickAllowed = true;
         /** World / self tests: the engines and the APU at once (no sequence). */
         public boolean instant;
+        // wave 2
+        /** The stick and pedals (-1..1: roll + right, pitch + nose up, yaw + right) from the pilot's keys. */
+        public float roll, pitch, yaw;
+        /** S at idle on the ground (the brake pedals); the ground speed along the heading (b/t); the surface's grip (LinerGear.MU_*). */
+        public boolean pedal;
+        public double speed, mu = LinerGear.MU_DRY;
+        /** The older world tests: the hydraulics, the gear and the high lift at once too (LinerLogicSVA: not for wave 2's own). */
+        public boolean instantHyd;
+        /** The height over the ground (blocks; the КОЛЁСА page's auto-display), the config's hydraulic leak chance per hour. */
+        public double height, leakChance;
     }
 
     // ---------------------------------------------------------------- state
@@ -210,6 +220,25 @@ public final class LinerSystems {
     /** The L1 door (0 shut .. 1 open target), synced; the stairs follow it on the client. */
     public boolean door;
 
+    // ---------------------------------------------------------------- wave 2: hydraulics, flight controls, gear and brakes
+
+    /** The three hydraulic systems, the flight controls, the gear / brakes / steering (LinerHyd, LinerFctl, LinerGear). */
+    public final LinerHyd hyd = new LinerHyd();
+    public final LinerFctl fctl = new LinerFctl();
+    public final LinerGear gear = new LinerGear();
+    /** On the ground (the last tick's), the F/CTL check's page timer (ticks) and whether it was shown this ground run. */
+    public boolean onGround = true;
+    public int fctlCheck;
+    private boolean fctlChecked;
+    /** The SD's automatic page (the server's judgement, synced: LinerControls.SD_PAGES index). */
+    public int autoSd = 3;
+    /** The F/CTL check's page stays this long (ticks) after the first stick deflection on the ground. */
+    public static final int FCTL_CHECK_TICKS = 600;
+    /** КОЛЁСА shows itself under this height (blocks) in the air with the gear lever down. */
+    public static final double WHEEL_ALT = 200;
+    /** Events of this tick past E_*: the PTU's bark, the RAT out, the gear moving / locked, a tyre's fuse plug. */
+    public static final int E_PTU = 64, E_RAT = 128, E_FUSE = 256, E_GEAR = 512;
+
     // EU / mB of this tick (outputs for the entity)
     /** EU taken from АКБ 1 this tick (negative: charged into it). */
     public double bat1Eu;
@@ -237,6 +266,7 @@ public final class LinerSystems {
         sdPage = 0;
         warn = ackWarn = caut = ackCaut = 0;
         bat2.charge = 0;
+        autoSd = 3;
     }
 
     // ---------------------------------------------------------------- controls
@@ -265,6 +295,7 @@ public final class LinerSystems {
         if (r[2] != 0) {
             changed |= press(c);
         }
+        autobrakeButton(c);
         if (changed) {
             events |= E_CLICK;
         }
@@ -274,6 +305,35 @@ public final class LinerSystems {
             startQuick();
         }
         return changed;
+    }
+
+    /**
+     * The autobrake's push buttons (wave 2): one in arms its mode and lets the others out - only with the normal brakes
+     * (Green and the anti-skid; else it pops out); the armed one out disarms.
+     */
+    private void autobrakeButton(LinerControls.Ctl c) {
+        LinerControls.Ctl[] ab = {LinerControls.ABRK_LO, LinerControls.ABRK_MED, LinerControls.ABRK_MAX};
+        for (int i = 0; i < 3; i++) {
+            if (c != ab[i]) {
+                continue;
+            }
+            if (on(c)) {
+                boolean normal = hyd.powered(LinerHyd.G) && at(LinerControls.ANTISKID) == 0;
+                if (!normal) {
+                    pos[c.index] = 0;
+                    return;
+                }
+                for (LinerControls.Ctl o : ab) {
+                    if (o != c) {
+                        pos[o.index] = 0;
+                    }
+                }
+                gear.disarm();
+                gear.abMode = i + 1;
+            } else if (gear.abMode == i + 1) {
+                gear.disarm();
+            }
+        }
     }
 
     /** Sets a control directly (the quick start, tests). */
@@ -351,7 +411,7 @@ public final class LinerSystems {
         ac1Src = gen1On ? S_GEN1 : extOn ? S_EXT : apuGenOn ? S_APU : tie && gen2On ? S_GEN2 : S_NONE;
         ac2Src = gen2On ? S_GEN2 : extOn ? S_EXT : apuGenOn ? S_APU : tie && gen1On ? S_GEN1 : S_NONE;
         boolean ac = ac1Src != S_NONE || ac2Src != S_NONE;
-        essOnly = !ac && (dcBat1 || dcBat2);
+        essOnly = !ac && (dcBat1 || dcBat2 || hyd.ratElec);         // wave 2: the RAT's emergency generator keeps the essentials
         // ---- loads: per bus, then per source; one generator in flight (or any over 100 %) sheds the galley
         int l1 = LOAD_BUS + LOAD_DU + (on(LinerControls.PACK1) ? LOAD_PACK : 0) + LOAD_CABIN / 2;
         int l2 = LOAD_BUS + LOAD_DU + (on(LinerControls.PACK2) ? LOAD_PACK : 0) + LOAD_CABIN / 2;
@@ -377,7 +437,7 @@ public final class LinerSystems {
             if (bat2In && on(LinerControls.BAT2)) {
                 drain2 = -Math.min(BAT_CHARGE, Math.max(0, cap2 - bat2.charge));
             }
-        } else if (dcBat1 || dcBat2) {
+        } else if ((dcBat1 || dcBat2) && !hyd.ratElec) {
             double need = ESS_LOAD + (apu == A_START && apuN < 60 ? APU_STARTER_EU : 0);
             int n = (dcBat1 ? 1 : 0) + (dcBat2 ? 1 : 0);
             drain1 = dcBat1 ? need / n : 0;
@@ -400,6 +460,7 @@ public final class LinerSystems {
             engineTick(e, i, ac || dcBat1 || dcBat2 || extOn);
         }
         burnFuel();
+        wave2Tick(e);
         warnings(e);
     }
 
@@ -863,14 +924,335 @@ public final class LinerSystems {
         }
     }
 
+    // ---------------------------------------------------------------- wave 2: hydraulics, flight controls, gear, brakes
+
+    /** The hydraulics' inputs from this tick's engines, buses and switches. */
+    private LinerHyd.In hydIn(Env e) {
+        LinerHyd.In h = new LinerHyd.In();
+        h.n2L = eng[0].n2;
+        h.n2R = eng[1].n2;
+        h.runL = eng[0].running();
+        h.runR = eng[1].running();
+        h.ac1 = ac1Src != S_NONE;
+        h.ac2 = ac2Src != S_NONE;
+        h.gensLost = !gen1On && !gen2On && !apuGenOn && !extOn;
+        h.ground = e.ground;
+        h.airspeed = e.airspeed;
+        h.pbEdp1 = on(LinerControls.HYD_ENG1);
+        h.pbEdp2 = on(LinerControls.HYD_ENG2);
+        h.pbBlue = on(LinerControls.HYD_BLUE);
+        h.pbYellow = on(LinerControls.HYD_YEL);
+        h.pbPtu = on(LinerControls.HYD_PTU);
+        h.pbRat = on(LinerControls.RAT);
+        h.random = e.random;
+        h.leakChance = e.leakChance;
+        h.instant = e.instantHyd;
+        return h;
+    }
+
+    /** The flight controls' inputs (server: the keys; a client: what it sees) - the shared part. */
+    LinerFctl.In fctlIn(float roll, float pitch, float yaw, double speed, boolean ground, float trimExtra) {
+        LinerFctl.In f = new LinerFctl.In();
+        f.roll = roll;
+        f.pitch = pitch;
+        f.yaw = yaw;
+        f.spdBrk = at(LinerControls.SPD_BRK);
+        f.flaps = at(LinerControls.FLAPS);
+        f.ground = ground;
+        f.speed = speed;
+        f.trim = thsTrim(fctl.flapPos) + trimExtra;
+        LinerControls.Ctl[] pb = computers();
+        for (int i = 0; i < pb.length; i++) {
+            f.pb[i] = on(pb[i]);
+        }
+        f.ess = powered();
+        f.ac = acPowered();
+        f.adr = adrCount();
+        f.ir = irCount();
+        f.gearDown = at(LinerControls.GEAR) == 1;
+        f.hyd = hyd;
+        return f;
+    }
+
+    /** The F/CTL computers' push buttons in LinerFctl.C_* order. */
+    public static LinerControls.Ctl[] computers() {
+        return new LinerControls.Ctl[] {LinerControls.ELAC1, LinerControls.ELAC2, LinerControls.SEC1, LinerControls.SEC2, LinerControls.SEC3,
+                LinerControls.FAC1, LinerControls.FAC2};
+    }
+
+    /** The THS's auto-trim (deg nose up): a little nose up, more with the flaps out. */
+    public static float thsTrim(double flapPos) {
+        return (float) (1.5 + 0.6 * flapPos);
+    }
+
+    /** ADRs working: the push button in, the ADIRS selector not off, the board powered. */
+    public int adrCount() {
+        return adirs(new LinerControls.Ctl[] {LinerControls.ADR1, LinerControls.ADR2, LinerControls.ADR3});
+    }
+
+    /** IRs working (the same rule with the IR push buttons). */
+    public int irCount() {
+        return adirs(new LinerControls.Ctl[] {LinerControls.IR1, LinerControls.IR2, LinerControls.IR3});
+    }
+
+    private int adirs(LinerControls.Ctl[] pb) {
+        LinerControls.Ctl[] sel = {LinerControls.ADIRS1, LinerControls.ADIRS2, LinerControls.ADIRS3};
+        int n = 0;
+        for (int i = 0; i < 3; i++) {
+            n += on(pb[i]) && at(sel[i]) != 0 && powered() ? 1 : 0;
+        }
+        return n;
+    }
+
+    /** One server tick of wave 2: the hydraulics, the flight controls (the spoilers' and high lift's decisions), the gear. */
+    private void wave2Tick(Env e) {
+        boolean touchdown = e.ground && !onGround;
+        hyd.tick(hydIn(e));
+        if (hyd.bark) {
+            events |= E_PTU;
+        }
+        if (hyd.ratOut) {
+            events |= E_RAT;
+        }
+        LinerFctl.In f = fctlIn(e.roll, e.pitch, e.yaw, e.speed, e.ground, 0F);
+        f.touchdown = touchdown;
+        f.throttle = e.throttle;
+        f.instant = e.instantHyd;
+        fctl.tick(f);
+        LinerGear.In g = new LinerGear.In();
+        g.leverUp = at(LinerControls.GEAR) == 0;
+        g.ground = e.ground;
+        g.touchdown = touchdown;
+        g.speed = e.speed;
+        g.throttle = e.throttle;
+        g.mu = e.mu;
+        g.pedal = e.pedal;
+        g.park = on(LinerControls.PARK_BRK);
+        g.antiskidSw = at(LinerControls.ANTISKID) == 0;
+        g.fan = on(LinerControls.BRK_FAN);
+        g.tow = at(LinerControls.TOW) == 0;
+        g.ac = acPowered();
+        g.gndSpl = fctl.gndSpl;
+        g.rto = fctl.rto;
+        g.steer = e.yaw;
+        g.hyd = hyd;
+        g.instant = e.instantHyd;
+        gear.crank = at(LinerControls.GEAR_GRAV);
+        double before = gear.pos;
+        gear.tick(g);
+        if (before != gear.pos && (before == 0 || before == 1 || gear.pos == 0 || gear.pos == 1)) {
+            events |= E_GEAR;
+        }
+        if (gear.fuseEvent != 0) {
+            events |= E_FUSE;
+        }
+        // the autobrake's buttons follow its mode (the pedals / a fault let them out)
+        set(LinerControls.ABRK_LO, gear.abMode == 1 ? 1 : 0);
+        set(LinerControls.ABRK_MED, gear.abMode == 2 ? 1 : 0);
+        set(LinerControls.ABRK_MAX, gear.abMode == 3 ? 1 : 0);
+        // the F/CTL check: the first stick deflection on the ground with pressure shows УПР for FCTL_CHECK_TICKS
+        if (!e.ground) {
+            fctlCheck = 0;
+        } else if (fctlCheck > 0) {
+            fctlCheck = e.throttle >= LinerFctl.TO_THR ? 0 : fctlCheck - 1;
+        }
+        if (e.ground && !fctlChecked && hyd.mask() != 0 && (e.roll != 0 || e.pitch != 0)) {
+            fctlChecked = true;
+            fctlCheck = FCTL_CHECK_TICKS;
+        }
+        if (touchdown || e.ground && hyd.mask() == 0) {
+            fctlChecked = false;                                    // a new ground run (or the aircraft shut down): check again
+        }
+        onGround = e.ground;
+        autoSd = autoSdPage(e);
+    }
+
+    /**
+     * A client's tick of the surfaces (the server syncs the pressures, the computers' buttons, the spoilers' mode and the
+     * high lift; each client moves the surfaces itself from the stick it sees): roll / pitch / yaw -1..1, the ground speed,
+     * on the ground, the extra trim (deg).
+     */
+    public void clientTick(float roll, float pitch, float yaw, double speed, boolean ground, float trimExtra) {
+        LinerFctl.In f = fctlIn(roll, pitch, yaw, speed, ground, trimExtra);
+        f.server = false;
+        int law = fctl.law;
+        fctl.tick(f);
+        fctl.law = law;
+    }
+
+    /**
+     * The SD's automatic page (sheet 13a's rules): a hydraulic fault - ГИДР; an engine starting or ЗАПУСК - ДВИГ; the APU
+     * starting - ВСУ; its bleed - ОТБОР; the F/CTL check - УПР; taxiing (an engine running on the ground) - КОЛЁСА; in the
+     * air with the gear lever down under WHEEL_ALT - КОЛЁСА; flying - ДВИГ; else ЭЛЕКТР.
+     */
+    private int autoSdPage(Env e) {
+        int hydBits = C_HYD_G_LO | C_HYD_B_LO | C_HYD_Y_LO | C_HYD_G_QTY | C_HYD_B_QTY | C_HYD_Y_QTY | C_HYD_G_HOT | C_HYD_B_HOT | C_HYD_Y_HOT;
+        if ((caut & hydBits) != 0 || (warn & (W_HYD_GB | W_HYD_GY | W_HYD_BY)) != 0) {
+            return 4;
+        }
+        for (Eng g : eng) {
+            if (g.state == E_WAIT || g.state == E_CRANK || g.state == E_LIGHT || g.state == E_ABORT) {
+                return 0;
+            }
+        }
+        if (at(LinerControls.ENG_MODE) == 2) {
+            return 0;
+        }
+        if (apu == A_START || apu == A_FLAP && apuStartLit) {
+            return 6;
+        }
+        if (apuBleedOpen) {
+            return 1;
+        }
+        if (fctlCheck > 0) {
+            return 7;
+        }
+        boolean run = eng[0].running() || eng[1].running();
+        if (e.ground && run) {
+            return 9;
+        }
+        if (!e.ground && at(LinerControls.GEAR) == 1 && e.height < WHEEL_ALT) {
+            return 9;
+        }
+        return run ? 0 : 3;
+    }
+
+    /** A push button's amber ОТКАЗ / ГОРЯЧ half lit (wave 2's: the hydraulic pumps, the F/CTL computers, the brake fans). */
+    public boolean faultLamp(LinerControls.Ctl c) {
+        int f = hyd.faults;
+        if (c == LinerControls.HYD_ENG1) {
+            return (f & LinerHyd.F_EDP1) != 0;
+        }
+        if (c == LinerControls.HYD_ENG2) {
+            return (f & LinerHyd.F_EDP2) != 0;
+        }
+        if (c == LinerControls.HYD_BLUE) {
+            return (f & LinerHyd.F_ELEC_B) != 0;
+        }
+        if (c == LinerControls.HYD_YEL) {
+            return (f & LinerHyd.F_ELEC_Y) != 0;
+        }
+        if (c == LinerControls.HYD_PTU) {
+            return (f & LinerHyd.F_PTU) != 0;
+        }
+        if (c == LinerControls.BRK_FAN) {
+            return gear.hot();
+        }
+        LinerControls.Ctl[] pb = computers();
+        for (int i = 0; i < pb.length; i++) {
+            if (c == pb[i]) {
+                return on(c) && (fctl.comp & 1 << i) == 0;          // in, but not working (its bus dead)
+            }
+        }
+        return false;
+    }
+
+    /** A push button's green upper half lit: the autobrake's ТОРМОЖ. (decelerating at its rate). */
+    public boolean greenLamp(LinerControls.Ctl c) {
+        return gear.abDecel && (c == LinerControls.ABRK_LO && gear.abMode == 1 || c == LinerControls.ABRK_MED && gear.abMode == 2
+                || c == LinerControls.ABRK_MAX && gear.abMode == 3);
+    }
+
+    /** The pedestal's red «ШАССИ» lamp: the gravity extension under way, or the gear disagreeing with its lever. */
+    public boolean gearRedLamp() {
+        return gear.gravity && !gear.downLocked() || gear.disagree > LinerGear.DISAGREE_TICKS;
+    }
+
+    /** The gear's sync words (the client mirror): the brake modes and the steering derive from the synced pressures. */
+    private int wave2Flags() {
+        return (hyd.edp1 ? 1 : 0) | (hyd.edp2 ? 2 : 0) | (hyd.elecB ? 4 : 0) | (hyd.elecY ? 8 : 0) | (hyd.rat ? 16 : 0) | (hyd.ptu ? 32 : 0)
+                | (hyd.ratElec ? 64 : 0) | (gear.gravity ? 128 : 0) | (gear.antiskid ? 256 : 0) | (gear.abActive ? 512 : 0)
+                | (gear.abDecel ? 1024 : 0) | (gear.parkHold ? 2048 : 0) | (gear.nws ? 4096 : 0) | (fctl.gndSpl ? 8192 : 0)
+                | (fctl.flapJam ? 16384 : 0) | (fctl.slatJam ? 32768 : 0) | (onGround ? 65536 : 0) | (fctlCheck > 0 ? 131072 : 0)
+                | (hyd.hot[0] ? 1 << 18 : 0) | (hyd.hot[1] ? 1 << 19 : 0) | (hyd.hot[2] ? 1 << 20 : 0) | (gear.flat & 15) << 21
+                | (hyd.leak[0] > 0 ? 1 << 25 : 0) | (hyd.leak[1] > 0 ? 1 << 26 : 0) | (hyd.leak[2] > 0 ? 1 << 27 : 0);
+    }
+
+    /** The third part of the sync string (wave 2): flags, pressures (/10), quantities (dl), temps, the gear, brakes, high lift. */
+    private int[] wave2Numbers() {
+        return new int[] {wave2Flags(), r(hyd.psi[0] / 10), r(hyd.psi[1] / 10), r(hyd.psi[2] / 10), r(hyd.qty[0] * 10), r(hyd.qty[1] * 10),
+                r(hyd.qty[2] * 10), r(hyd.temp[0]), r(hyd.temp[1]), r(hyd.temp[2]), r(hyd.accu / 10), hyd.faults, r(gear.pos * 1000), gear.crank,
+                gear.mode, gear.abMode, r5(gear.temp[0]), r5(gear.temp[1]), r5(gear.temp[2]), r5(gear.temp[3]), r(gear.brakeL / 10),
+                r(gear.brakeR / 10), r(fctl.flapPos * 100), r(fctl.slatPos * 100), fctl.comp, fctl.law, autoSd};
+    }
+
+    private void unpackWave2(int[] w) {
+        if (w.length < 27) {
+            return;
+        }
+        int f = w[0];
+        hyd.edp1 = (f & 1) != 0;
+        hyd.edp2 = (f & 2) != 0;
+        hyd.elecB = (f & 4) != 0;
+        hyd.elecY = (f & 8) != 0;
+        hyd.rat = (f & 16) != 0;
+        hyd.ptu = (f & 32) != 0;
+        hyd.ratElec = (f & 64) != 0;
+        gear.gravity = (f & 128) != 0;
+        gear.antiskid = (f & 256) != 0;
+        gear.abActive = (f & 512) != 0;
+        gear.abDecel = (f & 1024) != 0;
+        gear.parkHold = (f & 2048) != 0;
+        gear.nws = (f & 4096) != 0;
+        fctl.gndSpl = (f & 8192) != 0;
+        fctl.flapJam = (f & 16384) != 0;
+        fctl.slatJam = (f & 32768) != 0;
+        onGround = (f & 65536) != 0;
+        fctlCheck = (f & 131072) != 0 ? 1 : 0;
+        for (int s = 0; s < 3; s++) {
+            hyd.hot[s] = (f & 1 << (18 + s)) != 0;
+            hyd.leak[s] = (f & 1 << (25 + s)) != 0 ? LinerHyd.LEAK_RATE : 0;
+            hyd.psi[s] = w[1 + s] * 10.0;
+            hyd.qty[s] = w[4 + s] / 10.0;
+            hyd.temp[s] = w[7 + s];
+        }
+        gear.flat = f >> 21 & 15;
+        hyd.accu = w[10] * 10.0;
+        hyd.faults = w[11];
+        gear.pos = w[12] / 1000.0;
+        gear.crank = w[13];
+        gear.mode = w[14];
+        gear.abMode = w[15];
+        for (int i = 0; i < 4; i++) {
+            gear.temp[i] = w[16 + i];
+        }
+        gear.brakeL = w[20] * 10.0;
+        gear.brakeR = w[21] * 10.0;
+        fctl.flapPos = w[22] / 100.0;
+        fctl.slatPos = w[23] / 100.0;
+        fctl.comp = w[24];
+        fctl.law = w[25];
+        autoSd = w[26];
+    }
+
+    private static int r(double v) {
+        return (int) Math.round(v);
+    }
+
+    /** Rounded to 5 (the brake temperatures: a resync every few degrees, not every tick of cooling). */
+    private static int r5(double v) {
+        return (int) Math.round(v / 5) * 5;
+    }
+
     // ---------------------------------------------------------------- warnings and memos
 
     /** Warnings (red, W_*) and cautions (amber, C_*) - bits; each a line on the E/WD (lang sva.liner.msg.KEY). */
     public static final int W_ENG1_FAIL = 1, W_ENG2_FAIL = 2,
             C_ENG1_START = 1, C_ENG2_START = 2, C_ENG1_AIR = 4, C_ENG2_AIR = 8, C_GEN1 = 16, C_GEN2 = 32, C_APU = 64, C_BLEED = 128,
             C_BUS1 = 256, C_BUS2 = 512;
-    public static final String[] WARN_KEYS = {"eng1Fail", "eng2Fail"};
-    public static final String[] CAUT_KEYS = {"eng1Start", "eng2Start", "eng1Air", "eng2Air", "gen1", "gen2", "apuFault", "bleedLow", "bus1", "bus2"};
+    /**
+     * Wave 2: the red dual hydraulic losses, the take-off configuration with hot brakes, the gear not down for the landing;
+     * the amber single systems' low pressure / low level / overheat, hot brakes, jammed flaps / slats, the gear disagreeing
+     * with its lever, a flat tyre, the flight control law, a computer lost.
+     */
+    public static final int W_HYD_GB = 4, W_HYD_GY = 8, W_HYD_BY = 16, W_TO_BRK = 32, W_GEAR_NOT_DOWN = 64,
+            C_HYD_G_LO = 1 << 10, C_HYD_B_LO = 1 << 11, C_HYD_Y_LO = 1 << 12, C_HYD_G_QTY = 1 << 13, C_HYD_B_QTY = 1 << 14, C_HYD_Y_QTY = 1 << 15,
+            C_HYD_G_HOT = 1 << 16, C_HYD_B_HOT = 1 << 17, C_HYD_Y_HOT = 1 << 18, C_BRK_HOT = 1 << 19, C_FLAP_JAM = 1 << 20, C_SLAT_JAM = 1 << 21,
+            C_GEAR_DISAGREE = 1 << 22, C_TYRE = 1 << 23, C_LAW_ALTN = 1 << 24, C_LAW_DIRECT = 1 << 25, C_FCTL_COMP = 1 << 26;
+    public static final String[] WARN_KEYS = {"eng1Fail", "eng2Fail", "hydGB", "hydGY", "hydBY", "toBrkHot", "gearNotDown"};
+    public static final String[] CAUT_KEYS = {"eng1Start", "eng2Start", "eng1Air", "eng2Air", "gen1", "gen2", "apuFault", "bleedLow", "bus1", "bus2",
+            "hydGLo", "hydBLo", "hydYLo", "hydGQty", "hydBQty", "hydYQty", "hydGHot", "hydBHot", "hydYHot", "brkHot", "flapJam", "slatJam",
+            "gearDisagree", "tyreFlat", "lawAltn", "lawDirect", "fctlComp"};
 
     private void warnings(Env e) {
         int w = 0, c = 0;
@@ -903,6 +1285,66 @@ public final class LinerSystems {
         if (any && ac2Src == S_NONE) {
             c |= C_BUS2;
         }
+        // ---- wave 2: hydraulics (low pressure only while it should have it: an engine running or in flight)
+        boolean live = anyRunning() || !e.ground;
+        int[] lo = {C_HYD_G_LO, C_HYD_B_LO, C_HYD_Y_LO}, qty = {C_HYD_G_QTY, C_HYD_B_QTY, C_HYD_Y_QTY}, hot = {C_HYD_G_HOT, C_HYD_B_HOT, C_HYD_Y_HOT};
+        boolean[] low = new boolean[3];
+        for (int s = 0; s < 3; s++) {
+            low[s] = live && hyd.psi[s] < LinerHyd.LO_PSI;
+            if (low[s]) {
+                c |= lo[s];
+            }
+            if (hyd.low(s)) {
+                c |= qty[s];
+            }
+            if (hyd.hot[s]) {
+                c |= hot[s];
+            }
+        }
+        if (low[LinerHyd.G] && low[LinerHyd.B]) {
+            w |= W_HYD_GB;
+        }
+        if (low[LinerHyd.G] && low[LinerHyd.Y]) {
+            w |= W_HYD_GY;
+        }
+        if (low[LinerHyd.B] && low[LinerHyd.Y]) {
+            w |= W_HYD_BY;
+        }
+        if (gear.hot()) {
+            c |= C_BRK_HOT;
+            if (e.ground && e.throttle >= LinerFctl.TO_THR) {
+                w |= W_TO_BRK;                                      // the take-off configuration warning
+            }
+        }
+        if (!e.ground && !gear.downLocked() && e.height < 150 && e.throttle < 0.2 && at(LinerControls.FLAPS) >= 3) {
+            w |= W_GEAR_NOT_DOWN;
+        }
+        if (fctl.flapJam) {
+            c |= C_FLAP_JAM;
+        }
+        if (fctl.slatJam) {
+            c |= C_SLAT_JAM;
+        }
+        if (gear.disagree > LinerGear.DISAGREE_TICKS) {
+            c |= C_GEAR_DISAGREE;
+        }
+        if (gear.flat != 0) {
+            c |= C_TYRE;
+        }
+        if (!e.ground && fctl.law == LinerFctl.ALTN) {
+            c |= C_LAW_ALTN;
+        }
+        if (!e.ground && fctl.law == LinerFctl.DIRECT) {
+            c |= C_LAW_DIRECT;
+        }
+        if (powered()) {
+            LinerControls.Ctl[] pb = computers();
+            for (int i = 0; i < pb.length; i++) {
+                if ((fctl.comp & 1 << i) == 0 && (acPowered() || i == 0 || i == 2 || i == 5)) {
+                    c |= C_FCTL_COMP;                               // out or dead (with its bus up)
+                }
+            }
+        }
         // a new warning / caution lights its master lamp and chimes; gone ones are forgotten (acknowledged or not)
         int newW = w & ~warn & ~ackWarn, newC = c & ~caut & ~ackCaut;
         ackWarn &= w;
@@ -927,9 +1369,12 @@ public final class LinerSystems {
 
     /** Memos (green / amber notes on the E/WD's right): M_* bits. */
     public static final int M_APU_AVAIL = 1, M_APU_BLEED = 2, M_PARK = 4, M_BEACON_OFF = 8, M_EXT = 16, M_DOOR = 32, M_STAIRS = 64, M_GALLEY = 128,
-            M_SEATBELTS = 256, M_NO_SMOKING = 512, M_ON_BAT = 1024, M_ENG_START = 2048, M_IDLE = 4096, M_QUICK = 8192;
+            M_SEATBELTS = 256, M_NO_SMOKING = 512, M_ON_BAT = 1024, M_ENG_START = 2048, M_IDLE = 4096, M_QUICK = 8192,
+            // wave 2: the ground spoilers armed, the autobrake armed (its mode in the line), the RAT out, the PTU running, the
+            // gravity extension, the brake fans on
+            M_SPL_ARM = 16384, M_AUTOBRK = 32768, M_RAT = 65536, M_PTU = 131072, M_GRAVITY = 262144, M_BRK_FAN = 524288;
     public static final String[] MEMO_KEYS = {"apuAvail", "apuBleed", "park", "beaconOff", "ext", "door", "stairs", "galley", "seatBelts", "noSmoking",
-            "onBat", "engStart", "idle", "quick"};
+            "onBat", "engStart", "idle", "quick", "splArm", "autoBrk", "rat", "ptu", "gravity", "brkFan"};
 
     /** The memo bits now (both sides compute them from the synced state). */
     public int memos(boolean ground) {
@@ -974,6 +1419,24 @@ public final class LinerSystems {
         if (quick != QUICK_OFF) {
             m |= M_QUICK;
         }
+        if (at(LinerControls.SPD_BRK) == 0) {
+            m |= M_SPL_ARM;
+        }
+        if (gear.abMode != 0) {
+            m |= M_AUTOBRK;
+        }
+        if (hyd.rat) {
+            m |= M_RAT;
+        }
+        if (hyd.ptu) {
+            m |= M_PTU;
+        }
+        if (gear.gravity) {
+            m |= M_GRAVITY;
+        }
+        if (on(LinerControls.BRK_FAN)) {
+            m |= M_BRK_FAN;
+        }
         return m;
     }
 
@@ -1008,24 +1471,7 @@ public final class LinerSystems {
 
     /** The automatic SD page (sheet 13a): the APU starting - ВСУ, an engine starting (or ЗАПУСК) - ДВИГ, else ЭЛЕКТР on the ground. */
     public int autoPage() {
-        if (sdPage > 0) {
-            return sdPage - 1;
-        }
-        for (Eng g : eng) {
-            if (g.state == E_WAIT || g.state == E_CRANK || g.state == E_LIGHT || g.state == E_ABORT) {
-                return 0;
-            }
-        }
-        if (at(LinerControls.ENG_MODE) == 2) {
-            return 0;
-        }
-        if (apu == A_START || apu == A_FLAP && apuStartLit) {
-            return 6;
-        }
-        if (apuBleedOpen) {
-            return 1;
-        }
-        return eng[0].running() || eng[1].running() ? 0 : 3;
+        return sdPage > 0 ? sdPage - 1 : autoSd;                    // wave 2: the server judges the automatic page (autoSdPage)
     }
 
     // ---------------------------------------------------------------- quick start
@@ -1226,6 +1672,14 @@ public final class LinerSystems {
             }
             b.append(v[i]);
         }
+        b.append('|');                                              // wave 2: hydraulics, gear, brakes, high lift
+        int[] w = wave2Numbers();
+        for (int i = 0; i < w.length; i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append(w[i]);
+        }
         return b.toString();
     }
 
@@ -1259,17 +1713,15 @@ public final class LinerSystems {
             guard[i] = c >= 16;
             pos[i] = c & 15;
         }
-        String[] p = s.substring(bar + 1).split(",");
-        int[] v = new int[p.length];
-        try {
-            for (int i = 0; i < p.length; i++) {
-                v[i] = Integer.parseInt(p[i]);
-            }
-        } catch (NumberFormatException ex) {
+        String rest = s.substring(bar + 1);
+        int bar2 = rest.indexOf('|');
+        int[] v = ints(bar2 < 0 ? rest : rest.substring(0, bar2));
+        int[] w = bar2 < 0 ? null : ints(rest.substring(bar2 + 1));
+        if (v == null || v.length < 36) {
             return;
         }
-        if (v.length < 36) {
-            return;
+        if (w != null) {
+            unpackWave2(w);
         }
         int f = v[0];
         masterWarn = (f & 1) != 0;
@@ -1331,9 +1783,26 @@ public final class LinerSystems {
         bat2.charge = v[35];
     }
 
+    /** Comma-separated integers (null: malformed). */
+    private static int[] ints(String s) {
+        String[] p = s.split(",");
+        int[] v = new int[p.length];
+        try {
+            for (int i = 0; i < p.length; i++) {
+                v[i] = Integer.parseInt(p[i]);
+            }
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+        return v;
+    }
+
     // ---------------------------------------------------------------- save
 
     public static final String K_POS = "Pos", K_ENG = "Eng", K_APU = "Apu", K_TANKS = "Tanks", K_BAT2_IN = "Bat2In", K_BAT2 = "Bat2", K_DOOR = "Door";
+    /** Wave 2: the marker (and its data): hydraulic quantities / leaks / the accumulator, the gear, brake temps, flat tyres, high lift. */
+    public static final String K_W2 = "W2", K_HYD_QTY = "HydQty", K_HYD_LEAK = "HydLeak", K_ACCU = "Accu", K_GEAR = "GearPos", K_BRK_T = "BrkT",
+            K_FLAT = "Flat", K_FLAPS = "FlapPos", K_SLATS = "SlatPos";
 
     /** Saved: the control positions by id, the engines / APU running or not (a running liner reloads running), tanks, АКБ 2. */
     public void writeNBT(NBTTagCompound t) {
@@ -1350,6 +1819,15 @@ public final class LinerSystems {
         bat2.write(b);
         t.setTag(K_BAT2, b);
         t.setBoolean(K_DOOR, door);
+        t.setBoolean(K_W2, true);
+        t.setIntArray(K_HYD_QTY, new int[] {r(hyd.qty[0] * 100), r(hyd.qty[1] * 100), r(hyd.qty[2] * 100)});
+        t.setByte(K_HYD_LEAK, (byte) ((hyd.leak[0] > 0 ? 1 : 0) | (hyd.leak[1] > 0 ? 2 : 0) | (hyd.leak[2] > 0 ? 4 : 0)));
+        t.setInteger(K_ACCU, r(hyd.accu));
+        t.setInteger(K_GEAR, r(gear.pos * 1000));
+        t.setIntArray(K_BRK_T, new int[] {r(gear.temp[0]), r(gear.temp[1]), r(gear.temp[2]), r(gear.temp[3])});
+        t.setByte(K_FLAT, (byte) gear.flat);
+        t.setInteger(K_FLAPS, r(fctl.flapPos * 100));
+        t.setInteger(K_SLATS, r(fctl.slatPos * 100));
     }
 
     public void readNBT(NBTTagCompound t) {
@@ -1388,6 +1866,39 @@ public final class LinerSystems {
             bat2.read(t.getCompoundTag(K_BAT2), BatteryMath.capacity(VehicleType.LINER));
         }
         door = t.getBoolean(K_DOOR);
+        boolean running = (t.getByte(K_ENG) & 3) != 0;
+        if (!t.hasKey(K_W2)) {
+            // a wave-1 save: the speed brake lever had no ВЗВЕД - its positions move up one; the flaps where the lever is
+            if (p.hasKey(LinerControls.SPD_BRK.id)) {
+                set(LinerControls.SPD_BRK, p.getByte(LinerControls.SPD_BRK.id) + 1);
+            }
+            fctl.flapPos = at(LinerControls.FLAPS);
+        } else {
+            int[] q = t.getIntArray(K_HYD_QTY);
+            for (int s = 0; s < 3 && q.length == 3; s++) {
+                hyd.qty[s] = Math.max(0, Math.min(LinerHyd.QTY_FULL[s], q[s] / 100.0));
+            }
+            int lk = t.getByte(K_HYD_LEAK);
+            for (int s = 0; s < 3; s++) {
+                hyd.leak[s] = (lk & 1 << s) != 0 ? LinerHyd.LEAK_RATE : 0;
+            }
+            hyd.accu = Math.max(0, Math.min(LinerHyd.ACCU_MAX, t.getInteger(K_ACCU)));
+            gear.pos = Math.max(0, Math.min(1, t.getInteger(K_GEAR) / 1000.0));
+            int[] bt = t.getIntArray(K_BRK_T);
+            for (int w = 0; w < 4 && bt.length == 4; w++) {
+                gear.temp[w] = Math.max(LinerGear.T_AMB, bt[w]);
+            }
+            gear.flat = t.getByte(K_FLAT) & 15;
+            fctl.flapPos = Math.max(0, Math.min(4, t.getInteger(K_FLAPS) / 100.0));
+            fctl.slatPos = Math.max(0, Math.min(1, t.getInteger(K_SLATS) / 100.0));
+        }
+        if (running) {
+            // a running liner reloads with its pumps' pressure (the engines run again at once)
+            for (int s = 0; s < 3; s++) {
+                hyd.psi[s] = hyd.low(s) ? 0 : LinerHyd.NOMINAL;
+            }
+            hyd.accu = Math.max(hyd.accu, hyd.psi[LinerHyd.Y]);
+        }
     }
 
     /** A copy of everything the client mirror needs (the self-test's round trip). */

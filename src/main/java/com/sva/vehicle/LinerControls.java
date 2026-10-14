@@ -315,8 +315,11 @@ public final class LinerControls {
     public static final Ctl TL2 = add("tl2", PED, INFO, null, 0, 430, 835, 44, 380);
     public static final Ctl TRIM_L = add("trimL", PED, INFO, null, 0, 150, 835, 30, 370);
     public static final Ctl TRIM_R = add("trimR", PED, INFO, null, 0, 575, 835, 30, 370);
-    /** Speed brake: retracted (armed look) / 1/2 / full (wave 1: any out = the existing airbrake). */
-    public static final Ctl SPD_BRK = add("spdBrk", PED, LEV, new String[] {"ret", "half", "full"}, 0, 80, 785, 76, 250);
+    /**
+     * Speed brake: ВЗВЕД (the ground spoilers armed - the lever pulled up above УБР; RMB from УБР) / УБР / 1/2 / ПОЛН. Wave 2
+     * put ВЗВЕД in front: a save from wave 1 (no LinerSystems.K_W2) has its position moved up one on loading.
+     */
+    public static final Ctl SPD_BRK = add("spdBrk", PED, LEV, new String[] {"arm", "ret", "half", "full"}, 1, 80, 760, 76, 300);
     /** Flaps: 0 / 1 / 2 / 3 / FULL - the liner's HighLiftMath settings. */
     public static final Ctl FLAPS = add("flaps", PED, LEV, new String[] {"0", "1", "2", "3", "full"}, 0, 657, 792, 96, 290);
     public static final Ctl ENG_MASTER1 = add("engMaster1", PED, LEV, new String[] {"off", "on"}, 0, 210, 1158, 64, 84);
@@ -335,6 +338,12 @@ public final class LinerControls {
     public static final Ctl VOL_R = rot("volR", SCR, 95, 100, 24, new String[] {"0", "1", "2", "3", "4"}, 3);
     public static final Ctl XFR_R = pb("xfrR", SCR, 390, 222, 42, null, "on", false, 0);
     public static final Ctl FLOOR_R = tog("floorR", SCR, 200, 225, 1, new String[] {"bright", "dim", "off"}, 2);
+
+    // wave 2: the gravity gear extension crank (3 turns = 3 clicks, RMB back), the brake fans, the nose-wheel steering's
+    // tow switch (БУКСИР: on - no steering)
+    public static final Ctl GEAR_GRAV = add("gearGrav", PED, LEV, new String[] {"0", "1", "2", "3"}, 0, 380, 1565, 250, 120);
+    public static final Ctl BRK_FAN = pb("brkFan", MP, 1320, 520, 42, "hot", "on", false, 0);
+    public static final Ctl TOW = tog("tow", MP, 680, 460, 1, new String[] {"on", "off"}, 1);
 
     static {
         RAT.guard = true;

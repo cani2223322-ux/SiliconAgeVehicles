@@ -52,6 +52,7 @@ final class SelfTestLinerSVA {
         textures();
         model();
         lang();
+        SelfTestLinerHydSVA.run();                                  // liner wave 2: hydraulics, flight controls, gear, brakes
         saves();
     }
 

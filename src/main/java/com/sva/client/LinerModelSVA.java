@@ -37,9 +37,12 @@ import net.minecraft.util.ResourceLocation;
  * <ul>
  * <li>the fans spin by N1; the gear's sequence by the gear lever (LinerAnim: doors open - legs fold, the mains inboard and
  * the nose forward - doors shut), the oleos extend in the air, the wheels roll, the nose wheel steers;</li>
- * <li>the surfaces from the old plane controls: ailerons, elevators, rudder (AnimMath's deflections), the roll spoilers on
- * the down-going wing, the speed brake / ground spoilers, the slats, the Fowler flaps (travel + turn) with their
- * fairings - all about the rig's real hinge axes; wave 2 adds the hydraulics and the drooping;</li>
+ * <li>the surfaces - wave 2: LinerFctl's angles (each client moves them from the stick it sees and the synced pressures:
+ * powered ones follow, unpowered ones droop - ailerons and elevators down, spoilers flat), the THS, the roll spoilers on
+ * the down-going wing, the speed brake / ground spoilers, the slats and the Fowler flaps (travel + turn) with their
+ * fairings where the hydraulics have moved them - all about the rig's real hinge axes;</li>
+ * <li>wave 2: the gear where the server has it (Green, the gravity extension with the doors left open), a flat tyre's
+ * wheel group sagging, the brakes glowing red by their temperature (the hubs drawn again, additive);</li>
  * <li>the L1 door and the airstairs, the APU inlet flap, the retractable landing lights;</li>
  * <li>the lights by the overhead's switches: nav / logo, strobes and beacons flashing, landing, taxi / T.O., runway turn-off,
  * wing - drawn unlit (full bright) when on, dull when off.</li>
@@ -60,6 +63,8 @@ public final class LinerModelSVA {
     private static final class GL {
         final String name;
         int plain, livery, spinner, cascade;
+        /** Wave 2: the main wheels' hubs (material "gear") split inner / outer - the brakes' glow. */
+        int hubIn, hubOut;
         final List<String> emitMat = new ArrayList<String>();
         final List<Integer> emitList = new ArrayList<Integer>();
 
@@ -167,6 +172,14 @@ public final class LinerModelSVA {
                 GL11.glEnd();
                 GL11.glEndList();
             }
+            if (g.name.startsWith("mlgwheels")) {
+                for (LinerModelData.Mat mt : g.mats) {
+                    if ("gear".equals(mt.name)) {
+                        gl.hubIn = hubList(mt.v, true);
+                        gl.hubOut = hubList(mt.v, false);
+                    }
+                }
+            }
             for (LinerModelData.Mat mt : g.mats) {
                 LinerModelData.Material ma = mats.get(mt.name);
                 if (LinerModelData.livery(mt.name)) {
@@ -218,6 +231,30 @@ public final class LinerModelSVA {
             out.add(gl);
         }
         return out;
+    }
+
+    /** Wave 2: |z| of the main wheels' axle centre - the inner wheel's triangles are nearer the fuselage. */
+    static final float WHEEL_SPLIT_Z = 1.95F;
+
+    /** The triangles of a hub mesh on one side of WHEEL_SPLIT_Z (inner: |z| less). */
+    private static int hubList(float[] v, boolean inner) {
+        int l = GL11.glGenLists(1);
+        GL11.glNewList(l, GL11.GL_COMPILE);
+        GL11.glBegin(GL11.GL_TRIANGLES);
+        for (int t = 0; t + 18 <= v.length; t += 18) {
+            float cz = Math.abs((v[t + 2] + v[t + 8] + v[t + 14]) / 3);
+            if (cz < WHEEL_SPLIT_Z != inner) {
+                continue;
+            }
+            for (int k = 0; k < 3; k++) {
+                int o = t + k * 6;
+                GL11.glNormal3f(v[o + 3], v[o + 4], v[o + 5]);
+                GL11.glVertex3f(v[o], v[o + 1], v[o + 2]);
+            }
+        }
+        GL11.glEnd();
+        GL11.glEndList();
+        return l;
     }
 
     private static void verts(float[] v, String uvMat, float[] uv) {
@@ -302,41 +339,35 @@ public final class LinerModelSVA {
         LinerAnim la = v.linerAnim;
         LinerSystems L = v.liner();
         boolean animate = ConfigSVA.animations;
-        float ail = animate ? AnimMath.lerp(an.prevAileron, an.aileron, pt) : 0F;
-        float elev = animate ? AnimMath.lerp(an.prevElevator, an.elevator, pt) : 0F;
-        float rud = animate ? AnimMath.lerp(an.prevRudder, an.rudder, pt) : 0F;
         float steer = animate ? AnimMath.lerp(an.prevSteer, an.steer, pt) : 0F;
-        float flapPos = animate ? AnimMath.lerp(an.prevFlapPos, an.flapPos, pt) : v.getFlaps();
-        float flapDeg = HighLiftMath.LINER.angleAt(flapPos);
-        float slat = animate ? AnimMath.lerp(an.prevSlat, an.slat, pt) : v.slatsOut() ? 1F : 0F;
-        float spoil = animate ? AnimMath.lerp(an.prevSpoiler, an.spoiler, pt) : v.spoilersUp() ? 1F : 0F;
-        boolean ground = v.groundSpoilersUp();
-        // ailerons (+ = TE down): a right bank - the right one up, the left one down
-        p.set("aileron_R", -ail * 1.1F, 0).set("aileron_L", ail * 1.1F, 0);
-        p.set("elevator_R", -elev * 1.2F, 0).set("elevator_L", -elev * 1.2F, 0);
-        p.set("rudder", rud * 1.2F, 0);
-        for (String s : new String[] {"_R", "_L"}) {
-            p.set("flap1" + s, flapDeg, flapDeg / 35F).set("flap2" + s, flapDeg, flapDeg / 35F);
-            for (int i = 1; i <= 3; i++) {
-                p.set("fair" + i + s, flapDeg * 0.5F, 0);
-            }
-            for (int i = 1; i <= 5; i++) {
-                p.set("slat" + i + s, slat * 27F, 0);
-            }
-            // spoilers: the speed brake 2..4 (40), the ground spoilers all five (50), roll on the down-going wing 2..5
-            boolean right = "_R".equals(s);
-            float rollUp = Math.max(0F, (right ? ail : -ail)) / AnimMath.MAX_SURFACE * 35F;
-            for (int i = 1; i <= 5; i++) {
-                float a = ground ? spoil * 50F : i >= 2 && i <= 4 ? spoil * 40F : 0F;
-                if (i >= 2) {
-                    a = Math.max(a, rollUp);
+        // wave 2: the surfaces where LinerFctl has them (rig: ailerons / elevators + = TE down, rudder + = TE right,
+        // spoilers + = up, the THS + = nose up - the leading edge down about its -z axis)
+        if (L != null) {
+            com.sva.vehicle.LinerFctl f = L.fctl;
+            float k = animate ? 1F : 0F;
+            p.set("aileron_L", f.at(com.sva.vehicle.LinerFctl.AIL_L, pt) * k, 0).set("aileron_R", f.at(com.sva.vehicle.LinerFctl.AIL_R, pt) * k, 0);
+            p.set("elevator_L", f.at(com.sva.vehicle.LinerFctl.ELEV_L, pt) * k, 0).set("elevator_R", f.at(com.sva.vehicle.LinerFctl.ELEV_R, pt) * k, 0);
+            p.set("rudder", f.at(com.sva.vehicle.LinerFctl.RUD, pt) * k, 0).set("ths", f.at(com.sva.vehicle.LinerFctl.THS, pt) * k, 0);
+            float flapPos = animate ? LinerAnim.lerp(la.prevFlap, la.flap, pt) : (float) f.flapPos;
+            float flapDeg = HighLiftMath.LINER.angleAt(flapPos);
+            float slat = animate ? LinerAnim.lerp(la.prevSlat, la.slat, pt) : (float) f.slatPos;
+            for (String s : new String[] {"_R", "_L"}) {
+                p.set("flap1" + s, flapDeg, flapDeg / 35F).set("flap2" + s, flapDeg, flapDeg / 35F);
+                for (int i = 1; i <= 3; i++) {
+                    p.set("fair" + i + s, flapDeg * 0.5F, 0);
                 }
-                p.set("spoiler" + i + s, Math.min(50F, a), 0);
+                for (int i = 1; i <= 5; i++) {
+                    p.set("slat" + i + s, slat * 27F, 0);
+                }
+                int base = "_R".equals(s) ? com.sva.vehicle.LinerFctl.SPL_R : com.sva.vehicle.LinerFctl.SPL_L;
+                for (int i = 1; i <= 5; i++) {
+                    p.set("spoiler" + i + s, f.at(base + i - 1, pt) * k, 0);
+                }
             }
         }
-        // gear: the legs, the doors, the oleos, the wheels, the nose steering
+        // gear: the legs, the doors (open after a gravity extension), the oleos, the wheels, the nose steering
         float g = LinerAnim.lerp(la.prevGear, la.gear, pt);
-        float legs = LinerAnim.legs(g), doors = LinerAnim.doors(g);
+        float legs = LinerAnim.legs(g, la.gravity), doors = LinerAnim.doors(g, la.gravity);
         p.set("mlg_R", LinerAnim.MLG_DEG * legs, 0).set("mlg_L", LinerAnim.MLG_DEG * legs, 0).set("nlg", LinerAnim.NLG_DEG * legs, 0);
         p.set("mlgdoor_R", LinerAnim.GEAR_DOOR_DEG * doors, 0).set("mlgdoor_L", LinerAnim.GEAR_DOOR_DEG * doors, 0);
         p.set("nlgdoor_R", LinerAnim.GEAR_DOOR_DEG * doors, 0).set("nlgdoor_L", LinerAnim.GEAR_DOOR_DEG * doors, 0);
@@ -345,7 +376,13 @@ public final class LinerModelSVA {
         double rolled = animate ? an.prevRoll + (an.roll - an.prevRoll) * pt : 0;
         float wm = AnimMath.wheelAngle(rolled, 0.30F), wn = AnimMath.wheelAngle(rolled, 0.20F);
         p.set("mlgwheels_R", wm, 0).set("mlgwheels_L", wm, 0).set("nlgwheels", wn, 0);
-        p.set("nlgsteer", -steer * 2F, 0);
+        if (L != null && L.gear.nws) {
+            // wave 2: the nose wheel by the tiller (slow) / the pedals (fast) on Yellow; without it it castors
+            double mx = v.posX - v.prevPosX, mz = v.posZ - v.prevPosZ;
+            p.set("nlgsteer", -(float) L.gear.steerAngle(an.ctlYaw, Math.sqrt(mx * mx + mz * mz)), 0);
+        } else {
+            p.set("nlgsteer", -steer * 0.5F, 0);
+        }
         // fans, the door and stairs, the APU inlet, the landing lights
         p.set("fan_R", LinerAnim.fan(la.prevFanR, la.fanR, pt), 0).set("fan_L", LinerAnim.fan(la.prevFanL, la.fanL, pt), 0);
         float door = LinerAnim.lerp(la.prevDoor, la.door, pt), st = LinerAnim.lerp(la.prevStairs, la.stairs, pt);
@@ -374,6 +411,13 @@ public final class LinerModelSVA {
                 continue;
             }
             GL11.glPushMatrix();
+            if (L != null && L.gear.flat != 0 && g.name.startsWith("mlg") && !g.name.startsWith("mlgdoor") && !g.name.startsWith("mlgwell")) {
+                // wave 2: a flat tyre - its side's wheels (and leg) sit a little lower
+                boolean left = g.name.endsWith("_L");
+                if ((L.gear.flat & (left ? 3 : 12)) != 0 && g.name.startsWith("mlgwheels")) {
+                    GL11.glTranslatef(0F, -com.sva.vehicle.LinerGear.FLAT_SAG, 0F);
+                }
+            }
             transform(g.name, pose);
             if (g.plain != 0) {
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -408,6 +452,9 @@ public final class LinerModelSVA {
                 }
                 GL11.glCallList(list);
             }
+            if (g.hubIn != 0 && L != null && ConfigSVA.linerBrakeGlow) {
+                brakeGlow(g, L, lastBx, lastBy);
+            }
             for (int i = 0; i < g.emitList.size(); i++) {
                 String m = g.emitMat.get(i);
                 LinerModelData.Material ma = mats.get(m);
@@ -428,6 +475,44 @@ public final class LinerModelSVA {
             GL11.glPopMatrix();
         }
         GL11.glDisable(GL11.GL_TEXTURE_2D);
+    }
+
+    /** The glow's share at a brake temperature (0 under GLOW_FROM °C, 1 at GLOW_FULL). */
+    static float glow(double temp) {
+        return (float) Math.max(0, Math.min(1, (temp - GLOW_FROM) / (GLOW_FULL - GLOW_FROM)));
+    }
+
+    static final double GLOW_FROM = 150, GLOW_FULL = 700;
+
+    /**
+     * Wave 2: the hot brakes glow - the hubs drawn again unlit and additive in red by their temperature (wheels 1 / 2 left
+     * outer / inner, 3 / 4 right inner / outer).
+     */
+    private static void brakeGlow(GL g, LinerSystems L, float bx, float by) {
+        boolean left = g.name.endsWith("_L");
+        double tIn = L.gear.temp[left ? 1 : 2], tOut = L.gear.temp[left ? 0 : 3];
+        float kIn = glow(tIn), kOut = glow(tOut);
+        if (kIn <= 0 && kOut <= 0) {
+            return;
+        }
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE);
+        GL11.glDepthFunc(GL11.GL_LEQUAL);
+        GL11.glDepthMask(false);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+        for (int i = 0; i < 2; i++) {
+            float k = i == 0 ? kIn : kOut;
+            if (k > 0) {
+                GL11.glColor3f(0.85F * k, 0.16F * k * k, 0.02F * k);
+                GL11.glCallList(i == 0 ? g.hubIn : g.hubOut);
+            }
+        }
+        GL11.glDepthMask(true);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glEnable(GL11.GL_LIGHTING);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
     }
 
     /** A light material on (by its switch on the overhead; strobes and beacons flash). */

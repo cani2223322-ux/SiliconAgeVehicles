@@ -615,7 +615,7 @@ public final class LinerPaintSVA {
         for (int i = 0; i < 4; i++) {
             p.pb(fx2[i], 270, fn2[i], "ОТКАЗ", O, "ВЫКЛ", WHT);
         }
-        p.window(1670, 350, "НОРМ", 80, 22, GRN, 13, 'm');
+        p.window(1670, 350, null, 80, 22, GRN, 13, 'm');          // wave 2: the law is drawn live (LinerCockpitSVA.windows)
         p.label(1555, 350, "ЗАКОН:", 12);
         // HYD
         p.group(40, 430, 540, 740, "ГИДР");
@@ -826,6 +826,12 @@ public final class LinerPaintSVA {
             p.label(1175, 360 + i * 70 + 30, ab[i], 9.5);
         }
         p.label(1175, 330, "АВТОТОРМОЗ", 8.5);
+        // wave 2: the brake fans, the gear's three lights, the nose-wheel steering's tow switch
+        p.pb(1320, 520, "ВЕНТ. ТОРМ.", "ГОРЯЧ", AMB, "ВКЛ", BLU, 42, false, 13.5, 7.5);
+        p.rect(1270, 375, 1330, 440, rgb(20, 21, 23), 6);
+        p.label(1300, 362, "ШАССИ", 8.5);
+        p.toggle(680, 460, new String[] {"ВКЛ", "ВЫКЛ"}, null, false, 9, true, 1);
+        p.label(680, 505, "БУКСИР ПОШ", 9.5);
         p.rect(1212, 330, 1246, 600, rgb(24, 25, 27), 6);
         p.rect(1222, 338, 1236, 592, rgb(8, 8, 9), 4);
         p.label(1229, 316, "ШАССИ", 9.5);
@@ -926,8 +932,9 @@ public final class LinerPaintSVA {
         }
         p.rect(300, TL_IDLE + 18, 460, TL_IDLE + 22, rgb(200, 160, 40));
         // speed brake
-        p.text(80, 640, "ИНТЕРЦ.", 12, p.lab, "mm", 'n', LIT);
-        p.rect(74, 670, 86, 900, rgb(10, 10, 12), 6);
+        p.text(80, 620, "ИНТЕРЦ.", 12, p.lab, "mm", 'n', LIT);
+        p.rect(74, 632, 86, 900, rgb(10, 10, 12), 6);
+        p.label(62, 642, "ВЗВЕД", 9.5, "rm");                    // wave 2: the ground spoilers armed (the lever pulled up)
         p.label(62, 678, "УБР", 10.5, "rm");
         p.label(62, 780, "1/2", 10.5, "rm");
         p.label(62, 890, "ПОЛН", 10.5, "rm");

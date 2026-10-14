@@ -22,12 +22,14 @@ import net.minecraft.util.IIcon;
  * «Сервисный набор АКБ» (right-click a vehicle with its engine off: 5 s, +15 % health for an electrolyte from the
  * inventory) and «Пусковые провода» (right-click the donor, then your vehicle within 6 blocks: up to 25 % of the battery
  * in 10 s). The vehicle does the work (EntityVehicleSVA.interactFirst); the cables keep the donor in their NBT.
+ * Liner wave 2: «Гидрожидкость» (meta 3) - right-click the liner: its three hydraulic reservoirs full, the leaks stopped;
+ * in the repair garage's material slots the «Чинить всё» job of a liner takes one for the same.
  */
 public class ItemBatteryToolSVA extends Item {
 
-    public static final int ELECTROLYTE = 0, KIT = 1, CABLES = 2, KINDS = 3;
+    public static final int ELECTROLYTE = 0, KIT = 1, CABLES = 2, HYD_FLUID = 3, KINDS = 4;
     /** Lang / icon keys (APPEND-ONLY with the metas). */
-    public static final String[] KEYS = {"electrolyte", "batteryKit", "jumpCables"};
+    public static final String[] KEYS = {"electrolyte", "batteryKit", "jumpCables", "hydFluid"};
     /** The cables' NBT: the donor vehicle's entity id and its vehicle id. */
     public static final String K_DONOR = "Donor", K_DONOR_ID = "DonorVeh";
 
@@ -54,7 +56,7 @@ public class ItemBatteryToolSVA extends Item {
 
     @Override
     public int getItemStackLimit(ItemStack s) {
-        return kind(s) == ELECTROLYTE ? 16 : 1;
+        return kind(s) == ELECTROLYTE || kind(s) == HYD_FLUID ? 16 : 1;
     }
 
     @Override
@@ -81,6 +83,11 @@ public class ItemBatteryToolSVA extends Item {
                 }
                 TooltipSC.more(list, Lang.tr(key + ".details", Integer.valueOf((int) Math.round(BatteryMath.DONOR_MIN * 100)),
                         Integer.valueOf((int) BatteryMath.JUMP_RANGE)), Lang.tr("sva.tooltip.howto." + KEYS[k]));
+                break;
+            case HYD_FLUID:
+                list.add(Lang.tr(key));
+                TooltipSC.more(list, Lang.tr(key + ".details", Integer.valueOf((int) Math.round(com.sva.vehicle.LinerHyd.LOW_QTY * 100))),
+                        Lang.tr("sva.tooltip.howto." + KEYS[k]));
                 break;
             default:
                 list.add(Lang.tr(key));

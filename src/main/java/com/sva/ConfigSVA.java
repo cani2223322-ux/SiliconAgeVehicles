@@ -190,6 +190,12 @@ public final class ConfigSVA {
     public static boolean linerLod = true;
     /** Liner wave 1 (client): the passenger cabin drawn (inside it or near the open door); off - never. */
     public static boolean linerCabin = true;
+    /** Liner wave 2: the chance of a hydraulic leak per hour of pressurised running (0 = never). */
+    public static double linerHydLeakChance = 0.03;
+    /** Liner wave 2: the PTU's «bark» (single-engine taxi) as a sound. */
+    public static boolean linerPtuSound = true;
+    /** Liner wave 2 (client): hot brakes glow red on the model. */
+    public static boolean linerBrakeGlow = true;
     /** Client (cockpit wave): the helicopter's radar altimeter calls «50.. 40.. 30..» on the descent. */
     public static boolean radarAltCallouts = true;
     /** How the callouts come: "sound" (a tone each), "flash" (the number flashed on the HUD, no chat), "both". */
@@ -455,6 +461,15 @@ public final class ConfigSVA {
             linerCabin = c.getBoolean("linerCabin", v, true,
                     "Liner: draw the passenger cabin (inside it or near the open L1 door) (client) / Лайнер: рисовать салон (внутри или у открытой"
                             + " двери L1) (клиент)");
+            linerHydLeakChance = sanitize((float) c.getFloat("linerHydLeakChance", v, 0.03F, 0F, 1F,
+                    "Liner: the chance of a hydraulic leak per hour of pressurised running (the reservoir empties in ~40 s - 'Hydraulic fluid'"
+                            + " refills it); 0 - never / Лайнер: вероятность течи гидросистемы за час работы под давлением (бак пустеет за ~40 с -"
+                            + " 'Гидрожидкость' доливает); 0 - никогда"),
+                    0.03F, 0F, 1F);
+            linerBrakeGlow = c.getBoolean("linerBrakeGlow", v, true,
+                    "Liner: hot brakes glow red on the model (client) / Лайнер: горячие тормоза светятся красным на модели (клиент)");
+            linerPtuSound = c.getBoolean("linerPtuSound", v, true,
+                    "Liner: the PTU's 'barking' during single-engine taxi as a sound / Лайнер: 'лай' PTU при рулении на одном двигателе - звуком");
             radarAltCallouts = c.getBoolean("radarAltCallouts", v, true,
                     "Helicopter radar altimeter callouts 50.. 40.. 30.. 20.. 10 on the descent (client) / "
                             + "Радиовысотомер вертолёта отсчитывает 50.. 40.. 30.. 20.. 10 при снижении (клиент)");

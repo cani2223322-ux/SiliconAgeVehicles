@@ -21,7 +21,10 @@ import com.sva.vehicle.VehicleType;
  * (the flaps' lower stall gives it more climb at a low speed; the airbrake only adds drag under the autopilot).
  * Liner wave 1: the thrust term sees the SA-320's two engines (LinerSystems.thrust - their N1 with the spool's lag, a dead
  * engine half the thrust) instead of the throttle x the engine's power, uneven thrust yaws it (LinerLogicSVA.ASYM_*), and
- * the parking brake holds it on the ground.
+ * the parking brake holds it on the ground. Liner wave 2: the wheel brakes are LinerGear's (the hydraulic mode, the
+ * anti-skid on the ground's grip, the autobrake, the parking brake on the accumulator, flat tyres' drag), the ground turn is
+ * the nose-wheel steering's (Yellow: the tiller slow, the pedals fast) or differential braking; in the air the turn and
+ * the pitch keys work by the powered surfaces (LinerFctl's authority x the law's gain).
  */
 public final class PlanePhysicsSVA {
 
@@ -67,15 +70,25 @@ public final class PlanePhysicsSVA {
             speed += PlaneMath.airAccel(t, p, speed, thr * pw, vy, vy > 0, powered, mul);
         } else if (air) {
             vy = PlaneMath.airVy(p, speed, v.motionY, up, down, powered, v.posY);
+            if (liner != null && (up || down)) {
+                // liner wave 2: the elevators / THS that work give the pitch keys their share (all lost - the trim wheel's)
+                double level = PlaneMath.airVy(p, speed, v.motionY, false, false, powered, v.posY);
+                vy = level + (vy - level) * Math.min(1, liner.fctl.pitchAuthority() * liner.fctl.lawGain());
+            }
             speed += PlaneMath.airAccel(t, p, speed, thr * pw, vy, up, powered, mul);
         } else {
             boolean runway = v.onRunway();
             speed += PlaneMath.accel(t, p, speed, thr * pw, false, runway, mul);
-            if (back && thr <= 0) {
+            if (liner != null) {
+                // liner wave 2: the hydraulic brakes (the pedals = S at idle, the autobrake, the parking brake), flat tyres
+                com.sva.vehicle.LinerGear g = liner.gear;
+                if (thr <= 0 && speed > 0) {
+                    speed -= PlaneMath.ROLL * p.brake * (g.rollingMul() - 1);
+                }
+                speed -= g.decel(back && thr <= 0, speed, v.linerMu(), liner.on(com.sva.vehicle.LinerControls.PARK_BRK));
+                speed -= g.diffDrag((right ? 1 : 0) - (left ? 1 : 0));
+            } else if (back && thr <= 0) {
                 speed -= PlaneMath.brake(p, runway);
-            }
-            if (liner != null && liner.on(com.sva.vehicle.LinerControls.PARK_BRK)) {
-                speed -= LinerLogicSVA.PARK_BRAKE;                  // liner wave 1: the parking brake holds it
             }
             speed = Math.max(0, speed);
             vy = up && powered && speed >= p.liftOff ? p.rotateVy : -0.08;
@@ -87,9 +100,14 @@ public final class PlanePhysicsSVA {
             v.rotationYaw = (float) CruiseMath.headingStep(v.rotationYaw, wantYaw, t.turnRate * VehicleMath.clamp(speed / p.stall, 0, 1));
         } else if (auto) {
             // stage C: no heading mode - wings level, no turning
+        } else if (liner != null && !air) {
+            v.rotationYaw += (float) liner.gear.turnRate(steer, speed, t.turnRate);   // liner wave 2: the nose-wheel steering
         } else if (steer != 0 && speed > 0) {
             double rate = air ? t.turnRate * VehicleMath.clamp(speed / p.stall, 0, 1)
                     : t.turnRate * 0.7 * Math.min(1, speed / 0.12);
+            if (liner != null) {
+                rate *= liner.fctl.rollAuthority() * liner.fctl.lawGain();      // liner wave 2: what the powered surfaces give
+            }
             v.rotationYaw += steer * rate;
         }
         if (liner != null && speed > 0.02) {

@@ -18,6 +18,10 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * control packets (validated: only the two pilots), the quick start, the L1 door. The vehicle's old words follow the
  * liner's state, so everything that reads them keeps working: the D2 engine state (RUN while either engine runs - the
  * HUD, the sounds, hasLift), the switch word (the lights, the INS), the board battery word (powered()).
+ * <p>
+ * Wave 2: the pilot's keys become the stick (A / D roll and pedals, Space / «Снижение» pitch) and the brake pedals (S at
+ * idle on the ground) for the hydraulics / flight controls / gear (LinerHyd, LinerFctl, LinerGear); the ground's grip and
+ * the height; the PTU's bark, the RAT, the gear and a melted fuse plug as sounds; «Гидрожидкость» on the aircraft (refill).
  */
 public final class LinerLogicSVA {
 
@@ -36,7 +40,7 @@ public final class LinerLogicSVA {
      * charge, the H2 burnt, the old engine / switch / battery words, the sounds. @return EU for the tick's cost (0: the
      * liner's energy is its batteries, handled here)
      */
-    static double tick(EntityVehicleSVA v, boolean pilot) {
+    static double tick(EntityVehicleSVA v, boolean pilot, int in) {
         LinerSystems L = v.state.liner();
         if (L == null) {
             return 0;
@@ -52,6 +56,17 @@ public final class LinerLogicSVA {
         e.random = v.rand().nextDouble();
         e.failChance = Math.max(0, Math.min(0.5, ConfigSVA.linerStartFailChance));
         e.quickAllowed = ConfigSVA.linerQuickStart;
+        // wave 2: the stick, the pedals, the ground speed, the grip, the height, the leak chance
+        boolean left = (in & EntityVehicleSVA.IN_LEFT) != 0, right = (in & EntityVehicleSVA.IN_RIGHT) != 0;
+        boolean up = (in & EntityVehicleSVA.IN_BRAKE) != 0, down = (in & (EntityVehicleSVA.IN_DOWN | EntityVehicleSVA.IN_BOOST)) != 0;
+        e.roll = e.yaw = (right ? 1F : 0F) - (left ? 1F : 0F);
+        e.pitch = (up ? 1F : 0F) - (down ? 1F : 0F);
+        e.ground = e.ground && !v.debugLinerAir;
+        e.pedal = e.ground && (in & EntityVehicleSVA.IN_BACK) != 0 && v.throttle <= 0;
+        e.speed = Math.max(0, v.speed);
+        e.mu = v.linerMu();
+        e.height = v.debugLinerAir ? 100 : v.linerHeight();
+        e.leakChance = Math.max(0, ConfigSVA.linerHydLeakChance);
         boolean instant = EntityVehicleSVA.testInstantEngine && !v.debugEngineManual;
         if (instant && pilot) {
             // the older world tests fly every aircraft at once: the liner's batteries and masters on, the engines at idle
@@ -61,6 +76,7 @@ public final class LinerLogicSVA {
             L.set(LinerControls.ENG_MASTER2, 1);
             L.set(LinerControls.PARK_BRK, 0);
             e.instant = true;
+            e.instantHyd = !v.debugLinerAir;                        // wave 2's gear test wants the real timing
         }
         // the tanks against the vehicle's H2 (a station / a cell / the column filled it)
         L.reconcile(h2(v), FuelMath.tank(VehicleType.LINER));
@@ -105,6 +121,21 @@ public final class LinerLogicSVA {
         }
         if ((L.events & LinerSystems.E_CLICK) != 0) {
             v.vanillaClick(0.3F, 1.5F);
+        }
+        // wave 2: the PTU's bark (single-engine taxi), the RAT dropping out, the gear's thump, a fuse plug blowing
+        if ((L.events & LinerSystems.E_PTU) != 0 && ConfigSVA.linerPtuSound) {
+            v.vanillaSound("mob.wolf.bark", 0.18F, 0.55F);
+        }
+        if ((L.events & LinerSystems.E_RAT) != 0) {
+            v.vanillaSound("random.door_open", 0.7F, 0.6F);
+            v.tellRidersKey("sva.liner.msg.ratOut");
+        }
+        if ((L.events & LinerSystems.E_GEAR) != 0) {
+            v.oneShot("door", 0.4F, 0.6F);
+        }
+        if ((L.events & LinerSystems.E_FUSE) != 0) {
+            v.vanillaSound("random.fizz", 0.8F, 0.7F);
+            v.tellRidersKey("sva.liner.msg.fusePlug");
         }
         if (quickBefore != LinerSystems.QUICK_OFF && L.quick == LinerSystems.QUICK_OFF) {
             v.tellRidersKey("done".equals(L.quickWhy) ? "sva.liner.quick.done" : "sva.liner.quick.stopped." + L.quickWhy);
@@ -157,9 +188,38 @@ public final class LinerLogicSVA {
         }
     }
 
-    /** The levers that drive the old high-lift state: flaps and the speed brake (the server's flaps / airbrake). */
+    /**
+     * The old high-lift state from the liner's: the flaps where the hydraulics have moved them (wave 2), the speed brake's
+     * lever at 1/2 or ПОЛН with its spoilers powered.
+     */
     static void applyLevers(EntityVehicleSVA v, LinerSystems L) {
-        v.linerHighLift(L.at(LinerControls.FLAPS), L.at(LinerControls.SPD_BRK) > 0);
+        v.linerHighLift(L.fctl.flapSetting(), L.at(LinerControls.SPD_BRK) >= 2 && L.fctl.speedBrakeWorks());
+    }
+
+    /**
+     * Wave 2: «Гидрожидкость» used on the liner (server) - all three reservoirs full, the leaks stopped; one item used
+     * (creative: free). Not a liner / nothing to fill: a line in the chat.
+     */
+    static void refill(EntityVehicleSVA v, EntityPlayer p, net.minecraft.item.ItemStack held) {
+        LinerSystems L = v.state.liner();
+        if (L == null) {
+            v.msgTo(p, "sva.liner.msg.fluid.notLiner");
+            return;
+        }
+        if (!L.hyd.needsFluid()) {
+            v.msgTo(p, "sva.liner.msg.fluid.full");
+            return;
+        }
+        L.hyd.refill();
+        if (!p.capabilities.isCreativeMode) {
+            held.stackSize--;
+            if (held.stackSize <= 0) {
+                p.inventory.setInventorySlotContents(p.inventory.currentItem, null);
+            }
+        }
+        v.vanillaSound("liquid.water", 0.5F, 1.4F);
+        v.msgTo(p, "sva.liner.msg.fluid.done");
+        v.syncNow();
     }
 
     /** «Быстрый запуск» from the menu / the key (the pilot). */

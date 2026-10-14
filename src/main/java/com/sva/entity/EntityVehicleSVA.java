@@ -471,6 +471,68 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         syncWatcher();
     }
 
+    // liner wave 2: the slats' automatic rule for the next tick's systems, the height over the ground, the grip under the
+    // wheels, the world test's «in the air» for the systems alone
+    boolean linerSlatsAuto;
+    private double linerAgl, linerMuNow = com.sva.vehicle.LinerGear.MU_DRY;
+    private int linerAglAt = -100, linerMuAt = -100;
+    /** World tests: the liner's systems believe it flies (the gear's logic) while it stands on its test strip. */
+    public boolean debugLinerAir;
+
+    void vanillaSound(String name, float volume, float pitch) {
+        vanillaShot(name, volume, pitch);
+    }
+
+    /** Liner wave 2, server: the height over the ground (blocks; a column scan every 10 ticks, up to 250). */
+    double linerHeight() {
+        if (ticksExisted - linerAglAt >= 10 || ticksExisted < linerAglAt) {
+            linerAglAt = ticksExisted;
+            int x = MathHelper.floor_double(posX), z = MathHelper.floor_double(posZ), y0 = MathHelper.floor_double(posY);
+            double h = 250;
+            for (int y = y0; y > Math.max(0, y0 - 250); y--) {
+                if (!worldObj.isAirBlock(x, y, z)) {
+                    h = Math.max(0, posY - (y + 1));
+                    break;
+                }
+            }
+            linerAgl = h;
+        }
+        return linerAgl;
+    }
+
+    /**
+     * Liner wave 2, both sides: the grip under the wheels (LinerGear.MU_*) - ice / packed ice, snow, water or rain on an
+     * open surface, else dry; looked at every 10 ticks.
+     */
+    public double linerMu() {
+        if (worldObj == null) {
+            return com.sva.vehicle.LinerGear.MU_DRY;
+        }
+        if (ticksExisted - linerMuAt >= 10 || ticksExisted < linerMuAt) {
+            linerMuAt = ticksExisted;
+            int x = MathHelper.floor_double(posX), z = MathHelper.floor_double(posZ), y = MathHelper.floor_double(posY + 0.01);
+            net.minecraft.block.Block at = worldObj.getBlock(x, y, z), under = worldObj.getBlock(x, y - 1, z);
+            net.minecraft.block.material.Material m = at.getMaterial(), mu = under.getMaterial();
+            double g = com.sva.vehicle.LinerGear.MU_DRY;
+            if (under == net.minecraft.init.Blocks.ice || under == net.minecraft.init.Blocks.packed_ice) {
+                g = com.sva.vehicle.LinerGear.MU_ICE;
+            } else if (m == net.minecraft.block.material.Material.snow || mu == net.minecraft.block.material.Material.craftedSnow
+                    || mu == net.minecraft.block.material.Material.snow) {
+                g = com.sva.vehicle.LinerGear.MU_SNOW;
+            } else if (m == net.minecraft.block.material.Material.water || worldObj.isRaining() && worldObj.canBlockSeeTheSky(x, y, z)) {
+                g = com.sva.vehicle.LinerGear.MU_WET;
+            }
+            linerMuNow = g;
+        }
+        return linerMuNow;
+    }
+
+    /** Liner wave 2: the garage's / the service item's work - hydraulic fluid in (refill), the brakes and tyres. */
+    public boolean linerNeedsService() {
+        com.sva.vehicle.LinerSystems L = state.liner();
+        return L != null && (L.gear.flat != 0 || L.hyd.needsFluid());
+    }
+
     /** Client: seat entities that found this body (positioned here each tick). */
     final List<EntitySeatSVA> clientSeats = new ArrayList<EntitySeatSVA>();
 
@@ -1625,6 +1687,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     public void garageRepaired(boolean all) {
         state.hp = state.maxHp();
         state.fails = 0;                                            // D2 (★7): the failures repaired
+        if (all && state.liner() != null) {
+            state.liner().gear.service();                           // liner wave 2: new tyres, the brakes cooled
+        }
         ice = 0;
         if (all) {
             state.heat = 0;
@@ -1688,7 +1753,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     /** The flap setting (0 .. the type's last; 0 without high-lift devices). Server: now; clients: synced. Stage C's indicator. */
     public int getFlaps() {
         if (remote() && getVehicleType() == VehicleType.LINER && liner() != null) {
-            return liner().at(com.sva.vehicle.LinerControls.FLAPS);  // liner wave 1: five settings (the word has 2 bits)
+            return liner().fctl.flapSetting();                       // liner wave 1: five settings (the word has 2 bits); wave 2: reached
         }
         return remote() ? hiLiftBits() & HighLiftMath.P_FLAPS : flaps;
     }
@@ -1767,11 +1832,15 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             flapWarn--;
         }
         if (t == VehicleType.LINER && state.liner() != null) {
-            // liner wave 1: the flap and speed brake levers set them (no blow-back - the A320's flaps stay where the lever is;
-            // wave 2 adds the hydraulics); the slats and the ground spoilers as on the other aircraft
-            LinerLogicSVA.applyLevers(this, state.liner());
-            slats = plane && HighLiftMath.slats(s, slats, as, HighLiftMath.aoa(t.plane.stall, as, dy), flaps);
-            boolean gs0 = plane && HighLiftMath.groundSpoilers(s, groundSpoilers, wasAirborne, air, throttle, as);
+            // liner wave 1: the flap and speed brake levers set them (no blow-back - the A320's flaps stay where the lever is);
+            // wave 2: the hydraulics move them (LinerFctl: the flaps / slats where they have got to, the speed brake and the
+            // ground spoilers - armed + touch-down or the RTO - only with their spoilers powered); the slats' automatic rule
+            // goes to the next tick's systems
+            com.sva.vehicle.LinerSystems L = state.liner();
+            LinerLogicSVA.applyLevers(this, L);
+            linerSlatsAuto = plane && HighLiftMath.slats(s, linerSlatsAuto, as, HighLiftMath.aoa(t.plane.stall, as, dy), flaps);
+            slats = plane && L.fctl.slatsOut();
+            boolean gs0 = plane && L.fctl.groundSpoilersWork();
             if (gs0 && !groundSpoilers) {
                 oneShot("door", 0.3F, 1.5F);
             }
@@ -2015,7 +2084,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
      */
     private double systemsTick(VehicleType t, boolean motorOn, int in, boolean pilot) {
         if (t == VehicleType.LINER) {
-            return LinerLogicSVA.tick(this, pilot);                 // liner wave 1: its own systems drive the old words
+            return LinerLogicSVA.tick(this, pilot, motorOn ? in : 0);   // liner wave 1: its own systems drive the old words
         }
         boolean d2 = SystemsMath.applies(t), h2 = state.hydrogen();
         if (!d2 && !h2) {
@@ -2774,7 +2843,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             if (ConfigSVA.wear && (state.fails & SystemsMath.F_ENGINE) != 0 && SystemsMath.applies(t)) {
                 dmg += SystemsMath.LANDING_WEAR * state.maxHp();     // D2 (★7): a landing on a failed engine
             }
-            if (t == VehicleType.LINER && state.liner() != null && state.liner().at(com.sva.vehicle.LinerControls.GEAR) == 0) {
+            if (t == VehicleType.LINER && state.liner() != null && state.liner().gear.pos > 0.5) {
                 // liner wave 1: the gear lever UP at the touch-down - on the belly (PlaneMath's belly share + the speed)
                 dmg += PlaneMath.BELLY_FRAC * 2 * state.maxHp() + Math.max(0, v - t.plane.glideSpeed) * PlaneMath.BELLY_SPEED;
                 tellRiders("sva.liner.msg.belly");
@@ -3065,6 +3134,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             return true;
         }
         int k = com.sva.item.ItemBatteryToolSVA.kind(held);
+        if (k == com.sva.item.ItemBatteryToolSVA.HYD_FLUID) {
+            LinerLogicSVA.refill(this, p, held);                    // liner wave 2: «Гидрожидкость»
+            return true;
+        }
         if (k == com.sva.item.ItemBatteryToolSVA.KIT) {
             startKit(p);
             return true;
@@ -3780,7 +3853,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (t == VehicleType.LINER && liner() != null) {
             // liner wave 1: its gear sequence (the lever), the L1 door and stairs, the fans by N1, the oleos (LinerAnim)
             com.sva.vehicle.LinerSystems L = liner();
-            linerAnim.tick(L.at(com.sva.vehicle.LinerControls.GEAR) == 0, anim.height < 0.6, L.door, L.eng[0].n1, L.eng[1].n1, anim.height);
+            linerAnim.tick((float) L.gear.pos, L.gear.gravity, anim.height < 0.6, L.door, L.eng[0].n1, L.eng[1].n1, anim.height);
+            // liner wave 2: the surfaces move on every client from the stick it sees and the synced pressures; the high lift
+            // and the wheels' temperatures follow the synced values
+            double mx = posX - prevPosX, mz = posZ - prevPosZ;
+            L.clientTick(anim.ctlRoll, anim.ctlPitch, anim.ctlYaw, Math.sqrt(mx * mx + mz * mz), anim.height < 0.6, anim.trim * 0.6F);
+            linerAnim.tickHighLift((float) L.fctl.flapPos, (float) L.fctl.slatPos);
         }
         if (isWrecked() && ticksExisted % 4 == 0) {
             worldObj.spawnParticle("largesmoke", posX + (rand.nextDouble() - 0.5), posY + 1.0, posZ + (rand.nextDouble() - 0.5), 0, 0.05, 0);

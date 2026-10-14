@@ -192,7 +192,23 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements ISidedI
     }
 
     public static boolean materialAccepted(ItemStack s) {
-        return ModContentSVA.isSteelIngot(s) || isIron(s) || isElectrolyte(s);
+        return ModContentSVA.isSteelIngot(s) || isIron(s) || isElectrolyte(s) || isHydFluid(s);
+    }
+
+    /** Liner wave 2: «Гидрожидкость» - the material slots take it; a liner's «Чинить всё» uses one when its hydraulics need it. */
+    static boolean isHydFluid(ItemStack s) {
+        return com.sva.item.ItemBatteryToolSVA.kind(s) == com.sva.item.ItemBatteryToolSVA.HYD_FLUID;
+    }
+
+    /** Takes one «Гидрожидкость» out of the material slots. @return there was one */
+    private boolean takeHydFluid() {
+        for (int i = 0; i < SIZE; i++) {
+            if (isHydFluid(slots[i])) {
+                decrStackSize(i, 1);
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Hydrogen wave: «Электролит» (the battery service's consumable) - it goes into the metal slots too. */
@@ -391,8 +407,8 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements ISidedI
         if (jobVeh != null) {
             return R_BUSY;
         }
-        if (!GarageMath.needed(v.state.hp, v.state.maxHp(), v.state.heat, mode)) {
-            return R_NOTHING;
+        if (!GarageMath.needed(v.state.hp, v.state.maxHp(), v.state.heat, mode) && !(mode != GarageMath.HULL && v.linerNeedsService())) {
+            return R_NOTHING;                                       // liner wave 2: its tyres / hydraulic fluid are a job too
         }
         if (p != null && !v.hasRight(p, AccessMath.REPAIR)) {
             return R_NO_RIGHT;
@@ -439,6 +455,10 @@ public class TileEntityGarageSVA extends TileEntityEnergyBase implements ISidedI
             status |= S_NO_ENERGY;
         }
         if (jobPaid >= jobEu) {
+            com.sva.vehicle.LinerSystems ls = v.state.liner();
+            if (jobMode == GarageMath.ALL && ls != null && ls.hyd.needsFluid() && takeHydFluid()) {
+                ls.hyd.refill();                                    // liner wave 2: a «Гидрожидкость» from the slots
+            }
             v.garageRepaired(jobMode == GarageMath.ALL);
             jobVeh = null;
             jobEntity = null;
