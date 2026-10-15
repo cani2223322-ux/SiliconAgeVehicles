@@ -55,6 +55,10 @@ final class WorldTestLinerAfsSVA {
     private int phase, t0, x0, z0, rx, rz;
     private EntityVehicleSVA hdg, alt, vs, spd, appr, disc, des, lk;
     private boolean hdgDone, altDone, vsDone, spdDone, apprDone, discDone, desDone, lkDone;
+    // the AP OFF fix: on «appr» after its stop - the automatic disconnect on the ground, the instinctive button, the power
+    private boolean apWarnDone;
+    private int apWarnAt = -1;
+    private boolean apWarnQuiet, apWarnHeld;
     // the autopilot fix: «des» - the first tick down, the highest Y, THR IDLE / ALT* seen; «lk» - Y at engage
     private int desDown = -1;
     private double desMaxY, lkY0;
@@ -133,8 +137,12 @@ final class WorldTestLinerAfsSVA {
             discTick(n);
             desTick(n);
             lkTick(n);
+            apWarnTick(n);
         }
-        if (hdgDone && altDone && vsDone && spdDone && apprDone && discDone && desDone && lkDone || n >= MAX_TICKS) {
+        if (hdgDone && altDone && vsDone && spdDone && apprDone && discDone && desDone && lkDone && apWarnDone || n >= MAX_TICKS) {
+            if (apprDone && !apWarnDone) {
+                check(false, "liner AFS world AP OFF fix: did not finish (ticks after the stop " + (apWarnAt < 0 ? -1 : n - apWarnAt) + ")");
+            }
             if (!apprDone) {
                 check(false, "liner AFS world «appr»: did not finish (lat " + L(appr).afs.latText() + ", ver " + L(appr).afs.verText() + ", x "
                         + Math.round(appr.posX - rx) + ", y " + Math.round(appr.posY) + ")");
@@ -356,6 +364,65 @@ final class WorldTestLinerAfsSVA {
     }
 
     private double lastApprY;
+
+    /** The client's mirror from the entity's synced string (DW_SPACE, 14 - as EntityVehicleSVA.liner() reads it on a client). */
+    private static LinerSystems synced(EntityVehicleSVA v) {
+        LinerSystems m = new LinerSystems();
+        m.unpack(v.getDataWatcher().getWatchableObjectString(14));
+        return m;
+    }
+
+    private static boolean apShown(LinerSystems S) {
+        return (S.ecam.shown & 1L << LinerEcam.M_AP_OFF) != 0;
+    }
+
+    /**
+     * The AP OFF fix on the real entity (the user's «АВТОПИЛОТ ОТКЛ не гаснет» after a landing): «appr» stopped by its
+     * autobrake, the AP still on in ROLL OUT (no warning); the AP lets go off its roll-out on the ground - the red warning
+     * and the cavalry held, also in the synced string; the instinctive button (what A_LINER_APDISC runs) clears both, the
+     * synced string too; the generators off and on - it does not come back.
+     */
+    private void apWarnTick(int n) {
+        if (apWarnDone || !apprDone) {
+            return;
+        }
+        LinerSystems S = L(appr);
+        LinerAfs F = S.afs;
+        if (apWarnAt < 0) {
+            apWarnAt = n;
+            apWarnQuiet = F.apOn() && F.apWarn == 0 && !apShown(S);
+            F.lat = LinerAfs.L_HDG;                                 // the roll-out's mode gone with the AP on: the ground rule drops it
+            return;
+        }
+        int k = n - apWarnAt;
+        if (k == 40) {
+            LinerSystems m = synced(appr);
+            apWarnHeld = !F.apOn() && F.apWarn == -1 && F.cavalry == -1 && apShown(S) && m.afs.apWarn == -1 && apShown(m);
+            F.apDisc();
+        }
+        if (k == 80) {
+            LinerSystems m = synced(appr);
+            boolean cleared = F.apWarn == 0 && F.cavalry == 0 && !apShown(S) && m.afs.apWarn == 0 && m.afs.cavalry == 0 && !apShown(m) && !m.masterWarn;
+            check(apWarnQuiet && apWarnHeld && cleared, "liner AFS world AP OFF fix: «appr» stopped with the AP on (no warning); an automatic"
+                    + " disconnect on the ground - the red warning + cavalry held (synced); the instinctive button clears both, the synced"
+                    + " string too (" + apWarnQuiet + apWarnHeld + cleared + ")");
+            S.set(LinerControls.GEN1, 0);
+            S.set(LinerControls.GEN2, 0);
+            S.set(LinerControls.APU_GEN, 0);
+            S.set(LinerControls.EXT_PWR, 0);
+        }
+        if (k == 100) {
+            S.set(LinerControls.GEN1, 1);
+            S.set(LinerControls.GEN2, 1);
+            S.set(LinerControls.APU_GEN, 1);
+        }
+        if (k == 160) {
+            apWarnDone = true;
+            LinerSystems m = synced(appr);
+            check(S.acPowered() && F.apWarn == 0 && !apShown(S) && !apShown(m), "liner AFS world AP OFF fix: the power off and on after the"
+                    + " cancel - «АВТОПИЛОТ ОТКЛ» does not come back");
+        }
+    }
 
     private void discTick(int n) {
         if (discDone) {

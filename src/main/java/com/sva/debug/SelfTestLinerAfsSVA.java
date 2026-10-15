@@ -51,6 +51,7 @@ final class SelfTestLinerAfsSVA {
         speed();
         SelfTestLinerApFixSVA.run();                                // the autopilot fix: DES / OP DES, TOGA LK, the speed knob
         SelfTestLinerAfloorSVA.run();                               // the false alpha floor, 2nd fix: the Move budget, the judged airspeed
+        SelfTestLinerApWarnSVA.run();                               // the AP OFF fix: the instinctive button / MASTER WARN / power clear it
         approach();
         goAround();
         reversers();

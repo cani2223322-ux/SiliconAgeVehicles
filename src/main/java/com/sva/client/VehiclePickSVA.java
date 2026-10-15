@@ -83,6 +83,9 @@ public class VehiclePickSVA {
 
     /** Where the segment from..to enters the vehicle's turned model box (world coordinates), or null. */
     static Vec3 hit(EntityVehicleSVA v, Vec3 from, Vec3 to) {
+        if (v.getVehicleType() == VehicleType.LINER) {
+            return linerHit(v, from, to);                           // its own model pipeline: no ObjModelSVA box - the hull's parts
+        }
         double[] box = box(v);
         if (box == null) {
             return null;
@@ -103,6 +106,26 @@ public class VehiclePickSVA {
             h = m.hitVec;
         }
         return Vec3.createVectorHelper(v.posX + h.xCoord * fx + h.zCoord * rx, v.posY + h.yCoord, v.posZ + h.xCoord * fz + h.zCoord * rz);
+    }
+
+    /**
+     * The liner from any side: the look segment against LinerHull's parts (the fuselage, the wings, the nacelles, the gear,
+     * the tail) - before, with no model box, only the entity's square at the centre took a click.
+     */
+    static Vec3 linerHit(EntityVehicleSVA v, Vec3 from, Vec3 to) {
+        double len = from.distanceTo(to);
+        if (len < 1e-9) {
+            return null;
+        }
+        double[] o = com.sva.vehicle.LinerHull.local(from.xCoord - v.posX, from.yCoord - v.posY, from.zCoord - v.posZ, v.rotationYaw);
+        double[] e = com.sva.vehicle.LinerHull.local(to.xCoord - v.posX, to.yCoord - v.posY, to.zCoord - v.posZ, v.rotationYaw);
+        double[] d = {(e[0] - o[0]) / len, (e[1] - o[1]) / len, (e[2] - o[2]) / len};
+        double t = com.sva.vehicle.LinerHull.ray(o, d, len, null);
+        if (t < 0) {
+            return null;
+        }
+        return Vec3.createVectorHelper(from.xCoord + (to.xCoord - from.xCoord) * t / len, from.yCoord + (to.yCoord - from.yCoord) * t / len,
+                from.zCoord + (to.zCoord - from.zCoord) * t / len);
     }
 
     /** A world point in the vehicle's frame: x forward, y up, z right (blocks). */

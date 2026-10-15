@@ -388,6 +388,28 @@ public final class VehicleKeyBindsSVA {
     }
 
     /**
+     * The AP OFF fix: the instinctive buttons (AP / A/THR disconnect) from an open cockpit screen. The cockpit cursor (Alt
+     * held) is a GuiScreen, and tick() fires nothing with a screen open - so «,» pressed while clicking the cockpit was
+     * swallowed and the red «АВТОПИЛОТ ОТКЛ» stayed. The screen hands its key here; a key repeat does not count.
+     * @return the key was one of `fns` and fired
+     */
+    public static boolean screenKey(Minecraft mc, EntityVehicleSVA v, int key, VehicleFn... fns) {
+        if (key == 0 || Keyboard.isRepeatEvent() || v == null || v.isDead) {
+            return false;
+        }
+        List<int[]> all = new ArrayList<int[]>(BINDS.values());
+        int held = modifiersDown();
+        for (VehicleFn f : fns) {
+            int[] b = BINDS.get(f);
+            if (b != null && b[0] == key && KeyBindMath.owns(b, true, held, all)) {
+                fire(mc, f, v);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * A function used (its key, or the menu's button): the same packets the old keys sent. Silent on a type without
      * the function (a key shared with another mod); a passenger is told when a function is the driver's.
      */

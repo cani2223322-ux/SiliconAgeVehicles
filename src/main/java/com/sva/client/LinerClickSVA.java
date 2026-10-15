@@ -430,7 +430,10 @@ public final class LinerClickSVA {
         protected void keyTyped(char ch, int key) {
             if (key == Keyboard.KEY_ESCAPE) {
                 mc.displayGuiScreen(null);
+                return;
             }
+            // the AP OFF fix: the instinctive buttons work with the cursor out (the sidestick's / the levers' button)
+            VehicleKeyBindsSVA.screenKey(mc, v, key, VehicleFn.AP_DISC, VehicleFn.ATHR_DISC);
         }
     }
 }

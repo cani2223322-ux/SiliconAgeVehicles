@@ -54,6 +54,10 @@ final class WorldTestLinerW7SVA {
     private int phase, t0, x0, z0;
     private EntityVehicleSVA cold, adr, noadr, altn, doors, chocks, tow, truck, belts;
     private FakePlayer pax;
+    // «pick» (the liner from any side): its own liner (not in all() - it is picked up), the owner, the hint's first tick
+    private EntityVehicleSVA pick;
+    private FakePlayer owner, rider;
+    private boolean hintFirst, hintSecond;
     private boolean savedAuto;
     private double towX0, chocksX0;
     boolean done;
@@ -230,8 +234,111 @@ final class WorldTestLinerW7SVA {
             belts.setDead();                                        // done: it would fly out of the loaded area
             belts = null;
         }
+        pickTick((WorldServer) w, n);
         if (n >= END) {
             phase = 9;
+        }
+    }
+
+    /** Model points {x, z} the player stands at and {x, z, y} he looks at: left, right, front, rear, a wing tip, the tail. */
+    static final double[][][] SIDES = {{{7.5, -4.0}, {7.5, -1.27, 2.0}}, {{7.5, 4.0}, {7.5, 1.27, 2.0}}, {{11.5, 0}, {9.2, 0, 2.0}},
+            {{-11.5, 0}, {-9.2, 0, 2.5}}, {{-1.5, 11.0}, {-1.5, 8.6, 2.2}}, {{-7.5, -5.4}, {-7.5, -2.9, 2.75}}};
+    static final String[] SIDE_NAMES = {"left", "right", "front", "rear", "wing tip", "tail"};
+
+    /** A player standing at model {x, z} (on the pad) looking at model point {x, z, y}. */
+    private static void aimFrom(FakePlayer p, EntityVehicleSVA v, double[] at, double[] m) {
+        double[] q = v.toWorld(at[0], at[1]);
+        double[] c = v.toWorld(m[0], m[1]);
+        double px = v.posX + q[0], pz = v.posZ + q[1], py = v.posY;
+        double dx = v.posX + c[0] - px, dz = v.posZ + c[1] - pz, dy = v.posY + m[2] - (py + p.getEyeHeight());
+        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        float pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)));
+        p.setPositionAndRotation(px, py, pz, yaw, pitch);
+        p.rotationYawHead = yaw;
+    }
+
+    /**
+     * «pick» - the liner from any side (the user's «с любой стороны открыть и убрать в инвентарь»): from the left, the right,
+     * the front, the rear, a wing tip and the tail the look ray hits the hull (LinerHull) within vanilla's 3-block entity
+     * reach; no door / cargo door there - Shift + RMB is the generic one (the vehicle's screen); the server's reach is the
+     * hull's (a far click is ours - hullFarClick); L1 and a shut cargo door still route to them; the hint once in 3 s; the
+     * pick-up refused with the engines running and with a rider aboard, then done from the wing tip.
+     */
+    private void pickTick(WorldServer w, int n) {
+        if (n == 280) {
+            pick = liner(w, 8, true, false);
+            owner = FakePlayerFactory.get(w, new GameProfile(java.util.UUID.fromString(OWNER), "W7Owner"));
+            if (pick == null) {
+                check(false, "liner W7 world «pick»: the liner did not spawn");
+            }
+            return;
+        }
+        if (pick == null || owner == null) {
+            return;
+        }
+        if (n == 300) {
+            StringBuilder bad = new StringBuilder();
+            for (int i = 0; i < SIDES.length; i++) {
+                aimFrom(owner, pick, SIDES[i][0], SIDES[i][1]);
+                owner.setSneaking(true);
+                double[] eye = com.sva.vehicle.LinerHull.local(owner.posX - pick.posX, owner.posY + owner.getEyeHeight() - pick.posY,
+                        owner.posZ - pick.posZ, pick.rotationYaw);
+                net.minecraft.util.Vec3 lk = owner.getLook(1F);
+                double[] dir = com.sva.vehicle.LinerHull.local(lk.xCoord, lk.yCoord, lk.zCoord, pick.rotationYaw);
+                double hit = com.sva.vehicle.LinerHull.ray(eye, dir, 3.0, null);
+                double c2 = owner.getDistanceSqToEntity(pick), h2 = pick.reachSq(owner);
+                boolean generic = LinerGroundSVA.doorAt(pick, owner) < 0 && LinerGroundSVA.cargoAccess(pick, owner) == LinerGroundSVA.CARGO_NONE;
+                boolean server = c2 < 36 || EntityVehicleSVA.hullFarClick(c2, true, h2);
+                if (hit < 0 || !generic || !server || h2 >= 64) {
+                    bad.append(' ').append(SIDE_NAMES[i]).append("(hit ").append(Math.round(hit * 10) / 10.0).append(", centre ")
+                            .append(Math.round(Math.sqrt(c2) * 10) / 10.0).append(", generic ").append(generic).append(')');
+                }
+            }
+            owner.setSneaking(false);
+            check(bad.length() == 0, "liner W7 world «pick»: from the left, right, front, rear, a wing tip and the tail - the click hits the hull"
+                    + " within 3 blocks, no door there (Shift + RMB is the vehicle's screen), the server's reach is the hull's" + bad);
+            aim(owner, pick, LinerGroundSVA.DOORS[0]);
+            int l1 = LinerGroundSVA.doorAt(pick, owner);
+            aim(owner, pick, LinerGroundSVA.DOORS[2]);
+            int cargo = LinerGroundSVA.cargoAccess(pick, owner);
+            check(l1 == 0 && cargo == LinerGroundSVA.CARGO_SHUT, "liner W7 world «pick»: the L1 door and a shut cargo door still route to"
+                    + " themselves (" + l1 + ", " + cargo + ")");
+            hintFirst = LinerGroundSVA.hint(pick, owner, "sva.liner.msg.cargoShut");
+            // the cargo screen's «Убрать в инвентарь» from the wing tip: the hull's reach - refused only for the running engines
+            aimFrom(owner, pick, SIDES[4][0], SIDES[4][1]);
+            int running = pick.tryPickUp(owner);
+            check(running == EntityVehicleSVA.PICK_RUNNING && !pick.isDead, "liner W7 world «pick»: from the wing tip (" + Math.round(
+                    Math.sqrt(owner.getDistanceSqToEntity(pick))) + " blocks from the centre) the pick-up is refused only for the engines"
+                    + " running (" + running + ")");
+            pick.debugDrive(0);
+            pick.debugEngineManual = true;
+            set(pick, LinerControls.ENG_MASTER1, 0);
+            set(pick, LinerControls.ENG_MASTER2, 0);
+        }
+        if (n == 302) {
+            hintSecond = LinerGroundSVA.hint(pick, owner, "sva.liner.msg.cargoShut");
+        }
+        if (n == 362) {
+            boolean third = LinerGroundSVA.hint(pick, owner, "sva.liner.msg.cargoShut");
+            check(hintFirst && !hintSecond && third, "liner W7 world «pick»: the cargo door's hint at most once in 3 s (" + hintFirst + hintSecond
+                    + third + ")");
+        }
+        if (n == 470) {
+            EntitySeatSVA s = pick.seatAt(3);
+            rider = FakePlayerFactory.get(w, new GameProfile(java.util.UUID.fromString("00000000-5bad-4e57-0000-0000001a3271"), "W7Rider"));
+            boolean off = !L(pick).anyRunning();
+            int busy = -1;
+            if (s != null) {
+                rider.setPosition(pick.posX, pick.posY, pick.posZ);
+                ride(rider, s);
+                busy = pick.tryPickUp(owner);
+                ride(rider, null);
+            }
+            aimFrom(owner, pick, SIDES[4][0], SIDES[4][1]);
+            int ok = pick.tryPickUp(owner);
+            check(off && busy == EntityVehicleSVA.PICK_OCCUPIED && ok == EntityVehicleSVA.PICK_OK && pick.isDead, "liner W7 world «pick»: engines"
+                    + " off - refused with a rider aboard (" + busy + "), then picked up from the wing tip (" + ok + ", engines off " + off + ")");
+            pick = null;
         }
     }
 
@@ -377,6 +484,11 @@ final class WorldTestLinerW7SVA {
                 v.setDead();
             }
         }
+        if (pick != null && !pick.isDead) {
+            pick.dismountAll();
+            pick.setDead();
+        }
+        pick = null;
         cold = adr = noadr = altn = doors = chocks = tow = truck = belts = null;
         ConfigSVA.linerIrsAutoInit = savedAuto;
         if (x0 != 0 || z0 != 0) {

@@ -510,6 +510,9 @@ public class GuiLinerPanelsSVA extends GuiScreen {
     @Override
     protected void keyTyped(char ch, int key) {
         super.keyTyped(ch, key);
+        if (VehicleKeyBindsSVA.screenKey(mc, v, key, com.sva.vehicle.VehicleFn.AP_DISC)) {
+            return;                                                 // the AP OFF fix: the sidestick's button from the dashboard too
+        }
         if (ch == '+' || ch == '=' || key == Keyboard.KEY_ADD) {
             area();
             zoomBy(1, ax + aw / 2, ay + ah / 2);

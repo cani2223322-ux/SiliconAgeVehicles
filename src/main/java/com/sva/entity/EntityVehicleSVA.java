@@ -166,7 +166,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             /** Liner wave 4 (the pilots): the sidestick's red AP disconnect, the thrust levers' instinctive A/THR disconnect. */
             A_LINER_APDISC = 46, A_LINER_ATHRDISC = 47,
             /** Liner wave 6 (a passenger): his own reading light on / off (LinerLights.reading). */
-            A_LINER_READING = 48;
+            A_LINER_READING = 48,
+            /**
+             * The liner from any side: a right-click on its hull (LinerHull) further from its centre than vanilla's
+             * use-entity reach (6 blocks) - the client sends it, the server runs interactFirst (hullUse).
+             */
+            A_HULL_USE = 120;
     private static final int F_WRECKED = 1, F_HEAT_STOP = 2, F_WEAR = 4, F_LIFT = 8, F_BOOST = 16, F_CHARGING = 32,
             /** Aircraft: in the air without power (heli autorotation / plane glide); plane: stalling. */
             F_AUTO = 64, F_STALL = 128;
@@ -4618,6 +4623,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     @Override
     public boolean interactFirst(EntityPlayer p) {
         if (worldObj.isRemote) {
+            if (getVehicleType() == VehicleType.LINER && !carries(p) && p.getDistanceSqToEntity(this) >= 9) {
+                // the liner from any side: past vanilla's reach to the centre its packet is dropped - ours (hullUse) is not
+                NetSVA.CHANNEL.sendToServer(new NetSVA.Action(getEntityId(), A_HULL_USE));
+            }
             return true;
         }
         if (carries(p)) {
@@ -4639,6 +4648,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 msg(p, "sva.msg.notOwner");
             } else if (occupied()) {
                 msg(p, "sva.msg.occupied");                          // as the cargo screen's button: nobody is dropped mid-air
+            } else if (linerPickBlock() != null) {
+                msg(p, linerPickBlock());                            // the liner: stopped on the ground, the engines off
             } else {
                 pickUp(p);
             }
@@ -4702,7 +4713,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // liner wave 1: in and out through the L1 door (left, forward): by it - the first click opens it, then you board
             boolean r1 = LinerGroundSVA.byR1(this, p);             // wave 7: an open R1 boards too
             if (!LinerLogicSVA.byDoor(this, p) && !r1) {
-                msg(p, "sva.liner.msg.useDoor");
+                LinerGroundSVA.hint(this, p, "sva.liner.msg.useDoor");   // rate-limited: a click on the wing is not spam
                 return true;
             }
             if (!state.liner().door && !r1) {
@@ -4871,7 +4882,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (!ConfigSVA.locks || !canManage(p)) {
             return;
         }
-        if (!(carries(p) || p.getDistanceSqToEntity(this) < 64)) {
+        if (!(carries(p) || reachSq(p) < 64)) {
             if (p.playerNetServerHandler != null) {
                 NetSVA.CHANNEL.sendTo(new NetSVA.AccessInfo(this, false), p);   // too far: undo the client's optimistic view
             }
@@ -5011,7 +5022,54 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     }
 
     /** Pick-up button results. */
-    public static final int PICK_OK = 0, PICK_NOT_OWNER = 1, PICK_OCCUPIED = 2, PICK_FAR = 3;
+    public static final int PICK_OK = 0, PICK_NOT_OWNER = 1, PICK_OCCUPIED = 2, PICK_FAR = 3, PICK_RUNNING = 4;
+
+    /** The liner's own pick-up rule (lang key of the refusal, null: may): not in the air, stopped, both engines off. */
+    public static String linerPickBlock(boolean air, double speed, boolean engines) {
+        if (air || Math.abs(speed) > 0.05) {
+            return "sva.liner.msg.pickMoving";
+        }
+        return engines ? "sva.liner.msg.pickEngines" : null;
+    }
+
+    /** This vehicle's (only the liner has one): see linerPickBlock. */
+    String linerPickBlock() {
+        if (getVehicleType() != VehicleType.LINER || state.liner() == null) {
+            return null;
+        }
+        return linerPickBlock(wasAirborneNow(), speed, state.liner().anyRunning());
+    }
+
+    /**
+     * The squared reach from a player to this vehicle (the pick-up, the cargo screen, the action packets): to its centre;
+     * the liner's to its hull (LinerHull - a wing tip is 8.8 blocks from the centre), from the player's middle.
+     */
+    public double reachSq(Entity p) {
+        if (getVehicleType() != VehicleType.LINER) {
+            return p.getDistanceSqToEntity(this);
+        }
+        double[] l = com.sva.vehicle.LinerHull.local(p.posX - posX, p.posY + 1.0 - posY, p.posZ - posZ, rotationYaw);
+        return com.sva.vehicle.LinerHull.distSq(l[0], l[1], l[2]);
+    }
+
+    /** Pure: a far hull click (A_HULL_USE) is ours when vanilla's use-entity packet was not accepted and the hull is in reach. */
+    public static boolean hullFarClick(double centreSq, boolean seen, double hullSq) {
+        boolean vanilla = centreSq < (seen ? 36 : 9);              // NetHandlerPlayServer.processUseEntity
+        return !vanilla && hullSq <= HULL_REACH * HULL_REACH;
+    }
+
+    /** A far hull click's reach (blocks, from the player's middle to the hull). */
+    public static final double HULL_REACH = 6;
+
+    /** Server: the far hull click - the right-click as interactFirst (the liner only). */
+    void hullUse(EntityPlayerMP p) {
+        if (getVehicleType() != VehicleType.LINER || isDead || carries(p)) {
+            return;
+        }
+        if (hullFarClick(p.getDistanceSqToEntity(this), p.canEntityBeSeen(this), reachSq(p))) {
+            interactFirst(p);
+        }
+    }
 
     /** Pure: may the cargo screen's «Убрать в инвентарь» go ahead (wrecked vehicles may be picked up too)? */
     public static int pickUpCheck(boolean manage, boolean occupied, double dist2) {
@@ -5044,7 +5102,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         if (isDead || worldObj.isRemote) {
             return PICK_FAR;
         }
-        int r = pickUpCheck(canManage(p), occupied(), p.getDistanceSqToEntity(this));
+        int r = pickUpCheck(canManage(p), occupied(), reachSq(p));
+        if (r == PICK_OK && linerPickBlock() != null) {
+            msg(p, linerPickBlock());                                // the liner: stopped on the ground, the engines off
+            return PICK_RUNNING;
+        }
         if (r == PICK_FAR) {
             msg(p, "sva.msg.tooFar");
         } else if (r == PICK_NOT_OWNER) {
@@ -5714,6 +5776,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     /** The Action packet (server thread; the sender is near or seated): a cargo screen button or a drill key. */
     public void serverAction(EntityPlayerMP p, int a) {
+        if (a == A_HULL_USE) {
+            hullUse(p);                                             // the liner from any side
+            return;
+        }
         if (a == A_BATTERY_OUT) {
             batteryOut(p);                                          // its own rule: the owner or «Ремонт»
             return;
@@ -6427,7 +6493,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
     @Override
     public boolean isUseableByPlayer(EntityPlayer p) {
-        return !isDead && p.getDistanceSqToEntity(this) < 64 && (worldObj.isRemote || canOpenCargo(p));     // ★10: a right taken away closes it
+        return !isDead && reachSq(p) < 64 && (worldObj.isRemote || canOpenCargo(p));     // ★10: a right taken away closes it
     }
 
     @Override

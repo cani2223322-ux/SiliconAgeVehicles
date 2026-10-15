@@ -700,7 +700,7 @@ public final class NetSVA {
                         return;
                     }
                     EntityVehicleSVA v = (EntityVehicleSVA) e;
-                    if (v.carries(p) || p.getDistanceSqToEntity(v) < 64) {
+                    if (v.carries(p) || v.reachSq(p) < 64) {
                         v.serverAction(p, m.action);
                     }
                 }

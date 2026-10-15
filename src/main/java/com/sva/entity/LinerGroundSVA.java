@@ -149,19 +149,19 @@ public final class LinerGroundSVA {
         }
         int d = doorAt(v, p);
         if (p.isSneaking()) {
-            // the cargo hold from outside: through an open cargo door
+            // the cargo hold from outside: through an open cargo door; a shut one - the hint (at most once in HINT_TICKS);
+            // anywhere else on the airframe Shift + RMB is every vehicle's own (the vehicle's screen) - not swallowed here
             int ca = cargoAccess(v, p);
-            if (ca != CARGO_NONE) {
-                if (ca == CARGO_SHUT) {
-                    v.msgTo(p, "sva.liner.msg.cargoShut");
-                } else if (canCargo) {
-                    p.openGui(com.sva.SVAMod.instance, com.sva.inventory.GuiHandlerSVA.CARGO, v.worldObj, v.getEntityId(), 0, 0);
-                    v.oneShot("cargo", 0.5F, 1F);
-                } else {
-                    v.lockedMsgTo(p);
-                }
+            if (ca == CARGO_NONE) {
+                return false;
+            }
+            if (ca == CARGO_SHUT) {
+                hint(v, p, "sva.liner.msg.cargoShut");
+            } else if (canCargo) {
+                p.openGui(com.sva.SVAMod.instance, com.sva.inventory.GuiHandlerSVA.CARGO, v.worldObj, v.getEntityId(), 0, 0);
+                v.oneShot("cargo", 0.5F, 1F);
             } else {
-                v.msgTo(p, "sva.liner.msg.cargoDoor");
+                v.lockedMsgTo(p);
             }
             return true;
         }
@@ -177,6 +177,35 @@ public final class LinerGroundSVA {
             return false;                                           // an open L1 / R1: the click boards
         }
         door(v, p, d, !open);
+        return true;
+    }
+
+    /** A click's hint to the same player at most once in this many ticks (3 s): five clicks - one line, not five. */
+    public static final int HINT_TICKS = 60;
+    /** The last hint's world time per player (and key) - a weak map: a player gone is forgotten. */
+    private static final java.util.Map<EntityPlayer, long[]> HINTS = new java.util.WeakHashMap<EntityPlayer, long[]>();
+
+    /** Pure: may a hint go out now (the last at `last`, -1 never)? */
+    public static boolean hintDue(long last, long now) {
+        return last < 0 || now - last >= HINT_TICKS || now < last;
+    }
+
+    /** The click hint `key` to the player, rate-limited (HINT_TICKS); @return it was sent. */
+    public static boolean hint(EntityVehicleSVA v, EntityPlayer p, String key) {
+        long now = v.worldObj == null ? 0 : v.worldObj.getTotalWorldTime();
+        long[] last;
+        synchronized (HINTS) {
+            last = HINTS.get(p);
+            if (last == null) {
+                last = new long[] {-1};
+                HINTS.put(p, last);
+            }
+        }
+        if (!hintDue(last[0], now)) {
+            return false;
+        }
+        last[0] = now;
+        v.msgTo(p, key);
         return true;
     }
 

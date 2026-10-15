@@ -447,10 +447,9 @@ public final class LinerAfs {
     /** The sidestick's red button (the key, the 3D button): AP off (instinctive), or - with the warning up - the warning cancelled. */
     public void apDisc() {
         if (ap1 || ap2) {
-            apOff(true);
+            apOff(true, "instinctive");
         } else {
-            apWarn = 0;
-            cavalry = 0;                                            // the second press: the warning and the aural off
+            cancelApWarn("instinctive");                            // the second press: the warning and the aural off
         }
     }
 
@@ -459,14 +458,44 @@ public final class LinerAfs {
         if (athr || aFloor || togaLk) {
             athrOff(true);
         } else {
-            athrWarn = 0;
+            cancelAthrWarn("instinctive");
         }
     }
 
+    /**
+     * The AP OFF fix (the user's «АВТОПИЛОТ ОТКЛ не гаснет»): the red warning and the cavalry charge cancelled - by the
+     * instinctive button, by MASTER WARN (the A320: either press), or by the power that runs the FCU / FMGC lost (the
+     * E/WD dark: the old warning does not come back with the power). A one-line [SVA-AP] diagnostic says by what.
+     */
+    public void cancelApWarn(String by) {
+        if (apWarn == 0 && cavalry == 0) {
+            return;
+        }
+        System.out.println("[SVA-AP] AP OFF warning cancelled by " + by + " (warn " + apWarn + ", cavalry " + cavalry + ")");
+        apWarn = 0;
+        cavalry = 0;
+        cavPhase = 0;
+    }
+
+    /** The same for «А/ТЯГА ОТКЛ»: the A/THR instinctive button, MASTER CAUT, or the power lost. */
+    public void cancelAthrWarn(String by) {
+        if (athrWarn == 0) {
+            return;
+        }
+        System.out.println("[SVA-AP] A/THR OFF caution cancelled by " + by + " (warn " + athrWarn + ")");
+        athrWarn = 0;
+    }
+
     void apOff(boolean instinctive) {
+        apOff(instinctive, instinctive ? "instinctive" : "fcu");
+    }
+
+    /** AP off; `why` (instinctive / fcu / override / failure / mode / ground) goes to the [SVA-AP] line. */
+    void apOff(boolean instinctive, String why) {
         if (!ap1 && !ap2) {
             return;
         }
+        System.out.println("[SVA-AP] AP disconnected: " + why + " (lat " + lat + ", ver " + ver + ")");
         ap1 = ap2 = false;
         boxAp = 0;
         apIntent = instinctive;
@@ -844,17 +873,17 @@ public final class LinerAfs {
         tuneIls(a);
         // ---- AP: failures, the override
         if (apOn() && apFault(L, a)) {
-            apOff(false);
+            apOff(false, "failure");
         }
         if (apOn() && a.stick) {
             if (++override >= OVERRIDE_TICKS) {
-                apOff(false);
+                apOff(false, "override");
             }
         } else {
             override = 0;
         }
         if (apOn() && a.ground && lat != L_ROLLOUT && lat != L_LAND && ver != V_FLARE && ver != V_LAND) {
-            apOff(false);
+            apOff(false, "ground");
         }
         targets(L, a);
         // ---- modes
@@ -872,7 +901,7 @@ public final class LinerAfs {
         }
         // single AP: CAT 1 - it lets go over the runway
         if (!a.ground && apOn() && !(ap1 && ap2) && (lat == L_LAND || ver == V_FLARE || ver == V_GS && a.ra < SINGLE_MIN) && a.ra < SINGLE_MIN) {
-            apOff(false);
+            apOff(false, "mode");
         }
         pathAlt = ver == V_DES && !Double.isNaN(a.pathAlt) ? a.pathAlt : Double.NaN;   // wave 5: the managed descent's path
         targets(L, a);                                              // again with the modes as they now are
@@ -881,6 +910,11 @@ public final class LinerAfs {
         leverChecks(L, a);
         // ---- callouts, aurals, warnings' timers
         callouts(L, a);
+        if (!L.acPowered()) {
+            // the AP OFF fix: no AC - the FMGC / the E/WD dark: the warnings and the aural go (and stay gone with the power back)
+            cancelApWarn("power");
+            cancelAthrWarn("power");
+        }
         if (apWarn > 0) {
             apWarn--;
         }

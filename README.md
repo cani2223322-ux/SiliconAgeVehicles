@@ -130,7 +130,8 @@
 | **.** («Шасси»)\* | Шасси (лайнер) |
 | **Левый Alt** («Курсор»)\* | Лайнер: держать — курсор в кабине, клик по кнопкам и ручкам |
 | **M**\* | Лайнер, кресло пилота: МФПУ |
-| **,** / **-**\* | Лайнер: отключить автопилот / автомат тяги |
+| **,** / **-**\* | Лайнер: отключить автопилот / автомат тяги; второе нажатие (или MASTER WARN / MASTER CAUT) гасит «АВТОПИЛОТ ОТКЛ» / «А/ТЯГА ОТКЛ»; работают и с курсором кабины |
+| Лайнер: ПКМ / Shift + ПКМ | С любой стороны (крыло, хвост, шасси): Shift + ПКМ — багажник и «Убрать в инвентарь» (только на земле, стоя, двигатели выключены, никого внутри); ПКМ по двери L1 / R1 — открыть / сесть; Shift + ПКМ по открытому грузовому люку — багаж |
 | **=** («Вид из кабины»)\* | Лайнер: быстрые виды (нажатие — вид / назад; удержание + колёсико — выбор) |
 | Пустая ключ-карта: ПКМ / Shift + ПКМ по машине | Карта владельца / окно доступа |
 
@@ -284,7 +285,8 @@ A twin-engine hydrogen airliner (EV tier, ~18.5 x 17.6 x 5.7 blocks): 10 seats (
 | **.** (Gear)\* | Gear (liner) |
 | **Left Alt** (Cursor)\* | Liner: hold - the cockpit cursor, click buttons and knobs |
 | **M**\* | Liner, a pilot seat: the MCDU |
-| **,** / **-**\* | Liner: autopilot / autothrust disconnect |
+| **,** / **-**\* | Liner: autopilot / autothrust disconnect; a second press (or MASTER WARN / MASTER CAUT) clears "AP OFF" / "A/THR OFF"; they work with the cockpit cursor too |
+| Liner: right-click / Shift + right-click | From any side (wing, tail, gear): Shift + right-click - the cargo screen and "Pick up" (on the ground, stopped, engines off, nobody aboard); right-click door L1 / R1 - open / board; Shift + right-click an open cargo door - the hold |
 | **=** (Cockpit view)\* | Liner: quick views (tap - view / back; hold + wheel - pick) |
 | A blank key card: right-click / Shift + right-click a vehicle | Owner card / access screen |
 

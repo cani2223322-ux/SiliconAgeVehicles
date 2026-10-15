@@ -5,6 +5,30 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 
 ## Не выпущено / Unreleased
 
+### Русский
+- **Лайнер SA-320: «АВТОПИЛОТ ОТКЛ» после посадки мигал и не гас - исправлено (как A320).**
+  - *Причина*: отключение автопилота не по кнопке (на земле после пробега, отказ, кнопка FCU, вмешательство) держит красное «АВТОПИЛОТ ОТКЛ» и «кавалерийский сигнал» до нажатия. Но MASTER WARN это не гасил (только лампу), а клавиша «,» не доходила, пока открыт курсор кабины (Левый Alt) или окно «Пульты» - клавиши функций в открытом окне не работали. Выключение питания тоже не помогало: предупреждение оставалось и возвращалось с питанием. То же с «А/ТЯГА ОТКЛ».
+  - *Исправлено*: красная кнопка («,» / кнопка сайдстика) ИЛИ MASTER WARN гасят «АВТОПИЛОТ ОТКЛ» вместе с сигналом - на земле и в полёте; кнопка А/ТЯГИ («-») ИЛИ MASTER CAUT гасят «А/ТЯГА ОТКЛ». Потеря переменного тока (FMGC без питания, E/WD тёмный) гасит оба, с питанием они не возвращаются. «,» и «-» работают и при открытом курсоре кабины, «,» - в окне «Пульты».
+  - *Диагностика*: строка «[SVA-AP]» в логе при отключении автопилота (причина: instinctive / fcu / override / failure / mode / ground) и при гашении предупреждения (чем).
+  - Самотесты: автопосадка с пробегом до остановки, автоматическое отключение на земле, гашение кнопкой / MASTER WARN / MASTER CAUT / потерей питания, питание выкл. и вкл. после гашения, синхронизация погашенного состояния клиенту; мировой тест на настоящем лайнере после пробега.
+- **Лайнер SA-320: открыть и убрать в инвентарь - с любой стороны.**
+  - *Причина*: у лайнера своя модель, и клик ловился только квадратом 3 x 3 блока в центре; сервер мерил досягаемость до центра (конец крыла - 8,8 блока). Shift + ПКМ мимо грузового люка выдавал только подсказку «Багаж - через открытый грузовой люк» (и так при каждом клике).
+  - *Исправлено*: клик ловится по корпусу (фюзеляж, крылья, мотогондолы, шасси, стабилизатор, киль), сервер меряет досягаемость до корпуса. Shift + ПКМ в любом месте - обычный багажник с кнопкой «Убрать в инвентарь», гаечный ключ - сразу в инвентарь. Двери L1 / R1 и открытый грузовой люк работают как раньше. Подсказки (закрытый люк, «через дверь L1») - не чаще раза в 3 с.
+  - Убрать лайнер можно только на земле, стоя, с выключенными двигателями и без людей внутри.
+  - Самотесты: клики слева / справа / спереди / сзади / с конца крыла / с хвоста / из-под крыла, досягаемость, подсказка раз в 3 с, правила подъёма; мировой тест: те же стороны, двери, подсказка, отказ при работающих двигателях и с пассажиром, подъём с конца крыла.
+
+### English
+- **SA-320 liner: "AP OFF" kept flashing after landing and never cleared - fixed (A320-like).**
+  - *Cause*: an AP disconnect not by the button (on the ground after the roll-out, a failure, the FCU button, an override) holds the red "AP OFF" and the cavalry charge until pressed. But MASTER WARN did not clear it (only its lamp), and the "," key never arrived while the cockpit cursor (Left Alt) or the "Panels" screen was open - function keys did nothing with a screen open. Switching the power off did not help either: the warning stayed and came back with the power. The same for "A/THR OFF".
+  - *Fixed*: the red button ("," / the sidestick's) OR MASTER WARN clear "AP OFF" together with the aural - on the ground and in the air; the A/THR button ("-") OR MASTER CAUT clear "A/THR OFF". Losing AC (the FMGC unpowered, the E/WD dark) clears both, and they do not come back with the power. "," and "-" work with the cockpit cursor open, "," in the "Panels" screen.
+  - *Diagnostics*: an "[SVA-AP]" log line when the AP disconnects (the reason: instinctive / fcu / override / failure / mode / ground) and when the warning is cancelled (by what).
+  - Self-tests: an autoland with the roll-out to a stop, an automatic disconnect on the ground, clearing by the button / MASTER WARN / MASTER CAUT / power loss, power off and on after the clear, the cleared state synced to the client; a world test on a real liner after its roll-out.
+- **SA-320 liner: open it and pick it up from any side.**
+  - *Cause*: the liner has its own model, so a click was caught only by a 3 x 3 square at its centre; the server measured the reach to the centre (a wing tip is 8.8 blocks out). Shift + right-click away from a cargo door only posted the hint "The hold - through an open cargo door" (on every click).
+  - *Fixed*: clicks are caught by the hull (fuselage, wings, nacelles, gear, tailplane, fin), the server measures the reach to the hull. Shift + right-click anywhere is the usual cargo screen with "Pick up", a wrench picks it up at once. Doors L1 / R1 and an open cargo door work as before. Hints (a shut cargo door, "through door L1") at most once in 3 s.
+  - The liner can be picked up only on the ground, stopped, with the engines off and nobody aboard.
+  - Self-tests: clicks from the left / right / front / rear / a wing tip / the tail / under the wing, the reach, the 3 s hint, the pick-up rules; a world test: the same sides, the doors, the hint, refused with the engines running and with a passenger, picked up from a wing tip.
+
 ## 0.1.1-alpha — 2026-10-15
 
 Требуется Silicon Age 0.2.0 или новее / Requires Silicon Age 0.2.0 or newer.

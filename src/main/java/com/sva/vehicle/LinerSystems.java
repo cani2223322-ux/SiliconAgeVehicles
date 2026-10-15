@@ -529,10 +529,12 @@ public final class LinerSystems {
         // wave 3: the masters, the ECAM control panel - LinerEcam
         if (c == LinerControls.MW_L || c == LinerControls.MW_R) {
             ecam.masterWarn(this);
+            afs.cancelApWarn("masterWarn");                         // the AP OFF fix: the A320's MASTER WARN cancels AP OFF + the cavalry
             return true;
         }
         if (c == LinerControls.MC_L || c == LinerControls.MC_R) {
             masterCaut = false;
+            afs.cancelAthrWarn("masterCaut");                       // ... and MASTER CAUT the «А/ТЯГА ОТКЛ»
             return true;
         }
         if (c == LinerControls.ECAM_CLR) {
@@ -668,7 +670,7 @@ public final class LinerSystems {
         }
         boolean unrel = ice.unreliable() || adirs.unreliable;
         if (unrel && !unreliableBefore && !e.ground) {
-            afs.apOff(false);                                       // the airspeed unreliable: the AP / A/THR let go (wave 7: the vote too)
+            afs.apOff(false, "failure");                            // the airspeed unreliable: the AP / A/THR let go (wave 7: the vote too)
             if (afs.athr) {
                 afs.athrOff(false);
             }
