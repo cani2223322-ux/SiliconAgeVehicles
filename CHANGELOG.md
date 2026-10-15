@@ -5,7 +5,13 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 
 ## Не выпущено / Unreleased
 
+## 0.1.1-alpha — 2026-10-15
+
+Требуется Silicon Age 0.2.0 или новее / Requires Silicon Age 0.2.0 or newer.
+
 ### Русский
+- Исправлено: окно «Пульты» лайнера - на вкладке «Приборная доска» экраны (PFD, ND, ECAM) были чёрными или без авиагоризонта, дуг и роз: их грани отсекались; теперь рисуются без отсечения граней.
+- Исправлено: быстрые машины на высокой скорости дёргало назад - сервер отклонял два шага клиента за один такт (см. также «бюджет движения» ниже).
 - **Лайнер SA-320: ложная альфа-защита (TOGA LK на 144 км/ч) - исправлено до конца.**
   - *Причина*: после прошлого исправления сервер всё ещё ОТКЛОНЯЛ пакеты движения пилота на большой скорости (в журнале - «[SVA-MOVE] refuse ... bh=3.98 dt=1 spd=1.99»: два шага клиента в одном тике сервера, а запас был всего на один шаг). Отклонённый пакет оставляет самолёт на сервере на месте, а после лага сервер «догоняет» тики пачкой без единого пакета - больше секунды подряд измеренная скорость была почти нулевой, и альфа-защита срабатывала. На 89 км/ч два шага ещё помещались в один тик, поэтому с закрылками FULL всё работало.
   - *Исправлено*: для всех защит и систем лайнера (альфа-защита, VLS, сваливание, превышение скорости, А/ТЯГА) скорость - та, что сообщает клиент пилота (он и ведёт самолёт), с проверкой: не больше макс. скорости x1,15 и не больше измеренной с запасом, когда измерение верное. Отклонённый пакет, тик без пакета и «догоняющие» тики - «нет измерения», а не нулевая скорость.
@@ -243,6 +249,8 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Исправлено: в HUD «Сингулярного корабля» вместо текста показывался ключ «sva.hud.jump.why.1» - добавлены все недостающие причины, почему прыжок недоступен.
 
 ### English
+- Fixed: the liner's "Panels" screen - on the "Main panel" tab the displays (PFD, ND, ECAM) were black or lacked the attitude, arcs and roses: their faces were culled; they are now drawn with face culling off.
+- Fixed: fast vehicles were snapped back at high speed - the server refused two client steps in one tick (see also the "move budget" below).
 - **SA-320 airliner: the false alpha floor (TOGA LK at 144 km/h) - fixed for good.**
   - *Cause*: after the previous fix the server still REFUSED the pilot's Move packets at high speed (the log: "[SVA-MOVE] refuse ... bh=3.98 dt=1 spd=1.99" - two client steps in one server tick with only one step of slack). A refused Move leaves the aircraft still on the server, and after a lag spike the server runs its catch-up ticks back to back without a single Move - for more than a second the measured speed was almost zero and alpha floor fired. At 89 km/h two steps still fit one tick, which is why flaps FULL worked.
   - *Fixed*: every liner protection and system (alpha floor, VLS, stall, overspeed, A/THR) now takes the airspeed the pilot's client reports (it flies the aircraft), sanity-capped: no more than the top speed x1.15 and no more than the measured speed + a margin when the measurement is valid. A refused Move, a tick without one and the catch-up ticks are "no measurement", never zero speed.
