@@ -268,6 +268,7 @@ public class GuiLinerPanelsSVA extends GuiScreen {
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDisable(GL11.GL_CULL_FACE);                          // the cockpit's drawing code assumes no culling (the pop restores it)
         GL11.glPushMatrix();
         GL11.glScalef(1F / sf, 1F / sf, 1F);                       // device px from here
         scissor(ax, ay, aw, ah);
@@ -369,6 +370,20 @@ public class GuiLinerPanelsSVA extends GuiScreen {
      * power, the brightness knobs), each clipped to its glass (in the panel's frame: the DU's units are the panel's).
      */
     private void displays(LinerSystems L, float pt, double ox, double oy, double k) {
+        // the display code winds its fans / strips for the cockpit (which draws with culling off): the GUI's culling
+        // would drop the attitude's sky / earth, the arcs and the roses - off here too, restored after
+        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
+        GL11.glDisable(GL11.GL_CULL_FACE);
+        try {
+            displaysUnculled(L, pt, ox, oy, k);
+        } finally {
+            if (cull) {
+                GL11.glEnable(GL11.GL_CULL_FACE);
+            }
+        }
+    }
+
+    private void displaysUnculled(LinerSystems L, float pt, double ox, double oy, double k) {
         for (int du = 0; du < LinerSystems.DUS; du++) {
             float[] s = LinerPaintSVA.SCREENS[du];
             double[] a = PanelViewMath.toDevice(s[0], s[1], ox, oy, k), b = PanelViewMath.toDevice(s[2], s[3], ox, oy, k);
