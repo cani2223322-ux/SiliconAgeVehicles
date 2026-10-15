@@ -250,6 +250,31 @@ public final class PlaneMath {
         return reportedAirspeed(client, Math.max(measured, perMove));
     }
 
+    /** judgedAirspeed's sanity cap over the type's top speed (a factor). */
+    public static final double TOP_MARGIN = 1.15;
+
+    /**
+     * The false alpha floor, second fix (the liner's systems - alpha floor, the VLS bands, the stall and overspeed
+     * warnings, the A/THR): gapAirspeed still judged by the server's measured displacement, and a refused Move leaves the
+     * server's position still - after a lag spike (Moves refused, then the catch-up ticks without any) the measurement
+     * read ~0 for more than GAP_HOLD ticks and TOGA LK latched at 144 km/h. The client flies the aircraft, so its reported
+     * airspeed is the airspeed: capped only by the type's top speed x TOP_MARGIN and, when the measurement is valid (an
+     * accepted Move with no refusal / correction since the last one), by the measured speed x AIR_MARGIN + AIR_SLACK. An
+     * invalid measurement is no measurement - never zero speed. A client lying low only triggers its own protections;
+     * the movement rules keep the measured path (reportedAirspeed). NaN / infinite client = the measured if valid, else prev.
+     */
+    public static double judgedAirspeed(double prev, double client, double top, double measured, boolean valid) {
+        double cap = Math.max(0, top) * TOP_MARGIN;
+        if (Double.isNaN(client) || Double.isInfinite(client)) {
+            return valid ? VehicleMath.clamp(measured, 0, cap) : Math.max(0, prev);
+        }
+        double v = VehicleMath.clamp(client, 0, cap);
+        if (valid && !Double.isNaN(measured)) {
+            v = Math.min(v, Math.max(0, measured) * AIR_MARGIN + AIR_SLACK);
+        }
+        return v;
+    }
+
     /** The window's displacement per Move (blocks): the ticks' displacements over the Moves they took (0 none). */
     public static double perMove(double[] moved, int[] moves) {
         double d = 0;

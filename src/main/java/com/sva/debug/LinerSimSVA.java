@@ -36,6 +36,12 @@ final class LinerSimSVA {
     int touchAt = -1, ticks;
     boolean insReady = true;
     double mass = 17500;
+    /**
+     * The false alpha floor, second fix: the server's view of the airspeed when a test plays the driver's Move link (NaN:
+     * the body's own speed) - the judged airspeed, the per-tick speed (Env.speed), the measured one, the sample valid.
+     */
+    double airOverride = Double.NaN, spdOverride = Double.NaN, measOverride = Double.NaN;
+    boolean airValid = true;
     /** Wave 5: the vehicle's route (the FMS' bridge keeps it). */
     com.sva.vehicle.RouteMath.Plan route;
 
@@ -110,8 +116,8 @@ final class LinerSimSVA {
 
     void systems() {
         e.ground = b.ground;
-        e.airspeed = b.speed;
-        e.speed = b.speed;
+        e.airspeed = Double.isNaN(airOverride) ? b.speed : airOverride;
+        e.speed = Double.isNaN(spdOverride) ? b.speed : spdOverride;
         e.alt = b.y;
         e.height = Math.max(0, b.y - GROUND_Y);
         e.throttle = L.afs.lever;
@@ -123,6 +129,9 @@ final class LinerSimSVA {
         a.z = b.z;
         a.hdg = LinerGuide.compass(b.yaw);
         a.vy = b.motionY;
+        a.airValid = airValid;
+        a.measured = measOverride;
+        a.reported = airOverride;
         a.stall = p.stall;
         a.liftOff = p.liftOff;
         a.drag = p.drag;

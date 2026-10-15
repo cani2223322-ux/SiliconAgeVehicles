@@ -238,9 +238,20 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     // of one tick share it; aircraft: the deepest sink of one client step this tick and the count of Moves taken
     private double moveBaseX, moveBaseY, moveBaseZ, moveDyMin;
     private long moveBaseDt = 1, moveBaseMs;
-    /** Steps borrowed (-1) or saved (+1) between ticks: one client step of tick jitter (serverMove). */
-    private long moveCredit, moveCreditAtTick;
+    /** The Moves' time budget (a token bucket of client steps, ±MoveBudget.CAP carried - serverMove). */
+    private final com.sva.vehicle.MoveBudget moveBudget = new com.sva.vehicle.MoveBudget();
+    /** Real time (ms) of the last Move: a lagging server's catch-up ticks don't hand the aircraft to the server's physics. */
+    private long lastMoveMs = -1000000L;
     private int movesThisTick;
+    // the false alpha floor, second fix (the liner): the client's latest reported airspeed (refused Moves too), the
+    // anchor of the last valid measurement (an accepted Move's point, tick, ms; NaN after a refusal / correction), the
+    // last valid samples (b/t) and this tick's: a valid sample, any Move
+    private double reportedSpeed = Double.NaN, measAnchorX = Double.NaN, measAnchorZ;
+    private long measAnchorTick, measAnchorMs;
+    private final double[] measDist = new double[MOVED_WIN], measSpan = new double[MOVED_WIN];
+    private int measAt, movesSeenThisTick;
+    private boolean measValidThisTick, airValidNow = true, clientDrivenNow;
+    private double measuredAirNow = Double.NaN;
     // server measurement
     private double lastX, lastY, lastZ, lastDx, lastDz;
     private boolean hasLast;
@@ -2510,6 +2521,29 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         return airspeedNow;
     }
 
+    /**
+     * The false alpha floor, second fix (the liner's AFS): this tick's airspeed rests on a valid measurement (an accepted
+     * Move with no refusal / correction since the last; always true when the server's own physics flies it).
+     */
+    public boolean airValidNow() {
+        return airValidNow;
+    }
+
+    /** The measured airspeed over the last valid samples (b/t; NaN none / not client-driven) - alpha floor's AoA check. */
+    public double measuredAirNow() {
+        return measuredAirNow;
+    }
+
+    /** The liner was flown by the driver's client last tick (its systems take the judged airspeed for the speed too). */
+    public boolean linerClientDriven() {
+        return clientDrivenNow;
+    }
+
+    /** The driver's client's last reported airspeed (b/t; NaN none) - the [SVA-AFLOOR] diagnostic. */
+    public double reportedAirNow() {
+        return reportedSpeed;
+    }
+
     /** World test: the server's measured speed EMA (blocks/tick). */
     public double measuredSpeed() {
         return speedEma;
@@ -2790,7 +2824,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         insTick(t);                                                 // D5: the INS alignment (before the autopilot judges)
         cruiseNow = !autoDrive && motorOn && cruiseActive(in);
         routeServerTick();                                          // D4: МАРШ's points, the plan to the driver
-        boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && now - lastMoveTick <= MOVE_TIMEOUT;
+        // the false alpha floor, second fix: also by the real time - a lag spike's catch-up ticks run back to back with no
+        // Move in them, and handing the aircraft to the server's physics then (from the last measured speed) slowed it
+        boolean clientDriven = riddenByEntity instanceof EntityPlayerMP && (now - lastMoveTick <= MOVE_TIMEOUT
+                || lastMoveTick > 0 && System.nanoTime() / 1000000L - lastMoveMs <= MOVE_TIMEOUT * 50L);
         // liner wave 7: a tug moves a towed liner (its own physics and the pilot's moves wait); the doors shut when it rolls
         boolean towedNow = t == VehicleType.LINER && state.liner() != null && ConfigSVA.linerTow && LinerGroundSVA.towTick(this);
         if (t == VehicleType.LINER && state.liner() != null) {
@@ -2825,10 +2862,18 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         moveGap = movesThisTick > 0 ? 0 : moveGap + 1;
         // the aircraft rules' airspeed: the driver's client's own (capped by the measured), else the server's physics'
         if (clientDriven && t == VehicleType.LINER) {
-            // the autopilot fix: a lag spike's catch-up ticks without Moves no longer read as a slow aircraft (alpha floor)
-            airspeedNow = PlaneMath.gapAirspeed(airspeedNow, moveSpeed, Math.max(speedEma, movedAvg()), PlaneMath.perMove(movedWin, movesWin),
-                    movesThisTick, moveGap);
+            // the false alpha floor, second fix: the client's reported airspeed (sanity-capped: the top speed, a valid
+            // measurement); a tick without a Move keeps the last; a refused / corrected Move is no measurement, never 0
+            measuredAirNow = measuredWin();
+            if (movesSeenThisTick > 0) {
+                airspeedNow = PlaneMath.judgedAirspeed(airspeedNow, reportedSpeed, t.topSpeed, measuredAirNow, measValidThisTick);
+            }
+            airValidNow = measValidThisTick;
+            clientDrivenNow = true;
         } else {
+            clientDrivenNow = false;
+            airValidNow = true;
+            measuredAirNow = Double.NaN;
             airspeedNow = clientDriven ? clientAirspeed(moveSpeed, 0) : Math.max(0, speed);
         }
         if (hitCooldown > 0) {
@@ -2937,6 +2982,8 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         lastY = posY;
         lastZ = posZ;
         movesThisTick = 0;
+        movesSeenThisTick = 0;
+        measValidThisTick = false;
     }
 
     /**
@@ -3700,7 +3747,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             // a lagging server (TPS < 20) drains more than one client step a tick - the real time counts then
             long ticks = now - lastMoveTick, real = (ms - moveBaseMs + 25) / 50;
             moveBaseDt = ticks > MOVE_TIMEOUT ? 1 : Math.max(1, Math.min(MOVE_TIMEOUT, Math.max(ticks, real)));
-            moveCreditAtTick = ticks > MOVE_TIMEOUT ? 0 : moveCredit;
+            moveBudget.tick(now, ms, MOVE_TIMEOUT);
             moveBaseMs = ms;
             moveBaseX = posX;
             moveBaseY = posY;
@@ -3731,11 +3778,12 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 RoadMath.speedMul(com.sva.block.BlockRoadSVA.surfaceAt(worldObj, x, y, z), t.movement)) : coast;   // coasting only; ★11 roads
         // aircraft: reach, climbing only with power / airspeed, the ceiling, no hanging in the air unpowered (FlightMath)
         // The client and server ticks run unsynchronised and only the newest Move of a tick is kept (ServerQueueSVA): a
-        // tick may get two client steps and the next none. One step may be borrowed (moveCredit -1..1, repaid by the
-        // empty tick), so that jitter is no snap-back, while a steady 2x pace is still refused after one tick.
-        long dtMax = Math.max(1, Math.min(MOVE_TIMEOUT, dt + moveCreditAtTick + 1));
+        // tick may get two client steps and the next none, and a lagging server's catch-up ticks none at all. The steps
+        // a tick may take come from a time budget (MoveBudget: a token bucket, ±3 steps carried), so bursts and catch-ups
+        // are no snap-back, while a steady 2x pace runs out within 4 ticks. The smallest d that passes is what it costs.
+        long dtMax = Math.min(com.sva.vehicle.MoveBudget.MAX_ELAPSED + 2 * (long) com.sva.vehicle.MoveBudget.CAP, moveBudget.maxSteps());
         boolean ok = false;
-        long used = dt;
+        long used = 0;
         boolean wasAir = flies && airborneAt(posX, posY, posZ), nowAir = flies && airborneAt(x, y, z);
         for (long d = 1; d <= dtMax && !ok; d++) {
             ok = flies ? FlightMath.moveAllowed(t, moveRules(t, now), flightParams(t), bh, by, d, y, lift, wasAir, nowAir,
@@ -3743,9 +3791,6 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                                                                 // a Move after a refused one must count what it covers)
                     : moveAllowed(bh, by, d, limit, CrawlerMath.climbLimit(stepHeight));          // ★8: big wheels step 1.5
             used = d;
-        }
-        if (ok) {
-            moveCredit = Math.max(-1, Math.min(1, moveCreditAtTick + dt - used));
         }
         refuseWhy = ok ? 0 : 1;
         if (ok && (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4)) {
@@ -3773,7 +3818,14 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 refuseWhy = 6;
             }
         }
+        lastMoveMs = ms;
+        movesSeenThisTick++;
+        if (!Float.isNaN(clientSpeed) && !Float.isInfinite(clientSpeed)) {
+            reportedSpeed = clientSpeed;                            // the liner's systems: the client's airspeed, refused or not
+        }
         if (ok) {
+            moveBudget.accept(used);                                // the steps this tick's displacement took
+            measureMove(x, z, now, ms);
             setPosition(x, y, z);
             rotationYaw = yaw;
             moveSpeed = clientSpeed;                                // aircraft: the client's airspeed (clientAirspeed caps it)
@@ -3782,16 +3834,55 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             clientFall(dy, flies || hover);
         } else {
             movesRefused++;
+            measAnchorX = Double.NaN;                               // the server stood still: no measurement until re-anchored
             if (now - lastCorrectTick >= 5 && p.playerNetServerHandler != null) {
                 lastCorrectTick = now;
-                // DIAG (liner snap-back, temporary): why the server refused the driver's move
+                // DIAG (liner snap-back): why the server refused the driver's move (credit: MoveBudget's carried steps)
                 System.out.println(String.format(java.util.Locale.ROOT,
-                        "[SVA-MOVE] refuse type=%s why=%d bh=%.3f by=%.3f dt=%d y=%.1f lift=%b thrust=%b motor=%b eng=%d spd=%.3f ema=%.3f air=%b/%b",
-                        t.name(), refuseWhy, bh, by, dt, y, lift, canThrust(), motorDrives(), engineState(), clientSpeed, speedEma,
-                        airborneAt(posX, posY, posZ), airborneAt(x, y, z)));
+                        "[SVA-MOVE] refuse type=%s why=%d bh=%.3f by=%.3f dt=%d max=%d credit=%.2f y=%.1f lift=%b thrust=%b motor=%b eng=%d spd=%.3f ema=%.3f air=%b/%b",
+                        t.name(), refuseWhy, bh, by, dt, dtMax, moveBudget.credit(), y, lift, canThrust(), motorDrives(), engineState(), clientSpeed,
+                        speedEma, airborneAt(posX, posY, posZ), airborneAt(x, y, z)));
                 NetSVA.CHANNEL.sendTo(new NetSVA.Correct(getEntityId(), posX, posY, posZ, rotationYaw), p);
             }
         }
+    }
+
+    /**
+     * The false alpha floor, second fix: a valid measured airspeed sample from an accepted Move - the horizontal distance
+     * from the last valid anchor over the time between them (the server ticks or the real time, whichever is LESS: the
+     * catch-up ticks of a lag spike run in no time, and an over-read only loosens judgedAirspeed's sanity cap, an
+     * under-read would make a false stall). After a refusal / correction (the server stood still while the client flew
+     * on, then was thrown back) or a long silence the first accepted Move only re-anchors: no sample - never zero speed.
+     */
+    private void measureMove(double x, double z, long now, long ms) {
+        if (!Double.isNaN(measAnchorX) && now == measAnchorTick) {
+            return;                                                 // bunched in one tick: the next tick measures them together
+        }
+        if (!Double.isNaN(measAnchorX) && now - measAnchorTick <= MOVE_TIMEOUT) {
+            double ax = x - measAnchorX, az = z - measAnchorZ;
+            double span = Math.max(0.2, Math.min(now - measAnchorTick, (ms - measAnchorMs) / 50.0));
+            measDist[measAt] = Math.sqrt(ax * ax + az * az);
+            measSpan[measAt] = span;
+            measAt = (measAt + 1) % MOVED_WIN;
+            measValidThisTick = true;
+        }
+        measAnchorX = x;
+        measAnchorZ = z;
+        measAnchorTick = now;
+        measAnchorMs = ms;
+    }
+
+    /**
+     * The measured airspeed over the last MOVED_WIN valid samples (b/t; NaN none yet): their distance over their time - a
+     * bunched Move (two steps in one tick) and the short one after it even out, unlike a per-sample max or mean.
+     */
+    private double measuredWin() {
+        double d = 0, s = 0;
+        for (int i = 0; i < MOVED_WIN; i++) {
+            d += measDist[i];
+            s += measSpan[i];
+        }
+        return s > 0 ? d / s : Double.NaN;
     }
 
     /**

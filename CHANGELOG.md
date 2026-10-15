@@ -6,6 +6,13 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
+- **Лайнер SA-320: ложная альфа-защита (TOGA LK на 144 км/ч) - исправлено до конца.**
+  - *Причина*: после прошлого исправления сервер всё ещё ОТКЛОНЯЛ пакеты движения пилота на большой скорости (в журнале - «[SVA-MOVE] refuse ... bh=3.98 dt=1 spd=1.99»: два шага клиента в одном тике сервера, а запас был всего на один шаг). Отклонённый пакет оставляет самолёт на сервере на месте, а после лага сервер «догоняет» тики пачкой без единого пакета - больше секунды подряд измеренная скорость была почти нулевой, и альфа-защита срабатывала. На 89 км/ч два шага ещё помещались в один тик, поэтому с закрылками FULL всё работало.
+  - *Исправлено*: для всех защит и систем лайнера (альфа-защита, VLS, сваливание, превышение скорости, А/ТЯГА) скорость - та, что сообщает клиент пилота (он и ведёт самолёт), с проверкой: не больше макс. скорости x1,15 и не больше измеренной с запасом, когда измерение верное. Отклонённый пакет, тик без пакета и «догоняющие» тики - «нет измерения», а не нулевая скорость.
+  - *Альфа-защита* теперь требует 10 верных замеров подряд: скорость ниже порога И большой угол атаки (по измеренной скорости) или падение скорости.
+  - *Пакеты движения*: вместо запаса в один шаг - бюджет времени (до 3 шагов в долг и до 3 в запас): пачки и лаги сервера больше не откидывают самолёт назад, а стабильная двойная скорость (чит) отклоняется за 4 тика. Пока сервер догоняет тики после лага, самолёт не передаётся физике сервера.
+  - *Диагностика*: при срабатывании альфа-защиты в лог пишется одна строка «[SVA-AFLOOR]» со всеми входами (скорость клиента, измеренная, принятая, угол атаки, высота, закон, тики); «[SVA-MOVE]» теперь показывает и бюджет.
+  - Самотесты: бюджет пакетов (пачки, двойная скорость, тишина, лагающий сервер), принятая скорость, порог альфа-защиты на Y 40 / 144 км/ч / CONF 0, полный повтор ситуации пользователя (старые правила - TOGA LK, новые - нет).
 - **Лайнер SA-320: исправлен автопилот - снижение и регулятор скорости.**
   - *Причина*: ложное срабатывание альфа-защиты. Когда сервер отстаёт (новые чанки на скорости 144 км/ч), пакеты движения от клиента пилота приходят пачкой, и несколько тиков подряд сервер «видел» почти нулевую скорость - ниже порога альфа-защиты. Автомат тяги уходил в TOGA, а потом в TOGA LK: N1 100 %, ручка SPD не действует, снижение (DES / OP DES) не идёт - вся тяга взлётная, самолёт держит высоту на 144 км/ч.
   - *Исправлено*: скорость на сервере не проваливается в тиках без пакета движения; альфа-защита срабатывает, только если скорость ниже порога 0,5 с подряд (как угол атаки на A320, а не одно значение).
@@ -236,6 +243,13 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Исправлено: в HUD «Сингулярного корабля» вместо текста показывался ключ «sva.hud.jump.why.1» - добавлены все недостающие причины, почему прыжок недоступен.
 
 ### English
+- **SA-320 airliner: the false alpha floor (TOGA LK at 144 km/h) - fixed for good.**
+  - *Cause*: after the previous fix the server still REFUSED the pilot's Move packets at high speed (the log: "[SVA-MOVE] refuse ... bh=3.98 dt=1 spd=1.99" - two client steps in one server tick with only one step of slack). A refused Move leaves the aircraft still on the server, and after a lag spike the server runs its catch-up ticks back to back without a single Move - for more than a second the measured speed was almost zero and alpha floor fired. At 89 km/h two steps still fit one tick, which is why flaps FULL worked.
+  - *Fixed*: every liner protection and system (alpha floor, VLS, stall, overspeed, A/THR) now takes the airspeed the pilot's client reports (it flies the aircraft), sanity-capped: no more than the top speed x1.15 and no more than the measured speed + a margin when the measurement is valid. A refused Move, a tick without one and the catch-up ticks are "no measurement", never zero speed.
+  - *Alpha floor* now needs 10 valid samples in a row: the speed under the threshold AND a high angle of attack (on the measured speed) or a falling speed.
+  - *Move packets*: the one-step slack became a time budget (up to 3 steps borrowed and 3 saved): bursts and server lag no longer snap the aircraft back, a steady 2x pace (a cheat) is refused within 4 ticks. While the server catches up after a lag spike the aircraft is not handed to the server's physics.
+  - *Diagnostics*: alpha floor engaging logs one "[SVA-AFLOOR]" line with all its inputs (the client's, the measured and the judged airspeed, AoA, height, law, ticks); "[SVA-MOVE]" shows the budget too.
+  - Self-tests: the Move budget (bursts, a 2x pace, a silence, a lagging server), the judged airspeed, alpha floor's threshold at Y 40 / 144 km/h / CONF 0, the user's situation replayed (the old rules latch TOGA LK, the new ones don't).
 - **SA-320 airliner: the autopilot fixed - the descent and the speed knob.**
   - *Cause*: a false alpha floor. While the server lags (new chunks at 144 km/h) the pilot's client's Move packets arrive in bunches, and for a few ticks in a row the server judged the airspeed almost zero - under alpha floor's speed. The A/THR went to TOGA, then TOGA LK: N1 100 %, the SPD knob dead, no descent (DES / OP DES) - take-off thrust, the aircraft holding its level at 144 km/h.
   - *Fixed*: the server's airspeed no longer drops on ticks without a Move; alpha floor needs the speed under its threshold for 0.5 s in a row (an angle of attack held, as on the A320, not one sample).

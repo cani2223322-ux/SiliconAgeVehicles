@@ -90,7 +90,9 @@ public final class LinerLogicSVA {
         e.roll = e.yaw = (right ? 1F : 0F) - (left ? 1F : 0F);
         e.pitch = (up ? 1F : 0F) - (down ? 1F : 0F);
         e.pedal = e.ground && (in & EntityVehicleSVA.IN_BACK) != 0 && v.throttle <= 0 && F.rev <= 0;
-        e.speed = Math.max(0, v.speed);
+        // the false alpha floor, second fix: the client flying it, the per-tick measured displacement is 0 on a refused /
+        // empty tick and doubled on a bunched one (288 km/h into the AFS) - the judged airspeed is the speed then
+        e.speed = v.linerClientDriven() ? Math.max(0, v.airspeedNow()) : Math.max(0, v.speed);
         e.mu = v.linerMu();
         e.height = v.debugLinerAir ? 100 : v.linerRadio();          // wave 4: the radio altimeter every tick
         e.leakChance = Math.max(0, ConfigSVA.linerHydLeakChance);
@@ -443,6 +445,9 @@ public final class LinerLogicSVA {
         v.linerVy = v.linerVy * 0.5 + dy * 0.5;
         v.linerLastY = v.posY;
         a.vy = v.linerVy;
+        a.airValid = v.airValidNow();                               // the false alpha floor, second fix: valid samples only
+        a.measured = v.measuredAirNow();
+        a.reported = v.reportedAirNow();
         PlaneParams p = v.flightParams(t);
         a.stall = p.stall;
         a.liftOff = p.liftOff;

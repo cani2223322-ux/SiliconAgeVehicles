@@ -82,6 +82,12 @@ public final class LinerAfs {
      */
     public static final int AFLOOR_TICKS = 10;
     /**
+     * The false alpha floor, second fix: the angle of attack (deg, HighLiftMath.aoa on the configuration's stall) alpha
+     * floor wants - level flight at V_AFLOOR (STALL_AOA / K_AFLOOR^2, ~13 deg). The AoA is judged on the MEASURED speed
+     * when there is one: a low reported airspeed alone (a client's glitch) is not enough, the aircraft must also fly like it.
+     */
+    public static final double AFLOOR_AOA = HighLiftMath.STALL_AOA / (1.07 * 1.07);  // K_AFLOOR (declared below)
+    /**
      * The descent modes' least sink (b/t): DES / OP DES / EXPED never level off. On THR IDLE on the speed or fast -
      * DES_MIN (2 m/s: too fast still descends, the idle thrust takes the speed off); slow at idle - DES_MIN_SLOW (the
      * pitch gives the speed back, but it keeps going down: OP DES never levels or climbs); the levers above CL (manual
@@ -182,6 +188,8 @@ public final class LinerAfs {
 
     // server-only working values
     private int keyHold, override, airTicks, athrDisArm, aFloorTicks;
+    /** The false alpha floor, second fix: the last valid sample's airspeed (the speed trend), NaN none. */
+    private double aFloorPrevSpeed = Double.NaN;
     private double athrI, lastRa = Double.NaN, lastSpeed, lastShown = Double.NaN;
     private boolean retardDone, v1Done, wasGround = true, apIntent;
     /** Sound events this tick (the entity plays them): a callout's code, the cavalry charge's note (-1 none). */
@@ -630,6 +638,13 @@ public final class LinerAfs {
         public boolean tdPassed, vEntered, apprActive;
         public int flex, dh = -1, mda = -1, fmsMsg;
         public String ilsPlan = "";
+        /**
+         * The false alpha floor, second fix: this tick's airspeed rests on a valid measurement (the driver's client: an
+         * accepted Move, no refusal / correction since the last; the server's own physics: always), the measured speed
+         * (b/t, over the last valid samples; NaN none - the airspeed then) and the client's reported one (NaN none).
+         */
+        public boolean airValid = true;
+        public double measured = Double.NaN, reported = Double.NaN;
     }
 
     // ---------------------------------------------------------------- the levers
@@ -1112,6 +1127,12 @@ public final class LinerAfs {
         return L.onGround && (L.doorsOpen() != 0 || L.chocks);
     }
 
+    /** Alpha floor's angle of attack (deg): on the measured speed when there is one, else the airspeed; + the climb. */
+    public static double aFloorAoa(Air a) {
+        double v = Double.isNaN(a.measured) ? a.speed : a.measured;
+        return HighLiftMath.aoa(a.stall, v, a.vy);
+    }
+
     private void athrTick(LinerSystems L, Air a) {
         int det = detent(lever);
         boolean landing = ver == V_FLARE || lat == L_ROLLOUT || ver == V_LAND && a.ra < RETARD_H * 2;
@@ -1121,10 +1142,24 @@ public final class LinerAfs {
         // alpha floor (NORMAL law, an ADR, in the air over AFLOOR_MIN_H, not on the landing's last part)
         boolean prot = L.fctl.law == LinerFctl.NORMAL && L.adrCount() >= 1 && L.adirs.protOk() && !a.ground && a.ra >= AFLOOR_MIN_H && L.anyRunning()
                 && !landing;
-        aFloorTicks = prot && a.speed < aFloorV ? aFloorTicks + 1 : 0;
-        if (prot && a.speed < aFloorV && (aFloor || aFloorTicks >= AFLOOR_TICKS)) {
+        // the false alpha floor, second fix: a sample counts only when valid (a refused Move, a tick without one, a lag
+        // spike's catch-up ticks are no measurement - the count holds), and needs BOTH the airspeed under V_AFLOOR AND
+        // the angle of attack over AFLOOR_AOA (on the measured speed) or the speed falling, AFLOOR_TICKS samples in a row
+        double aoa = aFloorAoa(a);
+        boolean falling = !Double.isNaN(aFloorPrevSpeed) && a.speed < aFloorPrevSpeed - 1e-6;
+        boolean low = prot && a.speed < aFloorV && (aoa >= AFLOOR_AOA || falling);
+        if (a.airValid || !prot) {
+            aFloorTicks = low ? aFloorTicks + 1 : 0;
+            aFloorPrevSpeed = a.speed;
+        }
+        if (prot && a.speed < aFloorV && (aFloor || low && aFloorTicks >= AFLOOR_TICKS)) {
             if (!aFloor) {
                 boxThr = 0;
+                // DIAG: every input alpha floor judged by, one line - if it ever fires in flight again, the log says why
+                System.out.println(String.format(java.util.Locale.ROOT,
+                        "[SVA-AFLOOR] engage reported=%.3f measured=%.3f judged=%.3f vAfloor=%.3f stall=%.3f aoa=%.1f vy=%.3f ra=%.1f y=%.1f"
+                                + " law=%d valid=%b ticks=%d athr=%b", a.reported, a.measured, a.speed, aFloorV, a.stall, aoa, a.vy, a.ra, a.y,
+                        L.fctl.law, a.airValid, aFloorTicks, athr));
             }
             aFloor = true;
             athr = true;                                            // alpha floor engages the A/THR whatever its state
