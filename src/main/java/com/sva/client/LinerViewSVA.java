@@ -81,6 +81,21 @@ public final class LinerViewSVA {
         told = PICK.current;
     }
 
+    /**
+     * Wave C, item 45: the handbook's «Показать» turns the pilot's look to the panel of the control it outlines (a quick view;
+     * the view key or the wheel take it back as usual). Nothing when the quick views are off or not in a pilot seat.
+     */
+    public static void show(int preset) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (!ConfigSVA.linerQuickViews || pilotedLiner(mc) == null || preset < 0 || preset >= LinerView.PRESETS) {
+            return;
+        }
+        PICK.current = preset;
+        if (preset != LinerView.FWD) {
+            PICK.favourite = preset;
+        }
+    }
+
     /** The preset last named over the hotbar. */
     private static int told = LinerView.FWD;
 

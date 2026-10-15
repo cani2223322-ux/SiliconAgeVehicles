@@ -491,3 +491,19 @@
   предмете). Тесты (сид 12345, порт 25921): self 1698/0 (+65), world 558/2 (+23; 2 прежних падения - plane strip, «des»).
 - Осталось / next steps: проверка в клиенте (ручки зон, покрытие, рамки HUD/ND/E-WD, панель 7600, экран вышки); коммит -
   по команде.
+
+## 2026-10-15 — Справочник аддона, волна В (пп. 41-46, 48) — ворктри wave-book
+- Сделано: пакет com.sva.book (BookDoc/BookMarkup - книга из текстовых файлов assets/siliconagevehicles/book/{ru,en}/*.txt и
+  index.txt, проверка шрифта ASCII+кириллица; BookLayout - вёрстка разворотов; BookSearch - поиск (ё=е, начала слов);
+  BookSchematics - схемы из AdShapeMath / частей вышки и антенн ILS / PlannerMath; BookChecklists - 4 живых чек-листа;
+  TutorialMath - 28 шагов первого полёта; BookRecipesSVA/BookResolveSVA - рецепты и цифры из игры; BookGiveSVA - выдача
+  при первом входе; BookExportSVA - выгрузка book.json + PNG по слоям). Предмет handbook (книга + металлург. кремний).
+  Клиент: GuiBookSVA, BookDrawSVA (изометрия/план), BookHoloSVA (голограмма R/P/Backspace), BookClientSVA (закладки
+  в config/SiliconAgeVehicles_book.txt, подсветка LinerCockpitSVA.highlight, обучение), LinerViewSVA.show,
+  RenderItemVehicleSVA.renderInBook, NeiBookSVA. Конфиг book.*. 11 глав ru/en (~125 страниц). Lang, CHANGELOG, README,
+  tools/book_export/book_html.py. Сайт: tools/build_vehicles_book.py -> vehicles-book.html (копия выгрузки в tools/vbook),
+  ссылки из vehicles.html и гайдов, SEO/поиск. Превью docs/mockups/veh_book_impl_1..7.
+  Тесты (сид 12345, порт 25931): self 1741/0 (+43), world 561/2 (+3; 2 прежних - plane strip, «des»). Сайт собран,
+  ссылки/i18n проверены, превью в браузере, выложен (deploy.py, --check: v=102), бэкап site_2026-10-15_before-book.
+- Осталось / next steps: проверка в клиенте (окно книги, модели, голограмма, подсветка, обучение); иконки аэропорта в
+  wiki-data сайта (нужна новая выгрузка дампера); коммит - по команде.

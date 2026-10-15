@@ -1,0 +1,39 @@
+@chapter Infrastructure
+@icon siliconagevehicles:workbench
+# Engineering Workbench
+A workbench (MV) with a 5 x 5 grid: it makes every component (3 x 3 recipes, instant) and every vehicle (5 x 5, for EU and time). Core upgrade slots: QV-SV vehicles need a transformer upgrade (HV-IV input). "Lay out" fills the grid from your inventory, the arrow lists the recipes; with NEI every workbench recipe shows on its "Engineering Workbench" page (R - how to make, U - where used).
+@recipe craft:siliconagevehicles:workbench
+
+# Charging station and platform
+The station charges a vehicle's battery on a pad of plates. Details in the "Energy" chapter.
+@recipe wb:chargePlate
+@recipe wb:supercap
+@link energy | Charging, modules and the boost
+
+# Repair garage
+A controller and floor plates round it. Repairs the hull and cools the motor for EU and steel, shows a repair hologram, outputs a comparator signal. **Tuning** is fitted here too (up to 4 a vehicle): Motor+ I / II, Battery+, Armour, Light hull, Big wheels, Light bar, Reinforced drill, Extra tank, Radar-absorbing coating, Smooth hull, Radar warning receiver - all visible on the model. "Service battery" and "Repair all" (with hydraulic fluid for the liner) are here as well.
+@recipe wb:garage
+@recipe wb:garagePad
+
+# Gas Column
+The column (HV) holds tanks of every core gas and refuels its owner's vehicles within 4 blocks: hydrogen - fuel, helium - cooling, argon - the drill's hull field, oxygen - the shuttle's cabin, deuterium - the long-range mode.
+@recipe wb:gasColumn
+
+# Roads
+Asphalt gives +30 % speed and half the wear, concrete +20 %. Markings (edge, dashed, solid, arrows), curb, signs, a redstone traffic light, a guard rail. All on a plain crafting table from vanilla items.
+@recipe craft:siliconagevehicles:road
+@recipe craft:siliconagevehicles:curb
+
+# Trailers and the key card
+**Crawler trailers**: cargo (+54 slots), tanker (16,000 mB of a fluid or gas, refuels vehicles nearby), platform (carries a buggy or a hoverbike), mobile charger (4M EU, solar).
+**Key card**: Drive / Passenger / Cargo / Repair rights per player, modes Open / Friends / Owner, change the lock. A blank card: right-click a vehicle - the owner's card, Shift + right-click - the access screen.
+@recipe wb:keyCard
+**Vehicle map** (M while riding or the station's button): where your vehicles are, their charge and wear.
+
+# Airfield blocks
+- **Runway** - half the take-off run, soft braking, edge lights (the lit variant).
+- **PAPI Lights** and **Approach Lights** - a simple airfield without ILS.
+- A full airport with ILS, a tower and lights - in the "Airport" chapter.
+@recipe wb:runway
+@recipe wb:papi
+@link airport | Airport

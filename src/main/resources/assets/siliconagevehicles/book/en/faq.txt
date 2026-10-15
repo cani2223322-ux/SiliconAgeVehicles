@@ -1,0 +1,48 @@
+@chapter Questions and troubleshooting
+@icon minecraft:compass
+# Vehicles
+## The vehicle won't start
+Check the hydrogen (the H2 bar on the HUD), the battery (the slot on the cargo screen's "Vehicle" tab, "NO BATTERY" / "BATTERY FLAT") and the battery's health: under 50 % the engine starts on the 2nd or 3rd try, under 20 % not at all. Jump-start it from another vehicle.
+## The motor overheated and stopped
+Wait for it to cool or refuel helium - it cools. In the garage the motor cools at once.
+## It won't pick up
+Only the owner (or a player with the repair right), the vehicle empty and standing. The liner - on the ground, engines off. A core wrench picks it up at once.
+## The vehicle snaps back at speed
+The server can't keep up: load the chunks ahead or go slower. The [SVA-MOVE] lines in latest.log help find the cause - attach them to a report.
+## A key does nothing
+The function keys are set in the vehicle menu (`) and work only while riding. The controls settings hold just the menu key.
+
+# Aircraft
+## The autopilot won't engage
+The INS is still aligning (10 s standing, ATT / HDG flags), the power is off or the aircraft is on the ground.
+## A dark cockpit
+The battery is off, flat or removed - switch it on (the liner: BAT 1 and 2 on the overhead).
+## The plane won't lift off
+Too short a run: use a runway, flaps and the lift-off speed. On runway blocks the run is half as long.
+
+# The liner
+## TOGA LK and the thrust won't come back
+The alpha floor fired. Press the A/THR disconnect (- by default).
+## "AP OFF" keeps flashing
+Press , (the red button) or MASTER WARN. "A/THR OFF" - the - button or MASTER CAUT.
+## No autoland
+The ILS station is not CAT III: it needs the flight inspection, a working monitor and clear critical areas. Are both APs and APPR on?
+## An engine won't start
+No bleed pressure (APU or X BLEED), ENG MODE not START, pumps off or no hydrogen. A hot start - ENG MASTER off and try again.
+@link liner | SA-320 pilot's manual
+
+# Air defence and airport
+## The air defence won't fire
+By default the server only warns: fire is airdefense.mode = fire. It needs radars (a tracking one for missiles), ammunition, power and the post's rules of engagement. Never at your own or at 7700.
+## The ILS doesn't work
+Run the tablet's "ILS check" (Shift + right-click in the air): no shelter or power, a broken antenna element, a frequency conflict, the tower switched it off.
+## The approach chart reads OUTDATED
+The airport changed (code, runways, ILS) - print a new one at the tower.
+
+# The book
+## How do I get the book back?
+Craft a new one: a book + metallurgical silicon. It is given only once.
+## The checklist doesn't tick
+It is live only in a pilot seat of the liner (book.liveChecklists). Elsewhere it is a plain list.
+## Do recipes open NEI?
+Yes, with NEI installed: left click - the recipe, right click - where used. Close NEI and the book comes back.

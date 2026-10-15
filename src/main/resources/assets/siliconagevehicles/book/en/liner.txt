@@ -1,0 +1,151 @@
+@chapter SA-320 pilot's manual
+@icon siliconagevehicles:vehicle:10
+# The aircraft
+The SA-320 is an EV-tier twin-engine hydrogen airliner, about 18.5 x 17.6 x 5.7 blocks. 10 seats: the captain on the left (flies), the first officer on the right, 8 passengers. Boarding through the front left door L1 with its stairs (right-click the door) or an open R1.
+@img liner | The SA-320 at its stairs
+@kv Stall | about 83 km/h (flaps up)
+@kv Lift-off | about 94 km/h, a run of about 90 blocks
+@kv Max speed | 144 km/h (VMO 150)
+@kv Hydrogen | 48,000 mB: tanks L / C / R 35 / 30 / 35 %
+@kv Flaps | 0 / 1 / 2 / 3 / FULL
+The systems are simplified but follow the A320's logic: electrics, APU, bleed air, three hydraulic systems, fuel, ECAM, an FCU with autopilot and autothrust, MCDUs, ADIRS, lights, icing, fire.
+
+# Cockpit and controls
+@img cockpit | The view from the captain's seat
+- **Left Alt** (hold, "Cursor") - press buttons and turn selectors with the mouse (LMB / RMB / wheel). Guarded ones take two clicks (the guard first). A tooltip names the control and its position.
+- The **"Panels"** screen (vehicle menu) - the same panels flat: overhead, pedestal, FCU, main panel with live displays; zoom - / + / 1:1, the wheel, drag to pan.
+- **Quick views** (key =): a tap - to your PFD / ND and back; hold and turn the wheel - ECAM, overhead, pedestal / MCDU, windows.
+- Only the pilots work the controls; the first officer takes over with the PRIORITY button.
+@kv W / S | thrust levers (stop at the IDLE, CL, FLX, TOGA detents)
+@kv A / D | roll (the bank holds up to 33 deg)
+@kv Space / X | nose up / down
+@kv . | gear lever
+@kv [ and ] | flaps
+@kv U | speed brake
+@kv , | AP disconnect (and clears "AP OFF")
+@kv - | A/THR disconnect
+@kv M | MCDU (in a pilot seat)
+@kv ; | quick start
+On the ground at IDLE the "Descend" key (X) or right-click - reverse.
+
+# Cold and dark start
+The aircraft is "cold and dark": everything off. The sequence (as on the A320):
+- 1. **BAT 1 and BAT 2** - ON (overhead, ELEC). The displays come on.
+- 2. **ADIRS 1, 2, 3** - NAV. A 10 s alignment, stand still.
+- 3. **APU**: MASTER SW - ON, then START. AVAIL in about 16 s. Instead of the APU you may stand on a powered charging station: EXT PWR.
+- 4. **APU BLEED** - ON; the packs (PACK 1, 2) - OFF for the start.
+- 5. Fuel pumps - ON, **beacon** - ON, parking brake - ON, door L1 closed.
+- 6. **ENG MODE** (pedestal) - START (IGN).
+- 7. **ENG 2 MASTER** - ON (the second first: the yellow system holds the brakes). About 10 s to idle. Then **ENG 1 MASTER**.
+- 8. ENG MODE - NORM, APU BLEED - OFF, packs - ON, APU - OFF (it cools down and stops by itself).
+Start faults happen: a hot start, a hung start, no air - the ECAM tells you what to do.
+@note Quick start: the guarded button on the overhead, the ; key or the menu line - the aircraft runs the whole sequence by itself in about 40 s (vehicles.linerQuickStart).
+@check startup
+
+# Electrics, APU and bleed
+- Sources by priority: the own generator, ground power, the APU generator, the other engine's generator through the BUS TIE.
+- The second battery - the "BAT 2" slot in the menu. The loads (heating, lights, galley) show on the ELEC page.
+- X BLEED AUTO / OPEN / SHUT: the APU can start both engines.
+- With no generator in flight the RAT drops out (the blue system and emergency power).
+
+# Hydraulics and brakes
+- Three systems: **green** (ENG 1 pump), **yellow** (ENG 2 pump and an electric pump - runs on the ground from the APU or ground power), **blue** (an electric pump, AUTO with an engine running, and the RAT). The PTU links green and yellow.
+- Leaks and failures: "HYD G SYS LO PR" and others. The "Hydraulic Fluid" item - right-click the liner to top up.
+- Brakes: normal (green, anti-skid), alternate (yellow), parking (on the accumulator). Wheel temperatures: over 300 C - "BRAKES HOT", the fans cool them.
+- **Autobrake** LO / MED / MAX (MAX - for a rejected take-off); the pedals disengage it.
+- Nose-wheel steering on the yellow system; the TOW switch disconnects it.
+- Gravity gear extension - the crank on the pedestal, 3 turns.
+@recipe craft:siliconagevehicles:batteryTool:3
+
+# Fuel
+- Tanks L / C / R, inner and outer cells in the wings; 6 pumps. In AUTO the centre tank is used first.
+- Each engine feeds from its own side, the APU from the left wing. X FEED - one side feeds both engines.
+- A side's pumps off - gravity feed: fine below Y 160, above it at high thrust the engine flames out.
+- An imbalance over 1500 mB - "FUEL IMBALANCE", the aircraft drifts toward the heavy wing.
+- Hydrogen refuelling: the column, the tanker, a station with the gas module, core cells.
+
+# ECAM
+The upper display (E/WD) - engines, fuel and messages; the lower (SD) - the system pages.
+- Red messages above amber ones; under them blue action lines - a line done disappears.
+- **MASTER WARN** (red, a chime until pressed) and **MASTER CAUT** (amber) on the glare shield clear the lights.
+- The ECAM panel: CLR - clear the top message, RCL - bring the cleared back, STS, EMER CANC, ALL - step through the pages, T.O. CONFIG - the take-off configuration test.
+- T.O. MEMO (on the ground with both engines) and LDG MEMO (on approach with the gear down).
+- The checklists "BEFORE START", "AFTER START", "BEFORE TAKEOFF" - on the SD (the ALL key).
+
+# FCU, autopilot and autothrust
+The **FCU** on the glare shield: SPD / HDG / ALT / V/S knobs. Push (LMB) - managed (dashes), pull (RMB) - selected (a number), the wheel turns it (Shift - fine). Buttons AP 1, AP 2, A/THR, LOC, APPR, EXPED.
+- The **FMA** on the PFD - 5 columns: thrust, vertical mode, lateral mode, approach category, AP / FD / A/THR. Engaged - green, armed - blue.
+- The autopilot engages only in the air, with an aligned ADIRS, power and NORMAL / ALTN law.
+- **Thrust levers**: the IDLE, CL, FLX, TOGA detents. A/THR arms with the levers at FLX / TOGA and works with them at CL.
+- Protections (NORMAL law): alpha floor (A.FLOOR, then TOGA LK), VMO, bank up to 67 deg.
+
+# Take-off
+@check beforeTo
+- 1. Flaps 1-3, T.O. CONFIG - NORMAL, autobrake MAX, ground spoilers ARM.
+- 2. Strobes and landing lights - ON, nose light - T.O., seat belts - ON.
+- 3. On the runway: parking brake - OFF, levers to FLX or TOGA - "MAN FLX 45" or "MAN TOGA", SRS, RWY.
+- 4. At about 94 km/h - rotate. In the climb: gear up; at the acceleration height (30 blocks) "LVR CLB" flashes - levers to CL.
+- 5. Retract the flaps with speed, engage AP 1.
+
+# MCDU
+The M key in a pilot seat or a click on the MCDU. The captain and the first officer have their own screens, the data is shared. From the keyboard: letters and digits into the scratchpad, Enter = 6R, Backspace = CLR, arrows - pages, F1-F12 - line keys, Esc - close.
+- **INIT**: from / to, flight number, alternate, cost index, cruise level, weights.
+- **IRS INIT**: position and alignment (confirmed by itself by default).
+- **F-PLN**: waypoints, speed and altitude constraints, T/C and T/D, a temporary plan (yellow) - "INSERT*". A waypoint - a database name or "X1234/Z-567".
+- **DIR**: direct to a point.
+- **PERF**: V1 / VR / V2 ("COMPUTE*"), FLEX, climb, cruise, descent, APPR (QNH, wind, VAPP, DH / MDA), go-around.
+- **FUEL PRED**, **PROG**, **DATA** (airports, waypoints, beacons).
+- **RAD NAV**: the ILS by ident or frequency; with nothing chosen - by itself.
+- **ARRIVAL**: the destination's LAT REV - the tower's ILSxx approach with its transition, the ILS tuned by itself.
+- **ATC COMM**: ATIS of any airport, requests (taxi, take-off, landing, climb), WILCO / UNABLE / STANDBY, a log. A new message - the "ATC MSG" buttons on the glare shield.
+
+# ILS approach and autoland
+@check approach
+- 1. Tune the ILS: ARRIVAL in the MCDU or RAD NAV; press **LS** on the EFIS - the localizer and glide slope scales on the PFD.
+- 2. **APPR** on the FCU arms LOC and G/S: LOC* - LOC, G/S* - G/S.
+- 3. For an autoland engage **AP 1 and AP 2** - the FMA reads "CAT 3 DUAL". One AP - "CAT 1": it disconnects at the minimum.
+- 4. Gear down, flaps 3 or FULL, autobrake LO or MED, landing lights.
+- 5. Autoland: LAND below 40 blocks, FLARE at 10, "RETARD" at 3 - levers to IDLE. After touchdown ROLL OUT keeps the centre line, the spoilers and the autobrake stop the aircraft.
+@note Autoland only on a CAT III station. On CAT I / II the autopilot disconnects at the minimum with "MINIMUM" and a chime - land by hand. The station's category comes from the airport (flight inspection, monitor, critical areas).
+Go-around: levers to TOGA - SRS / GA TRK, the autopilot stays on.
+
+# After landing
+@check afterLanding
+Reverse - on the ground at IDLE the X key or right-click. Then retract the spoilers, flaps 0, strobes and landing lights off, nose light TAXI, start the APU. At the stand: parking brake, ENG 1 and ENG 2 MASTER - OFF.
+
+# Lights and icing
+- The exterior lights show to everyone: NAV and logo, beacon, strobes (AUTO - in the air), landing lights (extend in about 3 s), nose (TAXI / T.O.), runway turn-off lights, wing lights.
+- Cockpit light, panel lighting, the cabin (NIGHT / 1 / 2 / 3), SEAT BELTS and NO SMOKING signs.
+- Ice builds in clouds (about Y 128), in precipitation at altitude and in cold biomes: on the wing - a higher stall speed, on an engine - vibration, on a probe - "NAV IAS UNRELIABLE".
+- Wing anti-ice (from bleed), ENG 1 / 2 anti-ice, probe and window heat (AUTO). The cost - thrust and hydrogen.
+
+# ADIRS
+- Three ADIRUs: IR - attitude and heading, ADR - speed and altitude. OFF / NAV / ATT.
+- NAV - a 10 s alignment at the stand; NAV does not align in flight. ATT - attitude in 3 s, the heading entered in IRS INIT.
+- ADR voting: one off by more than 30 km/h is rejected; two disagreeing - "SPD DISAGREE" on the PFD, AP and A/THR off, ALTN law.
+- PFD flags per side: no IR - ATT / HDG, no ADR - SPD / ALT. The ISIS works without the ADIRUs.
+- Laws: NORMAL (protections), ALTN, DIRECT (trim by hand with the wheels), MECH.
+
+# Doors, chocks, towing, fire
+- Door R1 and the cargo doors: right-click from outside or the DOORS buttons on the main panel. A take-off with a door open - "CONFIG DOORS OPEN".
+- **Chocks**: right-click the main gear wheels - place, empty hand - remove.
+- Towing: the TOW switch, parking brake off; a crawler or truck with a player stopping its hitch at the nose gear for 2 s hooks up.
+- Passengers buckle up by the "Seat belts" sign (a second Shift within 3 s - unbuckle).
+- **Fire**: the ENG 1 / APU / ENG 2 FIRE handles - pull (fuel and bleed cut off), then AGENT. The APU on the ground puts itself out.
+@recipe craft:siliconagevehicles:batteryTool:4
+
+# Troubleshooting
+- **TOGA LK** flashes on the FMA: the alpha floor fired and the thrust is locked at TOGA. Out - the A/THR disconnect (-).
+- **"AP OFF"** flashes with a chime: press , or MASTER WARN. Works with the cockpit cursor too.
+- **The autopilot won't engage**: ADIRS not aligned, no power, on the ground, DIRECT / MECH law or not two IRs and ADRs.
+- **An engine won't start**: no bleed pressure (APU, X BLEED), ENG MODE not START, no hydrogen or pumps off; a hot start - off and try again.
+- **"ENG THR LEVERS NOT SET"**: on the take-off run the levers must be at FLX or TOGA. **"LVR CLB"**: move the levers to CL.
+- **"LVR CL"** in a descent: the thrust is manual, set the levers to CL.
+- **No autoland**: the station is not CAT III - it needs the flight inspection, a monitor (an ILS shelter) and clear critical areas.
+- **Can't pick it up**: only on the ground, stopped, engines off, nobody aboard.
+- **A dark cockpit**: switch BAT 1 and 2 on (or fit a charged battery).
+
+# Training: the first flight
+The "Training" mode takes you from a cold cockpit to the landing: prompts on the screen, the control to work pulses with an outline in the cockpit and in the "Panels" screen, every step is checked against the real state of the systems. Sit in the captain's seat and press "Start". Pause, skip a step, restart and stop - here too.
+@tutorial
+The route: start - taxi - take-off - a circuit with a turn - an ILS approach - an autoland (AP 1 + AP 2) or a hand landing - stop. You need an airport with an ILS nearby (the "Airport" chapter).

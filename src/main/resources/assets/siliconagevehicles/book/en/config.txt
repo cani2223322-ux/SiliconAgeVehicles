@@ -1,0 +1,64 @@
+@chapter Configuration
+@icon minecraft:comparator
+# The config file
+Everything is in config/SiliconAgeVehicles.cfg, categories vehicles, airdefense, airport and book. Almost everything new can be switched off; client options (look, sound) act only for you, server ones for everyone. The vehicles' function keys live apart - in config/SiliconAgeVehicles_keys.cfg (set them in the vehicle menu).
+
+# vehicles: the vehicles
+@kv wear | hull wear
+@kv maxPerPlayer | vehicles per player (0 - no limit)
+@kv fuelMode | HYDROGEN (default) or EU
+@kv batteryWear | battery wear
+@kv tuning, locks | tuning, key cards and access
+@kv stationBoost | the charging station's boost
+@kv stationsAddUp | stations on one pad add up
+@kv singularJump, mobCloak | the ship's jump and invisibility
+@kv regen | regenerative braking
+@kv cruise, autopilot | cruise and autopilot
+@kv ins, insAlignSeconds | INS and its alignment time (10 s)
+@kv engineStart, failures | engine start and failures
+@kv zoneFrames | air-defence zone frames on the HUD
+## Look and sound (client)
+@kv textures, liveries | textures and liveries
+@kv headlights, dynamicLight | headlight beams and block light
+@kv navLights, animations | nav lights, animations
+@kv glassCockpit, cockpitHiRes | cockpit displays, sharp font
+@kv cockpitQuality | AUTO / 1K / 2K / 4K
+@kv sounds, vehicleCamera | sounds, the vehicle camera
+@kv icons3d | 3D models of vehicle items
+
+# vehicles: the liner
+@kv linerQuickStart | quick start
+@kv linerTextures, linerLod | panel quality, levels of detail
+@kv linerQuickViews, linerHideHand | quick views, hidden hand
+@kv linerIcing, linerColdEffect | icing, a cold cabin
+@kv linerTow, linerSeatBelts | towing, passengers' seat belts
+@kv linerAccelHeight | acceleration height (30 blocks)
+@kv linerIlsRange | ILS search range (4000)
+@kv linerCallouts | height callouts
+@kv linerIrsAutoInit | IRS INIT confirms itself
+@kv linerHydLeakChance, linerAdirsFailChance | random failures
+
+# airdefense: air defence
+@kv enabled, mode | air defence on, warnings (default) or fire
+@kv minWarningSeconds | the wait after the warning
+@kv fireOnFriends, requirePvp | fire at friends, only with PvP
+@kv maxRadarsPerPlayer, maxLaunchersPerPlayer | limits
+@kv minDistanceFromSpawn | not nearer the spawn
+@kv upgrades, keepModules | core modules, modules kept in the item
+@kv rcsExtras, coverageMap | detectability, the coverage map
+@kv iff, iffHandoff, iffResponseSeconds | the tower's IFF and the handoff
+@kv autoSquawk, airportFriends | airport codes
+@kv models | 3D models of the structures (client)
+
+# airport and book
+@kv requirePower, shelterEu | ILS power through the shelter
+@kv criticalAreas, flightCheck | critical areas, flight inspection
+@kv legacyIlsCat | the old beacon's category (3)
+@kv magneticVariation | magnetic variation
+@kv windPhysics | the wind drifts the liner (off)
+@kv atc, autoTower, autoInterval | the tower's services
+@kv atisChat, taxiAhead | ATIS in the chat, taxi lights
+@kv paint, lights, drawDistance | markings and lights (client)
+@kv book.giveOnJoin | give the handbook on the first join
+@kv book.liveChecklists, book.highlight | live checklists, the control outline
+@kv book.hologram, book.tutorial, book.models | hologram, training, models in the book

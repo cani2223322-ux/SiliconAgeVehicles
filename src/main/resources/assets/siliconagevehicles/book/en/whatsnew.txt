@@ -1,0 +1,23 @@
+@chapter What's new
+@icon minecraft:writable_book
+# Coming in the next release
+## The handbook
+This book: chapters on every vehicle, the SA-320 pilot's manual, air defence and the airport; the real recipes from the game (with NEI), turning models, layer-by-layer build schematics with a hologram in the world, live checklists in the liner's cockpit with the next control outlined, and the "Training" mode - a first flight step by step. The same text is on the website.
+## Airport, wave B1
+An ILS of a 5 x 1 localizer and a glide slope mast with a shelter; CAT I / II / III with critical areas, a monitor and the flight inspection; false glide slopes; DME and markers; RVR, a weather station and a windsock; a runway of two ends with automatic markings and lights (ALS with the sequenced flasher, 5 steps, AUTO); the airport planner tablet with a hologram and the ILS check.
+## Airport, wave B2
+The control tower (ICAO code, runway in use, lights, ILS, traffic, weather), ATIS, CPDLC through the MCDU, a player controller or the automatic tower, ILS approaches in the MCDU, approach charts, follow-the-greens taxi lights, an air-defence "aerodrome" zone.
+## Air defence, wave A
+Zones edited with the mouse, zone frames for pilots and an entry prediction, detectability (gear, stores, doors, afterburner), airport codes and friendly airports, 7600 through the command post, modules kept in the item, radar coverage maps with terrain, IFF from the tower and the post.
+## Liner fixes
+- "AP OFF" no longer flashes forever after landing: the , button or MASTER WARN clears it, "A/THR OFF" - the - button or MASTER CAUT; the keys work with the cockpit cursor too.
+- The liner opens and picks up from any side: clicks are caught on the hull, wings, tail and gear.
+
+# Version 0.1.1
+- The SA-320 liner (7 waves of systems), the cockpit view and quick views.
+- Hydrogen and removable batteries for the vehicles.
+- The light plane's and the helicopter's C+ cockpits, INS, a dark cockpit without power, sharp instruments for 2K / 4K.
+- Air defence: transponders, radars, zones, AA guns, the missile system, the command post, multiblock models and core modules.
+- Fast charging, the supercapacitor, the Singular Charging Station.
+- The flight plan and ROUTE mode, gear doors, the jet's nozzle and HUD.
+The full changelog is in the add-on's CHANGELOG.md and on the website.

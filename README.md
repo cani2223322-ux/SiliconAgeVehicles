@@ -100,6 +100,11 @@
 - **Взлётно-посадочная полоса**: разбег самолётов ×0,5, мягкое торможение, огни по краю.
 - **Прицеп** вездехода; 24 компонента (колесо, гусеница, моторы, турбо-, антигравитационный и сингулярный двигатели, винт, крыло, бортовой компьютер, газовый бак, кабина, корпуса I–V, энергоблоки MV–SV, расширитель бура).
 
+### Справочник
+- **Книга «Справочник: Кремниевый век - Техника»** выдаётся один раз при первом входе (`book.giveOnJoin`), новую можно сделать на верстаке (книга + металлургический кремний). 11 глав на русском и английском (по языку игры): вся техника с цифрами и рецептами, инфраструктура, авиация, руководство пилота SA-320, ПВО, аэропорт, настройки, неисправности, что нового. Содержание, поиск, закладки.
+- Рецепты - настоящие, из игры (клик - NEI), модели машин крутятся мышью, схемы постройки показываются по слоям и **голограммой в мире**; в кресле пилота лайнера проверочные листы отмечаются сами, а «Показать» подсвечивает нужный орган в кабине; режим **«Обучение»** проводит первый полёт шаг за шагом.
+- Тот же текст - на сайте, на странице «Справочник Vehicles» (выгрузка `-Dsva.bookexport`, `tools/book_export`).
+
 ### Управление
 | Клавиша | Действие |
 |---|---|
@@ -153,10 +158,10 @@
 ### Настройки
 Всё новое выключается в `config/SiliconAgeVehicles.cfg` (раздел `vehicles`): `textures`, `liveries`, `headlights`, `dynamicLight`, `navLights`, `animations`, `liveInstruments`, `icons3d`, `interiorTrim`, `nightLighting`, `cockpitStartup`, `cockpitSounds`, `sounds`, `vehicleCamera`, `cruise`, `autopilot`, `tuning`, `locks`, `trailerKinds`, `vehicleMap`, `stationBoost`, `stationStorageLink`, `stationsAddUp` и другие.
 
-Новое в 0.1.1 (почти всё по умолчанию включено): `fuelMode` (HYDROGEN / EU), `batteryWear`, `ins`, `insAlignSeconds`, `glassCockpit`, `cockpitHiRes`, `cockpitQuality`, `highLift`, `avionics`, `airfield`, `landingLamps`, `engineStart`, `failures`, `gearDoors`, `gearStruts`, `jetNozzle`, `jetHud`, `regen`, `radarAltCallouts`, параметры лайнера `liner*` (`linerTextures`, `linerLod`, `linerQuickStart`, `linerIcing`, `linerQuickViews`, `linerHideHand`, `linerTow`, `linerSeatBelts` и др.); раздел `airdefense` (`enabled`, `mode`, `minWarningSeconds`, `models`, `upgrades` и др.).
+Новое в 0.1.1 (почти всё по умолчанию включено): `fuelMode` (HYDROGEN / EU), `batteryWear`, `ins`, `insAlignSeconds`, `glassCockpit`, `cockpitHiRes`, `cockpitQuality`, `highLift`, `avionics`, `airfield`, `landingLamps`, `engineStart`, `failures`, `gearDoors`, `gearStruts`, `jetNozzle`, `jetHud`, `regen`, `radarAltCallouts`, параметры лайнера `liner*` (`linerTextures`, `linerLod`, `linerQuickStart`, `linerIcing`, `linerQuickViews`, `linerHideHand`, `linerTow`, `linerSeatBelts` и др.); раздел `airdefense` (`enabled`, `mode`, `minWarningSeconds`, `models`, `upgrades` и др.); раздел `book` (`giveOnJoin`, `liveChecklists`, `highlight`, `hologram`, `tutorial`, `models`).
 
 ### Известные проблемы
-- Большая часть клиентской отрисовки (лайнер: кабина, экраны, огни, лёд, окна «Пульты» и МФПУ; модели и окна ПВО; кабины C+) проверена автотестами и программными превью, но мало — в самой игре.
+- Большая часть клиентской отрисовки (лайнер: кабина, экраны, огни, лёд, окна «Пульты» и МФПУ; модели и окна ПВО; кабины C+) проверена автотестами и программными превью, но мало — в самой игре. Окно справочника, голограмма, подсветка органов и подсказки обучения - тоже (логика книги, схемы, чек-листы и шаги обучения покрыты автотестами).
 - Отложено: у лайнера — DUAL INPUT, кабель наземного питания, объявления голосом, модель тягача, второй план полёта (SEC F-PLN), зоны ожидания, VOR / ADF; у ПВО — перетаскивание зон, рамка зоны на HUD реактивного; у водорода — шланг и непрерывная заправка от цистерны.
 - В журнале (`latest.log`) пока остаются диагностические строки `[SVA-MOVE]` и `[SVA-AFLOOR]` — они нужны для поиска рывков и ложной альфа-защиты; если заметите такую проблему, приложите их к отчёту.
 
@@ -257,6 +262,11 @@ A twin-engine hydrogen airliner (EV tier, ~18.5 x 17.6 x 5.7 blocks): 10 seats (
 - **Runway**: plane take-off run x0.5, soft braking, edge lights.
 - The crawler's **Trailer**; 24 components (wheel, track, motors, turbo, antigravity and singular engines, rotor, wing, on-board computer, gas tank, cabin, hulls I-V, energy blocks MV-SV, drill widener).
 
+### Handbook
+- **The book "Handbook: Silicon Age - Vehicles"** is given once on the first join (`book.giveOnJoin`); craft a new one on a crafting table (a book + metallurgical silicon). 11 chapters in Russian and English (by the game's language): every vehicle with its numbers and recipe, infrastructure, aviation, the SA-320 pilot's manual, air defence, the airport, configuration, troubleshooting, what's new. Contents, search, bookmarks.
+- The recipes are the real ones from the game (click - NEI), the vehicles' models turn with the mouse, build schematics show layer by layer and as a **hologram in the world**; in a pilot seat of the liner the checklists tick by themselves and "Show" outlines the control in the cockpit; the **"Training"** mode takes you through the first flight step by step.
+- The same text is on the website, the "Vehicles handbook" page (export `-Dsva.bookexport`, `tools/book_export`).
+
 ### Controls
 | Key | Action |
 |---|---|
@@ -310,10 +320,10 @@ A twin-engine hydrogen airliner (EV tier, ~18.5 x 17.6 x 5.7 blocks): 10 seats (
 ### Configuration
 Everything new can be switched off in `config/SiliconAgeVehicles.cfg` (category `vehicles`): `textures`, `liveries`, `headlights`, `dynamicLight`, `navLights`, `animations`, `liveInstruments`, `icons3d`, `interiorTrim`, `nightLighting`, `cockpitStartup`, `cockpitSounds`, `sounds`, `vehicleCamera`, `cruise`, `autopilot`, `tuning`, `locks`, `trailerKinds`, `vehicleMap`, `stationBoost`, `stationStorageLink`, `stationsAddUp` and more.
 
-New in 0.1.1 (almost all on by default): `fuelMode` (HYDROGEN / EU), `batteryWear`, `ins`, `insAlignSeconds`, `glassCockpit`, `cockpitHiRes`, `cockpitQuality`, `highLift`, `avionics`, `airfield`, `landingLamps`, `engineStart`, `failures`, `gearDoors`, `gearStruts`, `jetNozzle`, `jetHud`, `regen`, `radarAltCallouts`, the liner's `liner*` options (`linerTextures`, `linerLod`, `linerQuickStart`, `linerIcing`, `linerQuickViews`, `linerHideHand`, `linerTow`, `linerSeatBelts` and more); the `airdefense` category (`enabled`, `mode`, `minWarningSeconds`, `models`, `upgrades` and more).
+New in 0.1.1 (almost all on by default): `fuelMode` (HYDROGEN / EU), `batteryWear`, `ins`, `insAlignSeconds`, `glassCockpit`, `cockpitHiRes`, `cockpitQuality`, `highLift`, `avionics`, `airfield`, `landingLamps`, `engineStart`, `failures`, `gearDoors`, `gearStruts`, `jetNozzle`, `jetHud`, `regen`, `radarAltCallouts`, the liner's `liner*` options (`linerTextures`, `linerLod`, `linerQuickStart`, `linerIcing`, `linerQuickViews`, `linerHideHand`, `linerTow`, `linerSeatBelts` and more); the `airdefense` category (`enabled`, `mode`, `minWarningSeconds`, `models`, `upgrades` and more); the `book` category (`giveOnJoin`, `liveChecklists`, `highlight`, `hologram`, `tutorial`, `models`).
 
 ### Known issues
-- Most of the client-side rendering (the liner's cockpit, displays, lights, ice, the "Panels" and MCDU screens; the air-defence models and screens; the C+ cockpits) is checked by automated tests and software previews, but little in the game itself.
+- Most of the client-side rendering (the liner's cockpit, displays, lights, ice, the "Panels" and MCDU screens; the air-defence models and screens; the C+ cockpits) is checked by automated tests and software previews, but little in the game itself. So are the handbook's screen, its hologram, the control outline and the training prompts (the book's logic, schematics, checklists and training steps are covered by automated tests).
 - Deferred: for the liner - DUAL INPUT, a ground power cable, voice announcements, a tug model, the secondary flight plan (SEC F-PLN), holdings, VOR / ADF; for air defence - dragging zones, the zone frame on the jet's HUD; for hydrogen - a hose and continuous refuelling from the tanker.
 - The log (`latest.log`) still has the diagnostic lines `[SVA-MOVE]` and `[SVA-AFLOOR]` - they help hunt snap-backs and a false alpha floor; if you see such a problem, attach them to your report.
 

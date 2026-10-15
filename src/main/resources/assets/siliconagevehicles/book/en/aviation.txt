@@ -1,0 +1,30 @@
+@chapter Aviation basics
+@icon siliconagevehicles:vehicle:3
+# Flight
+- The ceiling is Y 200. No more than 180 km/h.
+- Planes take off with a ground run; on runway blocks it is half as long. Space - nose up, X or Ctrl - nose down, A / D - turn.
+- Without power (no hydrogen, a stalled engine) a helicopter autorotates and a plane glides 1:8. Seated riders take no fall damage.
+- Gear: the jet and the tiltrotor have gear doors and struts; a belly landing damages the aircraft.
+- Regeneration while descending and gliding tops the battery up.
+
+# High-lift devices and the autopilot
+- Flaps: [ and ]; the slats follow; airbrake and spoilers - U.
+- The light aircraft's **autopilot**: the panel (key I or the bar in the cockpit) - HDG, ALT, VS, SPD, CAP (runway capture), ROUTE. O - quick cruise / autopilot, the wheel with cruise on sets the speed.
+- **Flight plan**: the map (M) - "Route" tab: left-click - a new point, drag - move it, right-click - delete, altitudes in 5-block steps. "To autopilot" stores the route in the aircraft and engages ROUTE.
+- The HSI shows the leg's course (magenta), the deviation, the point's name and distance.
+
+# Inertial navigation (INS)
+The planes, the helicopter and the tiltrotor have an A320-ADIRS-style INS. Switched on with board power it aligns in 10 s standing still; moving faster than 1 block a second restarts the alignment.
+- Until aligned: ATT and HDG flags on the PFD, no map on the MFD, no autopilot.
+- INS or battery off, a flat battery - the alignment starts over.
+- Configs vehicles.ins and vehicles.insAlignSeconds.
+@note No power - a dark cockpit: with the battery off or flat only the airspeed, the altimeter and the vario read (they run on the pitot).
+
+# C+ cockpits
+**Light plane - "Hybrid + MFD"**: a 13-lamp strip, an autopilot bar, round airspeed and vario, a PFD, an MFD with ENG / MAP / ROUTE / RWR pages and the transponder. MFD page - the ' key.
+**Helicopter - "Hybrid + overhead panel"**: a 9-lamp strip, a radar altimeter, a PFD with an "RA" window, rotor and engine tachometers, a hover indicator, a 3 x 5 overhead panel, a floor window. Height callouts "50.. 40.. 30.. 20.. 10" - a tone or a number (vehicles.radarAltCallouts).
+Sharp instruments for 2K / 4K: an anti-aliased font with Cyrillic and baked dials (vehicles.cockpitHiRes, vehicles.cockpitQuality).
+
+# Transponder
+Everything that flies has a transponder: OFF / STBY / A / C / S, codes 0000-7777. Its panel - the vehicle menu, "Transponder" line. IDENT - the \ key (the blip blinks 18 s on radars). Special codes: 7000 - normal flight, 7600 - no radio, 7700 - emergency (the air defence never fires at it). More in "Air defence".
+@link airdefense | Air defence

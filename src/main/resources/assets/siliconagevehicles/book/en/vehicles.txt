@@ -1,0 +1,80 @@
+@chapter Vehicles
+@icon siliconagevehicles:vehicle:0
+# The vehicles at a glance
+Eleven vehicles, each with its own niche. The numbers on their pages come from the game itself. Every vehicle is assembled on the Engineering Workbench (a 5 x 5 grid, for EU and time); QV-SV vehicles need the core's transformer upgrades in the workbench's slots.
+- No vehicle goes faster than 180 km/h (the server keeps loading the world ahead).
+- Aircraft fly up to Y 200; without power a helicopter autorotates, a plane glides 1:8; seated riders take no fall damage.
+- Hull wear, motor heat with a stall (helium cools), limp mode without charge, owner and access, a per-player limit.
+- Foreign private fields are never touched: the drill, jumps and arrivals check the protection.
+@kv Get in | right-click the vehicle
+@kv Cargo | Shift + right-click (a core wrench - straight into the inventory)
+@kv Vehicle menu | `: state, buttons, key setup
+
+# Electric Buggy
+The first vehicle: quick scouting, two seats, a small trunk. Wheels, steering, cruise control (O).
+@vehicle BUGGY
+@model BUGGY
+@recipe wb:buggy
+
+# Hoverbike
+Hovers over ground, water and lava: the cushion runs on the battery, the drive on hydrogen. Space - higher; F - "Boost" (x1.35). Helium cools the motor.
+@vehicle HOVER
+@model HOVER
+@recipe wb:hover
+
+# Light Helicopter
+Vertical take-off and hover. Space - collective up, X / Ctrl - down, W / S - forward and back, A / D - turn. Without power - autorotation. The C+ cockpit "Hybrid + overhead panel": a lamp strip, a radar altimeter with callouts, a hover indicator, a floor window.
+@vehicle HELI
+@model HELI
+@recipe wb:heli
+
+# Light Plane
+Cheap long trips. A take-off run (half as long on "Runway" blocks), flaps [ and ], airbrake U, the autopilot (panel - I) and a flight plan on the map. The C+ cockpit "Hybrid + MFD".
+@vehicle PLANE
+@model PLANE
+@recipe wb:plane
+
+# Cargo Crawler
+Tracks: turns on the spot, 2-block steps, swims. Hitches a trailer (cargo, tanker, platform, mobile charger). Auto-delivery: right-click the crawler with a core Coordinator to set points A and B - it drives between them by itself.
+@vehicle TRUCK
+@model TRUCK
+@recipe wb:truck
+
+# Drilling Vehicle
+3 x 3 or 5 x 5 tunnels (with the drill widener), "ore only" and levelling modes. B - drill on / off, N - mode. Argon feeds the hull field (-40 % damage), helium cools. The ore goes into its big hold.
+@vehicle DRILL
+@model DRILL
+@recipe wb:drill
+
+# Jet
+A fast single-seater. F at full throttle - the afterburner (up to 180 km/h, more hydrogen and heat). A HUD on the canopy glass, gear doors, an 18-petal nozzle.
+@vehicle JET
+@model JET
+@recipe wb:jet
+
+# Tiltrotor
+N - vertical mode (like a helicopter, burns x2) or airplane mode. Six seats and a mid-size hold.
+@vehicle TILT
+@model TILT
+@recipe wb:tilt
+
+# Transport Shuttle
+Free flight in every direction on EU (200 EU/t). A sealed cabin: the crew breathes oxygen under water (1 mB/s a person). Above Y 120 at speed N - the long-range mode on deuterium (1 mB/s instead of EU). Fly into an open vortex of the core's Ground or Space Bridge and the shuttle comes out on the other side with its people and cargo.
+@vehicle SHUTTLE
+@model SHUTTLE
+@recipe wb:shuttle
+
+# Singular Ship
+Everything the shuttle does, faster (400 EU/t).
+- V - "Jump": a portal to the point of a core Coordinator in its hold or home (Y - pick the target). 16 blocks or more; 20M EU + 2M per 1000 blocks and 10 mB + 10 per 1000 blocks of singular matter (another dimension - 100M EU and 100 mB); a 30 s cooldown.
+- Z - gravity anchor (40 EU/t), C - invisibility to hostile mobs (1 mB/s singular matter).
+@vehicle SHIP
+@model SHIP
+@recipe wb:ship
+
+# SA-320 Liner
+A twin-engine hydrogen airliner with A320-style systems: 10 seats (captain, first officer, 8 passengers), boarding through door L1 with its stairs. It has a chapter of its own - the pilot's manual.
+@vehicle LINER
+@model LINER
+@recipe wb:liner
+@link liner | SA-320 pilot's manual

@@ -1,0 +1,64 @@
+@chapter Настройки
+@icon minecraft:comparator
+# Файл настроек
+Все настройки - в config/SiliconAgeVehicles.cfg, разделы vehicles, airdefense, airport и book. Почти всё новое можно выключить; клиентские пункты (вид, звук) действуют только у вас, серверные - у всех. Клавиши функций машин хранятся отдельно - в config/SiliconAgeVehicles_keys.cfg (их задают в меню "Техника").
+
+# vehicles: машины
+@kv wear | износ корпуса
+@kv maxPerPlayer | машин на игрока (0 - без лимита)
+@kv fuelMode | HYDROGEN (по умолчанию) или EU
+@kv batteryWear | износ аккумулятора
+@kv tuning, locks | тюнинг, ключ-карты и доступ
+@kv stationBoost | форсаж зарядной станции
+@kv stationsAddUp | станции на одной площадке складываются
+@kv singularJump, mobCloak | прыжок и невидимость корабля
+@kv regen | рекуперация
+@kv cruise, autopilot | круиз и автопилот
+@kv ins, insAlignSeconds | ИНС и время выставки (10 с)
+@kv engineStart, failures | запуск двигателя и отказы
+@kv zoneFrames | рамки зон ПВО на HUD
+## Вид и звук (клиент)
+@kv textures, liveries | текстуры и ливреи
+@kv headlights, dynamicLight | лучи фар и подсветка блоков
+@kv navLights, animations | бортовые огни, анимации
+@kv glassCockpit, cockpitHiRes | экраны кабин, чёткий шрифт
+@kv cockpitQuality | AUTO / 1K / 2K / 4K
+@kv sounds, vehicleCamera | звуки, камера техники
+@kv icons3d | 3D-модели предметов-машин
+
+# vehicles: лайнер
+@kv linerQuickStart | быстрый запуск
+@kv linerTextures, linerLod | качество пультов, уровни детализации
+@kv linerQuickViews, linerHideHand | быстрые виды, скрытая рука
+@kv linerIcing, linerColdEffect | обледенение, холод в салоне
+@kv linerTow, linerSeatBelts | буксировка, ремни пассажиров
+@kv linerAccelHeight | высота разгона (30 блоков)
+@kv linerIlsRange | дальность поиска ILS (4000)
+@kv linerCallouts | отсчёт высоты
+@kv linerIrsAutoInit | ИНС ИНИЦ подтверждается сама
+@kv linerHydLeakChance, linerAdirsFailChance | случайные отказы
+
+# airdefense: ПВО
+@kv enabled, mode | ПВО вкл., warnings (по умолчанию) или fire
+@kv minWarningSeconds | ожидание после предупреждения
+@kv fireOnFriends, requirePvp | огонь по друзьям, только при PvP
+@kv maxRadarsPerPlayer, maxLaunchersPerPlayer | лимиты
+@kv minDistanceFromSpawn | не ближе к точке появления
+@kv upgrades, keepModules | модули ядра, модули в предмете
+@kv rcsExtras, coverageMap | заметность, карта покрытия
+@kv iff, iffHandoff, iffResponseSeconds | опрос вышкой и передача ПВО
+@kv autoSquawk, airportFriends | коды аэродрома
+@kv models | 3D-модели сооружений (клиент)
+
+# airport и book
+@kv requirePower, shelterEu | питание ILS через аппаратную
+@kv criticalAreas, flightCheck | критические зоны, облёт
+@kv legacyIlsCat | категория старого маяка (3)
+@kv magneticVariation | магнитное склонение
+@kv windPhysics | ветер сносит лайнер (выкл.)
+@kv atc, autoTower, autoInterval | службы вышки
+@kv atisChat, taxiAhead | ATIS в чат, огни рулёжки
+@kv paint, lights, drawDistance | разметка и огни (клиент)
+@kv book.giveOnJoin | выдать справочник при первом входе
+@kv book.liveChecklists, book.highlight | живые чек-листы, подсветка органа
+@kv book.hologram, book.tutorial, book.models | голограмма, обучение, модели в книге

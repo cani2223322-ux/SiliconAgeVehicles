@@ -37,6 +37,17 @@ public class SVAMod {
         if (Boolean.getBoolean("sva.selftest")) {
             com.sva.debug.SelfTestSVA.run();            // developer check only
         }
+        String bookExport = System.getProperty("sva.bookexport");
+        if (bookExport != null && bookExport.length() > 0) {
+            // wave C, item 48: the handbook as web content (the site's «Справочник Vehicles»), from this game's own data
+            try {
+                java.util.List<java.io.File> files = com.sva.book.BookExportSVA.export(new java.io.File(bookExport));
+                System.out.println("[SVA-BOOK] exported " + files.size() + " files to " + bookExport);
+            } catch (Exception ex) {
+                System.out.println("[SVA-BOOK] export failed: " + ex);
+                ex.printStackTrace(System.out);
+            }
+        }
     }
 
     @Mod.EventHandler

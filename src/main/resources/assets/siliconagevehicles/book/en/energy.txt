@@ -1,0 +1,58 @@
+@chapter Energy, hydrogen and batteries
+@icon siliconagevehicles:vehicleBattery:0
+# How the power works
+The buggy, hoverbike, crawler, drill, helicopter, light plane, jet, tiltrotor and liner run on the core's **hydrogen**:
+@kv The chain | H2 tank - engine - drive and generator - battery - electrics
+@kv A full tank | 40-65 minutes at cruise
+@kv Shuttle, ship | on EU from the buffer as before (200 and 400 EU/t)
+The burn grows with the throttle (idle 15 %, full 160 %), cargo (+15 %), a trailer (+30 %), climbing (+40 %) and the "Motor+" tuning (+15 / +30 %); above 200 blocks it is 10 % less. "Extra tank" adds 50 %.
+
+## The engine
+Start it with the "Engine start" key (;) or just forward. Out of hydrogen the engine stops: a car rolls to a stop, a plane glides 1:8, a helicopter autorotates. Nobody aboard for 30 s - the engine stops by itself (planes: 10 s).
+
+## Refuelling
+- **Gas Column** - 25 mB/t to every vehicle of its owner within 4 blocks.
+- The crawler's **tanker trailer** - 16,000 mB, "Refuel vehicles nearby".
+- The charging station's **gas module**.
+- The core's **cells and buckets** - right-click the vehicle (anyone may).
+
+## On the HUD
+An H2 bar, the flow in mB/min and the range (minutes and blocks), a battery line with a charge arrow. "LOW FUEL" under 15 %, "RESERVE" under 5 % (blinking).
+
+# The removable battery
+Every hydrogen vehicle has its own **battery** (8 kinds): without it the engine won't start and the lights, instruments and autopilot are dead ("NO BATTERY"); a flat one - "BATTERY FLAT".
+@kv Buggy, hoverbike | 40,000 EU (MV)
+@kv Helicopter, plane | 120,000 EU (HV)
+@kv Crawler, drill | 200,000 EU (HV)
+@kv Jet, tiltrotor, liner | 400,000 EU (EV)
+The "Battery" slot is on the cargo screen's "Vehicle" tab. Take it out or put it in with the engine off (the owner or a player with the "Repair" right). It charges in core and IC2 storages, from a generator and at the charging station.
+@recipe craft:siliconagevehicles:vehicleBattery:0
+
+## Wear and service
+The health drops 0.05 % a charge cycle and 0.5 % a discharge to zero. Under 80 % - "SERVICE BATTERY", under 50 % the engine starts on the 2nd or 3rd try, under 20 % the battery won't hold a start.
+- In the repair garage: "Service battery" - 20,000 EU and 1 "Electrolyte".
+- In the field: the "Battery Service Kit" - right-click the vehicle, 5 s, +15 % an electrolyte.
+- Each service lowers the health limit by 5 %.
+@recipe craft:siliconagevehicles:batteryTool:0
+@recipe craft:siliconagevehicles:batteryTool:1
+
+## Jump-starting
+"Jumper Cables": right-click the donor, then your vehicle (within 6 blocks) - up to 25 % of the capacity in 10 s, the donor keeps at least 30 %. A charged core battery in hand - right-click the vehicle to pour its charge in.
+@recipe craft:siliconagevehicles:batteryTool:2
+
+# The charging station
+The **Vehicle Charging Station** stands at the edge of a pad of **charging platform plates** (plain, "H", edge light). A pad of any shape up to 121 plates; each vehicle needs its own: 3 x 3, 3 x 5, 5 x 5 or 7 x 7 by its size; extra plates give a bonus of up to +200 %.
+@recipe craft:siliconagevehicles:charger
+- Modules: gas (refuelling from the column), repair, access, fast charge (x2).
+- The **"Boost"** mode - x3, the station heats up: a 30 s pause after 2 minutes; helium from the column through the gas module (1 mB/s) cools it.
+- Several stations on one pad add up.
+- A Silicon Age or IC2 storage with its output towards the station charges the vehicle directly, no cable.
+- The **Station Supercapacitor** - 50M EU, takes up to 2,048 EU/t from the grid, gives the vehicle up to 500,000 EU/t.
+- The **Singular Charging Station** (SV) - the fast charge is built in.
+@note The Singular Ship (256M EU): an SV station with a storage beside it and a pad of 69+ plates - about 16 s, with the boost - about 5 s.
+
+## Regenerative braking
+Braking, rolling downhill and gliding give part of the energy back to the battery (config vehicles.regen).
+
+## Old worlds and the EU mode
+A vehicle without an H2 tank gets a full one on loading, its old charge goes into its battery and the battery appears in the slot by itself. Config vehicles.fuelMode = EU keeps everything as before: driving on the charge, no hydrogen.

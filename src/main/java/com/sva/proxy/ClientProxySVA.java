@@ -101,12 +101,19 @@ public class ClientProxySVA extends CommonProxySVA {
         FMLCommonHandler.instance().bus().register(light);
         MinecraftForge.EVENT_BUS.register(light);
         com.sva.client.HiResSVA.register();                // 2K / 4K wave: a resource reload / language change re-bakes the cockpit art
+        com.sva.client.BookClientSVA.register();           // wave C: the handbook (bookmarks, the outline, the tutorial, the hologram)
     }
 
     @Override
     public void postInit(cpw.mods.fml.common.event.FMLPostInitializationEvent e) {
         super.postInit(e);
         com.sva.client.RenderItemVehicleSVA.preloadModels();   // every vehicle / trailer model read now: no stall on the first look
+    }
+
+    /** Wave C: the handbook's screen. */
+    @Override
+    public void openBook(String chapter) {
+        Minecraft.getMinecraft().displayGuiScreen(new com.sva.client.GuiBookSVA(chapter));
     }
 
     @Override

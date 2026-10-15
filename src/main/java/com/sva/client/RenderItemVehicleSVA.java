@@ -181,14 +181,16 @@ public class RenderItemVehicleSVA implements IItemRenderer {
             float radius = (float) Math.sqrt(hx * hx + hz * hz);       // it turns: the horizontal half-diagonal
             if (type == ItemRenderType.INVENTORY) {
                 // the slot: 16 x 16 GUI pixels from (0, 0), y down; a 25 deg look from above, turning about the vertical
-                float tilt = 25F;
+                // (wave C: the handbook's model box - BOOK = {yaw, tilt, box px}, centred on the current origin)
+                float[] bk = BOOK;
+                float tilt = bk != null ? bk[1] : 25F, box = bk != null ? bk[2] : 15F;
                 double tr = Math.toRadians(tilt);
-                float s = Math.min(15F / (2 * radius), 15F / (float) (height * Math.cos(tr) + 2 * radius * Math.sin(tr)));
-                GL11.glTranslatef(8F, 8.5F, 50F);
+                float s = Math.min(box / (2 * radius), box / (float) (height * Math.cos(tr) + 2 * radius * Math.sin(tr)));
+                GL11.glTranslatef(bk != null ? 0F : 8F, bk != null ? 0F : 8.5F, bk != null ? 150F : 50F);
                 RenderHelper.enableGUIStandardItemLighting();          // before the turn: the light stays put
                 GL11.glRotatef(180F, 1F, 0F, 0F);                      // y up, z away (no mirror)
                 GL11.glRotatef(-tilt, 1F, 0F, 0F);
-                GL11.glRotatef(spin(item), 0F, 1F, 0F);
+                GL11.glRotatef(bk != null ? bk[0] : spin(item), 0F, 1F, 0F);
                 GL11.glScalef(s, s, s);
                 GL11.glTranslatef(-cx, -(b[1] + height / 2), -cz);
                 GL11.glEnable(GL11.GL_DEPTH_TEST);
@@ -244,6 +246,32 @@ public class RenderItemVehicleSVA implements IItemRenderer {
             GL11.glPopMatrix();
             GL11.glPopAttrib();
             GL11.glColor4f(1F, 1F, 1F, 1F);
+        }
+    }
+
+    /** Wave C: the handbook's view of a model {yaw, tilt, box px} while it draws one (null: the slots' own). */
+    private static float[] BOOK;
+    private static RenderItemVehicleSVA bookRenderer;
+
+    /**
+     * Wave C, item 44: a vehicle's model in the handbook - centred on the current GL origin (GUI px), turned `yaw` about the
+     * vertical and seen `tilt` deg from above, fitted into a `box`-pixel square (the same drawing as the slot's icon: the
+     * tier's livery, at rest; the liner its LOD 2).
+     */
+    public static void renderInBook(VehicleType t, float yaw, float tilt, float box) {
+        if (bookRenderer == null) {
+            bookRenderer = new RenderItemVehicleSVA(false);
+        }
+        ItemStack s = new ItemStack(com.sva.init.ModContentSVA.vehicle, 1, t.ordinal());
+        boolean liner = t == VehicleType.LINER;
+        if (!liner && (ObjModelSVA.get(t.model) == null || bookRenderer.bounds(s) == null)) {
+            return;
+        }
+        BOOK = new float[] {yaw, tilt, box};
+        try {
+            bookRenderer.renderItem(ItemRenderType.INVENTORY, s);
+        } finally {
+            BOOK = null;
         }
     }
 

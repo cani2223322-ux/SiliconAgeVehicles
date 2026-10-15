@@ -33,6 +33,7 @@ public class CommonProxySVA {
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new com.sva.entity.EventsSVA());     // stage E: invisibility
         FMLCommonHandler.instance().bus().register(com.sva.airdefense.AirDefenseSVA.INSTANCE);         // air-defence wave
         FMLCommonHandler.instance().bus().register(com.sva.block.AirportServerSVA.INSTANCE);           // airport wave B1
+        FMLCommonHandler.instance().bus().register(new com.sva.book.BookGiveSVA());                     // wave C: the handbook on the first join
     }
 
     public void postInit(FMLPostInitializationEvent e) {
@@ -95,6 +96,10 @@ public class CommonProxySVA {
 
     /** Liner wave 5: an MCDU's screen (kind 0 / 1) or the ND's plan (kind 2) of a liner arrived (client: kept for the drawing). */
     public void mcduData(int entity, int kind, String data) {
+    }
+
+    /** Wave C: the handbook's screen (client), at a chapter id (null: where it was left). */
+    public void openBook(String chapter) {
     }
 
     /** A server correction for the local driver (applied on the client thread). */

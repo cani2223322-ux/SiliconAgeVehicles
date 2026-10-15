@@ -41,6 +41,12 @@ public final class LinerCockpitSVA {
     private static boolean compiled;
     /** The control under the mouse in the cursor mode (-1 none) - LinerClickSVA sets it. */
     static int hovered = -1;
+    /**
+     * Wave C, item 45 / 46: the control the handbook asks for next (its checklist's «Показать», the tutorial's step) - a
+     * pulsing amber outline on its hitbox, in the 3D cockpit and on the «Пульты» screen alike (both draw through drawPanel);
+     * -1 none. Set by client.BookClientSVA (config book.highlight).
+     */
+    public static int highlight = -1;
 
     private LinerCockpitSVA() {
     }
@@ -424,6 +430,16 @@ public final class LinerCockpitSVA {
                 LinerGfxSVA.layer();
                 LinerGfxSVA.layer();
                 LinerGfxSVA.frameRect(c.cx - c.w / 2 - 3, c.cy - c.h / 2 - 3, c.cx + c.w / 2 + 3, c.cy + c.h / 2 + 3, 2.5F, 0xFFFFFF);
+            }
+            if (c.index == highlight && c.w > 0 && com.sva.ConfigSVA.bookHighlight) {
+                // the handbook's «next control»: a frame breathing out and in twice a second, amber / yellow
+                float k = (float) (0.5 + 0.5 * Math.sin(net.minecraft.client.Minecraft.getSystemTime() / 80.0));
+                float g = 4F + 6F * k;
+                LinerGfxSVA.layer();
+                LinerGfxSVA.layer();
+                LinerGfxSVA.layer();
+                LinerGfxSVA.frameRect(c.cx - c.w / 2 - g, c.cy - c.h / 2 - g, c.cx + c.w / 2 + g, c.cy + c.h / 2 + g, 3F + 3F * k,
+                        k > 0.5F ? 0xFFD23C : 0xFF7A1E);
             }
         }
         LinerGfxSVA.resetLayer();

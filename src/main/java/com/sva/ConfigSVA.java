@@ -381,6 +381,20 @@ public final class ConfigSVA {
     /** The follow-me taxi lights lit ahead of a cleared aircraft (nodes). */
     public static int aptTaxiAhead = 10;
 
+    // ---------------------------------------------------------------- wave C: the handbook (category "book")
+    /** The handbook is given once on a player's first join (remembered in the player's persisted NBT). */
+    public static boolean bookGiveOnJoin = true;
+    /** Client: the checklist pages tick live while the book is opened in the liner's cockpit. */
+    public static boolean bookLiveChecklists = true;
+    /** Client: the control to work next pulses with an outline in the cockpit / the «Пульты» screen («Показать», the tutorial). */
+    public static boolean bookHighlight = true;
+    /** Client: the «Голограмма в мире» button of the build schematics. */
+    public static boolean bookHologram = true;
+    /** Client: the «Обучение» mode (the guided first flight in the liner). */
+    public static boolean bookTutorial = true;
+    /** Client: the vehicles' 3D models turning in the book. */
+    public static boolean bookModels = true;
+
     private ConfigSVA() {
     }
 
@@ -704,6 +718,7 @@ public final class ConfigSVA {
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));
             loadAirDefense(c);
             loadAirport(c);
+            loadBook(c);
         } finally {
             if (c.hasChanged()) {
                 c.save();
@@ -808,6 +823,23 @@ public final class ConfigSVA {
         aptAdZone = c.getBoolean("adZone", a, true, "A tower keeps an air-defence 'aerodrome' zone / Вышка создаёт зону ПВО 'аэродром'");
         aptAtisChat = c.getBoolean("atisChat", a, true, "ATIS in the pilots' chat near an airport / ATIS в чат пилотам у аэродрома");
         aptTaxiAhead = c.getInt("taxiAhead", a, 10, 3, 40, "Follow-me: taxi lights lit ahead of the aircraft / Огни рулёжки впереди самолёта");
+    }
+
+    /** Wave C: the "book" category - the handbook. */
+    private static void loadBook(Configuration c) {
+        String b = "book";
+        bookGiveOnJoin = c.getBoolean("giveOnJoin", b, true,
+                "Give the handbook once on a player's first join / Выдавать справочник один раз при первом входе игрока");
+        bookLiveChecklists = c.getBoolean("liveChecklists", b, true,
+                "Client: checklist pages tick live in the liner's cockpit / Клиент: чек-листы книги отмечаются сами в кабине лайнера");
+        bookHighlight = c.getBoolean("highlight", b, true,
+                "Client: the next control pulses with an outline in the cockpit / Клиент: подсветка нужного органа управления в кабине");
+        bookHologram = c.getBoolean("hologram", b, true,
+                "Client: the build schematics' hologram in the world / Клиент: голограмма схем постройки в мире");
+        bookTutorial = c.getBoolean("tutorial", b, true,
+                "Client: the guided first flight in the liner / Клиент: режим обучения (первый полёт на лайнере)");
+        bookModels = c.getBoolean("models", b, true,
+                "Client: turning 3D vehicle models in the book / Клиент: вращающиеся 3D-модели техники в книге");
     }
 
     /** NaN / infinity -> default, else clamped into [min, max] (pure; the self-test checks it). */

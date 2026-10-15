@@ -31,7 +31,7 @@ public final class LangKeysSVA {
 
     public static final String RU = "/assets/siliconagevehicles/lang/ru_RU.lang", EN = "/assets/siliconagevehicles/lang/en_US.lang";
     /** "sva.*" string constants that are not lang keys. */
-    static final String[] NOT_KEYS = {"sva.selftest", "sva.worldtest", "sva.workbench"};
+    static final String[] NOT_KEYS = {"sva.selftest", "sva.worldtest", "sva.workbench", "sva.bookexport"};
 
     private LangKeysSVA() {
     }

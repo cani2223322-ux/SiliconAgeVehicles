@@ -1,0 +1,42 @@
+@chapter Introduction
+@icon siliconagevehicles:handbook
+# About this handbook
+**Silicon Age: Vehicles** is an add-on to the Silicon Age mod for Minecraft 1.7.10: eleven vehicles from an electric buggy to the SA-320 airliner and the Singular Ship, their hydrogen and gas refuelling, removable batteries and charging, assembly on the Engineering Workbench, an airport with ILS and a control tower, and air defence.
+
+The handbook follows the game's language (Russian or English). Its recipes are the real ones, taken from the game; the vehicles' models turn with the mouse; build schematics show layer by layer and as a hologram right in the world; the liner's checklists tick by themselves when the book is opened in a pilot seat.
+
+@note Alpha: everything main is covered by automated tests, but much (especially the liner's, the air defence's and the cockpits' rendering) is little played in game. Back up your worlds.
+
+# How to read it
+- The arrows in the page corners, the Left / Right keys, PgUp / PgDn or the mouse wheel - turn the pages.
+- "Contents" (or Home) - the chapters; hover a chapter to see its pages on the right. Backspace - back.
+- The search (the box at the top, Ctrl+F or /) looks through every page; with nothing found in this language it tries the other one. Enter - the first hit.
+- "Bookmark" marks the spread, "Bookmarks" lists them. Bookmarks are kept on your client.
+- An item in a recipe: hover - its tooltip; click - its recipe in NEI, right-click - where it is used (with NEI installed; the book comes back after NEI).
+- A vehicle's model turns with the mouse (hold and drag).
+- Build schematics: layers with "<" and ">", "Rotate", "Hologram in the world".
+
+## Where to get the book
+It is given once on your first join (config book.giveOnJoin). Lost it - craft a new one from a book and metallurgical silicon on a crafting table.
+@recipe craft:siliconagevehicles:handbook
+
+# Where to start
+- 1. Make the **Engineering Workbench** (its recipe is in "Infrastructure"). It makes every component (3 x 3 recipes, instant) and every vehicle (5 x 5, for EU and time).
+- 2. The first vehicle is the **Electric Buggy** (MV): wheels, a motor, a hull, a cabin and an energy block - all made on the workbench.
+- 3. The buggy runs on the core's **hydrogen**: refuel it with a cell, a bucket or the gas column. Its electrics run on a **removable battery** - a new vehicle comes with one.
+- 4. Place a **Vehicle Charging Station** with platform plates - it charges the battery and can refuel gas through a module.
+- 5. Then the crawler for cargo, the helicopter and the light plane for long trips, the drill for tunnels. The SA-320 liner and the air defence are for the late game.
+@link energy | Energy, hydrogen and batteries
+@link vehicles | All vehicles
+
+# Basic controls
+@kv Right-click a vehicle | get in (the owner drives, others ride)
+@kv Shift + right-click | the cargo screen and "Pick up"
+@kv W / S, A / D | throttle, brake and reverse, steer
+@kv Space | brake; aircraft - up or nose up
+@kv X, Ctrl | aircraft - down or nose down
+@kv ; | start / stop the engine
+@kv ` | the vehicle menu: state, buttons, keys
+@kv Mouse wheel | camera distance; with cruise on - the speed
+@kv Shift | get off
+The function keys (boost, drill, mode, gear, flaps and more) are set in the vehicle menu: any key, with Ctrl / Shift / Alt, or a mouse button. They work only while riding and never clash with other mods.

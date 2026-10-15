@@ -76,6 +76,8 @@ public final class ModContentSVA {
     public static com.sva.block.BlockTowerSVA tower;
     public static com.sva.block.BlockTaxiLightSVA taxiLight;
     public static com.sva.item.ItemApproachChartSVA approachChart;
+    /** Wave C: «Справочник: Кремниевый век - Техника» (the handbook). */
+    public static com.sva.item.ItemBookSVA handbook;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -230,6 +232,10 @@ public final class ModContentSVA {
         approachChart = new com.sva.item.ItemApproachChartSVA();
         approachChart.setCreativeTab(TAB);
         GameRegistry.registerItem(approachChart, "approachChart");
+        // wave C: the handbook (crafting table: a vanilla book + the core's metallurgical silicon - recipes())
+        handbook = new com.sva.item.ItemBookSVA();
+        handbook.setCreativeTab(TAB);
+        GameRegistry.registerItem(handbook, "handbook");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);
@@ -259,6 +265,9 @@ public final class ModContentSVA {
         batteryRecipes(casing, coil);
         airDefenseRecipes(casing, controller, steel);
         com.sva.block.RoadsSVA.recipes();                    // ★11 roads: crafting table, vanilla items
+        // wave C: the handbook - a vanilla book and the core's metallurgical silicon (the first silicon of the chain)
+        GameRegistry.addRecipe(new net.minecraftforge.oredict.ShapelessOreRecipe(new ItemStack(handbook),
+                net.minecraft.init.Items.book, ModItems.siliconMaterial.stackOf(SiliconMaterial.METALLURGICAL_SI)));
         // components and vehicles: only on the workbench (the stage 1 crafting-table buggy is gone)
         WorkbenchRecipesSVA.register();
     }

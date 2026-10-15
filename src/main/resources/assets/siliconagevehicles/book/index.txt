@@ -1,0 +1,12 @@
+# Silicon Age: Vehicles - the handbook's chapters, in order (one id a line; book/ru/ID.txt and book/en/ID.txt)
+intro
+energy
+vehicles
+infrastructure
+aviation
+liner
+airdefense
+airport
+config
+faq
+whatsnew

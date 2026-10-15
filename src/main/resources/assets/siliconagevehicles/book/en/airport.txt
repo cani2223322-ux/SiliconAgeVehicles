@@ -1,0 +1,68 @@
+@chapter Airport
+@icon siliconagevehicles:tower
+# Scale and layout
+Airport scale: **1 block = 10 m-eq**. The angles are real: the outer marker is 720 blocks out (7.2 km), the threshold crossing height 1.5 blocks (15 m). Aircraft are not rescaled.
+Below is the full ILS runway layout (as the "Airport Planner Tablet" shows it): the runway, its ends, the localizer beyond the far end, the glide slope mast at the near one, the shelters, markers, RVR, PAPI, the weather station and windsock, the approach lights; critical areas amber, sensitive ones faint. "Hologram in the world" lays it out from the block you look at (the landing threshold) in the direction you look.
+@schem airport
+
+# A runway by its ends
+Two **"Runway End"** blocks facing each other make a runway: the markings (piano keys, number, the parallel's letter, centre line, touchdown zone, aiming point, side stripes; width 3-9) and the lights appear by themselves.
+- Lights: edge (yellow over the last 600 m-eq), centre line, touchdown zone, green threshold, red end, a 900 m-eq ALS with the sequenced flasher.
+- 5 brightness steps; AUTO - at night, in rain and with RVR under 1500. The "TOWER" mode - the lights follow the tower.
+- Runway numbers from the magnetic course (airport.magneticVariation), parallels L / C / R.
+@recipe wb:runwayEnd
+
+# ILS: localizer, glide slope, shelter
+- **Localizer** (a 5 x 1 array) - beyond the far end on the centre line, the elements across it. Place it looking along the runway toward the landing threshold.
+- **Glide slope mast** (3 blocks) - at the near end, 12-18 blocks off the centre line, about 25 in.
+- An **ILS Shelter** near each antenna - EU power (4 module slots) and the monitor.
+- The antennas pair into the runway's station by themselves: ident and frequency 108.10-111.95 on the LOC (the G/S paired), the ident in Morse with LS pressed.
+- Beams: LOC +-2.5 deg full scale, a back course; G/S +-0.7 deg, false glide slopes at 6 and 9 deg.
+@schem ils_loc
+@recipe wb:ilsLoc
+@schem ils_gs
+@recipe wb:ilsGs
+@recipe wb:ilsShelter
+
+# Categories and critical areas
+The station's category - **CAT I / II / III** - comes from the antennas' placement, the monitor, the critical and sensitive areas and the flight inspection:
+- a block or a vehicle in a **critical** area - CAT I and a bent beam; in a **sensitive** one - CAT II;
+- a new or changed station is CAT I until the **flight inspection**: the first approach by any aircraft with its transponder on calibrates it ("CALIBRATED, CAT III" or lower with a hint);
+- the **monitor** shuts the station off on a broken antenna, a beam out of tolerance or no power - red LOC / G/S flags on the PFD and "ILS FAULT".
+@note The liner's autoland needs CAT III. On CAT I / II the autopilot disconnects at the minimum.
+
+# Markers, DME, RVR, weather
+- **Markers** OM / MM / IM on the extended centre line (720 / 105 / 30 blocks): a tone and a PFD lamp.
+- **DME** - the distance in km-eq on the PFD and ND.
+- **RVR** - TDZ / MID / END transmissometers: the visual range (rain, thunder, fog, cloud, night) and the category needed on the ND and the MCDU.
+- **Weather station** and **windsock**: the wind (gusting in thunderstorms), QNH, temperature - in the ATIS, on the ND, PFD and MCDU.
+@recipe wb:aptMarker
+@recipe wb:aptRvr
+@recipe wb:aptWeather
+
+# Lights and PAPI
+PAPI - 4 lights left of the runway abeam the touchdown point: two white and two red - on the glide slope. ALS - the approach lights with the sequenced flasher, switched on at the runway end. The runway, approach and taxiway lights are run from the tower (AUTO or 0-5).
+@recipe wb:papi
+
+# Airport Planner Tablet
+- Right-click the two runway ends (the landing one first) - held, it shows the hologram: where the LOC, the mast, the shelters, markers, RVR, PAPI, weather, ALS and lights go; the critical areas red with something in them; the category expected.
+- Shift + right-click a runway block - places both runway ends at its ends.
+- Shift + right-click in the air - "ILS check": every issue of the station with a hint. Right-click in the air - reset.
+@recipe wb:aptPlanner
+
+# Control tower
+The tower (HV, 6 blocks: a shaft and a glazed cab) makes an airport of the runways within 15 km-eq: an ICAO code (4 letters), a name, the runway in use, the lights, the ILS, traffic and weather. MV power 32 EU/t, 4 module slots, an owner and access. Unpowered it is offline.
+Its screen: TRAFFIC (scope, strips, the controller's clearances), RUNWAYS (ILS, RVR, lights), ATIS, MAP (approaches, the taxi graph, printing charts), LOG, SETTINGS.
+@schem tower
+@recipe wb:tower
+
+# ATIS, CPDLC and the automatic tower
+- **ATIS**: the information letter moves on when something that matters changed (runway, approach, wind, visibility, QNH). In the MCDU (ATC COMM - ATIS) and in the chat of pilots within 30 km-eq.
+- **CPDLC** (the MCDU's ATC key - "ATC COMM"): requests, WILCO / UNABLE / STANDBY, LOAD a value into the FCU, the "ATC MSG" buttons. Aircraft without an MCDU get it in the chat and as a HUD line.
+- The **automatic tower** with no controller: one aircraft on the runway, landing priority, an interval (airport.autoInterval), go-arounds. A player in the seat replaces it.
+
+# Approaches, charts, taxiing
+- **Approaches**: for each ILS runway the tower publishes ILSxx: CIxx (10 km-eq), FFxx (5.5 km-eq, on the glide slope), the threshold, the missed approach MAxx and transitions from the entry fixes ICAO + N / E / S / W. In the MCDU - ARRIVAL, the ILS tunes itself.
+- **Approach Chart** (item) - printed by the tower; the airport changed - an old chart reads OUTDATED.
+- **Taxi lights** (4 kinds): green centre line, blue edges, a stop bar, a stand. A taxi clearance lights a follow-the-greens route (airport.taxiAhead lights ahead), the stop bar goes out for the take-off clearance.
+@recipe wb:taxiLight0
