@@ -119,7 +119,9 @@ public final class LinerEcam {
             M_LAW_MECH = 73, M_ENG1_FIRE = 74, M_ENG2_FIRE = 75, M_APU_FIRE = 76, M_CFG_DOOR = 77, M_CFG_CHOCKS = 78, M_DOOR_CARGO = 79,
             M_DOOR_R1 = 80,
             // the autopilot fix: alpha floor's TOGA LK held (TOGA thrust until the levers' instinctive button)
-            M_TOGA_LK = 81, N = 82;
+            M_TOGA_LK = 81,
+            // airport wave B1: the tuned ILS failed (its monitor shut it off / its LOC or G/S) - the A320's «ILS» flags' caution
+            M_ILS_FAULT = 82, N = 83;
     /** The table's capacity (two longs). */
     public static final int CAPACITY = 128;
     /** The first red / amber with a wave 1-2 bit (LinerSystems.warn bit = id; caut bit = id - FIRST_CAUT for ids under LEGACY_CAUT_END). */
@@ -201,6 +203,8 @@ public final class LinerEcam {
         def(M_ATHR_LIM, "athrLimited", CAUT, -1, 0, 0, 0, A_THR_CL);
         def(M_THR_LVRS, "thrLevers", CAUT, P_ENG, 0, 0, 0, A_THR_TO);
         def(M_TOGA_LK, "togaLk", CAUT, -1, 0, 0, 0, A_ATHR_OFF);
+        // airport wave B1: «ILS ОТКАЗ» - never inhibited (the approach needs to know)
+        def(M_ILS_FAULT, "ilsFault", CAUT, -1, 0, 0, 0);
         // wave 5 (the A320's «T.O SPEEDS NOT INSERTED»)
         def(M_TO_SPEEDS, "toSpeeds", CAUT, -1, INH, 0, 0);
         // wave 6: anti-ice, icing, the air data, the cabin's pressure
@@ -574,6 +578,8 @@ public final class LinerEcam {
                 return L.afs.athrLimited;
             case M_TOGA_LK:
                 return L.afs.togaLk;
+            case M_ILS_FAULT:
+                return L.afs.ilsFault() && (L.afs.approachArmedOrOn() || L.on(LinerControls.LS_L) || L.on(LinerControls.LS_R));
             case M_THR_LVRS:
                 return L.afs.leversNotSet && L.afs.lever >= LinerFctl.TO_THR;
             case M_TO_SPEEDS:

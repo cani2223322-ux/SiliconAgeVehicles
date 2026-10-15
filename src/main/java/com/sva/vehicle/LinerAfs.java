@@ -121,7 +121,9 @@ public final class LinerAfs {
     public static final String[] T_NAMES = {"", "MAN TOGA", "MAN FLX", "MAN MCT", "MAN THR", "SPEED", "THR CLB", "THR IDLE", "A.FLOOR", "TOGA LK",
             "RETARD"};
     /** Approach capability (column 4). */
-    public static final int CAP_NONE = 0, CAP_CAT1 = 1, CAP_CAT3_DUAL = 2;
+    public static final int CAP_NONE = 0, CAP_CAT1 = 1, CAP_CAT3_DUAL = 2,
+            /** Airport wave B1: AP 1 + 2 on a CAT II station - the AP lets go at the CAT II minimum. */
+            CAP_CAT2 = 3;
     /** Callout codes past the heights: RETARD, V1. */
     public static final int CALL_RETARD = 1000, CALL_V1 = 1001,
             /** Wave 5: «MINIMUM» - the radio height through the DH or the altitude through the MDA (the MCDU's PERF APPR). */
@@ -185,6 +187,16 @@ public final class LinerAfs {
     public double pathAlt = Double.NaN;
     public String ilsPlan = "";
     public final List<LinerIls.Station> ilsNear = new ArrayList<LinerIls.Station>();
+    /**
+     * Airport wave B1 (the server fills them - LinerLogicSVA from block.AirportDataSVA; synced: packApt): the marker beacon
+     * overhead (airport.MarkerMath type, -1 none), the RVR of the tuned runway {TDZ, MID, END} (m-eq, -1 none), the airport's
+     * weather station - the wind (from deg / km/h / the gusts km/h; -1: no station), the QNH (hPa) and the temperature (deg C).
+     */
+    public int marker = -1, windFrom = -1, windKmh, gustKmh, qnhApt, tempApt;
+    public final int[] rvr = {-1, -1, -1};
+    /** Airport wave B1: the «MINIMUM» of this approach called (the AP let go at the station's minimum); the last capability (the box). */
+    private boolean minDone, minCall;
+    private int lastCap;
 
     // server-only working values
     private int keyHold, override, airTicks, athrDisArm, aFloorTicks;
@@ -629,6 +641,8 @@ public final class LinerAfs {
         public double ilsRange = 4000, accelH = 30;
         /** The callouts on (config). */
         public boolean callouts = true;
+        /** Airport wave B1: the world's time (ticks) - a FULL station's beam bends with it. */
+        public double time;
         /**
          * Wave 5, the FMS (LinerFms.tick): the descent path's altitude here (NaN none), T/D passed, the V-speeds entered
          * (b/t), FLEX (deg, 0 none), the managed speeds by the cost index (b/t), the approach phase and VAPP (b/t), the
@@ -870,9 +884,29 @@ public final class LinerAfs {
             latArm = 0;
             verArm = 0;
         }
-        // single AP: CAT 1 - it lets go over the runway
-        if (!a.ground && apOn() && !(ap1 && ap2) && (lat == L_LAND || ver == V_FLARE || ver == V_GS && a.ra < SINGLE_MIN) && a.ra < SINGLE_MIN) {
+        if (restricted()) {
+            // airport wave B1: below CAT 3 DUAL the AP lets go at the minimum (the MCDU's DH, else the category's) with
+            // «MINIMUM» and the cavalry charge
+            boolean appr = lat == L_LOC || lat == L_LOC_CAP || lat == L_LAND || ver == V_GS || ver == V_GS_CAP || ver == V_LAND || ver == V_FLARE;
+            if (!a.ground && apOn() && appr && capability() != CAP_CAT3_DUAL) {
+                double minH = dh >= 0 ? dh : com.sva.airport.IlsCat.minHeight(capability() == CAP_CAT2 ? 2 : 1);
+                if (a.ra < minH) {
+                    minCall = !minDone && dh < 0;                   // after the height callouts (it wins this tick's aural)
+                    minDone = true;
+                    apOff(false);
+                }
+            }
+        } else if (!a.ground && apOn() && !(ap1 && ap2) && (lat == L_LAND || ver == V_FLARE || ver == V_GS && a.ra < SINGLE_MIN) && a.ra < SINGLE_MIN) {
+            // single AP: CAT 1 - it lets go over the runway
             apOff(false);
+        }
+        if (a.ground || a.ra > 60) {
+            minDone = false;
+        }
+        int capNow = capability();
+        if (capNow != lastCap) {
+            lastCap = capNow;
+            boxCap = 0;
         }
         pathAlt = ver == V_DES && !Double.isNaN(a.pathAlt) ? a.pathAlt : Double.NaN;   // wave 5: the managed descent's path
         targets(L, a);                                              // again with the modes as they now are
@@ -881,6 +915,10 @@ public final class LinerAfs {
         leverChecks(L, a);
         // ---- callouts, aurals, warnings' timers
         callouts(L, a);
+        if (minCall) {
+            minCall = false;
+            call(CALL_MINIMUM, a);
+        }
         if (apWarn > 0) {
             apWarn--;
         }
@@ -1079,7 +1117,7 @@ public final class LinerAfs {
             verArm &= ~AV_CLB;
         }
         // LOC / G/S
-        LinerIls.Dev d = ils == null ? null : LinerIls.dev(ils, a.x, a.y, a.z, a.ilsRange);
+        LinerIls.Dev d = ils == null ? null : LinerIls.dev(ils, a.x, a.y, a.z, a.ilsRange, a.time);
         if ((latArm & AL_LOC) != 0 && d != null) {
             double rate = LinerGuide.turnRate(LinerGuide.AP_BANK, a.speed, a.stall, 1.1);
             double radius = RouteMath.turnRadius(a.speed, Math.max(0.05, rate));
@@ -1104,12 +1142,13 @@ public final class LinerAfs {
         if ((ver == V_GS || ver == V_GS_CAP) && d != null && !d.gsValid && d.along < -30) {
             revertVertical(a);
         }
-        // LAND, FLARE
-        if (lat == L_LOC && ver == V_GS && a.ra < LAND_H) {
+        // LAND, FLARE (airport wave B1: on a FULL station - or a legacy one set below CAT 3 - only with CAT 3 DUAL)
+        boolean autoland = !restricted() || capability() == CAP_CAT3_DUAL;
+        if (lat == L_LOC && ver == V_GS && a.ra < LAND_H && autoland) {
             setLat(L_LAND);
             setVer(V_LAND);
         }
-        if ((ver == V_LAND || ver == V_GS && a.ra < FLARE_H) && a.ra <= FLARE_H) {
+        if ((ver == V_LAND || ver == V_GS && a.ra < FLARE_H) && a.ra <= FLARE_H && autoland) {
             setVer(V_FLARE);
             if (lat == L_LOC) {
                 setLat(L_LAND);
@@ -1305,7 +1344,7 @@ public final class LinerAfs {
             // keep the tuned one while it stays in range (no hopping between parallel beacons)
             if (ils != null && s != ils && (want == null || want.length() == 0)) {
                 for (LinerIls.Station o : l) {
-                    if (o.key().equals(ils.key()) && LinerIls.dev(o, a.x, a.y, a.z, a.ilsRange * 1.2).locValid) {
+                    if (o.key().equals(ils.key()) && LinerIls.dev(o, a.x, a.y, a.z, a.ilsRange * 1.2).inCover) {
                         s = o;
                     }
                 }
@@ -1341,6 +1380,8 @@ public final class LinerAfs {
         public double x, y, z, hdg, speed, gs, vy, bank, ra = 250, stall = 1.15, cap = 0.3, dive = 0.45, thrAcc;
         public double routeHdg = Double.NaN;
         public boolean ground;
+        /** Airport wave B1: the world's time (ticks) for the beam's bends. */
+        public double time;
     }
 
     /** The commands: the roll / pitch sticks, the bank / vertical speed wanted (the FD bars), the nose wheel; NaN = no command. */
@@ -1363,7 +1404,7 @@ public final class LinerAfs {
     /** The modes' commands now (the synced state; pure). */
     public Cmd guide(GIn g) {
         Cmd c = new Cmd();
-        LinerIls.Dev d = ils == null ? null : LinerIls.dev(ils, g.x, g.y, g.z, 1e9);
+        LinerIls.Dev d = ils == null ? null : LinerIls.dev(ils, g.x, g.y, g.z, 1e9, g.time);
         // lateral
         double want = Double.NaN;
         switch (lat) {
@@ -1525,12 +1566,132 @@ public final class LinerAfs {
         return b.toString().trim();
     }
 
-    /** Column 4: the approach capability. */
+    /**
+     * Column 4: the approach capability - AP 1 + 2 with the station's category (airport wave B1: a FULL station's CAT III /
+     * II / I; a legacy beacon's airport.legacyIlsCat), one AP: CAT 1.
+     */
     public int capability() {
         if (!approachArmedOrOn()) {
             return CAP_NONE;
         }
-        return ap1 && ap2 ? CAP_CAT3_DUAL : CAP_CAT1;
+        boolean dual = ap1 && ap2;
+        int st = ils == null ? 3 : ils.category();
+        if (dual && st >= 3) {
+            return CAP_CAT3_DUAL;
+        }
+        return dual && st == 2 ? CAP_CAT2 : CAP_CAT1;
+    }
+
+    /** Airport wave B1: the tuned station limits the autoland by its category (a FULL one; a legacy one set under 3). */
+    public boolean restricted() {
+        return ils != null && (ils.full() || LinerIls.legacyCat < 3);
+    }
+
+    /** Airport wave B1: the tuned FULL station failed - its monitor shut it off, or its LOC / G/S (the PFD's flags, the ECAM). */
+    public boolean ilsFault() {
+        if (ils == null || !ils.full()) {
+            return false;
+        }
+        int f = ils.flags;
+        return ils.off() || (f & LinerIls.F_LOC_FAIL) != 0 || (f & LinerIls.F_GS_FAIL) != 0 && (f & LinerIls.F_NO_GS) == 0;
+    }
+
+    /** The FMA column 4's words (CAT 3 / DUAL, CAT 2, CAT 1). */
+    public String capText() {
+        int c = capability();
+        return c == CAP_CAT3_DUAL ? "CAT 3" : c == CAP_CAT2 ? "CAT 2" : c == CAP_CAT1 ? "CAT 1" : "";
+    }
+
+    // ---------------------------------------------------------------- airport wave B1: the sync of the station and the airport
+
+    /** Words in packApt() (a short array {0}: nothing - no FULL station, no airport data). */
+    public static final int WORDS_APT = 27;
+
+    public int[] packApt() {
+        boolean full = ils != null && ils.full();
+        boolean any = full || marker >= 0 || windFrom >= 0 || rvr[0] >= 0 || rvr[1] >= 0 || rvr[2] >= 0 || LinerIls.legacyCat != 3;
+        if (!any) {
+            return new int[] {0};
+        }
+        int[] w = new int[WORDS_APT];
+        w[0] = 1 | (full ? 2 : 0);
+        if (full) {
+            w[1] = r(ils.lx * 10);
+            w[2] = r(ils.lz * 10);
+            w[3] = r(ils.gx * 10);
+            w[4] = r(ils.gz * 10);
+            w[5] = r(ils.gy * 10);
+            w[6] = ils.cat;
+            w[7] = ils.flags;
+            w[8] = r(ils.bendLoc * 10000);
+            w[9] = r(ils.bendGs * 10000);
+            w[10] = ils.phase;
+            int[] rw = LinerIls.packIdent(ils.rwy);
+            w[11] = rw[0];
+            w[12] = rw[1];
+            w[22] = ils.calib;
+            w[24] = ils.rwyLen;
+            int[] ap = LinerIls.packIdent(ils.apt);
+            w[25] = ap[0];
+            w[26] = ap[1];
+        }
+        w[13] = marker;
+        w[14] = rvr[0];
+        w[15] = rvr[1];
+        w[16] = rvr[2];
+        w[17] = windFrom;
+        w[18] = windKmh;
+        w[19] = gustKmh;
+        w[20] = qnhApt;
+        w[21] = tempApt;
+        w[23] = LinerIls.legacyCat;
+        return w;
+    }
+
+    /** The client's mirror (after unpack(): the station object is there). A short / missing array: nothing. */
+    public void unpackApt(int[] w) {
+        if (w == null || w.length < WORDS_APT || (w[0] & 1) == 0) {
+            marker = -1;
+            windFrom = -1;
+            rvr[0] = -1;
+            rvr[1] = -1;
+            rvr[2] = -1;
+            if (ils != null) {
+                ils.kind = LinerIls.KIND_COMPACT;
+            }
+            return;
+        }
+        if ((w[0] & 2) != 0 && ils != null) {
+            ils.kind = LinerIls.KIND_FULL;
+            ils.lx = w[1] / 10.0;
+            ils.lz = w[2] / 10.0;
+            ils.gx = w[3] / 10.0;
+            ils.gz = w[4] / 10.0;
+            ils.gy = w[5] / 10.0;
+            ils.cat = w[6];
+            ils.flags = w[7];
+            ils.bendLoc = w[8] / 10000.0;
+            ils.bendGs = w[9] / 10000.0;
+            ils.phase = w[10];
+            ils.rwy = LinerIls.unpackIdent(w[11], w[12]);
+            ils.calib = w[22];
+            ils.rwyLen = w[24];
+            ils.apt = LinerIls.unpackIdent(w[25], w[26]);
+        } else if (ils != null) {
+            ils.kind = LinerIls.KIND_COMPACT;
+        }
+        marker = w[13];
+        rvr[0] = w[14];
+        rvr[1] = w[15];
+        rvr[2] = w[16];
+        windFrom = w[17];
+        windKmh = w[18];
+        gustKmh = w[19];
+        qnhApt = w[20];
+        tempApt = w[21];
+        if (w[23] >= 1 && w[23] <= 3) {
+            LinerIls.legacyCat = w[23];
+        }
     }
 
     public String apText() {

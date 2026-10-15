@@ -66,6 +66,11 @@ public final class RunwayLightsSVA {
         if (r == null || r.distance(px, pz) > DRAW_RANGE) {
             return;
         }
+        // airport wave B1: a runway defined by its «Торец полосы» markers has its own paint and lights (AirportRenderSVA)
+        double mid = (r.a0 + r.a1) / 2;
+        if (r.alongX ? AirportClientSVA.covers(mid, r.c) : AirportClientSVA.covers(r.c, mid)) {
+            return;
+        }
         boolean on = AirfieldSVA.autoOn(w, pt);
         GL11.glPushMatrix();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_LIGHTING_BIT

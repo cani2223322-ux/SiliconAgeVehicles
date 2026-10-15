@@ -60,13 +60,26 @@ public class NavDataSVA extends WorldSavedData {
         IlsDataSVA ils = IlsDataSVA.get(w);
         AirDefenseDataSVA ad = AirDefenseDataSVA.get(w);
         // the beacons / the zones changed: at once (their versions), else every CACHE_TICKS (the base point moves)
-        int sig = (ils == null ? 0 : ils.version()) * 31 + (ad == null ? 0 : ad.version());
+        AirportDataSVA apt = AirportDataSVA.get(w);
+        int sig = (ils == null ? 0 : ils.version()) * 31 + (ad == null ? 0 : ad.version()) + (apt == null ? 0 : apt.version()) * 1009;
         Integer was = sigs.get(k);
         if (db == null || at == null || now - at.longValue() > CACHE_TICKS || now < at.longValue() || was == null || was.intValue() != sig) {
             sigs.put(k, Integer.valueOf(sig));
             List<LinerIls.Station> st = ils == null ? new ArrayList<LinerIls.Station>() : ils.near(dim, 0, 0, Double.MAX_VALUE / 4);
             List<ZoneMath.Zone> zones = ad == null ? null : ad.all();
             db = NavDb.build(dim, st, zones, airports, wpts, base);
+            // airport wave B1: the runways of two «Торец полосы» markers (with or without an ILS)
+            if (apt != null) {
+                for (com.sva.airport.IlsPairing.Rwy r : apt.runways()) {
+                    if (r.a.dim != dim) {
+                        continue;
+                    }
+                    for (int dir = 1; dir >= -1; dir -= 2) {
+                        double[] t = r.threshold(dir);
+                        db.addRunway(r.apt, dim, r.name(dir), t[0], t[1], (int) Math.round(r.elev), r.course(dir), (int) Math.round(r.len));
+                    }
+                }
+            }
             cache.put(k, db);
             cachedAt.put(k, Long.valueOf(now));
         }

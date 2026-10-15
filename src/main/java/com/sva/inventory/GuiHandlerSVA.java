@@ -14,10 +14,16 @@ public class GuiHandlerSVA implements IGuiHandler {
             /** Air-defence wave: a launcher's screen (its ammunition slots and settings). */
             LAUNCHER = 5,
             /** Upgrades wave: an air-defence block's equipment screen (the radar's, the command post's): upgrade slots, state. */
-            AD_EQUIP = 6;
+            AD_EQUIP = 6,
+            /** Airport wave B1: «Аппаратная ILS» (its upgrade slots and power). */
+            ILS_SHELTER = 7;
 
     @Override
     public Object getServerGuiElement(int id, EntityPlayer p, World w, int x, int y, int z) {
+        if (id == ILS_SHELTER) {
+            net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
+            return te instanceof com.sva.block.TileEntityIlsShelterSVA ? new ContainerIlsShelterSVA(p.inventory, (com.sva.block.TileEntityIlsShelterSVA) te) : null;
+        }
         if (id == AD_EQUIP) {
             net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
             return te instanceof com.sva.block.TileEntityAirDefenseSVA && ((com.sva.block.TileEntityAirDefenseSVA) te).mayUse(p)
@@ -49,6 +55,11 @@ public class GuiHandlerSVA implements IGuiHandler {
 
     @Override
     public Object getClientGuiElement(int id, EntityPlayer p, World w, int x, int y, int z) {
+        if (id == ILS_SHELTER) {
+            net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
+            return te instanceof com.sva.block.TileEntityIlsShelterSVA
+                    ? new com.sva.client.GuiIlsShelterSVA(p.inventory, (com.sva.block.TileEntityIlsShelterSVA) te) : null;
+        }
         if (id == AD_EQUIP) {
             net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
             return te instanceof com.sva.block.TileEntityAirDefenseSVA

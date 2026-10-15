@@ -81,6 +81,17 @@ public class IlsDataSVA extends WorldSavedData {
         return stations.size();
     }
 
+    /** Airport wave B1: the keys of the FULL stations (AirportDataSVA publishes them; it takes out the gone ones). */
+    public List<String> fullKeys() {
+        List<String> out = new ArrayList<String>();
+        for (LinerIls.Station s : stations.values()) {
+            if (s.full()) {
+                out.add(s.key());
+            }
+        }
+        return out;
+    }
+
     @Override
     public void readFromNBT(NBTTagCompound t) {
         stations.clear();

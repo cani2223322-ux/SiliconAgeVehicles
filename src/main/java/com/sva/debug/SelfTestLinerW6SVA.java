@@ -511,9 +511,11 @@ final class SelfTestLinerW6SVA {
         boolean same = C.pack().equals(s) && C.lights.ext == L.lights.ext && (C.lights.ext & LinerLights.X_LAND_R) != 0 && C.lights.readingOn(7)
                 && C.lights.landR == 1 && C.ice.wingOn && SelfTestLinerSVA.near(C.ice.eng[0], 0.4) && C.ice.frozenKmh[2] == 280 && C.loadHeat == L.loadHeat
                 && C.at(LinerControls.TEMP_CAB) == 5 && SelfTestLinerSVA.near(C.ice.oatNow, -6);
-        // an older string (no sixth part) leaves the wave-6 words alone (wave 7 appended a seventh part: both cut)
+        // an older string (no sixth part) leaves the wave-6 words alone (wave 7 appended a seventh part, airport wave B1 an
+        // eighth: all three cut)
         LinerSystems O = new LinerSystems();
         String o6 = s.substring(0, s.lastIndexOf('|'));
+        o6 = o6.substring(0, o6.lastIndexOf('|'));
         O.unpack(o6.substring(0, o6.lastIndexOf('|')));
         boolean old = O.lights.ext == 0 && O.ice.wing == 0;
         System.out.println("[SVA-TEST] liner w6 sync string: " + s.length() + " chars");

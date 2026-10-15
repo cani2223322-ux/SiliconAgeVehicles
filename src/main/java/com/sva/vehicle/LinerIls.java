@@ -31,7 +31,20 @@ public final class LinerIls {
     public static final int FREQ_MIN = 10810, FREQ_MAX = 11195, FREQ_DEFAULT = 11030, OFFSET_MAX = 20;
     public static final double ANGLE_MIN = 2.0, ANGLE_MAX = 5.0, ANGLE_DEFAULT = 3.0;
 
+    /** Airport wave B1: the station kinds and a FULL station's status bits (the monitor's flags). */
+    public static final int KIND_COMPACT = 0, KIND_FULL = 1;
+    public static final int F_LOC_FAIL = 1, F_GS_FAIL = 2, F_UNCAL = 4, F_NO_GS = 8, F_OFF = 16, F_NO_POWER = 32;
+    /**
+     * Airport wave B1: the category of the legacy single beacons (ConfigSVA airport.legacyIlsCat, 3 by default: an old
+     * world's beacon keeps working exactly as in wave 4, autoland included; 1 makes them CAT I «compact» stations).
+     */
+    public static int legacyCat = 3;
+
     private LinerIls() {
+    }
+
+    static double fin(double v) {
+        return Double.isNaN(v) || Double.isInfinite(v) ? 0 : v;
     }
 
     /** One beacon. */
@@ -43,8 +56,25 @@ public final class LinerIls {
         public int offset;
         public String ident = "";
         public int freq = FREQ_DEFAULT;
-        /** A client's mirror: the threshold point as synced (NaN: from the block and the offset). */
+        /** A client's mirror: the threshold point as synced (NaN: from the block and the offset); airport wave B1: a FULL station's own. */
         public double fx = Double.NaN, fz = Double.NaN;
+        /**
+         * Airport wave B1 (com.sva.airport): COMPACT (the wave-4 single beacon, legacy: its own simple beam, its category
+         * airport.legacyIlsCat) or FULL (a LOC array + a G/S mast paired over a runway: the real beam of airport.IlsBeam).
+         */
+        public int kind = KIND_COMPACT;
+        /** FULL: the localizer array's centre (x, z), the glide slope mast's foot (x, z) and the ground there (Y). */
+        public double lx, lz, gx, gz, gy;
+        /** FULL: the category (0 off .. 3), the status (F_*), the beam's bends (deg amplitude), their phase (0..999). */
+        public int cat = 3, flags, phase;
+        public double bendLoc, bendGs;
+        /** FULL: the runway's designator ("27L"), the airport's ident (ICAO placeholder), the runway's length (blocks). */
+        public String rwy = "", apt = "";
+        public int rwyLen;
+        /** FULL: the markers' distances before the threshold (blocks; -1 none): OM, MM, IM. */
+        public final int[] markers = {-1, -1, -1};
+        /** FULL: the flight inspection (airport.FlightCheck: its state and result word). */
+        public int calib;
 
         /** The threshold point's x / z (the block's centre + the offset to the right of the landing direction). */
         public double tx() {
@@ -74,6 +104,22 @@ public final class LinerIls {
             s.freq = freq;
             s.fx = fx;
             s.fz = fz;
+            s.kind = kind;
+            s.lx = lx;
+            s.lz = lz;
+            s.gx = gx;
+            s.gz = gz;
+            s.gy = gy;
+            s.cat = cat;
+            s.flags = flags;
+            s.phase = phase;
+            s.bendLoc = bendLoc;
+            s.bendGs = bendGs;
+            s.rwy = rwy;
+            s.apt = apt;
+            s.rwyLen = rwyLen;
+            System.arraycopy(markers, 0, s.markers, 0, 3);
+            s.calib = calib;
             return s;
         }
 
@@ -88,6 +134,27 @@ public final class LinerIls {
             t.setInteger("Offset", offset);
             t.setString("Ident", ident);
             t.setInteger("Freq", freq);
+            if (kind == KIND_FULL) {
+                // airport wave B1: a FULL station's own fields (a COMPACT one writes exactly what wave 4 wrote)
+                t.setInteger("Kind", kind);
+                t.setDouble("Tx", tx());
+                t.setDouble("Tz", tz());
+                t.setDouble("Lx", lx);
+                t.setDouble("Lz", lz);
+                t.setDouble("Gx", gx);
+                t.setDouble("Gz", gz);
+                t.setDouble("Gy", gy);
+                t.setInteger("Cat", cat);
+                t.setInteger("Flags", flags);
+                t.setInteger("Phase", phase);
+                t.setDouble("BendL", bendLoc);
+                t.setDouble("BendG", bendGs);
+                t.setString("Rwy", rwy);
+                t.setString("Apt", apt);
+                t.setInteger("RwyLen", rwyLen);
+                t.setIntArray("Mk", markers.clone());
+                t.setInteger("Calib", calib);
+            }
         }
 
         public void read(NBTTagCompound t) {
@@ -101,6 +168,47 @@ public final class LinerIls {
             offset = Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, t.getInteger("Offset")));
             ident = cleanIdent(t.getString("Ident"));
             freq = t.hasKey("Freq") ? clampFreq(t.getInteger("Freq")) : FREQ_DEFAULT;
+            kind = t.getInteger("Kind") == KIND_FULL ? KIND_FULL : KIND_COMPACT;
+            if (kind == KIND_FULL) {
+                fx = t.getDouble("Tx");
+                fz = t.getDouble("Tz");
+                lx = t.getDouble("Lx");
+                lz = t.getDouble("Lz");
+                gx = t.getDouble("Gx");
+                gz = t.getDouble("Gz");
+                gy = t.getDouble("Gy");
+                cat = Math.max(0, Math.min(3, t.getInteger("Cat")));
+                flags = t.getInteger("Flags");
+                phase = Math.abs(t.getInteger("Phase")) % 1000;
+                bendLoc = fin(t.getDouble("BendL"));
+                bendGs = fin(t.getDouble("BendG"));
+                rwy = t.getString("Rwy");
+                apt = t.getString("Apt");
+                rwyLen = Math.max(0, t.getInteger("RwyLen"));
+                int[] mk = t.getIntArray("Mk");
+                for (int i = 0; i < 3; i++) {
+                    markers[i] = i < mk.length ? mk[i] : -1;
+                }
+                calib = t.getInteger("Calib");
+            } else {
+                fx = Double.NaN;
+                fz = Double.NaN;
+            }
+        }
+
+        /** Airport wave B1: a FULL station (a paired LOC + G/S). */
+        public boolean full() {
+            return kind == KIND_FULL;
+        }
+
+        /** The category the receivers see (0 off, 1..3; a COMPACT one: airport.legacyIlsCat). */
+        public int category() {
+            return kind == KIND_FULL ? cat : legacyCat;
+        }
+
+        /** Airport wave B1: the station transmits nothing (its monitor shut it off, no power, an antenna broken). */
+        public boolean off() {
+            return kind == KIND_FULL && (cat <= 0 || (flags & (F_OFF | F_NO_POWER)) != 0);
         }
     }
 
@@ -153,9 +261,26 @@ public final class LinerIls {
         public double dist;
         /** Inside the LOC's / G/S's coverage, inbound (before the LOC antenna, facing the landing direction's side). */
         public boolean locValid, gsValid;
+        /**
+         * Airport wave B1: within the beam's coverage by geometry alone (a station off still counts - it stays tuned with its
+         * red flags), the station's LOC / G/S failed (the PFD's red flags), behind the localizer (the back course: reverse
+         * sensing, no G/S), the glide slope lobe the aircraft is in (1 the main, 2 the reversed 6 deg one, 3 the 9 deg one; 0
+         * under), the elevation angle seen from the G/S antenna (deg), the LOC's dot (deg) for this station.
+         */
+        public boolean inCover, locFail, gsFail, backCourse;
+        public int lobe = 1;
+        public double elevDeg, locDot = LOC_DOT;
     }
 
     public static Dev dev(Station s, double x, double y, double z, double range) {
+        return dev(s, x, y, z, range, 0);
+    }
+
+    /** Airport wave B1: the geometry at world time `time` (ticks: a FULL station's beam bends oscillate with it). */
+    public static Dev dev(Station s, double x, double y, double z, double range, double time) {
+        if (s.kind == KIND_FULL) {
+            return com.sva.airport.IlsBeam.dev(s, x, y, z, range, time);
+        }
         Dev d = new Dev();
         double c = Math.toRadians(s.course);
         double dx = x - s.tx(), dz = z - s.tz();
@@ -174,12 +299,14 @@ public final class LinerIls {
         d.locValid = toLoc > 0 && horiz <= range && Math.abs(d.loc) <= LOC_COVER;
         double elevDeg = before > 0.5 ? Math.toDegrees(Math.atan2(y - s.elev, before)) : -1;
         d.gsValid = d.locValid && before > 0.5 && Math.abs(d.loc) <= 8 && elevDeg >= GS_COVER_LO * s.angle && elevDeg <= GS_COVER_HI * s.angle;
+        d.inCover = d.locValid;
+        d.elevDeg = elevDeg;
         return d;
     }
 
     /** LOC deviation in dots (clamped to +-2.5 for drawing). */
     public static double locDots(Dev d) {
-        return Math.max(-2.5, Math.min(2.5, d.loc / LOC_DOT));
+        return Math.max(-2.5, Math.min(2.5, d.loc / d.locDot));
     }
 
     public static double gsDots(Dev d) {
@@ -201,7 +328,10 @@ public final class LinerIls {
         boolean converging = d.cross > 0 ? rel < 3 : rel > -3;
         // + the drift during the roll-in (~ROLL_IN ticks to reach the bank)
         double need = radius * (1 - Math.cos(Math.toRadians(Math.abs(rel)))) + 2 + speed * Math.sin(Math.toRadians(Math.abs(rel))) * ROLL_IN;
-        return converging && Math.abs(d.cross) <= need || Math.abs(d.loc) <= 0.25 * LOC_DOT;
+        if (d.backCourse || !d.locValid) {
+            return false;                                               // airport wave B1: the A320 has no back-course mode
+        }
+        return converging && Math.abs(d.cross) <= need || Math.abs(d.loc) <= 0.25 * d.locDot;
     }
 
     /** The G/S capture (G/S*): valid and the beam come down to within `band` blocks over the aircraft (or the aircraft above it). */
@@ -225,7 +355,7 @@ public final class LinerIls {
         double bd = Double.MAX_VALUE;
         for (Station s : near) {
             Dev d = dev(s, x, y, z, range);
-            if (!d.locValid || Math.abs(CruiseMath.wrap(track - s.course)) > 60) {
+            if (!d.inCover || d.backCourse || Math.abs(CruiseMath.wrap(track - s.course)) > 60) {
                 continue;
             }
             double h = Math.sqrt(sq(x - s.tx()) + sq(z - s.tz()));

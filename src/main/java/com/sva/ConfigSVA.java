@@ -307,6 +307,36 @@ public final class ConfigSVA {
     /** Upgrades wave: the core's upgrade modules in the air-defence blocks' slots (off: they do nothing, new ones don't fit). */
     public static boolean adUpgrades = true;
 
+    // ---------------------------------------------------------------- airport wave B1 (category "airport")
+    /** The ILS antennas need their shelters' EU (off: they always have power; a shelter still gives the monitor). */
+    public static boolean aptRequirePower = true;
+    /** A shelter's upkeep (EU/t) while it serves an antenna. */
+    public static int aptShelterEu = 16;
+    /** The magnetic variation (deg, east +): the runway numbers come from the magnetic course. */
+    public static double aptMagVar = 0;
+    /** Fog over the whole world for the RVR (0 none, 1 haze, 2 fog, 3 dense) on top of the biomes' own. */
+    public static int aptFog = 0;
+    /** The category of the old single «Курсо-глиссадный маяк» (3: as in wave 4, autoland; 1: CAT I «compact» stations). */
+    public static int aptLegacyIlsCat = 3;
+    /** The critical / sensitive areas degrade the category and bend the beam. */
+    public static boolean aptCriticalAreas = true;
+    /** A new / changed ILS waits for a flight inspection (CAT I until then); off: calibrated at once. */
+    public static boolean aptFlightCheck = true;
+    /** The ILS ident in Morse and the marker beacons' tones in the cockpit. */
+    public static boolean aptAurals = true;
+    /** The wind pushes the liner in the air (a simple drift). Off by default. */
+    public static boolean aptWindPhysics = false;
+    /** Client: the runways' paint (piano keys, numbers, centre line, touchdown zone). */
+    public static boolean aptPaint = true;
+    /** Client: the runway / approach lights. */
+    public static boolean aptLights = true;
+    /** Client: the lights seen beyond the fog (far away). */
+    public static boolean aptLightsFar = true;
+    /** Client: the antennas', shelters' and devices' 3D models (off: plain boxes). */
+    public static boolean aptModels = true;
+    /** Client: how far (blocks) the runways' paint and lights are drawn. */
+    public static int aptDrawDistance = 1500;
+
     private ConfigSVA() {
     }
 
@@ -626,6 +656,7 @@ public final class ConfigSVA {
                     "Cargo screen 'Junk' button: items dropped next to the vehicle (modid:name or modid:name@meta) / "
                             + "Кнопка 'Мусор' в окне багажника: что выбрасывается рядом с машиной"));
             loadAirDefense(c);
+            loadAirport(c);
         } finally {
             if (c.hasChanged()) {
                 c.save();
@@ -666,6 +697,31 @@ public final class ConfigSVA {
         adUpgrades = c.getBoolean("upgrades", a, true,
                 "Silicon Age upgrade modules in radars, launchers and the command post (transformers, storage, overclockers...); off - they do nothing / "
                         + "Модули Silicon Age в РЛС, ПУ и КП (трансформаторы, накопитель, ускорители...); выкл. - не действуют");
+    }
+
+    /** Airport wave B1: the "airport" category - every feature switchable. */
+    private static void loadAirport(Configuration c) {
+        String a = "airport";
+        aptRequirePower = c.getBoolean("requirePower", a, true,
+                "ILS antennas need EU through their 'ILS Shelter' (off: always powered) / Антеннам ILS нужно питание EU через 'Аппаратную ILS'");
+        aptShelterEu = c.getInt("shelterEu", a, 16, 0, 10000, "ILS shelter upkeep, EU/t / Расход аппаратной ILS, EU/т");
+        aptMagVar = sanitize((float) c.getFloat("magneticVariation", a, 0F, -30F, 30F,
+                "Magnetic variation, deg (east +): runway numbers use the magnetic course / Магнитное склонение, град (восточное +)"), 0F, -30F, 30F);
+        aptFog = c.getInt("fog", a, 0, 0, 3, "Fog for the RVR: 0 none, 1 haze, 2 fog, 3 dense / Туман для RVR: 0 нет, 1 дымка, 2 туман, 3 густой");
+        aptLegacyIlsCat = c.getInt("legacyIlsCat", a, 3, 1, 3,
+                "Category of the old single ILS beacon (3 = as before, autoland) / Категория старого курсо-глиссадного маяка (3 - как раньше)");
+        com.sva.vehicle.LinerIls.legacyCat = aptLegacyIlsCat;
+        aptCriticalAreas = c.getBoolean("criticalAreas", a, true,
+                "Blocks / vehicles in the ILS critical areas lower the category and bend the beam / Критические зоны ILS");
+        aptFlightCheck = c.getBoolean("flightCheck", a, true,
+                "A new ILS is CAT I until a flight inspection approach / Новый ILS - CAT I до облёта");
+        aptAurals = c.getBoolean("aurals", a, true, "ILS ident Morse and marker tones in the cockpit / Морзянка ILS и тоны маркеров");
+        aptWindPhysics = c.getBoolean("windPhysics", a, false, "The wind drifts the airliner in flight / Ветер сносит лайнер в полёте");
+        aptPaint = c.getBoolean("paint", a, true, "Client: runway markings / Клиент: разметка полос");
+        aptLights = c.getBoolean("lights", a, true, "Client: runway and approach lights / Клиент: огни полос и подхода");
+        aptLightsFar = c.getBoolean("lightsFar", a, true, "Client: the lights seen beyond the fog / Клиент: огни видны сквозь туман");
+        aptModels = c.getBoolean("models", a, true, "Client: 3D models of the ILS antennas and devices / Клиент: 3D-модели антенн и приборов");
+        aptDrawDistance = c.getInt("drawDistance", a, 1500, 128, 4000, "Client: runway paint / lights distance, blocks / Клиент: дальность разметки и огней");
     }
 
     /** NaN / infinity -> default, else clamped into [min, max] (pure; the self-test checks it). */

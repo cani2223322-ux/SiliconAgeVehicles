@@ -426,3 +426,21 @@
 ## 2026-10-15 — Релиз Alpha 0.1.1 (пре-релиз на GitHub)
 - Сделано: версия 0.1.1 (build.gradle, ReferenceSVA), CORE_DEP поднят до SiliconAge@[0.2.0,) — аддон вызывает TileEntityFieldGeneratorSC.privateRefusingName (есть только с ядра 0.2.0). README ru/en (водород и АКБ, кабины C+, 2K/4K, ИНС, ПВО, лайнер SA-320, клавиши, настройки, известные проблемы), CHANGELOG: раздел 0.1.1-alpha — 2026-10-15 + пустой «Не выпущено», +2 пункта «Исправлено» (Пульты, рывки назад). Сборка ок, 77+1 коммитов запушены (3161701), тег v0.1.1-alpha, пре-релиз SiliconAgeVehiclesAlpha-0.1.1 с SiliconAgeVehiclesAlpha-0.1.1.jar (10 754 699 байт), заметки ru/en. docs/mockups/veh_liner_menu.png не коммитился.
 - Осталось / next steps: проверка в клиенте (лайнер, ПВО, кабины C+); убрать диагностику [SVA-MOVE] / [SVA-AFLOOR] после проверки.
+
+## 2026-10-15 — Аэропорт, волна Б1 (ILS, полоса, огни, RVR, метео, планшет, облёт) — ворктри wave-airport-b1
+- Сделано: пакет com.sva.airport (чистая логика: AptScale 1 блок = 10 м-экв; IlsBeam - LOC +-2,5 гр., покрытие 10/35 гр.
+  2500/1800 бл., обратный курс, G/S с ложными глиссадами 6 гр. (обратная) и 9 гр., изгибы луча, DME, морзянка; IlsCat -
+  CAT I/II/III по установке, монитору, крит./чувств. зонам, облёту; IlsPairing - полосы по торцам, станции LOC+G/S, имена
+  L/C/R, магн. склонение, конфликты частот, ICAO-заглушки ZZxx; MarkerMath, RvrMath, WindField, RunwayLayout (разметка,
+  огни, ALS, яркость), PlannerMath, FlightCheck). Блоки: ilsAntenna (LOC 5x1 / G/S мачта + aptPart), ilsShelter (EU, 4 слота
+  модулей, монитор), aptDevice (маркер, RVR, метео, колдун), runwayEnd; предмет aptPlanner. AirportDataSVA (мир. данные,
+  пары -> FULL-станции в IlsDataSVA, монитор, облёт, RVR/метео), AirportServerSVA (тик, синхронизация NetAptSVA). LinerIls.Station
+  +FULL-поля, LinerAfs: CAT 1/2/3 DUAL по станции, автопосадка только CAT III, отключение на минимуме с MINIMUM, packApt
+  (8-я часть строки синхр.), ECAM M_ILS_FAULT; PFD (DME, лампы маркеров, флаги LOC/G/S, ILS CAT, QNH, боковой ветер), ND
+  (ветер, RVR, DME), МФПУ (РАДИОНАВ CAT/облёт, список, ДАННЫЕ - полосы по торцам, ХАР ЗАХОД RVR/метео). Клиент: AirportRenderSVA
+  (разметка - дисплей-лист на полосу, огни - спрайты одним пакетом), RenderAptSVA (модели), AirportPlannerSVA (голограмма),
+  GuiAptSVA, GuiIlsShelterSVA. Старый маяк - legacy (COMPACT, airport.legacyIlsCat=3). Конфиг airport.*. Рецепты верстака,
+  lang ru/en, иконки, превью docs/mockups/veh_airport_impl_1..6. Тесты (сид 12345, порт 25881): self 1596/0 (+53), world 509/2
+  (+14; 2 падения прежние - plane strip, «des»). Правка старого теста SelfTestLinerW6SVA (теперь 3 части отрезаются).
+- Осталось / next steps: проверка в клиенте (разметка/огни/голограмма/GUI/звуки), волна Б2 (вышка, ATIS, CPDLC, управление
+  огнями с вышки, «следуй за мной»); коммит - по команде.

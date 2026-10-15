@@ -25,6 +25,8 @@ public final class LinerFlight {
         public boolean ground;
         /** The route's wanted heading this tick (NAV; NaN none). */
         public double routeHdg = Double.NaN;
+        /** Airport wave B1: the world's time (ticks) - the ILS beam's bends. */
+        public double time;
     }
 
     /** The keys (the pilot's; an engaged AP replaces the stick ones). */
@@ -138,6 +140,7 @@ public final class LinerFlight {
         g.thrAcc = LinerGuide.thrustAcc(p.thrust, L.thrust(), p.drag, speed, t.topSpeed);
         g.ground = b.ground;
         g.routeHdg = b.routeHdg;
+        g.time = b.time;
         return g;
     }
 }

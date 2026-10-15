@@ -1239,6 +1239,20 @@ public final class LinerMcdu {
             return;
         }
         if (p == P_PERF_APPR) {
+            // airport wave B1: an LSK of QNH / TEMP / WIND with an empty scratchpad takes the weather station's reading
+            LinerAfs F = L.afs;
+            if (!right && n <= 2 && sp.length() == 0 && !clr && F.windFrom >= 0) {
+                if (n == 0) {
+                    f.qnh = Math.max(LinerAfs.QNH_MIN, Math.min(LinerAfs.QNH_MAX, F.qnhApt));
+                } else if (n == 1) {
+                    f.apprTemp = Math.max(-60, Math.min(60, F.tempApt));
+                } else {
+                    f.windDir = F.windFrom;
+                    f.windSpd = F.windKmh;
+                }
+                done(s);
+                return;
+            }
             if (!right && n == 0) {
                 int v = num(sp, LinerAfs.QNH_MIN, LinerAfs.QNH_MAX);
                 if (v == Integer.MIN_VALUE) {
@@ -1555,7 +1569,7 @@ public final class LinerMcdu {
                 pPerfPhase(r, L, f, s, e);
                 break;
             case P_PERF_APPR:
-                pPerfAppr(r, f, s, e);
+                pPerfAppr(r, f, s, e, L.afs);
                 break;
             case P_PERF_GA:
                 pPerfGa(r, f, e);
@@ -2030,6 +2044,10 @@ public final class LinerMcdu {
     }
 
     private void pPerfAppr(R r, LinerFms f, Side s, Env e) {
+        pPerfAppr(r, f, s, e, null);
+    }
+
+    private void pPerfAppr(R r, LinerFms f, Side s, Env e, LinerAfs F) {
         r.title(k("sva.mcdu.perf.appr"), f.phase == LinerFms.PH_APPR ? C_GREEN : C_WHITE);
         r.lbl(1, false, "QNH");
         if (f.qnh > 0) {
@@ -2055,6 +2073,29 @@ public final class LinerMcdu {
         r.dat(3, true, f.mda >= 0 ? String.valueOf(f.mda) : "[ ]", C_CYAN);
         r.lbl(4, true, k("sva.mcdu.perf.ldgConf"));
         r.dat(4, true, k(f.ldgConf == 3 ? "sva.mcdu.perf.conf3" : "sva.mcdu.perf.full"), C_CYAN);
+        if (F != null) {
+            // airport wave B1: the weather station's QNH / temperature / wind (small green; the LSK takes them), the RVR and
+            // the category it needs against the station's
+            if (F.windFrom >= 0) {
+                r.lblAt(1, 11, 1, String.valueOf(F.qnhApt), C_GREEN);
+                r.lblAt(2, 11, 1, signed(F.tempApt), C_GREEN);
+                r.lblAt(3, 11, 1, three(F.windFrom) + "/" + F.windKmh, C_GREEN);
+            }
+            if (F.rvr[0] >= 0 || F.rvr[1] >= 0 || F.rvr[2] >= 0) {
+                int worst = Integer.MAX_VALUE;
+                StringBuilder b = new StringBuilder();
+                for (int i = 0; i < 3; i++) {
+                    b.append(i > 0 ? "/" : "").append(F.rvr[i] < 0 ? "---" : com.sva.airport.RvrMath.text(F.rvr[i]));
+                    if (F.rvr[i] >= 0) {
+                        worst = Math.min(worst, F.rvr[i]);
+                    }
+                }
+                int need = com.sva.airport.RvrMath.requiredCat(worst);
+                int have = F.ils == null ? 1 : F.ils.category();
+                r.lbl(5, true, k("sva.mcdu.perf.rvrNeed", com.sva.airport.IlsCat.catText(need)));
+                r.dat(5, true, b.toString(), need > have ? C_AMBER : C_GREEN);
+            }
+        }
         apprActivation(r, f, s, e);
         r.dat(6, false, k("sva.mcdu.prev"), C_WHITE);
         r.dat(6, true, k("sva.mcdu.next"), C_WHITE);
@@ -2176,9 +2217,21 @@ public final class LinerMcdu {
             r.dat(1, true, three(st.course), C_GREEN);
             LinerIls.Dev d = LinerIls.dev(st, e.x, e.y, e.z, 1e9);
             r.lbl(2, false, k("sva.mcdu.rad.src"));
-            r.dat(2, false, k("sva.mcdu.rad.beacon"), C_GREEN);
+            r.dat(2, false, k(st.full() ? "sva.mcdu.rad.station" : "sva.mcdu.rad.beacon", st.rwy), C_GREEN);
             r.lbl(3, false, k("sva.mcdu.rad.dist"));
-            r.dat(3, false, k("sva.mcdu.km", km(Math.sqrt(sq(st.tx() - e.x) + sq(st.tz() - e.z)))), C_GREEN);
+            if (st.full()) {
+                r.dat(3, false, "DME " + com.sva.airport.AptScale.kmText(com.sva.airport.IlsBeam.dme(st, e.x, e.y, e.z), ','), C_GREEN);
+                // airport wave B1: the category, the monitor, the flight inspection
+                r.lbl(2, true, k("sva.mcdu.rad.cat"));
+                r.dat(2, true, st.off() ? k("sva.mcdu.rad.off") : com.sva.airport.IlsCat.catText(st.cat), st.off() ? C_AMBER : st.cat >= 3 ? C_GREEN : C_CYAN);
+                int calib = st.calib & 3;
+                r.lbl(6, true, k("sva.mcdu.rad.calib"));
+                r.dat(6, true, k(calib == com.sva.airport.FlightCheck.DONE ? "sva.mcdu.rad.calibDone" : calib == com.sva.airport.FlightCheck.RUNNING
+                        ? "sva.mcdu.rad.calibRun" : "sva.mcdu.rad.calibWait", com.sva.airport.IlsCat.catText(st.calib >> 2 & 3)),
+                        calib == com.sva.airport.FlightCheck.DONE ? C_GREEN : C_AMBER);
+            } else {
+                r.dat(3, false, k("sva.mcdu.km", km(Math.sqrt(sq(st.tx() - e.x) + sq(st.tz() - e.z)))), C_GREEN);
+            }
             r.lbl(3, true, k("sva.mcdu.rad.gs"));
             r.dat(3, true, t1((int) Math.round(st.angle * 10)), C_GREEN);
             r.lbl(4, false, k("sva.mcdu.rad.elev"));
@@ -2214,6 +2267,9 @@ public final class LinerMcdu {
             boolean on = o.key().equals(L.afs.ilsChosen);
             r.dat(k, false, "<" + o.ident + " " + LinerIls.freqText(o.freq).replace('.', ','), on ? C_CYAN : C_GREEN);
             r.dat(k, true, three(o.course) + " " + km(Math.sqrt(sq(o.tx() - e.x) + sq(o.tz() - e.z))), C_GREEN);
+            if (o.full()) {
+                r.lbl(k, true, o.apt + " " + o.rwy + " " + (o.off() ? k("sva.mcdu.rad.off") : com.sva.airport.IlsCat.catText(o.cat)));
+            }
         }
         r.dat(6, false, k("sva.mcdu.back"), C_WHITE);
     }
