@@ -92,8 +92,50 @@ public final class LinerViewSVA {
         return PICK.wheel(-notches);                                // wheel down = the next view
     }
 
+    /** ItemRenderer's equip progress (now / last tick): 0 = the hand lowered out of the view (an item swap's bottom). */
+    private static java.lang.reflect.Field equipNow, equipPrev;
+    private static boolean equipTried;
+
+    /**
+     * The autopilot-fix wave: the hand's second line of defence. RenderHandEvent (Events.onHand) is Forge's hook in
+     * EntityRenderer.renderWorld - a renderer that draws the hand its own way (OptiFine's shaders pass) never posts it, and
+     * the user still saw the arm from the captain's seat. So for a pilot in the first person the ItemRenderer's equip
+     * progress is held at 0 each frame as well: vanilla's own item-swap pose with the arm / item fully below the view
+     * (whoever draws the hand, it is drawn there). Off the seat vanilla raises it again by itself (updateEquippedItem).
+     */
+    static void lowerHand(Minecraft mc) {
+        if (!equipTried) {
+            equipTried = true;
+            try {
+                equipNow = cpw.mods.fml.relauncher.ReflectionHelper.findField(net.minecraft.client.renderer.ItemRenderer.class, "equippedProgress",
+                        "field_78454_c");
+                equipPrev = cpw.mods.fml.relauncher.ReflectionHelper.findField(net.minecraft.client.renderer.ItemRenderer.class,
+                        "prevEquippedProgress", "field_78451_d");
+            } catch (RuntimeException ex) {
+                equipNow = equipPrev = null;
+            }
+        }
+        if (equipNow == null || equipPrev == null || mc.entityRenderer == null || mc.entityRenderer.itemRenderer == null) {
+            return;
+        }
+        try {
+            equipNow.setFloat(mc.entityRenderer.itemRenderer, 0F);
+            equipPrev.setFloat(mc.entityRenderer.itemRenderer, 0F);
+        } catch (IllegalAccessException ex) {
+            equipNow = null;
+        }
+    }
+
+    /** The hand hidden now: the option, a pilot of a liner, the first-person view. */
+    static boolean handHidden(Minecraft mc) {
+        return LinerView.hideHand(ConfigSVA.linerHideHand, true, pilotedLiner(mc) != null, mc.gameSettings.thirdPersonView == 0);
+    }
+
     /** RenderTickEvent START: the eased offset added to the rider's look for this frame. */
     public static void frameStart(Minecraft mc, float pt) {
+        if (mc.thePlayer != null && handHidden(mc)) {
+            lowerHand(mc);
+        }
         long now = System.nanoTime();
         double dt = lastNanos == 0 ? 0 : Math.min(0.25, (now - lastNanos) / 1e9);
         lastNanos = now;
@@ -145,7 +187,7 @@ public final class LinerViewSVA {
         @SubscribeEvent
         public void onHand(RenderHandEvent e) {
             Minecraft mc = Minecraft.getMinecraft();
-            if (LinerView.hideHand(ConfigSVA.linerHideHand, true, pilotedLiner(mc) != null, mc.gameSettings.thirdPersonView == 0)) {
+            if (handHidden(mc)) {
                 e.setCanceled(true);
             }
         }

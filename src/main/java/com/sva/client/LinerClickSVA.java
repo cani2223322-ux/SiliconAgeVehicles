@@ -51,11 +51,8 @@ public final class LinerClickSVA {
         if (p == null || v == null) {
             return false;
         }
-        if (p.ridingEntity == v) {
-            return true;
-        }
-        return p.ridingEntity instanceof EntitySeatSVA && ((EntitySeatSVA) p.ridingEntity).getParent() == v
-                && ((EntitySeatSVA) p.ridingEntity).getIndex() == 1;
+        boolean seat = p.ridingEntity instanceof EntitySeatSVA && ((EntitySeatSVA) p.ridingEntity).getParent() == v;
+        return com.sva.vehicle.LinerView.pilotSeat(p.ridingEntity == v, seat, seat ? ((EntitySeatSVA) p.ridingEntity).getIndex() : -1);
     }
 
     /** LinerCockpitSVA: the matrices in the cockpit's frame this frame (the ray is built in it). */

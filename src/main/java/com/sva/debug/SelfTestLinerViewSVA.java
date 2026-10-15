@@ -64,6 +64,12 @@ final class SelfTestLinerViewSVA {
         boolean other = !LinerView.hideHand(true, false, true, true) && !LinerView.hideHand(true, false, false, true);
         boolean third = !LinerView.hideHand(true, true, true, false);
         boolean off = !LinerView.hideHand(false, true, true, true);
+        // the pilot seats (the autopilot-fix wave: the hand was still drawn) - the captain rides the vehicle itself, the F/O
+        // its seat entity FO_SEAT; any other seat (a passenger), another vehicle's seat, nothing - not a pilot
+        boolean seats = LinerView.pilotSeat(true, false, -1) && LinerView.pilotSeat(false, true, LinerView.FO_SEAT) && !LinerView.pilotSeat(false, true, 0)
+                && !LinerView.pilotSeat(false, true, 2) && !LinerView.pilotSeat(false, false, LinerView.FO_SEAT) && !LinerView.pilotSeat(false, false, -1);
+        check(seats, "liner pilot seats (the hand, the quick views, the server's control rule): the captain on the vehicle itself, the F/O on seat "
+                + LinerView.FO_SEAT + "; passengers / other seats not");
         check(pilot && passenger && other && third && off && ConfigSVA.linerHideHand && ConfigSVA.linerQuickViews,
                 "liner view: the hand hidden only for a liner pilot in first person with the option on (passengers, other vehicles, third"
                         + " person keep it); linerHideHand / linerQuickViews on by default");

@@ -6,6 +6,16 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 ## Не выпущено / Unreleased
 
 ### Русский
+- **Лайнер SA-320: исправлен автопилот - снижение и регулятор скорости.**
+  - *Причина*: ложное срабатывание альфа-защиты. Когда сервер отстаёт (новые чанки на скорости 144 км/ч), пакеты движения от клиента пилота приходят пачкой, и несколько тиков подряд сервер «видел» почти нулевую скорость - ниже порога альфа-защиты. Автомат тяги уходил в TOGA, а потом в TOGA LK: N1 100 %, ручка SPD не действует, снижение (DES / OP DES) не идёт - вся тяга взлётная, самолёт держит высоту на 144 км/ч.
+  - *Исправлено*: скорость на сервере не проваливается в тиках без пакета движения; альфа-защита срабатывает, только если скорость ниже порога 0,5 с подряд (как угол атаки на A320, а не одно значение).
+  - *TOGA LK теперь видно*: мигает на FMA с подсказкой «ОТКЛ А/ТЯГУ», на HUD - «TOGA LK - отключи А/ТЯГУ (-)», на ECAM - «TOGA LK: ОТКЛ А/ТЯГУ». Выход - кнопка отключения автомата тяги (по умолчанию «-»).
+  - *Снижение никогда не превращается в горизонт*: DES / OP DES всегда снижаются (на скорости или быстрее - не меньше 2 м/с, малый газ гасит скорость; медленнее - не меньше 0,5 м/с), OP DES никогда не набирает. Управляемое DES без профиля МФПУ - не круче 5 м/с.
+  - *РУД выше CL при снижении* (тяга ручная): мигает «РУД НА CL» на FMA и на HUD, самолёт всё равно снижается.
+  - *HUD*: строка «Газ» у лайнера - «РУД: CL» (IDLE / CL / FLX / TOGA) - видно, стоит ли РУД на упоре автомата тяги. Клавиши W / S останавливают РУД точно на CL.
+  - *Ручка ALT* сравнивает высоту FCU (по QNH) с показываемой, а не с Y.
+  - *Рука в кресле пилота*: дополнительно опускается за край экрана (через анимацию смены предмета) - работает и там, где событие Forge не приходит (OptiFine / шейдеры).
+  - Самотесты: DES / OP DES с эшелона, с превышения скорости, с ручной тягой, в TOGA LK, фильтр альфа-защиты, скорость при пачках пакетов, SPD (выбранная / управляемая), РУД на CL с клавиш, ALT с QNH, правило кресел пилотов; мировой тест - OP DES и TOGA LK на настоящем лайнере.
 - **Лайнер SA-320: обзор из кабины (как A320).**
   - *Рука скрыта*: в креслах КВС и второго пилота от первого лица не рисуются рука и предмет в руке - нижний ECAM больше не закрыт. Пассажиры и другая техника - как раньше. Настройка `linerHideHand` (вкл.).
   - *Точка глаза*: пилоты сидят на 0,07 блока дальше вперёд, на 0,05 выше и на 0,02 ближе к центру (выше нельзя - голова упирается в обшивку носа), сама кабина опущена на 0,07; козырёк с FCU и приборная доска опущены на 0,08..0,09, пьедестал на 0,07..0,09. Над носом теперь видно на 12 град. вниз (было: козырёк выше глаза, земли впереди не видно) - полоса видна с 12,6 блока (~25 м в масштабе самолёта). Все 6 экранов видны целиком, ряд PFD / ND / E/WD над HUD уже при взгляде на 11 град. вниз, FCU и EFIS доступны для клика.
@@ -226,6 +236,16 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
 - Исправлено: в HUD «Сингулярного корабля» вместо текста показывался ключ «sva.hud.jump.why.1» - добавлены все недостающие причины, почему прыжок недоступен.
 
 ### English
+- **SA-320 airliner: the autopilot fixed - the descent and the speed knob.**
+  - *Cause*: a false alpha floor. While the server lags (new chunks at 144 km/h) the pilot's client's Move packets arrive in bunches, and for a few ticks in a row the server judged the airspeed almost zero - under alpha floor's speed. The A/THR went to TOGA, then TOGA LK: N1 100 %, the SPD knob dead, no descent (DES / OP DES) - take-off thrust, the aircraft holding its level at 144 km/h.
+  - *Fixed*: the server's airspeed no longer drops on ticks without a Move; alpha floor needs the speed under its threshold for 0.5 s in a row (an angle of attack held, as on the A320, not one sample).
+  - *TOGA LK is now obvious*: it flashes on the FMA with "A/THR DISC", the HUD says "TOGA LK - disconnect the A/THR (-)", the ECAM "AUTO FLT TOGA LK: A/THR DISC". The way out is the A/THR disconnect button ("-" by default).
+  - *A descent never turns into a level-off*: DES / OP DES always go down (on the speed or fast - at least 2 m/s, the idle thrust takes the speed off; slow - at least 0.5 m/s), OP DES never climbs. Managed DES without an MCDU path - at most 5 m/s.
+  - *Levers above CL in a descent* (manual thrust): "LVR CL" flashes on the FMA and the HUD, it descends anyway.
+  - *HUD*: the liner's throttle line reads "Levers: CL" (IDLE / CL / FLX / TOGA) - you can see whether the levers sit in the A/THR's detent. The W / S keys stop the levers exactly on CL.
+  - *The ALT knob* compares the FCU altitude (QNH) with the indicated altitude, not with Y.
+  - *The hand in the pilot seats*: also lowered out of view (the item-swap pose) - works where Forge's event never comes (OptiFine / shaders).
+  - Self-tests: DES / OP DES from cruise, from an overspeed, with manual thrust, in TOGA LK, alpha floor's filter, the airspeed through bunched Moves, SPD (selected / managed), the levers on CL from the keys, ALT with QNH, the pilot-seat rule; world test - OP DES and TOGA LK on the real liner.
 - **Liner SA-320: the view from the cockpit (A320-like).**
   - *Hand hidden*: in the captain's and the first officer's seats the first-person arm and held item are not drawn - the lower ECAM is no longer covered. Passengers and other vehicles unchanged. Option `linerHideHand` (on).
   - *Eye point*: the pilots sit 0.07 blocks further forward, 0.05 higher and 0.02 inboard (no higher: the head meets the nose's skin), the cockpit itself 0.07 lower; the glare shield with the FCU and the main panel 0.08..0.09 lower, the pedestal 0.07..0.09. Over the nose the view now reaches 12 deg down (before: the glare shield stood above the eye, no ground ahead) - the runway shows from 12.6 blocks (~25 m at the aircraft's scale). All 6 DUs fully visible, the PFD / ND / E/WD row clears the HUD from an 11-deg glance down, the FCU and EFIS stay clickable.

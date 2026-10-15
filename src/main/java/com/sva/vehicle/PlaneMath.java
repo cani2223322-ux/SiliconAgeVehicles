@@ -231,6 +231,36 @@ public final class PlaneMath {
     /** reportedAirspeed's cap over the measured speed (a factor and blocks/tick): one Move late in 4 ticks still passes. */
     public static final double AIR_MARGIN = 1.25, AIR_SLACK = 0.05;
 
+    /** The liner's airspeed through a gap in the driver's Moves: held this many ticks at most (then the measured decays it). */
+    public static final int GAP_HOLD = 20;
+
+    /**
+     * The autopilot fix: the airspeed the liner's systems (the AFS - alpha floor, the A/THR, the speed tape) see while the
+     * driver's client flies it. A server lag spike runs its catch-up ticks back to back: the Moves queued during the spike
+     * all land in the first of them, the rest get none - measured 0 for several ticks, the per-tick EMA / mean halve, and
+     * reportedAirspeed's cap pulled the reported 144 km/h down under alpha floor's speed: TOGA LK in level flight. Here a
+     * tick without a Move (up to GAP_HOLD in a row) keeps the last judged airspeed, and the cap also takes the window's
+     * displacement PER MOVE (`perMove`: one Move covers a client tick - the reach rule bounds it), so a bunched arrival
+     * neither drops nor inflates it. Everything else as reportedAirspeed.
+     */
+    public static double gapAirspeed(double prev, double client, double measured, double perMove, int movesNow, int gap) {
+        if (movesNow == 0 && gap <= GAP_HOLD && prev > 0) {
+            return prev;
+        }
+        return reportedAirspeed(client, Math.max(measured, perMove));
+    }
+
+    /** The window's displacement per Move (blocks): the ticks' displacements over the Moves they took (0 none). */
+    public static double perMove(double[] moved, int[] moves) {
+        double d = 0;
+        int n = 0;
+        for (int i = 0; i < moved.length; i++) {
+            d += moved[i];
+            n += moves[i];
+        }
+        return n > 0 ? d / n : 0;
+    }
+
     /** The throttle a measured airspeed needs at least (the server's floor against a client that hides its keys). */
     public static double throttleFloor(VehicleType t, double speed) {
         double r = speed / t.topSpeed;

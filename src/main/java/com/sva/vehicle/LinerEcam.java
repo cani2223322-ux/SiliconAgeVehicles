@@ -117,7 +117,9 @@ public final class LinerEcam {
             // doors and chocks, the cargo / R1 doors open
             M_ADR1 = 64, M_ADR2 = 65, M_ADR3 = 66, M_IR1 = 67, M_IR2 = 68, M_IR3 = 69, M_ADR_DISAG = 70, M_IR_DISAG = 71, M_OVERSPEED = 72,
             M_LAW_MECH = 73, M_ENG1_FIRE = 74, M_ENG2_FIRE = 75, M_APU_FIRE = 76, M_CFG_DOOR = 77, M_CFG_CHOCKS = 78, M_DOOR_CARGO = 79,
-            M_DOOR_R1 = 80, N = 81;
+            M_DOOR_R1 = 80,
+            // the autopilot fix: alpha floor's TOGA LK held (TOGA thrust until the levers' instinctive button)
+            M_TOGA_LK = 81, N = 82;
     /** The table's capacity (two longs). */
     public static final int CAPACITY = 128;
     /** The first red / amber with a wave 1-2 bit (LinerSystems.warn bit = id; caut bit = id - FIRST_CAUT for ids under LEGACY_CAUT_END). */
@@ -198,6 +200,7 @@ public final class LinerEcam {
         def(M_ATHR_OFF, "athrOff", CAUT, -1, 0, 0, 0);
         def(M_ATHR_LIM, "athrLimited", CAUT, -1, 0, 0, 0, A_THR_CL);
         def(M_THR_LVRS, "thrLevers", CAUT, P_ENG, 0, 0, 0, A_THR_TO);
+        def(M_TOGA_LK, "togaLk", CAUT, -1, 0, 0, 0, A_ATHR_OFF);
         // wave 5 (the A320's «T.O SPEEDS NOT INSERTED»)
         def(M_TO_SPEEDS, "toSpeeds", CAUT, -1, INH, 0, 0);
         // wave 6: anti-ice, icing, the air data, the cabin's pressure
@@ -569,6 +572,8 @@ public final class LinerEcam {
                 return L.afs.athrWarn != 0;
             case M_ATHR_LIM:
                 return L.afs.athrLimited;
+            case M_TOGA_LK:
+                return L.afs.togaLk;
             case M_THR_LVRS:
                 return L.afs.leversNotSet && L.afs.lever >= LinerFctl.TO_THR;
             case M_TO_SPEEDS:

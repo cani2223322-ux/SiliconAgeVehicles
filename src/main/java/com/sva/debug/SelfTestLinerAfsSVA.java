@@ -49,6 +49,7 @@ final class SelfTestLinerAfsSVA {
         altitude();
         vs();
         speed();
+        SelfTestLinerApFixSVA.run();                                // the autopilot fix: DES / OP DES, TOGA LK, the speed knob
         approach();
         goAround();
         reversers();
@@ -358,7 +359,7 @@ final class SelfTestLinerAfsSVA {
         LinerSimSVA s = LinerSimSVA.flying(80, 1.15 * 1.05, 90, 0);
         s.L.afs.athr = false;
         s.L.afs.lever = 0.3;
-        s.tick();
+        s.run(LinerAfs.AFLOOR_TICKS);                               // the autopilot fix: alpha floor's filter
         LinerAfs F = s.L.afs;
         boolean floor = F.aFloor && F.athr && F.thrCmd == 1 && F.thr == LinerAfs.T_AFLOOR;
         s.b.speed = 1.6;
@@ -373,7 +374,7 @@ final class SelfTestLinerAfsSVA {
         a.L.set(LinerControls.ELAC2, 0);
         a.L.afs.athr = false;
         a.L.afs.lever = 0.3;
-        a.run(3);
+        a.run(LinerAfs.AFLOOR_TICKS + 3);
         check(floor && lk && off && !a.L.afs.aFloor, "liner alpha floor (NORMAL law): under " + f(F.aFloorV * 72) + " km/h the A/THR forces TOGA -"
                 + " «A.FLOOR», recovered «TOGA LK» until the levers' button; not in ALTN law");
     }

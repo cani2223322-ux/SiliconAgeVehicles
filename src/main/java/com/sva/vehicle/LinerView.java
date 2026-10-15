@@ -59,6 +59,17 @@ public final class LinerView {
 
     // ---------------------------------------------------------------- the hand
 
+    /** The F/O's seat: the liner's seat entity of this index (the captain rides the vehicle itself - no seat entity). */
+    public static final int FO_SEAT = 1;
+
+    /**
+     * A pilot seat (the server's control rule, the client's hand / quick views - one rule): the captain rides the vehicle
+     * itself (`ridesVehicle`), the F/O its seat entity FO_SEAT (`seatOfVehicle`: a seat whose parent is this vehicle).
+     */
+    public static boolean pilotSeat(boolean ridesVehicle, boolean seatOfVehicle, int seatIndex) {
+        return ridesVehicle || seatOfVehicle && seatIndex == FO_SEAT;
+    }
+
     /** Hide the first-person hand / held item: the option on, the liner, a pilot seat, the first-person view. */
     public static boolean hideHand(boolean option, boolean liner, boolean pilotSeat, boolean firstPerson) {
         return option && liner && pilotSeat && firstPerson;

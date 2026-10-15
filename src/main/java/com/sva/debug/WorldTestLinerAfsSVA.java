@@ -38,6 +38,10 @@ import net.minecraft.world.World;
  * runway near its centre line, ROLL OUT stopped by the autobrake; the beacon found through the save's ILS list;</li>
  * <li>«disc»: AP 1 engaged, the sidestick's red button - the AP off, the red «АВТОПИЛОТ ОТКЛ» with MASTER WARN and the
  * cavalry charge; the second press clears it.</li>
+ * <li>«des» (the autopilot fix - the user's «не снижается»): level at Y 170 at 144 km/h (over the managed speed), the
+ * A/THR at CL, the FCU 40 lower, pulled - OP DES, THR IDLE, down within 2 s, never up, ALT* / ALT at the FCU altitude;</li>
+ * <li>«lk»: alpha floor's TOGA LK held - DES still goes down, the ECAM's «TOGA LK» caution; the levers' instinctive
+ * button frees it.</li>
  * </ul>
  */
 final class WorldTestLinerAfsSVA {
@@ -49,8 +53,12 @@ final class WorldTestLinerAfsSVA {
 
     private final WorldTestSVA t;
     private int phase, t0, x0, z0, rx, rz;
-    private EntityVehicleSVA hdg, alt, vs, spd, appr, disc;
-    private boolean hdgDone, altDone, vsDone, spdDone, apprDone, discDone;
+    private EntityVehicleSVA hdg, alt, vs, spd, appr, disc, des, lk;
+    private boolean hdgDone, altDone, vsDone, spdDone, apprDone, discDone, desDone, lkDone;
+    // the autopilot fix: «des» - the first tick down, the highest Y, THR IDLE / ALT* seen; «lk» - Y at engage
+    private int desDown = -1;
+    private double desMaxY, lkY0;
+    private boolean desIdle, desCap;
     // measurements
     private double altTarget, altMax, vsSeen = Double.NaN, spdMax, apprCrossTd = Double.NaN, apprXTd = Double.NaN, apprSink = Double.NaN, lastY;
     private int locCap = -1, gsCap = -1, flare = -1, retard = -1, rollout = -1, touch = -1;
@@ -66,7 +74,7 @@ final class WorldTestLinerAfsSVA {
         if (phase == 0) {
             setup(w);
             t0 = ticks;
-            phase = hdg == null || alt == null || vs == null || spd == null || appr == null || disc == null ? 9 : 1;
+            phase = hdg == null || alt == null || vs == null || spd == null || appr == null || disc == null || des == null || lk == null ? 9 : 1;
             return;
         }
         int n = ticks - t0;
@@ -80,7 +88,7 @@ final class WorldTestLinerAfsSVA {
     }
 
     private EntityVehicleSVA[] all() {
-        return new EntityVehicleSVA[] {hdg, alt, vs, spd, appr, disc};
+        return new EntityVehicleSVA[] {hdg, alt, vs, spd, appr, disc, des, lk};
     }
 
     private static LinerSystems L(EntityVehicleSVA v) {
@@ -123,8 +131,10 @@ final class WorldTestLinerAfsSVA {
             spdTick(n);
             apprTick(n);
             discTick(n);
+            desTick(n);
+            lkTick(n);
         }
-        if (hdgDone && altDone && vsDone && spdDone && apprDone && discDone || n >= MAX_TICKS) {
+        if (hdgDone && altDone && vsDone && spdDone && apprDone && discDone && desDone && lkDone || n >= MAX_TICKS) {
             if (!apprDone) {
                 check(false, "liner AFS world «appr»: did not finish (lat " + L(appr).afs.latText() + ", ver " + L(appr).afs.verText() + ", x "
                         + Math.round(appr.posX - rx) + ", y " + Math.round(appr.posY) + ")");
@@ -170,10 +180,68 @@ final class WorldTestLinerAfsSVA {
         click(appr, LinerControls.FCU_AP2, LinerControls.A_PRIMARY);
         // «disc»
         click(disc, LinerControls.FCU_AP1, LinerControls.A_PRIMARY);
+        // «des»: the FCU 40 lower, pulled (OP DES) at 144 km/h; «lk»: TOGA LK held, the FCU 40 lower, pushed (DES)
+        click(des, LinerControls.FCU_AP1, LinerControls.A_PRIMARY);
+        L(des).afs.alt = FLY_Y - 40;
+        click(des, LinerControls.FCU_ALT, LinerControls.A_SECONDARY);
+        desMaxY = des.posY;
+        click(lk, LinerControls.FCU_AP1, LinerControls.A_PRIMARY);
+        L(lk).afs.togaLk = true;
+        L(lk).afs.alt = FLY_Y - 40;
+        click(lk, LinerControls.FCU_ALT, LinerControls.A_PRIMARY);
+        lkY0 = lk.posY;
+        check(L(des).afs.ver == LinerAfs.V_OP_DES && L(lk).afs.ver == LinerAfs.V_DES, "liner AFS world «des» / «lk»: the FCU 40 lower - OP DES pulled, DES pushed");
         check(L(hdg).afs.ap1 && L(alt).afs.ver == LinerAfs.V_OP_CLB && L(vs).afs.ver == LinerAfs.V_VS && L(vs).afs.vs10 == -30 && !L(spd).afs.spdMan
                         && L(appr).afs.ap1 && L(appr).afs.ap2 && L(appr).afs.approachArmedOrOn() && L(disc).afs.ap1 && L(spd).afs.athr && L(appr).afs.athr,
                 "liner AFS world: the APs and the A/THR engaged by the FCU's buttons in the air (INS aligned): HDG, OP CLB, V/S -3,0, SPEED 120,"
                         + " APPR + AP 1 + 2");
+    }
+
+    /** «des»: OP DES from Y 170 at 144 km/h with the A/THR at CL (n counts from the engage at 6). */
+    private void desTick(int n) {
+        if (desDone) {
+            return;
+        }
+        LinerAfs F = L(des).afs;
+        if (desDown < 0 && des.motionY <= -0.05) {
+            desDown = n - 6;
+        }
+        desMaxY = Math.max(desMaxY, des.posY);
+        desIdle |= F.thr == LinerAfs.T_THR_IDLE;
+        desCap |= F.ver == LinerAfs.V_ALT_CAP;
+        if (n >= 1300) {
+            desDone = true;
+            double target = FLY_Y - 40;
+            check(desDown >= 0 && desDown <= 40 && desIdle && desMaxY - FLY_Y < 0.3 && desCap && F.ver == LinerAfs.V_ALT && Math.abs(des.posY - target) < 0.5
+                            && Math.abs(des.speed - F.spdT) * 72 < 3,
+                    "liner AFS world «des»: OP DES from Y 170 at 144 km/h - THR IDLE, down within " + f(desDown / 20.0) + " s, never up ("
+                            + f(desMaxY - FLY_Y) + "), ALT* -> ALT at " + f(des.posY) + " (FCU " + f(target) + "), " + f(des.speed * 72) + " km/h");
+            des.debugDrive(0);
+        }
+    }
+
+    /** «lk»: TOGA LK - DES goes down anyway, the ECAM says it; the instinctive button frees it. */
+    private void lkTick(int n) {
+        if (lkDone || n < 406) {
+            return;
+        }
+        LinerAfs F = L(lk).afs;
+        if (n == 406) {
+            boolean down = lk.posY < lkY0 - 5, still = F.thr == LinerAfs.T_TOGA_LK && F.thrCmd == 1;
+            boolean caut = false;
+            for (int id : L(lk).ecam.list()) {
+                caut |= id == LinerEcam.M_TOGA_LK;
+            }
+            check(down && still && caut, "liner AFS world «lk»: TOGA LK - the thrust stays TOGA, the ECAM's caution, DES still down " + f(lkY0 - lk.posY)
+                    + " blocks in 20 s");
+            F.athrDisc();                                           // the levers' instinctive button («-»)
+            return;
+        }
+        if (n >= 420) {
+            lkDone = true;
+            check(!F.togaLk && !F.athr && F.thr != LinerAfs.T_TOGA_LK, "liner AFS world «lk»: the instinctive button - TOGA LK off (thrust " + F.thrText() + ")");
+            lk.debugDrive(0);
+        }
     }
 
     private void hdgTick(int n) {
@@ -333,6 +401,9 @@ final class WorldTestLinerAfsSVA {
         vs = flyer(w, x0, z0 + 120, FLY_Y, 1.6, 0);
         spd = flyer(w, x0, z0 + 180, FLY_Y - 20, 1.5, 0);
         disc = flyer(w, x0, z0 + 240, FLY_Y, 1.6, 0);
+        // the autopilot fix's two: lanes on the other side (the approach's strip is at z0 + 300)
+        des = flyer(w, x0, z0 - 60, FLY_Y, 2.0, 0);
+        lk = flyer(w, x0, z0 - 120, FLY_Y, 1.6, 0);
         // the approach: 1000 blocks before the threshold, 30 left of the centre line, heading 110, 45 over the carpet, flaps 3
         appr = flyer(w, rx - CARPET, rz - 30, Y + 1 + 45, 1.3, 3);
         if (appr != null) {
@@ -342,8 +413,9 @@ final class WorldTestLinerAfsSVA {
             S.gear.pos = 0;
             S.set(LinerControls.SPD_BRK, 0);
         }
-        check(hdg != null && alt != null && vs != null && spd != null && appr != null && disc != null && te instanceof TileEntityIlsSVA,
-                "liner AFS world: six liners in the air, a 5 x " + RW_LEN + " runway with the ILS beacon and a " + CARPET + "-block approach carpet built");
+        check(hdg != null && alt != null && vs != null && spd != null && appr != null && disc != null && des != null && lk != null
+                        && te instanceof TileEntityIlsSVA,
+                "liner AFS world: eight liners in the air, a 5 x " + RW_LEN + " runway with the ILS beacon and a " + CARPET + "-block approach carpet built");
     }
 
     /** A liner in the air: engines running (the instant start), gear up (unless flaps), the levers at CL with the A/THR. */
@@ -405,7 +477,7 @@ final class WorldTestLinerAfsSVA {
                     cp.loadChunk(cx, cz);
                 }
             }
-            for (int cz = (z0 - 16) >> 4; cz <= (z0 + 256) >> 4; cz++) {
+            for (int cz = (z0 - 136) >> 4; cz <= (z0 + 256) >> 4; cz++) {
                 for (int cx = (x0 - 16) >> 4; cx <= (x0 + 16) >> 4; cx++) {
                     cp.loadChunk(cx, cz);
                 }
@@ -432,7 +504,7 @@ final class WorldTestLinerAfsSVA {
                 v.setDead();
             }
         }
-        hdg = alt = vs = spd = appr = disc = null;
+        hdg = alt = vs = spd = appr = disc = des = lk = null;
         if (x0 != 0 || z0 != 0) {
             build(w, false);
             w.setBlock(rx, Y, rz, Blocks.air, 0, 3);                // the beacon broken: out of the ILS list too

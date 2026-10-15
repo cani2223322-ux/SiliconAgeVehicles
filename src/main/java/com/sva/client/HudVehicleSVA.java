@@ -263,13 +263,22 @@ public class HudVehicleSVA {
             msg = Lang.tr("sva.liner.msg." + com.sva.vehicle.LinerEcam.KEYS[top]);
             mc0 = com.sva.vehicle.LinerEcam.LEVEL[top] == com.sva.vehicle.LinerEcam.WARN ? WARN : AMBER;
         }
-        int rows = 5 + (msg != null ? 1 : 0);
+        // the A/THR's traps spelled out (they flash on the FMA too): TOGA LK - only the instinctive button gets out of it;
+        // a descent with the levers above CL - the thrust stays the pilot's
+        com.sva.vehicle.LinerAfs F = L.afs;
+        String hint = F.togaLk ? Lang.tr("sva.liner.hud.togaLk") : F.lvrDes ? Lang.tr("sva.liner.hud.lvrCl") : null;
+        int rows = 5 + (msg != null ? 1 : 0) + (hint != null ? 1 : 0);
         int pw = 190, ph = rows * 11 + 8, px = sw - pw - 4, py = 4;
         Gui.drawRect(px - 1, py - 1, px + pw + 1, py + ph + 1, EDGE);
         Gui.drawRect(px, py, px + pw, py + ph, BG);
         int ry = py + 5;
         fit(fr, Lang.tr("item.siliconagevehicles.vehicle.liner.name"), px + 6, ry, pw - 12, ORANGE, false);
         ry += 11;
+        if (hint != null) {
+            boolean on = (Minecraft.getSystemTime() / 400) % 2 == 0;
+            fit(fr, hint, px + 6, ry, pw - 12, on ? AMBER : TEXT, false);
+            ry += 11;
+        }
         fit(fr, Lang.tr("sva.liner.hud.n1", com.sva.client.LinerGfxSVA.num(L.eng[0].n1, 1), com.sva.client.LinerGfxSVA.num(L.eng[1].n1, 1)), px + 6, ry,
                 pw - 12, L.anyRunning() ? GREEN : DIM, false);
         ry += 11;
@@ -626,7 +635,13 @@ public class HudVehicleSVA {
             int sx = bx + (int) Math.round(bw * stallV / vmax);
             Gui.drawRect(sx - 1, ry - 1, sx + 1, ry + 9, 0xFFFF5040);                    // the stall mark
             ry += 11;
-            wideBar(fr, px, ry, Lang.tr("sva.hud.throttle"), v.getThrottle(), ORANGE | 0xFF000000, pw);
+            String thrLabel = Lang.tr("sva.hud.throttle");
+            if (t == VehicleType.LINER) {
+                // the liner: the bar is its thrust levers - the detent they stand in («РУД: CL»: the A/THR's own detent)
+                String det = com.sva.vehicle.LinerAfs.detentName(v.getThrottle());
+                thrLabel = det.length() > 0 ? Lang.tr("sva.hud.lever.at", det) : Lang.tr("sva.hud.lever");
+            }
+            wideBar(fr, px, ry, thrLabel, v.getThrottle(), ORANGE | 0xFF000000, pw);
             ry += 11;
             String mode;
             int mc2;

@@ -504,11 +504,9 @@ public final class LinerLogicSVA {
         if (p == null) {
             return false;
         }
-        if (v.riddenByEntity == p) {
-            return true;
-        }
         Entity m = p.ridingEntity;
-        return m instanceof EntitySeatSVA && ((EntitySeatSVA) m).getParent() == v && ((EntitySeatSVA) m).getIndex() == 1;
+        boolean seat = m instanceof EntitySeatSVA && ((EntitySeatSVA) m).getParent() == v;
+        return com.sva.vehicle.LinerView.pilotSeat(v.riddenByEntity == p, seat, seat ? ((EntitySeatSVA) m).getIndex() : -1);
     }
 
     /** The control packet (server): a pilot's click on a row of LinerControls. */

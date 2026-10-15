@@ -326,6 +326,12 @@ public final class LinerPfdSVA {
         if (F.lvrClb && flash) {
             LinerGfxSVA.text("LVR CLB", cw * 0.5F, 32 * s, 8 * s, WHT, 0, cw - 4 * s);
         }
+        // a descent with the levers above CL («РУД НА CL», the A320's LVR CLB in spirit); TOGA LK - how to get out of it
+        if (F.lvrDes && flash) {
+            LinerGfxSVA.text(LinerDisplaysSVA.trAny("sva.liner.fma.lvrCl"), cw * 0.5F, 32 * s, 7 * s, WHT, 0, cw - 4 * s);
+        } else if (F.togaLk && flash) {
+            LinerGfxSVA.text(LinerDisplaysSVA.trAny("sva.liner.fma.togaLkDisc"), cw * 0.5F, 32 * s, 7 * s, AMB, 0, cw - 4 * s);
+        }
         if (F.boxThr < LinerAfs.BOX_TICKS && t.length() > 0 && !t.startsWith("MAN ") && F.thr != LinerAfs.T_AFLOOR && F.thr != LinerAfs.T_TOGA_LK) {
             LinerGfxSVA.frameRect(4 * s, 4 * s, cw - 4 * s, 18 * s, 0.8F * s, WHT);
         }

@@ -74,6 +74,20 @@ public final class LinerAfs {
     public static final double REV_N1 = 70, REV_EFF = 0.55, REV_STEP = 0.05, REV_IDLE = 0.02;
     /** Heights over the ground (blocks): the AP's least, LAND, FLARE, RETARD, the single AP's limit, alpha floor's floor. */
     public static final double AP_MIN_H = 30, LAND_H = 40, FLARE_H = 10, RETARD_H = 3, SINGLE_MIN = 15, AFLOOR_MIN_H = 30;
+    /**
+     * Alpha floor's filter (ticks): the speed under V_AFLOOR this long in a row before the A/THR forces TOGA - the A320's
+     * alpha floor is an angle of attack held, not one sample. A single bad tick of airspeed (the server's measured speed
+     * while the driver's Move packets bunch up in a lag spike) latched TOGA LK in flight: N1 100 %, the speed knob and the
+     * descents dead until the instinctive button.
+     */
+    public static final int AFLOOR_TICKS = 10;
+    /**
+     * The descent modes' least sink (b/t): DES / OP DES / EXPED never level off. On THR IDLE on the speed or fast -
+     * DES_MIN (2 m/s: too fast still descends, the idle thrust takes the speed off); slow at idle - DES_MIN_SLOW (the
+     * pitch gives the speed back, but it keeps going down: OP DES never levels or climbs); the levers above CL (manual
+     * thrust: «РУД НА CL») or TOGA LK - DES_MIN as well.
+     */
+    public static final double DES_MIN = 0.1, DES_MIN_SLOW = 0.025;
     public static final int AP_MIN_TICKS = 100, OVERRIDE_TICKS = 8, WARN_TICKS = 180, CAVALRY = 24, CAVALRY_MIN = 30, BOX_TICKS = 200;
     /** Speeds (b/t): VMO (150 km/h), the managed climb (110) / cruise (125); the bands' factors on the configuration's stall. */
     public static final double VMO = 150 / 72.0, SPD_CLB = 110 / 72.0, SPD_CRZ = 125 / 72.0, K_AMAX = 1.03, K_AFLOOR = 1.07, K_APROT = 1.12,
@@ -133,9 +147,12 @@ public final class LinerAfs {
     public int boxThr = BOX_TICKS, boxVer = BOX_TICKS, boxLat = BOX_TICKS, boxCap = BOX_TICKS, boxAp = BOX_TICKS;
     /** AP OFF: the red warning's ticks left (-1: until the red button), the cavalry charge's ticks left (-1 until pressed), its phase. */
     public int apWarn, cavalry, cavPhase;
-    /** A/THR OFF caution ticks left (-1 until the button); A/THR LIMITED; levers not set; alpha floor; TOGA LK; LVR CLB. */
+    /**
+     * A/THR OFF caution ticks left (-1 until the button); A/THR LIMITED; levers not set; alpha floor; TOGA LK; LVR CLB;
+     * «РУД НА CL» (a descent mode with the A/THR armed and the levers above CL - the thrust is the pilot's, not idle).
+     */
     public int athrWarn;
-    public boolean athrLimited, leversNotSet, aFloor, togaLk, lvrClb;
+    public boolean athrLimited, leversNotSet, aFloor, togaLk, lvrClb, lvrDes;
     /** The FMA's message (MSG_*), its ticks. */
     public int msg, gaFlapsTicks;
     /** The target speed now (b/t), the altitude target (Y, the FCU's or a constraint), the V/S target (b/t). */
@@ -164,7 +181,7 @@ public final class LinerAfs {
     public final List<LinerIls.Station> ilsNear = new ArrayList<LinerIls.Station>();
 
     // server-only working values
-    private int keyHold, override, airTicks, athrDisArm;
+    private int keyHold, override, airTicks, athrDisArm, aFloorTicks;
     private double athrI, lastRa = Double.NaN, lastSpeed, lastShown = Double.NaN;
     private boolean retardDone, v1Done, wasGround = true, apIntent;
     /** Sound events this tick (the entity plays them): a callout's code, the cavalry charge's note (-1 none). */
@@ -252,16 +269,17 @@ public final class LinerAfs {
             }
             double y = a.y;
             if (a.ground) {
-                if (push && alt > y + 2) {
+                if (push && indicatedToY(alt) > y + 2) {
                     verArm |= AV_CLB;                               // CLB armed for the take-off
                 }
                 return push || pull;
             }
             if (push || pull) {
                 exped = false;
-                if (alt > y + 2) {
+                double fcuY = indicatedToY(alt);                    // the FCU's altitude is the INDICATED one (QNH): to Y
+                if (fcuY > y + 2) {
                     setVer(push ? V_CLB : V_OP_CLB);
-                } else if (alt < y - 2) {
+                } else if (fcuY < y - 2) {
                     setVer(push ? V_DES : V_OP_DES);
                 }
                 return true;
@@ -393,10 +411,10 @@ public final class LinerAfs {
                     setVer(V_OP_DES);
                 }
             } else if (a != null && !a.ground) {
-                if (alt > a.y + 2) {
+                if (indicatedToY(alt) > a.y + 2) {
                     exped = true;
                     setVer(V_EXP_CLB);
-                } else if (alt < a.y - 2) {
+                } else if (indicatedToY(alt) < a.y - 2) {
                     exped = true;
                     setVer(V_EXP_DES);
                 }
@@ -690,6 +708,15 @@ public final class LinerAfs {
             }
         }
         lever = best;
+    }
+
+    /** The detents' names (the HUD's «РУД: CL» line), by DETENTS index. */
+    public static final String[] DETENT_NAMES = {"IDLE", "CL", "FLX", "TOGA"};
+
+    /** The detent's name the levers stand in, or "" between the detents. */
+    public static String detentName(double lever) {
+        int d = detent(lever);
+        return d < 0 ? "" : DETENT_NAMES[d];
     }
 
     /** The detent the levers stand in (DETENTS index) or -1 between. */
@@ -1094,7 +1121,8 @@ public final class LinerAfs {
         // alpha floor (NORMAL law, an ADR, in the air over AFLOOR_MIN_H, not on the landing's last part)
         boolean prot = L.fctl.law == LinerFctl.NORMAL && L.adrCount() >= 1 && L.adirs.protOk() && !a.ground && a.ra >= AFLOOR_MIN_H && L.anyRunning()
                 && !landing;
-        if (prot && a.speed < aFloorV) {
+        aFloorTicks = prot && a.speed < aFloorV ? aFloorTicks + 1 : 0;
+        if (prot && a.speed < aFloorV && (aFloor || aFloorTicks >= AFLOOR_TICKS)) {
             if (!aFloor) {
                 boxThr = 0;
             }
@@ -1116,6 +1144,7 @@ public final class LinerAfs {
         }
         double leverThr = lever;
         lvrClb = false;
+        lvrDes = false;
         int mode;
         double cmd;
         if (aFloor || togaLk) {
@@ -1134,6 +1163,10 @@ public final class LinerAfs {
                 cmd = LinerFms.flexShare(flexTemp);
             }
             lvrClb = !a.ground && a.ra >= a.accelH && (det == 2 || det == 3);
+            // a descent with the levers above CL: the thrust stays where the levers are - «РУД НА CL» until they come back
+            // (the guide still descends at DES_MIN, never a silent level-off)
+            lvrDes = !a.ground && (ver == V_DES || ver == V_OP_DES || ver == V_EXP_DES);
+            lvrClb &= !lvrDes;
         } else {
             double limit = leverThr;
             if (ver == V_FLARE && a.ra <= RETARD_H || lat == L_ROLLOUT) {
@@ -1280,6 +1313,18 @@ public final class LinerAfs {
         public double roll = Double.NaN, pitch = Double.NaN, bank = Double.NaN, vy = Double.NaN, steer = Double.NaN;
     }
 
+    /** Managed DES without the FMS' path: its steepest (b/t, 5 m/s - the A320's ~1000 ft/min). */
+    public static final double DES_MAX_MANAGED = 0.25;
+
+    /**
+     * The descent modes' least sink now (b/t, > 0): THR IDLE slow - DES_MIN_SLOW (the pitch gives the speed back while it
+     * still goes down), otherwise DES_MIN - on the speed or fast at idle, and whenever the thrust is not idle (the levers
+     * above CL, A/THR off, TOGA LK: the pilot's thrust - it descends anyway, «РУД НА CL» says why it is slow to).
+     */
+    public double desMin(double speed) {
+        return thr == T_THR_IDLE && speed < spdT - 2 / 72.0 ? DES_MIN_SLOW : DES_MIN;
+    }
+
     /** The modes' commands now (the synced state; pure). */
     public Cmd guide(GIn g) {
         Cmd c = new Cmd();
@@ -1339,13 +1384,14 @@ public final class LinerAfs {
             case V_DES:
             case V_OP_DES:
             case V_EXP_DES:
-                vy = Math.min(0, Math.max(-g.dive, LinerGuide.speedOnPitch(g.thrAcc, g.speed, spdT)));
+                // speed on pitch, never a level-off: the least sink by the thrust (desMin), the most the dive
+                vy = Math.min(-desMin(g.speed), Math.max(-g.dive, LinerGuide.speedOnPitch(g.thrAcc, g.speed, spdT)));
                 if (ver == V_DES && !Double.isNaN(pathAlt)) {
                     // wave 5: the FMS' descent path - its slope at this ground speed and back onto it (the A/THR keeps the speed)
                     vy = -Math.max(0.3, g.gs) * Math.tan(Math.toRadians(LinerFms.DES_ANGLE)) + PATH_GAIN * (pathAlt - g.y);
                     vy = Math.max(-g.dive, Math.min(0.05, vy));
                 } else if (ver == V_DES) {
-                    vy = Math.max(vy, -0.25);
+                    vy = Math.max(vy, -DES_MAX_MANAGED);           // no FMS path: at most ~1000 ft/min (5 m/s)
                 }
                 vy = Math.max(vy, LinerGuide.capture(altT - g.y));
                 vy = Math.min(0, vy);
@@ -1464,7 +1510,8 @@ public final class LinerAfs {
     public int[] pack() {
         int f = (ap1 ? 1 : 0) | (ap2 ? 2 : 0) | (athr ? 4 : 0) | (spdMan ? 8 : 0) | (hdgMan ? 16 : 0) | (trk ? 32 : 0) | (std ? 64 : 0) | (cst ? 128 : 0)
                 | (exped ? 256 : 0) | (athrLimited ? 512 : 0) | (leversNotSet ? 1024 : 0) | (aFloor ? 2048 : 0) | (togaLk ? 4096 : 0)
-                | (lvrClb ? 8192 : 0) | (spdPrev > 0 ? 16384 : 0) | (hdgPrev > 0 ? 32768 : 0) | (vsPrev > 0 ? 65536 : 0) | (ils != null ? 131072 : 0);
+                | (lvrClb ? 8192 : 0) | (spdPrev > 0 ? 16384 : 0) | (hdgPrev > 0 ? 32768 : 0) | (vsPrev > 0 ? 65536 : 0) | (ils != null ? 131072 : 0)
+                | (lvrDes ? 262144 : 0);
         int[] id = LinerIls.packIdent(ils == null ? "" : ils.ident);
         int[] w = {f, spd, hdg, alt, vs10, fpa10, qnh, lat | latArm << 8, ver | verArm << 8, thr | msg << 8, boxThr | boxVer << 8 | boxLat << 16 | boxCap << 24,
                 boxAp, apWarn, athrWarn, r(spdT * 7200), r(altT * 10), r(latHold * 10), r(vls * 7200), r(aProt * 7200), r(aFloorV * 7200), r(aMax * 7200),
@@ -1515,6 +1562,7 @@ public final class LinerAfs {
         hdgPrev = (f & 32768) != 0 ? 1 : 0;
         vsPrev = (f & 65536) != 0 ? 1 : 0;
         boolean hasIls = (f & 131072) != 0;
+        lvrDes = (f & 262144) != 0;
         spd = w[o + 1];
         hdg = w[o + 2];
         alt = w[o + 3];

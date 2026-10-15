@@ -249,7 +249,9 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
     // measured displacements (their mean: the Moves' uneven arrival evens out), the airspeed the rules judged this tick
     private float moveSpeed;
     private final double[] movedWin = new double[MOVED_WIN];
-    private int movedAt;
+    /** The autopilot fix (the liner): the Moves each of those ticks took, the ticks in a row without one. */
+    private final int[] movesWin = new int[MOVED_WIN];
+    private int movedAt, moveGap;
     private double airspeedNow;
     private static final int MOVED_WIN = 4;
     /** Client, the local driver: its own physics is stalling now (PlanePhysicsSVA's own speed - no packet lag). */
@@ -2818,9 +2820,17 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         double emaBefore = speedEma;                                // ★15 рекуперация: the speed lost this tick
         speedEma = speedEma * 0.5 + moved * 0.5;
         movedWin[movedAt] = moved;
+        movesWin[movedAt] = movesThisTick;
         movedAt = (movedAt + 1) % MOVED_WIN;
+        moveGap = movesThisTick > 0 ? 0 : moveGap + 1;
         // the aircraft rules' airspeed: the driver's client's own (capped by the measured), else the server's physics'
-        airspeedNow = clientDriven ? clientAirspeed(moveSpeed, 0) : Math.max(0, speed);
+        if (clientDriven && t == VehicleType.LINER) {
+            // the autopilot fix: a lag spike's catch-up ticks without Moves no longer read as a slow aircraft (alpha floor)
+            airspeedNow = PlaneMath.gapAirspeed(airspeedNow, moveSpeed, Math.max(speedEma, movedAvg()), PlaneMath.perMove(movedWin, movesWin),
+                    movesThisTick, moveGap);
+        } else {
+            airspeedNow = clientDriven ? clientAirspeed(moveSpeed, 0) : Math.max(0, speed);
+        }
         if (hitCooldown > 0) {
             hitCooldown--;
         }
