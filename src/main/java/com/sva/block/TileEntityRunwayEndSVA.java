@@ -16,11 +16,14 @@ import net.minecraft.tileentity.TileEntity;
  * blocks ahead suggests it), the lights' mode of this end (RunwayLayout: AUTO or a step 0..5 - until the wave B2 tower,
  * this screen is the lights' control) and the approach lights (ALS) before it; the runway surface's Y. Into the save's
  * airport list (AirportDataSVA - two markers facing each other make a runway: IlsPairing).
+ * <p>
+ * Airport wave B2: a new marker's lights are «ВЫШКА» (RunwayLayout.LIGHTS_TOWER: its tower's steps; without a tower AUTO);
+ * AUTO or a step set here is a local override (the tower's screen can set them all back).
  */
 public class TileEntityRunwayEndSVA extends TileEntity {
 
     public double facing;
-    public int width = 5, lights = RunwayLayout.LIGHTS_AUTO, als;
+    public int width = 5, lights = RunwayLayout.LIGHTS_TOWER, als;
     public double elev;
     public boolean ready;
 
@@ -55,7 +58,7 @@ public class TileEntityRunwayEndSVA extends TileEntity {
             facing = LinerIls.wrap360(Math.round(course));
         }
         width = Math.max(IlsPairing.WIDTH_MIN, Math.min(IlsPairing.WIDTH_MAX, newWidth));
-        lights = Math.max(RunwayLayout.LIGHTS_AUTO, Math.min(RunwayLayout.STEPS, newLights));
+        lights = Math.max(RunwayLayout.LIGHTS_TOWER, Math.min(RunwayLayout.STEPS, newLights));
         als = newAls != 0 ? 1 : 0;
         ready = true;
         register();
@@ -73,7 +76,7 @@ public class TileEntityRunwayEndSVA extends TileEntity {
     private void readCommon(NBTTagCompound t) {
         facing = LinerIls.wrap360(t.getDouble("Facing"));
         width = t.hasKey("Width") ? Math.max(IlsPairing.WIDTH_MIN, Math.min(IlsPairing.WIDTH_MAX, t.getInteger("Width"))) : 5;
-        lights = t.hasKey("Lights") ? Math.max(RunwayLayout.LIGHTS_AUTO, Math.min(RunwayLayout.STEPS, t.getInteger("Lights"))) : RunwayLayout.LIGHTS_AUTO;
+        lights = t.hasKey("Lights") ? Math.max(RunwayLayout.LIGHTS_TOWER, Math.min(RunwayLayout.STEPS, t.getInteger("Lights"))) : RunwayLayout.LIGHTS_AUTO;
         als = t.getInteger("Als") != 0 ? 1 : 0;
         elev = t.getDouble("Elev");
         ready = t.getBoolean("Ready");

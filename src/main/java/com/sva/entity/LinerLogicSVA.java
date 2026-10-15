@@ -233,6 +233,12 @@ public final class LinerLogicSVA {
         if (quickBefore != LinerSystems.QUICK_OFF && L.quick == LinerSystems.QUICK_OFF) {
             v.tellRidersKey("done".equals(L.quickWhy) ? "sva.liner.quick.done" : "sva.liner.quick.stopped." + L.quickWhy);
         }
+        // airport wave B2: the datalink - ATC MSG pressed (the uplinks read), the unread count for the lamps / memos
+        if (L.atcAck) {
+            L.atcAck = false;
+            com.sva.block.AtcServerSVA.INSTANCE.read(v, -1);
+        }
+        L.atcUnread = com.sva.block.AtcServerSVA.INSTANCE.unread(v.getEntityId());
         // wave 5: the MCDUs' own messages, their screens and the ND's plan to the pilots when they change
         LinerMcdu.Env me = mcduEnv(v, L);
         L.mcdu.tick(L, me);
@@ -357,7 +363,71 @@ public final class LinerLogicSVA {
         if (v.linerIls != null) {
             e.ils = v.linerIls;
         }
+        e.atc = datalink(v);                                        // airport wave B2: СВЯЗЬ
         return e;
+    }
+
+    /** Airport wave B2: the MCDU's datalink - the aircraft's session at block.AtcServerSVA (its tower, ATIS, the messages). */
+    static LinerMcdu.Datalink datalink(final EntityVehicleSVA v) {
+        return new LinerMcdu.Datalink() {
+            com.sva.block.AirportDataSVA data() {
+                return com.sva.block.AirportDataSVA.get(v.worldObj);
+            }
+
+            @Override
+            public String unit() {
+                com.sva.block.AtcServerSVA.Session s = com.sva.block.AtcServerSVA.INSTANCE.session(v.getEntityId());
+                com.sva.block.AirportDataSVA d = data();
+                com.sva.block.AirportDataSVA.Tower t = s == null || d == null || s.tower.length() == 0 ? null : d.tower(s.tower);
+                return t == null || !t.online(v.worldObj.getTotalWorldTime()) ? "" : t.icao;
+            }
+
+            @Override
+            public String unitName() {
+                com.sva.block.AirportDataSVA d = data();
+                com.sva.block.AirportDataSVA.Tower t = d == null ? null : d.towerByIcao(unit());
+                return t == null ? "" : t.name;
+            }
+
+            @Override
+            public String[] atis(String icao) {
+                com.sva.block.AirportDataSVA d = data();
+                return d == null ? null : com.sva.block.AtcServerSVA.INSTANCE.atisOf(d, icao, v.worldObj.getTotalWorldTime());
+            }
+
+            @Override
+            public java.util.List<com.sva.airport.Cpdlc.Msg> msgs() {
+                com.sva.block.AtcServerSVA.Session s = com.sva.block.AtcServerSVA.INSTANCE.session(v.getEntityId());
+                java.util.List<com.sva.airport.Cpdlc.Msg> l = new java.util.ArrayList<com.sva.airport.Cpdlc.Msg>();
+                if (s != null) {
+                    for (com.sva.airport.Cpdlc.Msg m : s.log.msgs) {
+                        l.add(m.copy());
+                    }
+                }
+                return l;
+            }
+
+            @Override
+            public boolean down(int type, int arg, String s) {
+                com.sva.block.AirportDataSVA d = data();
+                return d != null && com.sva.block.AtcServerSVA.INSTANCE.downlink(v.worldObj, d, v, type, arg, s, v.worldObj.getTotalWorldTime());
+            }
+
+            @Override
+            public boolean respond(int id, int r) {
+                return com.sva.block.AtcServerSVA.INSTANCE.respond(v, id, r, v.worldObj.getTotalWorldTime());
+            }
+
+            @Override
+            public void read(int id) {
+                com.sva.block.AtcServerSVA.INSTANCE.read(v, id);
+            }
+
+            @Override
+            public void loaded(int id) {
+                com.sva.block.AtcServerSVA.INSTANCE.loaded(v, id);
+            }
+        };
     }
 
     /** The pilots aboard (the captain, the F/O) as players. */

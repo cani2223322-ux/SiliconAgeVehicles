@@ -19,6 +19,12 @@ import java.util.List;
  * Pages: ИНИЦ (INIT A) / ИНИЦ Б (fuel), ИНС ИНИЦ, ПЛАН (F-PLN) with LAT REV / VERT REV, НАПРЯМУЮ (DIR TO), ХАР (PERF: ВЗЛЁТ,
  * НАБОР, КРЕЙСЕР, СНИЖЕНИЕ, ЗАХОД, УХОД), ТОПЛ ПРОГН, ПРОГ, РАДИОНАВ (+ the beacons' list), ДАННЫЕ (position, airports,
  * waypoints - the pilots' own are stored through Store into the world data).
+ * <p>
+ * Airport wave B2 (plan-next §9, items 30, 31, 33): the ATC key opens «СВЯЗЬ» - the datalink with the airport's tower
+ * (Env.atc: airport.Cpdlc through block.AtcServerSVA): ATIS of any airport by its ICAO code (АТИС), the uplinks with ПРИНЯЛ /
+ * НЕ МОГУ / ОЖИДАЙТЕ and ЗАГРУЗИТЬ (the FCU preset of НАБОР / СНИЖЕНИЕ ДО and КУРС), the requests (РУЛЕНИЕ, ВЗЛЁТ, ПОСАДКА,
+ * НАБОР, free text), the log; the destination's LAT REV gets «ЗАХОДЫ» - its tower's ILS approaches with their transitions
+ * into the temporary plan (LinerFms.insertApproach).
  */
 public final class LinerMcdu {
 
@@ -36,12 +42,16 @@ public final class LinerMcdu {
     /** The scratchpad's length. */
     public static final int SP_MAX = 22;
     public static final int COLS = 24, ROWS = 14;
+    /** Airport wave B2: a segment's align A_WRAP + n - its text wrapped left-aligned over up to n rows (Screen.cells). */
+    public static final int A_WRAP = 10;
 
     // ---------------------------------------------------------------- pages
 
     public static final int P_INIT = 0, P_INITB = 1, P_IRS = 2, P_FPLN = 3, P_LATREV = 4, P_VERTREV = 5, P_DIR = 6, P_PERF_TO = 7, P_PERF_CLB = 8,
             P_PERF_CRZ = 9, P_PERF_DES = 10, P_PERF_APPR = 11, P_PERF_GA = 12, P_FUEL = 13, P_PROG = 14, P_RAD = 15, P_ILS_LIST = 16, P_DATA = 17,
-            P_APT_LIST = 18, P_APT = 19, P_WPT_LIST = 20, P_POS = 21, P_MENU = 22, PAGES = 23;
+            P_APT_LIST = 18, P_APT = 19, P_WPT_LIST = 20, P_POS = 21, P_MENU = 22,
+            /** Airport wave B2: СВЯЗЬ (the datalink's menu), ATIS, a message, the requests, the log, the approaches (ЗАХОДЫ). */
+            P_ATC = 23, P_ATIS = 24, P_ATC_MSG = 25, P_ATC_REQ = 26, P_ATC_LOG = 27, P_ARR = 28, PAGES = 29;
 
     // ---------------------------------------------------------------- colours
 
@@ -53,6 +63,38 @@ public final class LinerMcdu {
         public int page = P_INIT, scroll, confirm;
         public String sp = "", msg = "", selId = "", dirId = "", progTo = "";
         public boolean clr, ovfy, msgAmber;
+        /** Airport wave B2: the message shown (-1: the newest uplink), the ATIS's airport, the approach chosen / its transition. */
+        public int msgId = -1, arrSel = -1;
+        public String atisApt = "", arrVia = "";
+    }
+
+    /**
+     * Airport wave B2: the datalink with the ATC unit (the server's block.AtcServerSVA; the self-test's own) - null: none
+     * fitted (the older tests).
+     */
+    public interface Datalink {
+        /** The ATC unit now: its ICAO code ("" none in reach) and name. */
+        String unit();
+
+        String unitName();
+
+        /** An airport's ATIS: {letter, the packed lines (AtisMath.pack)}; null: none (no tower / it is off). */
+        String[] atis(String icao);
+
+        /** The log (copies, the newest last). */
+        List<com.sva.airport.Cpdlc.Msg> msgs();
+
+        /** A downlink (a request, free text). @return sent (false: no ATC in reach) */
+        boolean down(int type, int arg, String s);
+
+        /** The crew's response (Cpdlc.R_*) to uplink `id`. @return sent */
+        boolean respond(int id, int r);
+
+        /** Uplink `id` read (-1: all of them). */
+        void read(int id);
+
+        /** Uplink `id`'s FCU preset loaded (ЗАГРУЗИТЬ offered no more). */
+        void loaded(int id);
     }
 
     public final Side[] sides = {new Side(), new Side()};
@@ -85,6 +127,8 @@ public final class LinerMcdu {
         public int riders, accDefault = 30;
         /** The ILS stations near (RAD NAV's list). */
         public List<LinerIls.Station> ils = new ArrayList<LinerIls.Station>();
+        /** Airport wave B2: the datalink (null: none). */
+        public Datalink atc;
     }
 
     // ---------------------------------------------------------------- the screen
@@ -159,9 +203,29 @@ public final class LinerMcdu {
                 String[] p = s.text.substring(1).split("\\|", -1);
                 String[] args = new String[p.length - 1];
                 System.arraycopy(p, 1, args, 0, args.length);
+                for (int i = 0; i < args.length && r != null; i++) {
+                    if (args[i].startsWith("#") && args[i].length() > 1) {
+                        args[i] = r.tr(args[i].substring(1), new String[0]);    // airport wave B2: an argument that is a key itself
+                    }
+                }
                 return r == null ? p[0] : r.tr(p[0], args);
             }
             return s.text;
+        }
+
+        /** One row's text from a column (clipped to the screen). */
+        static void put(Cells c, int row, int col, String t, Seg s) {
+            if (row < 0 || row >= ROWS) {
+                return;
+            }
+            for (int i = 0; i < t.length(); i++) {
+                int x = col + i;
+                if (x >= 0 && x < COLS) {
+                    c.ch[row][x] = t.charAt(i);
+                    c.col[row][x] = s.color;
+                    c.small[row][x] = s.small;
+                }
+            }
         }
 
         /** The 24 x 14 cells: chars (boxes: '#'), colours, small flags. */
@@ -170,6 +234,15 @@ public final class LinerMcdu {
             for (Seg s : segs) {
                 String t = text(s, r);
                 if (t == null) {
+                    continue;
+                }
+                if (s.align >= A_WRAP) {
+                    // airport wave B2: a long text (a datalink message, an ATIS line) wrapped over up to n rows from its row, on
+                    // the reader's side - only he knows its words' length in his language
+                    List<String> ls = com.sva.airport.AtisMath.wrap(t, COLS - s.col);
+                    for (int k = 0; k < ls.size() && k < s.align - A_WRAP; k++) {
+                        put(c, s.row + k, s.col, ls.get(k), s);
+                    }
                     continue;
                 }
                 if (t.length() > COLS) {
@@ -229,7 +302,9 @@ public final class LinerMcdu {
     static final String M_BAD = "sva.mcdu.msg.badInput", M_NODB = "sva.mcdu.msg.notInDb", M_NOT = "sva.mcdu.msg.notAllowed",
             M_RANGE = "sva.mcdu.msg.range", M_FULL = "sva.mcdu.msg.planFull", M_VDIS = "sva.mcdu.msg.vDisagree", M_CHECK_TO = "sva.mcdu.msg.checkTo",
             M_SELECT = "sva.mcdu.msg.selectRwy", M_IRS = "sva.mcdu.msg.irsInit", M_STORED = "sva.mcdu.msg.stored", M_DELETED = "sva.mcdu.msg.deleted",
-            M_TMPY = "sva.mcdu.msg.tmpy", M_NO_FPLN = "sva.mcdu.msg.noPlan";
+            M_TMPY = "sva.mcdu.msg.tmpy", M_NO_FPLN = "sva.mcdu.msg.noPlan",
+            /** Airport wave B2: the datalink's messages. */
+            M_SENT = "sva.mcdu.msg.sent", M_NO_ATC = "sva.mcdu.msg.noAtc", M_LOADED = "sva.mcdu.msg.loaded", M_NO_APPR = "sva.mcdu.msg.noAppr";
 
     // ---------------------------------------------------------------- keys
 
@@ -297,7 +372,14 @@ public final class LinerMcdu {
                 return;
             case K_PREV:
             case K_NEXT:
+                if (s.page == P_ATC_MSG) {
+                    slewMsg(s, code == K_NEXT, e);                     // airport wave B2: the next / previous uplink
+                    return;
+                }
                 slew(s, code == K_NEXT);
+                return;
+            case K_ATC:
+                go(s, P_ATC);                                       // airport wave B2: the datalink
                 return;
             case K_DIR:
                 go(s, P_DIR);
@@ -377,7 +459,9 @@ public final class LinerMcdu {
         } else if (p >= P_PERF_TO && p <= P_PERF_GA) {
             int q = p + (next ? 1 : -1);
             go(s, q < P_PERF_TO ? P_PERF_GA : q > P_PERF_GA ? P_PERF_TO : q);
-        } else if (p == P_FPLN || p == P_DIR || p == P_ILS_LIST || p == P_APT_LIST || p == P_WPT_LIST) {
+        } else if (p == P_FPLN || p == P_DIR || p == P_ILS_LIST || p == P_APT_LIST || p == P_WPT_LIST || p == P_ATC_LOG) {
+            s.scroll = Math.max(0, s.scroll + (next ? 5 : -5));
+        } else if (p == P_ATIS) {
             s.scroll = Math.max(0, s.scroll + (next ? 5 : -5));
         }
     }
@@ -750,6 +834,16 @@ public final class LinerMcdu {
                     go(s, P_INIT);
                 }
                 return;
+            case P_ATC:
+            case P_ATIS:
+            case P_ATC_MSG:
+            case P_ATC_REQ:
+            case P_ATC_LOG:
+                lskAtc(L, s, n, right, sp, e);
+                return;
+            case P_ARR:
+                lskArr(f, s, n, right, e);
+                return;
             default:
         }
     }
@@ -1017,6 +1111,22 @@ public final class LinerMcdu {
             f.setDestRwy(a, r);
             s.selId = f.dest().id;
             done(s);
+        } else if (right && n == 1 && w.kind == LinerFms.K_DEST) {
+            // airport wave B2: ЗАХОДЫ - the destination tower's approaches
+            NavDb.Airport a = e.db.airport(f.to);
+            if (a == null || a.apprs.isEmpty()) {
+                fail(s, M_NO_APPR);
+                return;
+            }
+            go(s, P_ARR);
+            s.arrSel = -1;
+            s.arrVia = "";
+            for (int k = 0; k < a.apprs.size(); k++) {
+                if (a.apprs.get(k).id.equals(f.appr)) {
+                    s.arrSel = k;
+                    s.arrVia = f.via;
+                }
+            }
         } else if (right && n == 2 && sp.length() > 0) {
             if (w.kind == LinerFms.K_DEST || w.kind == LinerFms.K_MISSED) {
                 fail(s, M_NOT);
@@ -1482,6 +1592,17 @@ public final class LinerMcdu {
             say(M_CHECK_TO, true);
         }
         towTold = tow;
+        // airport wave B2: a side showing the newest uplink reads it as it arrives
+        if (e.atc != null) {
+            for (Side s : sides) {
+                if (s.page == P_ATC_MSG && s.msgId < 0) {
+                    com.sva.airport.Cpdlc.Msg m = shownMsg(s, e);
+                    if (m != null && !m.read) {
+                        e.atc.read(m.id);
+                    }
+                }
+            }
+        }
     }
 
     /** A message on both MCDUs. */
@@ -1600,6 +1721,24 @@ public final class LinerMcdu {
                 break;
             case P_POS:
                 pPos(r, e);
+                break;
+            case P_ATC:
+                pAtc(r, s, e);
+                break;
+            case P_ATIS:
+                pAtis(r, f, s, e);
+                break;
+            case P_ATC_MSG:
+                pAtcMsg(r, s, e);
+                break;
+            case P_ATC_REQ:
+                pAtcReq(r, s, e);
+                break;
+            case P_ATC_LOG:
+                pAtcLog(r, s, e);
+                break;
+            case P_ARR:
+                pArr(r, f, s, e);
                 break;
             default:
                 r.title(k("sva.mcdu.menu.title"), C_WHITE);
@@ -1893,6 +2032,11 @@ public final class LinerMcdu {
         if (w.kind == LinerFms.K_DEST) {
             r.lbl(1, true, k("sva.mcdu.latrev.rwy"));
             r.dat(1, true, w.rwy.length() > 0 ? w.rwy : "[ ]", C_CYAN);
+            NavDb.Airport a = e.db.airport(f.to);
+            if (a != null && !a.apprs.isEmpty()) {
+                r.lbl(2, true, f.appr.length() > 0 ? f.appr + (f.via.length() > 0 ? " " + f.via : "") : "");
+                r.dat(2, true, k("sva.mcdu.latrev.arr"), C_WHITE);    // airport wave B2: the approaches
+            }
         }
         if (w.kind != LinerFms.K_DEST && w.kind != LinerFms.K_MISSED) {
             r.lbl(3, true, k("sva.mcdu.latrev.next"));
@@ -2376,6 +2520,440 @@ public final class LinerMcdu {
     // ---------------------------------------------------------------- formats
 
     /** "052" (three digits, 360 for north). */
+    // ---------------------------------------------------------------- airport wave B2: the datalink (СВЯЗЬ), ATIS, approaches
+
+    /** The uplinks of the log, newest first. */
+    static List<com.sva.airport.Cpdlc.Msg> uplinks(Env e) {
+        List<com.sva.airport.Cpdlc.Msg> out = new ArrayList<com.sva.airport.Cpdlc.Msg>();
+        if (e.atc == null) {
+            return out;
+        }
+        List<com.sva.airport.Cpdlc.Msg> l = e.atc.msgs();
+        for (int i = l.size() - 1; i >= 0; i--) {
+            if (l.get(i).up) {
+                out.add(l.get(i));
+            }
+        }
+        return out;
+    }
+
+    /** The message a side shows on its МЕССАДЖ page: the one picked, else the newest open uplink, else the newest one. */
+    static com.sva.airport.Cpdlc.Msg shownMsg(Side s, Env e) {
+        List<com.sva.airport.Cpdlc.Msg> up = uplinks(e);
+        if (s.msgId >= 0) {
+            for (com.sva.airport.Cpdlc.Msg m : up) {
+                if (m.id == s.msgId) {
+                    return m;
+                }
+            }
+        }
+        for (com.sva.airport.Cpdlc.Msg m : up) {
+            if (m.open()) {
+                return m;
+            }
+        }
+        return up.isEmpty() ? null : up.get(0);
+    }
+
+    /** PREV / NEXT on the message page: the next older / newer uplink. */
+    void slewMsg(Side s, boolean older, Env e) {
+        List<com.sva.airport.Cpdlc.Msg> up = uplinks(e);
+        com.sva.airport.Cpdlc.Msg cur = shownMsg(s, e);
+        int i = -1;
+        for (int k = 0; k < up.size() && cur != null; k++) {
+            i = up.get(k).id == cur.id ? k : i;
+        }
+        int j = Math.max(0, Math.min(up.size() - 1, i + (older ? 1 : -1)));
+        if (j >= 0 && j < up.size()) {
+            s.msgId = up.get(j).id;
+            if (e.atc != null) {
+                e.atc.read(s.msgId);
+            }
+        }
+    }
+
+    /** The default airport of the ATIS page: the ATC unit's, else the plan's destination, else its origin. */
+    static String atisDefault(LinerFms f, Env e) {
+        if (e.atc != null && e.atc.unit().length() > 0) {
+            return e.atc.unit();
+        }
+        return f.to.length() > 0 ? f.to : f.from;
+    }
+
+    private void lskAtc(LinerSystems L, Side s, int n, boolean right, String sp, Env e) {
+        LinerFms f = L.fms;
+        if (s.page == P_ATC) {
+            if (!right && n == 1) {
+                go(s, P_ATIS);
+                s.atisApt = atisDefault(f, e);
+            } else if (right && n == 1) {
+                go(s, P_ATC_MSG);
+                s.msgId = -1;
+                com.sva.airport.Cpdlc.Msg m = shownMsg(s, e);
+                if (m != null && e.atc != null) {
+                    e.atc.read(m.id);
+                }
+            } else if (!right && n == 2) {
+                go(s, P_ATC_REQ);
+            } else if (right && n == 2) {
+                go(s, P_ATC_LOG);
+            } else if (!right && n == 5) {
+                NavDb.Airport a = e.db.airport(f.to);
+                if (a == null || a.apprs.isEmpty()) {
+                    fail(s, M_NO_APPR);
+                } else {
+                    go(s, P_ARR);
+                    s.arrSel = -1;
+                    s.arrVia = "";
+                }
+            }
+            return;
+        }
+        if (!right && n == 5) {
+            go(s, P_ATC);                                           // <ВОЗВРАТ
+            return;
+        }
+        if (s.page == P_ATIS) {
+            if (right && n == 5 && sp.length() > 0) {
+                String id = com.sva.airport.TowerMath.cleanIcao(sp);
+                if (id.length() == 0) {
+                    id = NavDb.cleanIdent(sp);
+                }
+                if (id.length() == 0) {
+                    fail(s, M_BAD);
+                } else {
+                    s.atisApt = id;
+                    s.scroll = 0;
+                    done(s);
+                }
+            }
+            return;
+        }
+        if (s.page == P_ATC_MSG) {
+            com.sva.airport.Cpdlc.Msg m = shownMsg(s, e);
+            if (m == null || e.atc == null) {
+                return;
+            }
+            int r = !right && n == 4 ? com.sva.airport.Cpdlc.R_WILCO : right && n == 4 ? com.sva.airport.Cpdlc.R_UNABLE
+                    : !right && n == 3 ? com.sva.airport.Cpdlc.R_STBY : -1;
+            if (r >= 0) {
+                s.msgId = m.id;
+                if (!e.atc.respond(m.id, r)) {
+                    fail(s, M_NOT);
+                }
+                return;
+            }
+            if (right && n == 5) {
+                int[] p = com.sva.airport.Cpdlc.preset(m);
+                if (p == null || m.loaded) {
+                    fail(s, M_NOT);
+                    return;
+                }
+                if (p[0] == com.sva.airport.Cpdlc.P_ALT) {
+                    L.afs.alt = Math.max(0, Math.min(LinerFms.ALT_MAX * 10, p[1]));    // the FCU's window - the pilot pulls / pushes
+                } else {
+                    L.afs.hdg = p[1];
+                    L.afs.hdgPrev = 100;                            // a managed heading's window shows the value for a while
+                }
+                e.atc.loaded(m.id);
+                s.msg = M_LOADED;
+                s.msgAmber = false;
+            }
+            return;
+        }
+        if (s.page == P_ATC_REQ) {
+            if (e.atc == null || e.atc.unit().length() == 0) {
+                fail(s, M_NO_ATC);
+                return;
+            }
+            boolean ok;
+            if (!right && n == 0) {
+                ok = e.atc.down(com.sva.airport.Cpdlc.D_TAXI, 0, "");
+            } else if (!right && n == 1) {
+                LinerFms.Wp o = f.origin();
+                ok = e.atc.down(com.sva.airport.Cpdlc.D_READY, 0, o == null ? "" : o.rwy);
+            } else if (!right && n == 2) {
+                LinerFms.Wp d = f.dest();
+                ok = e.atc.down(com.sva.airport.Cpdlc.D_LANDING, 0, d == null ? "" : d.rwy);
+            } else if (!right && n == 3) {
+                int alt = num(sp, LinerFms.ALT_MIN, LinerFms.ALT_MAX);
+                if (alt == Integer.MIN_VALUE) {
+                    fail(s, sp.length() == 0 ? M_BAD : M_RANGE);
+                    return;
+                }
+                ok = e.atc.down(com.sva.airport.Cpdlc.D_CLIMB, alt, "");
+            } else if (!right && n == 4) {
+                String t = com.sva.airport.Cpdlc.cleanFree(sp);
+                if (t.length() == 0) {
+                    fail(s, M_BAD);
+                    return;
+                }
+                ok = e.atc.down(com.sva.airport.Cpdlc.D_FREE, 0, t);
+            } else {
+                return;
+            }
+            if (ok) {
+                done(s);
+                s.msg = M_SENT;
+                s.msgAmber = false;
+            } else {
+                fail(s, M_NO_ATC);
+            }
+            return;
+        }
+        if (s.page == P_ATC_LOG && !right && n < 5) {
+            List<com.sva.airport.Cpdlc.Msg> l = e.atc == null ? new ArrayList<com.sva.airport.Cpdlc.Msg>() : e.atc.msgs();
+            int i = l.size() - 1 - (s.scroll + n);
+            if (i >= 0 && i < l.size() && l.get(i).up) {
+                go(s, P_ATC_MSG);
+                s.msgId = l.get(i).id;
+                e.atc.read(s.msgId);
+            }
+        }
+    }
+
+    private void lskArr(LinerFms f, Side s, int n, boolean right, Env e) {
+        NavDb.Airport a = e.db.airport(f.to);
+        if (!right && n == 5) {
+            go(s, P_FPLN);
+            return;
+        }
+        if (a == null || a.apprs.isEmpty()) {
+            fail(s, M_NO_APPR);
+            return;
+        }
+        if (!right && n < 5) {
+            int i = s.scroll + n;
+            if (i < a.apprs.size()) {
+                s.arrSel = i;
+                s.arrVia = "";
+            }
+        } else if (right && n < 5 && s.arrSel >= 0 && s.arrSel < a.apprs.size()) {
+            com.sva.airport.ApproachMath.Approach ap = a.apprs.get(s.arrSel);
+            if (n == 0) {
+                s.arrVia = "";
+            } else if (n - 1 < ap.trans.size()) {
+                s.arrVia = ap.trans.get(n - 1).id;
+            }
+        } else if (right && n == 5) {
+            if (s.arrSel < 0 || s.arrSel >= a.apprs.size()) {
+                fail(s, M_NOT);
+                return;
+            }
+            f.tmpErase();
+            if (!f.insertApproach(a, a.apprs.get(s.arrSel), s.arrVia)) {
+                fail(s, M_FULL);
+                return;
+            }
+            go(s, P_FPLN);
+            List<Line> ls = lines(f);
+            for (int i = 0; i < ls.size(); i++) {
+                if (ls.get(i).idx >= 0 && f.shown().get(ls.get(i).idx).kind == LinerFms.K_DEST) {
+                    s.scroll = Math.max(0, i - 3);
+                }
+            }
+        }
+    }
+
+    /** The state's word of a message (sva.cpdlc.state.KEY). */
+    static String stateKey(com.sva.airport.Cpdlc.Msg m) {
+        return "sva.cpdlc.state." + com.sva.airport.Cpdlc.STATE_KEYS[Math.max(0, Math.min(com.sva.airport.Cpdlc.STATE_KEYS.length - 1, m.state))];
+    }
+
+    /** A message's text as a wrapped segment from (row, col) over `rows` rows. */
+    static void msgText(R r, com.sva.airport.Cpdlc.Msg m, int row, int rows, int colour) {
+        String[] a = com.sva.airport.Cpdlc.args(m);
+        Object[] o = new Object[a.length];
+        System.arraycopy(a, 0, o, 0, a.length);
+        r.sc.add(row, 0, A_WRAP + rows, colour, false, k(com.sva.airport.Cpdlc.key(m), o));
+    }
+
+    private void pAtc(R r, Side s, Env e) {
+        r.title(k("sva.mcdu.atc.title"), C_WHITE);
+        String unit = e.atc == null ? "" : e.atc.unit();
+        r.lbl(1, false, k("sva.mcdu.atc.unit"));
+        if (unit.length() > 0) {
+            r.dat(1, false, unit + " " + e.atc.unitName(), C_GREEN);
+        } else {
+            r.dat(1, false, k("sva.mcdu.atc.noUnit"), C_AMBER);
+        }
+        int unread = 0;
+        for (com.sva.airport.Cpdlc.Msg m : uplinks(e)) {
+            unread += m.read ? 0 : 1;
+        }
+        r.dat(2, false, k("sva.mcdu.atc.atis"), C_WHITE);
+        if (unread > 0) {
+            r.lblAt(2, COLS, 1, k("sva.mcdu.atc.new", Integer.valueOf(unread)), C_AMBER);
+        }
+        r.dat(2, true, k("sva.mcdu.atc.msgs"), C_WHITE);
+        r.dat(3, false, k("sva.mcdu.atc.req"), C_WHITE);
+        r.dat(3, true, k("sva.mcdu.atc.log"), C_WHITE);
+        List<com.sva.airport.Cpdlc.Msg> up = uplinks(e);
+        if (!up.isEmpty()) {
+            com.sva.airport.Cpdlc.Msg m = up.get(0);
+            r.lbl(4, false, k("sva.mcdu.atc.last", clock(m.sent), m.tower));
+            msgText(r, m, 8, 3, m.open() ? C_WHITE : C_GREEN);
+        }
+        r.dat(6, false, k("sva.mcdu.atc.arr"), C_WHITE);
+    }
+
+    private void pAtis(R r, LinerFms f, Side s, Env e) {
+        String apt = s.atisApt.length() > 0 ? s.atisApt : atisDefault(f, e);
+        String[] a = e.atc == null || apt.length() == 0 ? null : e.atc.atis(apt);
+        if (a == null) {
+            r.title(k("sva.mcdu.atis.title", apt, ""), C_WHITE);
+            r.dat(1, false, k("sva.mcdu.atis.none"), C_AMBER);
+        } else {
+            int letter = 0;
+            try {
+                letter = Integer.parseInt(a[0]);
+            } catch (NumberFormatException ex) {
+                letter = 0;
+            }
+            r.title(k("sva.mcdu.atis.title", apt, String.valueOf((char) ('A' + Math.max(0, Math.min(25, letter))))), C_WHITE);
+            List<com.sva.airport.AtisMath.Line> ls = com.sva.airport.AtisMath.unpack(a[1]);
+            s.scroll = Math.max(0, Math.min(s.scroll, Math.max(0, ls.size() - 5)));
+            for (int i = 0; i < 5 && s.scroll + i < ls.size(); i++) {
+                com.sva.airport.AtisMath.Line ln = ls.get(s.scroll + i);
+                Object[] o = new Object[ln.args.length];
+                System.arraycopy(ln.args, 0, o, 0, o.length);
+                r.sc.add(1 + i * 2, 0, A_WRAP + 2, i == 0 && s.scroll == 0 ? C_WHITE : C_GREEN, false, k(ln.key, o));
+            }
+            if (ls.size() > 5) {
+                r.sc.add(0, COLS, 1, C_WHITE, true, (s.scroll / 5 + 1) + "/" + ((ls.size() - 1) / 5 + 1));
+            }
+        }
+        r.lbl(6, true, k("sva.mcdu.atis.apt"));
+        r.dat(6, true, "[" + apt + "]", C_CYAN);
+        r.dat(6, false, k("sva.mcdu.back"), C_WHITE);
+    }
+
+    private void pAtcMsg(R r, Side s, Env e) {
+        com.sva.airport.Cpdlc.Msg m = shownMsg(s, e);
+        r.title(k("sva.mcdu.atcmsg.title"), C_WHITE);
+        if (m == null) {
+            r.dat(1, false, k("sva.mcdu.atcmsg.none"), C_WHITE);
+            r.dat(6, false, k("sva.mcdu.back"), C_WHITE);
+            return;
+        }
+        List<com.sva.airport.Cpdlc.Msg> up = uplinks(e);
+        int at = 0;
+        for (int i = 0; i < up.size(); i++) {
+            at = up.get(i).id == m.id ? i + 1 : at;
+        }
+        r.sc.add(0, COLS, 1, C_WHITE, true, at + "/" + up.size());
+        r.lbl(1, false, k("sva.mcdu.atcmsg.from", clock(m.sent), m.tower));
+        msgText(r, m, 2, 6, m.open() ? C_WHITE : C_GREEN);
+        boolean resp = com.sva.airport.Cpdlc.needsResponse(m.type);
+        r.lbl(5, false, k(stateKey(m)));
+        if (m.open() && resp) {
+            r.sc.add(9, 0, 0, C_AMBER, true, k(stateKey(m)));
+            if (m.state != com.sva.airport.Cpdlc.S_STBY) {
+                r.dat(4, false, k("sva.mcdu.atcmsg.stby"), C_CYAN);
+            }
+            r.dat(5, false, k("sva.mcdu.atcmsg.wilco"), C_CYAN);
+            r.dat(5, true, k("sva.mcdu.atcmsg.unable"), C_CYAN);
+        }
+        int[] p = com.sva.airport.Cpdlc.preset(m);
+        if (p != null && !m.loaded) {
+            r.dat(6, true, k("sva.mcdu.atcmsg.load"), C_AMBER);
+        }
+        r.dat(6, false, k("sva.mcdu.back"), C_WHITE);
+    }
+
+    /** A request's state on the РЕКВЕСТ page (none: ""). */
+    static String reqState(Env e, int type) {
+        if (e.atc == null) {
+            return "";
+        }
+        List<com.sva.airport.Cpdlc.Msg> l = e.atc.msgs();
+        for (int i = l.size() - 1; i >= 0; i--) {
+            if (!l.get(i).up && l.get(i).type == type) {
+                return k(stateKey(l.get(i)));
+            }
+        }
+        return "";
+    }
+
+    private void pAtcReq(R r, Side s, Env e) {
+        r.title(k("sva.mcdu.atcreq.title"), C_WHITE);
+        r.dat(1, false, k("sva.mcdu.atcreq.taxi"), C_CYAN);
+        r.dat(2, false, k("sva.mcdu.atcreq.ready"), C_CYAN);
+        r.dat(3, false, k("sva.mcdu.atcreq.landing"), C_CYAN);
+        r.lbl(4, false, k("sva.mcdu.atcreq.climbLbl"));
+        r.dat(4, false, k("sva.mcdu.atcreq.climb"), C_CYAN);
+        r.lbl(5, false, k("sva.mcdu.atcreq.freeLbl"));
+        r.dat(5, false, k("sva.mcdu.atcreq.free"), C_CYAN);
+        int[] t = {com.sva.airport.Cpdlc.D_TAXI, com.sva.airport.Cpdlc.D_READY, com.sva.airport.Cpdlc.D_LANDING, com.sva.airport.Cpdlc.D_CLIMB,
+            com.sva.airport.Cpdlc.D_FREE};
+        for (int i = 0; i < t.length; i++) {
+            String st = reqState(e, t[i]);
+            if (st.length() > 0) {
+                r.lblAt(i + 1, COLS, 1, st, C_GREEN);
+            }
+        }
+        r.dat(6, false, k("sva.mcdu.back"), C_WHITE);
+    }
+
+    private void pAtcLog(R r, Side s, Env e) {
+        r.title(k("sva.mcdu.atclog.title"), C_WHITE);
+        List<com.sva.airport.Cpdlc.Msg> l = e.atc == null ? new ArrayList<com.sva.airport.Cpdlc.Msg>() : e.atc.msgs();
+        if (l.isEmpty()) {
+            r.dat(1, false, k("sva.mcdu.atclog.none"), C_WHITE);
+        }
+        s.scroll = Math.max(0, Math.min(s.scroll, Math.max(0, l.size() - 1)));
+        for (int k = 1; k <= 5; k++) {
+            int i = l.size() - 1 - (s.scroll + k - 1);
+            if (i < 0) {
+                break;
+            }
+            com.sva.airport.Cpdlc.Msg m = l.get(i);
+            r.lbl(k, false, k(m.up ? "sva.mcdu.atclog.up" : "sva.mcdu.atclog.down", clock(m.sent)));
+            r.lblAt(k, COLS, 1, k(stateKey(m)), m.open() ? C_AMBER : C_WHITE);
+            String[] a = com.sva.airport.Cpdlc.args(m);
+            Object[] o = new Object[a.length];
+            System.arraycopy(a, 0, o, 0, a.length);
+            r.dat(k, false, k(com.sva.airport.Cpdlc.key(m), o), m.up ? m.read ? C_GREEN : C_WHITE : C_CYAN);
+        }
+        r.dat(6, false, k("sva.mcdu.back"), C_WHITE);
+    }
+
+    private void pArr(R r, LinerFms f, Side s, Env e) {
+        NavDb.Airport a = e.db.airport(f.to);
+        r.title(k("sva.mcdu.arr.title", f.to), C_WHITE);
+        if (a == null || a.apprs.isEmpty()) {
+            r.dat(1, false, k("sva.mcdu.arr.none"), C_WHITE);
+            r.dat(6, false, k("sva.mcdu.back"), C_WHITE);
+            return;
+        }
+        r.sc.add(1, 0, 0, C_WHITE, true, k("sva.mcdu.arr.appr"));
+        r.sc.add(1, COLS, 1, C_WHITE, true, k("sva.mcdu.arr.via"));
+        s.scroll = Math.max(0, Math.min(s.scroll, Math.max(0, a.apprs.size() - 5)));
+        for (int k = 1; k <= 5; k++) {
+            int i = s.scroll + k - 1;
+            if (i >= a.apprs.size()) {
+                break;
+            }
+            com.sva.airport.ApproachMath.Approach ap = a.apprs.get(i);
+            boolean sel = i == s.arrSel;
+            r.dat(k, false, (sel ? "*" : "<") + ap.id, sel ? C_YELLOW : C_CYAN);
+            if (k > 1 || s.arrSel < 0) {
+                r.sc.add(k * 2 - 1, 0, 0, C_GREEN, true, LinerIls.freqText(ap.freq).replace('.', ',') + " " + com.sva.airport.IlsCat.catText(ap.cat));
+            }
+        }
+        if (s.arrSel >= 0 && s.arrSel < a.apprs.size()) {
+            com.sva.airport.ApproachMath.Approach ap = a.apprs.get(s.arrSel);
+            r.dat(1, true, k("sva.mcdu.arr.noVia"), s.arrVia.length() == 0 ? C_YELLOW : C_CYAN);
+            for (int k = 0; k < Math.min(4, ap.trans.size()); k++) {
+                String id = ap.trans.get(k).id;
+                r.dat(k + 2, true, id + (id.equals(s.arrVia) ? "*" : ">"), id.equals(s.arrVia) ? C_YELLOW : C_CYAN);
+            }
+            r.lbl(6, true, ap.id + (s.arrVia.length() > 0 ? " " + s.arrVia : ""));
+            r.dat(6, true, k("sva.mcdu.arr.insert"), C_AMBER);
+        }
+        r.dat(6, false, k("sva.mcdu.back"), C_WHITE);
+    }
+
     static String three(double deg) {
         int d = (int) Math.round(LinerIls.wrap360(deg));
         d = d == 0 ? 360 : d;

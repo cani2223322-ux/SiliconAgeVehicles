@@ -51,5 +51,6 @@ public class SVAMod {
     public void serverStopped(FMLServerStoppedEvent e) {
         com.sva.net.ServerQueueSVA.INSTANCE.clear();
         com.sva.airdefense.AirDefenseSVA.INSTANCE.clear();          // air-defence wave: nothing kept for the next world
+        com.sva.block.AtcServerSVA.INSTANCE.clear();               // airport wave B2: the datalink sessions, the towers' logs
     }
 }

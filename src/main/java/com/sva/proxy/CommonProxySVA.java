@@ -76,6 +76,19 @@ public class CommonProxySVA {
     public void openApt(int x, int y, int z) {
     }
 
+    /** Airport wave B2: the tower's screen at (x, y, z) (client). */
+    public void openTower(int x, int y, int z) {
+    }
+
+    /** Airport wave B2: an approach chart in hand (client). */
+    public void openChart(net.minecraft.item.ItemStack s) {
+    }
+
+    /** Airport wave B2: the charts' version of an airport as the client knows it (-1: no such tower; the server: -1). */
+    public int chartVersion(String icao) {
+        return -1;
+    }
+
     /** Liner wave 4: the ILS beacon's screen (client). */
     public void openIls(com.sva.block.TileEntityIlsSVA te) {
     }

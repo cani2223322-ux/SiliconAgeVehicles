@@ -305,6 +305,8 @@ public final class LinerControls {
     public static final Ctl MC_L = pbm("masterCautL", GS, 560, 100, 50, 50);
     public static final Ctl MW_R = pbm("masterWarnR", GS, 1440, 42, 50, 50);
     public static final Ctl MC_R = pbm("masterCautR", GS, 1440, 100, 50, 50);
+    /** Airport wave B2: the amber «ATC MSG» push buttons beside the masters (the datalink's uplinks; pressed: read). */
+    public static final Ctl ATC_MSG_L = pbm("atcMsgL", GS, 622, 40, 40, 32), ATC_MSG_R = pbm("atcMsgR", GS, 1378, 40, 40, 32);
 
     // main panel: the gear lever (UP top .. DOWN bottom of its slot), autobrake (wave 2), anti-skid (wave 2)
     public static final Ctl GEAR = add("gear", MP, LEV, new String[] {"up", "down"}, 1, 1229, 465, 52, 280);

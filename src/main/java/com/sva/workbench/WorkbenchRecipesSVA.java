@@ -437,5 +437,18 @@ public final class WorkbenchRecipesSVA {
         // the airport builder's tablet (MV): a glass screen, memory, two sensors, the controller, polymer, redstone
         module("aptPlanner", new ItemStack(ModContentSVA.aptPlanner), Tier.MV, "GMG", "NCN", "PRP",
                 'G', Blocks.glass_pane, 'M', memory, 'N', sensor, 'C', controller, 'P', polymer, 'R', Items.redstone);
+
+        // ---- airport wave B2 (appended: the list index is the sync id)
+        // the control tower (HV): the cab's glass, the consoles' memory and controller, a sensor (the radio), the shaft of steel
+        // casings, an HV cell
+        block("tower", new ItemStack(ModContentSVA.tower), Tier.HV, "GGG", "MCN", "XEX",
+                'G', Blocks.glass, 'M', memory, 'C', controller, 'N', sensor, 'X', casing, 'E', cellHV);
+        // the taxi lights (MV, x8 each): glass over glowstone in iron, coloured by the dye - green centre line, blue edge, red stop
+        // bar, yellow stand
+        int[] dyes = {2, 4, 1, 11};
+        for (int i = 0; i < dyes.length; i++) {
+            block("taxiLight" + i, new ItemStack(ModContentSVA.taxiLight, 8, i), Tier.MV, "GGG", "IDI", "ILI",
+                    'G', Blocks.glass_pane, 'I', Items.iron_ingot, 'D', new ItemStack(Items.dye, 1, dyes[i]), 'L', Items.glowstone_dust);
+        }
     }
 }

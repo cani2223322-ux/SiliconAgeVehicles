@@ -66,7 +66,7 @@ public class NavDataSVA extends WorldSavedData {
         if (db == null || at == null || now - at.longValue() > CACHE_TICKS || now < at.longValue() || was == null || was.intValue() != sig) {
             sigs.put(k, Integer.valueOf(sig));
             List<LinerIls.Station> st = ils == null ? new ArrayList<LinerIls.Station>() : ils.near(dim, 0, 0, Double.MAX_VALUE / 4);
-            List<ZoneMath.Zone> zones = ad == null ? null : ad.all();
+            List<ZoneMath.Zone> zones = ad == null ? null : ad.allExcept(AtcServerSVA.ZONE_KEY);
             db = NavDb.build(dim, st, zones, airports, wpts, base);
             // airport wave B1: the runways of two «Торец полосы» markers (with or without an ILS)
             if (apt != null) {
@@ -79,6 +79,33 @@ public class NavDataSVA extends WorldSavedData {
                         db.addRunway(r.apt, dim, r.name(dir), t[0], t[1], (int) Math.round(r.elev), r.course(dir), (int) Math.round(r.len));
                     }
                 }
+                // airport wave B2: the towers name their airports and publish the ILS approaches and the entry fixes
+                for (AirportDataSVA.Tower tw : apt.towers()) {
+                    if (tw.dim != dim || tw.icao.length() != 4) {
+                        continue;
+                    }
+                    NavDb.Airport a = db.airport(tw.icao);
+                    if (a == null) {
+                        double[] c = apt.centre(tw);
+                        a = new NavDb.Airport();
+                        a.ident = tw.icao;
+                        a.dim = dim;
+                        a.x = c[0];
+                        a.z = c[1];
+                        a.elev = tw.elev;
+                        db.airports.add(a);
+                    }
+                    a.src = NavDb.SRC_TOWER;
+                    a.name = tw.name;
+                    a.apprs.clear();
+                    a.apprs.addAll(apt.approaches(tw));
+                    for (com.sva.airport.ApproachMath.Fix f : apt.entries(tw)) {
+                        if (db.wpt(f.id) == null) {
+                            db.wpts.add(NavDb.wpt(f.id, NavDb.SRC_TOWER, dim, f.x, f.z));
+                        }
+                    }
+                }
+                db.sort();
             }
             cache.put(k, db);
             cachedAt.put(k, Long.valueOf(now));

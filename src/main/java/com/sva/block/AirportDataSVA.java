@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.Set;
 
 import com.sva.ConfigSVA;
+import com.sva.airport.ApproachMath;
+import com.sva.airport.AtisMath;
 import com.sva.airport.FlightCheck;
 import com.sva.airport.IlsBeam;
 import com.sva.airport.IlsCat;
@@ -16,6 +18,8 @@ import com.sva.airport.IlsPairing;
 import com.sva.airport.MarkerMath;
 import com.sva.airport.RunwayLayout;
 import com.sva.airport.RvrMath;
+import com.sva.airport.TaxiGraph;
+import com.sva.airport.TowerMath;
 import com.sva.airport.WindField;
 import com.sva.vehicle.AirfieldMath;
 import com.sva.vehicle.LinerIls;
@@ -53,12 +57,22 @@ import net.minecraft.world.biome.BiomeGenBase;
  * <li>the RVR (airport.RvrMath) and the weather stations' QNH every WX_TICKS.</li>
  * </ul>
  * The stored status (the category, the flags, the inspection, the RVR) is what the wave B2 tower will read (status()).
+ * <p>
+ * Airport wave B2 (plan-next §9, items 27, 29-34): the «Диспетчерская вышка» towers too (Tower: the airport's ICAO code
+ * and name, the runway in use, the lights' steps, the ILS switched off, the transponder code range, the ATIS letter and
+ * its text, the charts' version, the taxi graph's hand-made links / cuts) - so the airport keeps its name, approaches and
+ * lights while the tower's chunk sleeps; the tower's block reports in (power, the controller in its seat) every REPORT_TICKS
+ * as the shelters do, and its air-traffic services (block.AtcServerSVA) run only while it is ONLINE. rebuild() names the
+ * runways within TowerMath.RANGE after their tower (instead of «ZZxx»), the taxi lights («Огонь рулёжки», kinds K_TAXI..
+ * K_STAND) are devices of their own.
  */
 public class AirportDataSVA extends WorldSavedData {
 
     public static final String NAME = "SiliconAgeVehicles_airport";
     /** Device kinds (block.BlockAptDeviceSVA's metadata). */
-    public static final int K_MARKER = 0, K_RVR = 1, K_WX = 2, K_SOCK = 3, KINDS = 4;
+    public static final int K_MARKER = 0, K_RVR = 1, K_WX = 2, K_SOCK = 3,
+            /** Airport wave B2: the taxi lights (block.BlockTaxiLightSVA meta + K_TAXI): centre line, edge, stop bar, stand. */
+            K_TAXI = 4, K_EDGE = 5, K_STOP = 6, K_STAND = 7, KINDS = 8;
     public static final int STATUS_TICKS = 20, SCAN_TICKS = 100, WX_TICKS = 100;
     /** A shelter's report is good this long (ticks). */
     public static final int REPORT_TICKS = 60;
@@ -81,10 +95,140 @@ public class AirportDataSVA extends WorldSavedData {
         public double qnh = Double.NaN, windFrom, windSpeed, windGust, temp;
     }
 
+    /** Airport wave B2: a tower - what outlives its chunk (see the class comment). */
+    public static final class Tower {
+        public String key = "", icao = "", name = "", owner = "";
+        public int dim, x, y, z;
+        /** The runway in use: an end's key ("" AUTO - by the wind). */
+        public String rwySel = "";
+        /** The lights' steps (RunwayLayout: AUTO or 0..5): the runways, the approach lights, the taxiways. */
+        public int ltRwy = RunwayLayout.LIGHTS_AUTO, ltAppr = RunwayLayout.LIGHTS_AUTO, ltTaxi = RunwayLayout.LIGHTS_AUTO;
+        /** The ILS stations (localizer keys) the tower has switched off. */
+        public final Set<String> ilsOff = new HashSet<String>();
+        /** The transponder code range of its arrivals / departures (octal). */
+        public int codeLo = TowerMath.CODE_LO, codeHi = TowerMath.CODE_HI;
+        /** ATIS: the letter (-1: none yet), the observation it was made of, its text (AtisMath.pack), when. */
+        public int letter = -1;
+        public AtisMath.Obs atis;
+        public String atisText = "";
+        public long atisAt;
+        /** The charts' version and the signature of what they show (a change: version + 1). */
+        public int chartVer = 1, chartSig;
+        /** The taxi graph: the tower map's added links and cut ones (TaxiGraph.link keys). */
+        public final Set<String> taxiExtra = new HashSet<String>(), taxiCut = new HashSet<String>();
+        // derived / transient
+        /** Its runways (rebuild), the elevation of its airport, the runway in use now (an end key; AtcServerSVA). */
+        public transient List<IlsPairing.Rwy> rwys = new ArrayList<IlsPairing.Rwy>();
+        public transient int elev;
+        public transient String inUse = "";
+        /** The block's last report (world ticks), powered then, the player in its controller seat ("" none). */
+        public transient long reportAt = -100000;
+        public transient boolean powered;
+        public transient String controller = "";
+
+        /** Online: reported lately and powered (its services run). */
+        public boolean online(long now) {
+            return powered && now - reportAt <= REPORT_TICKS && now >= reportAt;
+        }
+
+        void write(NBTTagCompound e) {
+            e.setString("K", key);
+            e.setInteger("Dim", dim);
+            e.setIntArray("Pos", new int[] {x, y, z});
+            e.setString("Icao", icao);
+            e.setString("Name", name);
+            e.setString("Own", owner);
+            e.setString("Sel", rwySel);
+            e.setIntArray("Lt", new int[] {ltRwy, ltAppr, ltTaxi});
+            NBTTagList off = new NBTTagList();
+            for (String k : ilsOff) {
+                off.appendTag(new net.minecraft.nbt.NBTTagString(k));
+            }
+            e.setTag("IlsOff", off);
+            e.setIntArray("Codes", new int[] {codeLo, codeHi});
+            e.setInteger("Letter", letter);
+            if (atis != null) {
+                e.setIntArray("Atis", atis.pack());
+                e.setString("AtisRwy", atis.rwy);
+            }
+            e.setString("AtisText", atisText);
+            e.setLong("AtisAt", atisAt);
+            e.setIntArray("Chart", new int[] {chartVer, chartSig});
+            NBTTagList ex = new NBTTagList();
+            for (String k : taxiExtra) {
+                ex.appendTag(new net.minecraft.nbt.NBTTagString(k));
+            }
+            e.setTag("TaxiAdd", ex);
+            NBTTagList cu = new NBTTagList();
+            for (String k : taxiCut) {
+                cu.appendTag(new net.minecraft.nbt.NBTTagString(k));
+            }
+            e.setTag("TaxiCut", cu);
+        }
+
+        static Tower read(NBTTagCompound e) {
+            Tower t = new Tower();
+            t.key = e.getString("K");
+            t.dim = e.getInteger("Dim");
+            int[] p = e.getIntArray("Pos");
+            if (p.length == 3) {
+                t.x = p[0];
+                t.y = p[1];
+                t.z = p[2];
+            }
+            t.icao = TowerMath.cleanIcao(e.getString("Icao"));
+            t.name = TowerMath.cleanName(e.getString("Name"));
+            t.owner = e.getString("Own");
+            t.rwySel = e.getString("Sel");
+            int[] lt = e.getIntArray("Lt");
+            if (lt.length == 3) {
+                t.ltRwy = clampLights(lt[0]);
+                t.ltAppr = clampLights(lt[1]);
+                t.ltTaxi = clampLights(lt[2]);
+            }
+            NBTTagList off = e.getTagList("IlsOff", 8);
+            for (int i = 0; i < off.tagCount(); i++) {
+                t.ilsOff.add(off.getStringTagAt(i));
+            }
+            int[] c = e.getIntArray("Codes");
+            if (c.length == 2 && TowerMath.codeRange(c[0], c[1]) != null) {
+                t.codeLo = c[0];
+                t.codeHi = c[1];
+            }
+            t.letter = e.hasKey("Letter") ? Math.max(-1, Math.min(AtisMath.LETTERS - 1, e.getInteger("Letter"))) : -1;
+            if (e.hasKey("Atis")) {
+                t.atis = AtisMath.Obs.unpack(e.getString("AtisRwy"), e.getIntArray("Atis"));
+            }
+            t.atisText = e.getString("AtisText");
+            t.atisAt = e.getLong("AtisAt");
+            int[] ch = e.getIntArray("Chart");
+            if (ch.length == 2) {
+                t.chartVer = Math.max(1, ch[0]);
+                t.chartSig = ch[1];
+            }
+            NBTTagList ex = e.getTagList("TaxiAdd", 8);
+            for (int i = 0; i < ex.tagCount(); i++) {
+                t.taxiExtra.add(ex.getStringTagAt(i));
+            }
+            NBTTagList cu = e.getTagList("TaxiCut", 8);
+            for (int i = 0; i < cu.tagCount(); i++) {
+                t.taxiCut.add(cu.getStringTagAt(i));
+            }
+            return t;
+        }
+    }
+
+    /** A lights mode from a save / a screen: AUTO or 0..5. */
+    public static int clampLights(int m) {
+        return Math.max(RunwayLayout.LIGHTS_AUTO, Math.min(RunwayLayout.STEPS, m));
+    }
+
     private final Map<String, IlsPairing.End> ends = new LinkedHashMap<String, IlsPairing.End>();
     private final Map<String, IlsPairing.LocAnt> locs = new LinkedHashMap<String, IlsPairing.LocAnt>();
     private final Map<String, IlsPairing.GsAnt> gss = new LinkedHashMap<String, IlsPairing.GsAnt>();
     private final Map<String, Device> devices = new LinkedHashMap<String, Device>();
+    /** Airport wave B2: the towers (key "dim:x:y:z" of the master block). */
+    private final Map<String, Tower> towers = new LinkedHashMap<String, Tower>();
     /** Per localizer key: its flight inspection and the geometry it was flown on. */
     private final Map<String, FlightCheck> checks = new HashMap<String, FlightCheck>();
     private final Map<String, Integer> checkedGeo = new HashMap<String, Integer>();
@@ -101,6 +245,10 @@ public class AirportDataSVA extends WorldSavedData {
     /** Per antenna key: the last shelter report's tick and whether it was powered. */
     private transient final Map<String, long[]> reports = new HashMap<String, long[]>();
     private transient final Set<String> conflicts = new HashSet<String>();
+    /** Airport wave B2: per runway end key - its tower (null none); the taxi graph per dimension (built on demand). */
+    private transient final Map<String, Tower> endTower = new HashMap<String, Tower>();
+    private transient final Map<Integer, Object[]> taxiCache = new HashMap<Integer, Object[]>();
+    private transient int taxiVersion;
 
     public AirportDataSVA(String name) {
         super(name);
@@ -162,12 +310,222 @@ public class AirportDataSVA extends WorldSavedData {
 
     public void putDevice(Device d) {
         devices.put(d.key, d);
+        if (d.kind >= K_TAXI) {
+            taxiVersion++;
+            taxiCache.clear();
+        }
         changed();
+    }
+
+    // ---------------------------------------------------------------- airport wave B2: the towers
+
+    /** A tower placed / its settings changed (its runtime report kept). */
+    public void putTower(Tower t) {
+        Tower old = towers.get(t.key);
+        if (old != null && old != t) {
+            t.reportAt = old.reportAt;
+            t.powered = old.powered;
+            t.controller = old.controller;
+            t.inUse = old.inUse;
+        }
+        towers.put(t.key, t);
+        changed();
+    }
+
+    public Tower tower(String key) {
+        return towers.get(key);
+    }
+
+    public java.util.Collection<Tower> towers() {
+        return towers.values();
+    }
+
+    /** The tower of an ICAO code (any dimension), null none. */
+    public Tower towerByIcao(String icao) {
+        for (Tower t : towers.values()) {
+            if (t.icao.equalsIgnoreCase(icao)) {
+                return t;
+            }
+        }
+        return null;
+    }
+
+    /** The other towers' codes (the uniqueness check). */
+    public List<String> icaosExcept(String key) {
+        List<String> l = new ArrayList<String>();
+        for (Tower t : towers.values()) {
+            if (!t.key.equals(key)) {
+                l.add(t.icao);
+            }
+        }
+        return l;
+    }
+
+    /** The tower's block reported in (every REPORT_TICKS / 3): its power, the player in its controller seat. */
+    public void towerReport(String key, boolean powered, String controller, long now) {
+        Tower t = towers.get(key);
+        if (t != null) {
+            t.reportAt = now;
+            t.powered = powered;
+            t.controller = controller == null ? "" : controller;
+        }
+    }
+
+    /** A tower's setting changed from its screen (the runways' names / lights / ILS / clients). */
+    public void towerChanged() {
+        changed();
+    }
+
+    /** The tower a runway belongs to (null none). */
+    public Tower towerOf(IlsPairing.Rwy r) {
+        return r == null ? null : endTower.get(r.a.key);
+    }
+
+    public Tower towerOfEnd(String endKey) {
+        return endTower.get(endKey);
+    }
+
+    /** The runway lights' mode burning at an end: its own (a local override) or its tower's («ВЫШКА»; no tower: AUTO). */
+    public int rwyMode(IlsPairing.End e) {
+        if (e.lights != RunwayLayout.LIGHTS_TOWER) {
+            return e.lights;
+        }
+        Tower t = endTower.get(e.key);
+        return t == null ? RunwayLayout.LIGHTS_AUTO : t.ltRwy;
+    }
+
+    /** The approach lights' mode at an end (the tower's approach step, else as the runway's). */
+    public int alsMode(IlsPairing.End e) {
+        if (e.lights != RunwayLayout.LIGHTS_TOWER) {
+            return e.lights;
+        }
+        Tower t = endTower.get(e.key);
+        return t == null ? RunwayLayout.LIGHTS_AUTO : t.ltAppr;
+    }
+
+    /** The ends of a tower's runways set to a mode (the tower's «сбросить местные»: back to ВЫШКА). @return the ends changed */
+    public List<String> setEndsMode(Tower t, int mode) {
+        List<String> l = new ArrayList<String>();
+        for (IlsPairing.Rwy r : t.rwys) {
+            for (IlsPairing.End e : new IlsPairing.End[] {r.a, r.b}) {
+                if (e.lights != mode) {
+                    e.lights = mode;
+                    l.add(e.key);
+                }
+            }
+        }
+        if (!l.isEmpty()) {
+            changed();
+        }
+        return l;
+    }
+
+    /** The approaches of a tower's airport now (each ILS runway end; the stations' current category) and its entry fixes. */
+    public List<ApproachMath.Approach> approaches(Tower t) {
+        List<ApproachMath.Approach> out = new ArrayList<ApproachMath.Approach>();
+        List<ApproachMath.Fix> ent = entries(t);
+        for (IlsPairing.Pair p : pairs) {
+            if (!t.rwys.contains(p.r)) {
+                continue;
+            }
+            double[] th = p.r.threshold(p.dir);
+            LinerIls.Station s = stations.get(p.key());
+            out.add(ApproachMath.ils(p.r.name(p.dir), th[0], th[1], (int) Math.round(p.r.end(p.dir).elev), p.r.course(p.dir), s, ent));
+        }
+        return out;
+    }
+
+    /** The airport's reference point: the middle of its runways (the tower's place without runways). */
+    public double[] centre(Tower t) {
+        if (t.rwys.isEmpty()) {
+            return new double[] {t.x + 0.5, t.z + 0.5};
+        }
+        double x = 0, z = 0;
+        for (IlsPairing.Rwy r : t.rwys) {
+            double[] m = TowerMath.middle(r);
+            x += m[0];
+            z += m[1];
+        }
+        return new double[] {x / t.rwys.size(), z / t.rwys.size()};
+    }
+
+    public List<ApproachMath.Fix> entries(Tower t) {
+        double[] c = centre(t);
+        return ApproachMath.entries(t.icao, c[0], c[1], t.elev);
+    }
+
+    /** The signature of what a tower's charts show (its code, name, runways, ILS stations and their geometry). */
+    int chartSig(Tower t) {
+        long h = t.icao.hashCode() * 31L + t.name.hashCode();
+        for (IlsPairing.Rwy r : t.rwys) {
+            h = h * 37 + Math.round(r.a.x) * 41 + Math.round(r.a.z) * 43 + Math.round(r.b.x) * 47 + Math.round(r.b.z) * 53 + Math.round(r.elev) * 59
+                    + r.nameA.hashCode() + r.width * 61 + r.a.als * 67 + r.b.als * 71;
+        }
+        for (IlsPairing.Pair p : pairs) {
+            if (t.rwys.contains(p.r)) {
+                h = h * 73 + geoHash(p) + p.loc.ident.hashCode() * 79 + p.loc.freq;
+            }
+        }
+        return (int) (h ^ h >>> 32);
+    }
+
+    // ---------------------------------------------------------------- airport wave B2: the taxi graph
+
+    /**
+     * The taxi graph of a dimension: {List of TaxiGraph.Node, the adjacency, List of Device - every taxi light of the
+     * dimension (the edges too, in a stable order: the clients' index), the taxi version}; rebuilt when a light / a link
+     * changes.
+     */
+    public Object[] taxi(int dim) {
+        Object[] c = taxiCache.get(Integer.valueOf(dim));
+        if (c != null && ((Integer) c[3]).intValue() == taxiVersion) {
+            return c;
+        }
+        List<TaxiGraph.Node> nodes = new ArrayList<TaxiGraph.Node>();
+        List<Device> all = new ArrayList<Device>();
+        for (Device d : devices.values()) {
+            if (d.dim != dim || d.kind < K_TAXI) {
+                continue;
+            }
+            all.add(d);
+            int kind = d.kind == K_TAXI ? TaxiGraph.CENTRE : d.kind == K_STOP ? TaxiGraph.STOP : d.kind == K_STAND ? TaxiGraph.STAND : -1;
+            if (kind >= 0) {
+                nodes.add(new TaxiGraph.Node(d.key, (int) Math.floor(d.x), (int) Math.floor(d.y), (int) Math.floor(d.z), kind));
+            }
+        }
+        Set<String> extra = new HashSet<String>(), cut = new HashSet<String>();
+        for (Tower t : towers.values()) {
+            if (t.dim == dim) {
+                extra.addAll(t.taxiExtra);
+                cut.addAll(t.taxiCut);
+            }
+        }
+        c = new Object[] {nodes, TaxiGraph.build(nodes, extra, cut), all, Integer.valueOf(taxiVersion)};
+        taxiCache.put(Integer.valueOf(dim), c);
+        return c;
+    }
+
+    /** The taxi lights' list changed (or a link): the graph again, the clients' copy again. */
+    public void taxiChanged() {
+        taxiVersion++;
+        taxiCache.clear();
+        version++;
+        markDirty();
+    }
+
+    public int taxiVersion() {
+        return taxiVersion;
     }
 
     /** A block of any kind gone (its key). */
     public void remove(String key) {
-        boolean any = ends.remove(key) != null | locs.remove(key) != null | gss.remove(key) != null | devices.remove(key) != null;
+        Device dv = devices.get(key);
+        if (dv != null && dv.kind >= K_TAXI) {
+            taxiVersion++;
+            taxiCache.clear();
+        }
+        boolean any = ends.remove(key) != null | locs.remove(key) != null | gss.remove(key) != null | devices.remove(key) != null
+                | towers.remove(key) != null;
         if (any) {
             checks.remove(key);
             checkedGeo.remove(key);
@@ -275,6 +633,7 @@ public class AirportDataSVA extends WorldSavedData {
         IlsPairing.magVar = ConfigSVA.aptMagVar;
         runways = IlsPairing.runways(new ArrayList<IlsPairing.End>(ends.values()));
         IlsPairing.airports(runways);
+        applyTowers();                                              // airport wave B2: the towers name their runways
         pairs = IlsPairing.pair(runways, new ArrayList<IlsPairing.LocAnt>(locs.values()), new ArrayList<IlsPairing.GsAnt>(gss.values()));
         conflicts.clear();
         for (String[] c : IlsPairing.conflicts(pairs)) {
@@ -342,7 +701,53 @@ public class AirportDataSVA extends WorldSavedData {
         }
         stations.clear();
         stations.putAll(fresh);
+        // airport wave B2: a tower whose airport changed - its charts' version moves on
+        for (Tower t : towers.values()) {
+            int sig = chartSig(t);
+            if (sig != t.chartSig) {
+                if (t.chartSig != 0) {
+                    t.chartVer++;
+                }
+                t.chartSig = sig;
+                markDirty();
+            }
+        }
         publish(w, true);
+    }
+
+    /**
+     * Airport wave B2: each runway to its nearest tower within TowerMath.RANGE (TowerMath.assign) - named by the tower's ICAO
+     * code instead of «ZZxx»; the towers' runway lists and elevations.
+     */
+    void applyTowers() {
+        endTower.clear();
+        List<Tower> tl = new ArrayList<Tower>(towers.values());
+        List<TowerMath.Site> sites = new ArrayList<TowerMath.Site>();
+        for (Tower t : tl) {
+            sites.add(new TowerMath.Site(t.dim, t.x + 0.5, t.z + 0.5));
+            t.rwys = new ArrayList<IlsPairing.Rwy>();
+        }
+        int[] owner = TowerMath.assign(sites, runways);
+        for (int i = 0; i < runways.size(); i++) {
+            if (owner[i] < 0) {
+                continue;
+            }
+            Tower t = tl.get(owner[i]);
+            IlsPairing.Rwy r = runways.get(i);
+            if (t.icao.length() == 4) {
+                r.apt = t.icao;
+            }
+            t.rwys.add(r);
+            endTower.put(r.a.key, t);
+            endTower.put(r.b.key, t);
+        }
+        for (Tower t : tl) {
+            double e = 0;
+            for (IlsPairing.Rwy r : t.rwys) {
+                e += r.elev;
+            }
+            t.elev = t.rwys.isEmpty() ? t.y : (int) Math.round(e / t.rwys.size());
+        }
     }
 
     /** Puts the FULL stations into IlsDataSVA and takes out the gone ones (all = every station; else the changed only). */
@@ -453,6 +858,8 @@ public class AirportDataSVA extends WorldSavedData {
         u.gsSens = o[3];
         FlightCheck fc = check(p.key());
         u.calibCat = ConfigSVA.aptFlightCheck ? fc.calibCat() : 3;
+        Tower tw = endTower.get(p.r.a.key);
+        u.towerOff = tw != null && tw.ilsOff.contains(p.key());     // airport wave B2: ILS ВЫКЛ on the tower's screen
         IlsCat.Result res = IlsCat.compute(u);
         if (conflicts.contains(p.key())) {
             res.issues.add(Integer.valueOf(IlsCat.I_FREQ));
@@ -689,7 +1096,7 @@ public class AirportDataSVA extends WorldSavedData {
                 }
                 if (r != null) {
                     int prev = d.rvr < 0 ? (int) RvrMath.RVR_MAX : d.rvr;
-                    step = RunwayLayout.step(r.a.lights, x.night, x.rain, prev);
+                    step = RunwayLayout.step(rwyMode(r.a), x.night, x.rain, prev);    // wave B2: the tower's step or the end's own
                 }
                 d.rvr = RvrMath.report(RvrMath.rvr(vis, x.night, step), d.key.hashCode(), now);
             } else if (d.kind == K_WX) {
@@ -819,8 +1226,10 @@ public class AirportDataSVA extends WorldSavedData {
             e.setInteger("W", r.width);
             e.setString("Na", r.nameA);
             e.setString("Nb", r.nameB);
-            e.setInteger("La", r.a.lights);
-            e.setInteger("Lb", r.b.lights);
+            e.setInteger("La", rwyMode(r.a));                       // airport wave B2: what burns (the tower's or the end's own)
+            e.setInteger("Lb", rwyMode(r.b));
+            e.setInteger("Pa", alsMode(r.a));
+            e.setInteger("Pb", alsMode(r.b));
             e.setBoolean("Sa", r.a.als != 0);
             e.setBoolean("Sb", r.b.als != 0);
             int[] ra = rvr(r, 1), rb = rvr(r, -1);
@@ -844,7 +1253,41 @@ public class AirportDataSVA extends WorldSavedData {
             sl.appendTag(e);
         }
         t.setTag("St", sl);
+        // airport wave B2: the towers (their charts' version - an approach chart in hand checks it; the tower map) and the
+        // taxi lights {x, y, z, kind - K_TAXI} in the graph's stable order (the lit ones come by D_TAXI, by index)
+        NBTTagList tw = new NBTTagList();
+        for (Tower x : towers.values()) {
+            if (x.dim != dim) {
+                continue;
+            }
+            NBTTagCompound e = new NBTTagCompound();
+            e.setString("K", x.key);
+            e.setString("Icao", x.icao);
+            e.setString("Name", x.name);
+            e.setInteger("Ver", x.chartVer);
+            e.setIntArray("Pos", new int[] {x.x, x.y, x.z});
+            e.setInteger("Lt", x.ltTaxi);
+            tw.appendTag(e);
+        }
+        t.setTag("Twr", tw);
+        List<Device> tx = devicesOfTaxi(dim);
+        int[] ta = new int[tx.size() * 4];
+        for (int i = 0; i < tx.size(); i++) {
+            Device d = tx.get(i);
+            ta[i * 4] = (int) Math.floor(d.x);
+            ta[i * 4 + 1] = (int) Math.floor(d.y);
+            ta[i * 4 + 2] = (int) Math.floor(d.z);
+            ta[i * 4 + 3] = d.kind - K_TAXI;
+        }
+        t.setIntArray("Tx", ta);
+        t.setInteger("TxV", taxiVersion);
         return t;
+    }
+
+    /** Every taxi light of a dimension in the graph's order (taxi(dim)[2]). */
+    @SuppressWarnings("unchecked")
+    public List<Device> devicesOfTaxi(int dim) {
+        return (List<Device>) taxi(dim)[2];
     }
 
     // ---------------------------------------------------------------- save
@@ -857,12 +1300,23 @@ public class AirportDataSVA extends WorldSavedData {
         devices.clear();
         checks.clear();
         checkedGeo.clear();
+        towers.clear();
+        NBTTagList tl = t.getTagList("Towers", 10);
+        for (int i = 0; i < tl.tagCount(); i++) {
+            Tower tw = Tower.read(tl.getCompoundTagAt(i));
+            if (tw.key.length() > 0) {
+                towers.put(tw.key, tw);
+            }
+        }
+        taxiVersion++;
+        taxiCache.clear();
         NBTTagList l = t.getTagList("Ends", 10);
         for (int i = 0; i < l.tagCount(); i++) {
             NBTTagCompound e = l.getCompoundTagAt(i);
             IlsPairing.End en = new IlsPairing.End(e.getString("K"), e.getInteger("Dim"), e.getDouble("X"), e.getDouble("Z"), e.getDouble("Elev"),
                     e.getDouble("Facing"), e.getInteger("W"));
-            en.lights = e.hasKey("Lights") ? e.getInteger("Lights") : RunwayLayout.LIGHTS_AUTO;
+            en.lights = e.hasKey("Lights") ? Math.max(RunwayLayout.LIGHTS_TOWER, Math.min(RunwayLayout.STEPS, e.getInteger("Lights")))
+                    : RunwayLayout.LIGHTS_AUTO;
             en.als = e.getInteger("Als");
             ends.put(en.key, en);
         }
@@ -992,10 +1446,17 @@ public class AirportDataSVA extends WorldSavedData {
             l.appendTag(e);
         }
         t.setTag("Checks", l);
+        l = new NBTTagList();
+        for (Tower tw : towers.values()) {
+            NBTTagCompound e = new NBTTagCompound();
+            tw.write(e);
+            l.appendTag(e);
+        }
+        t.setTag("Towers", l);
     }
 
     /** World tests: the counts of what is registered {ends, localizers, masts, devices}. */
     public int[] counts() {
-        return new int[] {ends.size(), locs.size(), gss.size(), devices.size()};
+        return new int[] {ends.size(), locs.size(), gss.size(), devices.size(), towers.size()};
     }
 }

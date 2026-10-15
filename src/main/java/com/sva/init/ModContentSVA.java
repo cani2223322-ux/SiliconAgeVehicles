@@ -72,6 +72,10 @@ public final class ModContentSVA {
     public static com.sva.block.BlockAptDeviceSVA aptDevice;
     public static com.sva.block.BlockRunwayEndSVA runwayEnd;
     public static com.sva.item.ItemAptPlannerSVA aptPlanner;
+    // airport wave B2: the control tower, the taxi lights, the approach chart
+    public static com.sva.block.BlockTowerSVA tower;
+    public static com.sva.block.BlockTaxiLightSVA taxiLight;
+    public static com.sva.item.ItemApproachChartSVA approachChart;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -216,6 +220,16 @@ public final class ModContentSVA {
         aptPlanner = new com.sva.item.ItemAptPlannerSVA();
         aptPlanner.setCreativeTab(TAB);
         GameRegistry.registerItem(aptPlanner, "aptPlanner");
+        tower = new com.sva.block.BlockTowerSVA();
+        tower.setCreativeTab(TAB);
+        GameRegistry.registerBlock(tower, com.sva.block.ItemBlockTowerSVA.class, "tower");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityTowerSVA.class, ReferenceSVA.MODID + ":tower");
+        taxiLight = new com.sva.block.BlockTaxiLightSVA();
+        taxiLight.setCreativeTab(TAB);
+        GameRegistry.registerBlock(taxiLight, com.sva.block.ItemBlockTaxiLightSVA.class, "taxiLight");
+        approachChart = new com.sva.item.ItemApproachChartSVA();
+        approachChart.setCreativeTab(TAB);
+        GameRegistry.registerItem(approachChart, "approachChart");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);

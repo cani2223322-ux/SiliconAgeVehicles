@@ -145,6 +145,7 @@ public final class SelfTestSVA {
             SelfTestAdUpgradesSVA.run();                    // upgrades wave: the core's modules in the air-defence blocks
             SelfTestLinerSVA.run();                         // liner wave 1: the SA-320 - controls, ELEC, APU, bleed, engine start, quick start
             SelfTestAirportSVA.run();                       // airport wave B1: ILS, CAT, markers, RVR, wind, runway paint / lights, planner
+            SelfTestAirportB2SVA.run();                     // airport wave B2: tower, ATIS, CPDLC, auto tower, approaches, charts, follow-me
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);

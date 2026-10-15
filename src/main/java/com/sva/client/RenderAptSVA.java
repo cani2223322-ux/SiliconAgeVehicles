@@ -34,6 +34,12 @@ import net.minecraft.world.World;
  * and fluttering in the gusts (airport.WindField from the synced seed - every client sees the same).</li>
  * </ul>
  * airport.models = false: the antennas and devices as plain boxes.
+ * <p>
+ * Airport wave B2 (mock-up veh_airport_impl_b2_1_tower): the «Диспетчерская вышка» - a concrete foot with its door, the
+ * square shaft with the stair windows (lit at night with power), the flared cab floor, the eight-sided cab leaning out
+ * (tinted glass on white mullions; warm-lit at night when powered), the roof with its antenna room, two whip antennas and
+ * the obstruction light, the aerodrome beacon (green / white, every second at night) and the airport's ICAO code on the
+ * shaft.
  */
 @SideOnly(Side.CLIENT)
 public class RenderAptSVA extends TileEntitySpecialRenderer {
@@ -67,6 +73,8 @@ public class RenderAptSVA extends TileEntitySpecialRenderer {
             shelter((TileEntityIlsShelterSVA) te, dist);
         } else if (te instanceof TileEntityAptDeviceSVA) {
             device((TileEntityAptDeviceSVA) te, w, time, full);
+        } else if (te instanceof com.sva.block.TileEntityTowerSVA) {
+            tower((com.sva.block.TileEntityTowerSVA) te, w, time, dist, full);
         }
         GL11.glPopAttrib();
         GL11.glPopMatrix();
@@ -207,6 +215,122 @@ public class RenderAptSVA extends TileEntitySpecialRenderer {
         float[] c = t.clientPowered ? new float[] {0.2F, 1F, 0.35F} : new float[] {1F, 0.15F, 0.1F};
         double r = Math.toRadians(-yaw(meta));
         lamp((float) (Math.cos(r) * 0.5), 0.74F, (float) (Math.sin(r) * 0.5), c, dist);
+    }
+
+    // ---------------------------------------------------------------- airport wave B2: the control tower
+
+    static final float[] CONCRETE = {0.78F, 0.77F, 0.74F}, SHAFT = {0.86F, 0.86F, 0.84F}, GLASS = {0.13F, 0.22F, 0.28F},
+            GLASS_LIT = {0.62F, 0.56F, 0.36F}, SLIT = {0.25F, 0.28F, 0.32F}, SLIT_LIT = {0.95F, 0.85F, 0.55F};
+
+    /** An eight-sided ring of quads from (y0, radius r0) to (y1, r1), each face shaded by its bearing; caps when asked. */
+    static void octa(float y0, float r0, float y1, float r1, float[] c, boolean caps) {
+        GL11.glBegin(GL11.GL_QUADS);
+        for (int i = 0; i < 8; i++) {
+            double a0 = Math.PI / 8 + i * Math.PI / 4, a1 = a0 + Math.PI / 4, am = (a0 + a1) / 2;
+            float sh = (float) (0.7 + 0.3 * Math.cos(am - 0.6));
+            GL11.glColor3f(c[0] * sh, c[1] * sh, c[2] * sh);
+            GL11.glVertex3f((float) Math.cos(a0) * r0, y0, (float) Math.sin(a0) * r0);
+            GL11.glVertex3f((float) Math.cos(a1) * r0, y0, (float) Math.sin(a1) * r0);
+            GL11.glVertex3f((float) Math.cos(a1) * r1, y1, (float) Math.sin(a1) * r1);
+            GL11.glVertex3f((float) Math.cos(a0) * r1, y1, (float) Math.sin(a0) * r1);
+        }
+        GL11.glEnd();
+        if (caps) {
+            GL11.glBegin(GL11.GL_POLYGON);
+            GL11.glColor3f(c[0], c[1], c[2]);
+            for (int i = 0; i < 8; i++) {
+                double a = Math.PI / 8 + i * Math.PI / 4;
+                GL11.glVertex3f((float) Math.cos(a) * r1, y1, (float) Math.sin(a) * r1);
+            }
+            GL11.glEnd();
+            GL11.glBegin(GL11.GL_POLYGON);
+            GL11.glColor3f(c[0] * 0.5F, c[1] * 0.5F, c[2] * 0.5F);
+            for (int i = 7; i >= 0; i--) {
+                double a = Math.PI / 8 + i * Math.PI / 4;
+                GL11.glVertex3f((float) Math.cos(a) * r0, y0, (float) Math.sin(a) * r0);
+            }
+            GL11.glEnd();
+        }
+    }
+
+    private void tower(com.sva.block.TileEntityTowerSVA t, World w, double time, double dist, boolean full) {
+        boolean night = com.sva.vehicle.AirfieldMath.night(w.getCelestialAngle(0F));
+        boolean lit = night && t.clientPowered;
+        float bx = OpenGlHelper.lastBrightnessX, by = OpenGlHelper.lastBrightnessY;
+        GL11.glPushMatrix();
+        GL11.glRotatef(yaw(t.facing), 0F, 1F, 0F);
+        // the foot and its door (local +x: the cab's front)
+        box(-0.6F, 0F, -0.6F, 0.6F, 0.35F, 0.6F, CONCRETE);
+        box(0.6F, 0.02F, -0.14F, 0.62F, 0.3F, 0.14F, DARK);
+        // the shaft with its stair windows
+        box(-0.4F, 0.35F, -0.4F, 0.4F, 4.05F, 0.4F, SHAFT);
+        if (full) {
+            if (lit) {
+                OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+            }
+            for (float y = 0.7F; y < 3.8F; y += 0.55F) {
+                box(0.4F, y, -0.05F, 0.41F, y + 0.3F, 0.05F, lit ? SLIT_LIT : SLIT);
+                box(-0.05F, y + 0.2F, 0.4F, 0.05F, y + 0.5F, 0.41F, lit ? SLIT_LIT : SLIT);
+            }
+            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
+            // the code's plate
+            box(0.4F, 3.3F, -0.3F, 0.42F, 3.55F, 0.3F, DARK);
+        }
+        // the flared floor, the cab (leaning out), its mullions, the roof
+        octa(4.05F, 0.45F, 4.3F, 1.15F, CONCRETE, true);
+        if (lit) {
+            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 200F, 200F);
+        }
+        octa(4.3F, 1.05F, 5.45F, 1.25F, lit ? GLASS_LIT : GLASS, false);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, bx, by);
+        if (full) {
+            for (int i = 0; i < 8; i++) {
+                double a = Math.PI / 8 + i * Math.PI / 4;
+                float x0 = (float) Math.cos(a), z0 = (float) Math.sin(a);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glColor3f(0.92F, 0.92F, 0.9F);
+                float hw = 0.035F;
+                float nx = -z0 * hw, nz = x0 * hw;
+                GL11.glVertex3f(x0 * 1.065F - nx, 4.3F, z0 * 1.065F - nz);
+                GL11.glVertex3f(x0 * 1.065F + nx, 4.3F, z0 * 1.065F + nz);
+                GL11.glVertex3f(x0 * 1.265F + nx, 5.45F, z0 * 1.265F + nz);
+                GL11.glVertex3f(x0 * 1.265F - nx, 5.45F, z0 * 1.265F - nz);
+                GL11.glEnd();
+            }
+            octa(4.85F, 1.155F, 4.9F, 1.165F, WHITE, false);
+        }
+        octa(5.45F, 1.32F, 5.62F, 1.32F, WHITE, true);
+        box(-0.35F, 5.62F, -0.35F, 0.35F, 5.95F, 0.35F, BEIGE);
+        if (full) {
+            box(-0.25F, 5.95F, -0.25F, -0.21F, 6.85F, -0.21F, METAL);
+            box(0.2F, 5.95F, 0.18F, 0.23F, 6.5F, 0.21F, METAL);
+            box(-0.06F, 5.95F, -0.06F, 0.06F, 6.15F, 0.06F, DARK);
+        }
+        GL11.glPopMatrix();
+        // the ICAO code on the plate (the font in the world, as a sign's)
+        if (full && t.clientIcao.length() > 0 && dist < 48) {
+            net.minecraft.client.gui.FontRenderer fr = func_147498_b();
+            if (fr != null) {
+                GL11.glPushMatrix();
+                GL11.glRotatef(yaw(t.facing) + 90F, 0F, 1F, 0F);
+                GL11.glTranslatef(0F, 3.5F, 0.43F);
+                GL11.glScalef(0.016F, -0.016F, 0.016F);
+                GL11.glEnable(GL11.GL_TEXTURE_2D);
+                GL11.glDepthMask(false);
+                fr.drawString(t.clientIcao, -fr.getStringWidth(t.clientIcao) / 2, 0, 0xFFFFFF);
+                GL11.glDepthMask(true);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                GL11.glPopMatrix();
+            }
+        }
+        // the lights: the obstruction light on the whip; the beacon green / white once a second at night
+        if (night) {
+            lamp(-0.23F, 6.9F, -0.23F, new float[] {1F, 0.12F, 0.08F}, dist);
+            if (t.clientPowered) {
+                boolean green = ((long) (time / 20)) % 2 == 0;
+                lamp(0F, 6.2F, 0F, green ? new float[] {0.2F, 1F, 0.4F} : new float[] {1F, 1F, 0.95F}, dist * 1.6);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- the devices

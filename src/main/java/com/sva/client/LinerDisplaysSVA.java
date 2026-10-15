@@ -299,6 +299,9 @@ public final class LinerDisplaysSVA {
         LinerGfxSVA.layer();
         LinerGfxSVA.frameRect(90 * s, 262 * s, 190 * s, 276 * s, 1F * s, WHT);
         LinerGfxSVA.text(A.gps ? "GPS PRIMARY" : "IRS ONLY", w / 2, 269 * s, 8 * s, WHT, 0);
+        if (L.atcUnread > 0 && (System.currentTimeMillis() / 500) % 2 == 0) {
+            LinerGfxSVA.text("ATC MSG", w / 2, 252 * s, 9 * s, AMB, 0);  // airport wave B2: an unread uplink
+        }
         LinerGfxSVA.text(Lang.tr("sva.liner.pos." + LinerControls.ND_MODES[mode]), 6 * s, 269 * s, 7 * s, GRN, -1);
         LinerGfxSVA.text(tr("range", Integer.valueOf(Math.round(range))), 274 * s, 269 * s, 7 * s, CYN, 1);
     }

@@ -340,6 +340,13 @@ public final class LinerSystems {
     public double towSteer;
     /** Events of this tick past E_*: the stall warning's aural (ALTN / DIRECT), the cabin call, the priority taken, a fire. */
     public static final int E_STALL = 16384, E_PA = 32768, E_PRIORITY = 65536, E_FIRE = 1 << 17;
+    /** Airport wave B2: an ATC MSG push button pressed - the server marks the datalink's uplinks read (LinerLogicSVA clears it). */
+    public boolean atcAck;
+    /**
+     * Airport wave B2 (synced in the seventh part): the datalink's unread uplinks (block.AtcServerSVA - the server sets it
+     * every tick) - the amber «ATC MSG» push buttons on the glare shield flash and the PFD / ND show the memo while it is > 0.
+     */
+    public int atcUnread;
     /** The stall aural repeats this often (ticks). */
     public static final int STALL_EVERY = 10;
 
@@ -530,6 +537,12 @@ public final class LinerSystems {
         if (c == LinerControls.MW_L || c == LinerControls.MW_R) {
             ecam.masterWarn(this);
             afs.cancelApWarn("masterWarn");                         // the AP OFF fix: the A320's MASTER WARN cancels AP OFF + the cavalry
+            return true;
+        }
+        if (c == LinerControls.ATC_MSG_L || c == LinerControls.ATC_MSG_R) {
+            events |= E_CLICK;
+            atcAck = true;                                          // airport wave B2: the uplinks read (LinerLogicSVA)
+            atcUnread = 0;
             return true;
         }
         if (c == LinerControls.MC_L || c == LinerControls.MC_R) {
@@ -2113,7 +2126,7 @@ public final class LinerSystems {
     /** The seventh part (wave 7): LinerAdirs' words, the flags (doors, chocks, tow, priority, ALTN 2), the fire, the trim. */
     private int[] wave7Numbers() {
         int[] a = adirs.pack();
-        int[] all = new int[a.length + 6];
+        int[] all = new int[a.length + 7];
         System.arraycopy(a, 0, all, 0, a.length);
         int o = a.length;
         all[o] = (doorR1 ? 1 : 0) | (cargoF ? 2 : 0) | (cargoA ? 4 : 0) | (chocks ? 8 : 0) | (towed ? 16 : 0) | (foPriority ? 32 : 0)
@@ -2123,6 +2136,7 @@ public final class LinerSystems {
         all[o + 3] = r(fctl.manTrim * 10);
         all[o + 4] = tugId;
         all[o + 5] = r(towSteer);
+        all[o + 6] = atcUnread;                                     // airport wave B2
         return all;
     }
 
@@ -2145,6 +2159,7 @@ public final class LinerSystems {
         fctl.manTrim = w[o + 3] / 10F;
         tugId = w[o + 4];
         towSteer = w[o + 5];
+        atcUnread = w.length > o + 6 ? w[o + 6] : 0;
     }
 
     /** The sixth part (wave 6): LinerLights' words, LinerIce's words, the heaters' / lights' loads. */

@@ -133,7 +133,8 @@ public final class AirDefenseClientSVA {
                 NBTTagList a = t.getTagList("A", 8);
                 Object[] args = new Object[a.tagCount()];
                 for (int i = 0; i < args.length; i++) {
-                    args[i] = a.getStringTagAt(i);
+                    String s = a.getStringTagAt(i);
+                    args[i] = s.startsWith("#") && s.length() > 1 ? Lang.tr(s.substring(1)) : s;   // airport wave B2: a key argument
                 }
                 msg = Lang.tr(t.getString("K"), args);
                 msgColour = t.getInteger("C");

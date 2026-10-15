@@ -22,13 +22,17 @@ import net.minecraft.tileentity.TileEntity;
  * course, width, lights, ALS). Run on the server thread through ServerQueueSVA, the player within reach of the block.
  * Data (S->C): the airport's copy for the clients (D_SYNC: block.AirportDataSVA.clientData - the runways for their paint and
  * lights, the stations' status, the wind's seed) - on login, on a dimension change and when something changes.
+ * <p>
+ * Airport wave B2: Cmd TOWER - the tower screen's commands (block.TowerScreenSVA.command: the player within 16 blocks of
+ * the tower's foot); Data D_TOWER - the tower screen's picture (TowerScreenSVA.snapshot, every 10 ticks while open), D_TAXI
+ * - the lit taxi lights / stop bars of the dimension (block.AtcServerSVA, when they change).
  */
 public final class NetAptSVA {
 
     public static final SimpleNetworkWrapper CHANNEL = NetworkRegistry.INSTANCE.newSimpleChannel("SAVehiclesApt");
 
-    public static final int SET_ANTENNA = 1, SET_END = 2;
-    public static final int D_SYNC = 1;
+    public static final int SET_ANTENNA = 1, SET_END = 2, TOWER = 3;
+    public static final int D_SYNC = 1, D_TOWER = 2, D_TAXI = 3;
 
     private NetAptSVA() {
     }
@@ -101,10 +105,15 @@ public final class NetAptSVA {
 
     /** Server: a screen's values for the block (only within 8 blocks of it). */
     static void command(EntityPlayerMP p, Cmd m) {
-        if (p == null || p.worldObj == null || p.getDistanceSq(m.x + 0.5, m.y + 0.5, m.z + 0.5) > 100 || !p.worldObj.blockExists(m.x, m.y, m.z)) {
+        double reach = m.op == TOWER ? 256 : 100;
+        if (p == null || p.worldObj == null || p.getDistanceSq(m.x + 0.5, m.y + 0.5, m.z + 0.5) > reach || !p.worldObj.blockExists(m.x, m.y, m.z)) {
             return;
         }
         TileEntity te = p.worldObj.getTileEntity(m.x, m.y, m.z);
+        if (m.op == TOWER && te instanceof com.sva.block.TileEntityTowerSVA) {
+            com.sva.block.TowerScreenSVA.command(p, (com.sva.block.TileEntityTowerSVA) te, m.data);
+            return;
+        }
         if (m.op == SET_ANTENNA && te instanceof TileEntityIlsAntennaSVA) {
             ((TileEntityIlsAntennaSVA) te).set(m.data.getString("Ident"), m.data.getInteger("Freq"), m.data.getDouble("Angle"));
         } else if (m.op == SET_END && te instanceof TileEntityRunwayEndSVA) {

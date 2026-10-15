@@ -446,6 +446,11 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         return wasAirborne;
     }
 
+    /** Airport wave B2: in the air (the tower's view - the server's flight rules' flag, else not on the ground). */
+    public boolean airborneForAtc() {
+        return wasAirborne || !onGround && heightAboveGround(4) >= 3;
+    }
+
     java.util.Random rand() {
         return rand;
     }

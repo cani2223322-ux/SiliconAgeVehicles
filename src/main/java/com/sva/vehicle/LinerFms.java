@@ -82,6 +82,8 @@ public final class LinerFms {
         public int elev = 64, hdg;
         public String rwy = "", ils = "";
         public boolean ovfy;
+        /** Airport wave B2: an entry of the approach chosen on the «ЗАХОД» page (the transition, IF, FAF; its missed approach). */
+        public boolean proc;
         /** Predictions (profile()): along the plan (blocks), altitude, speed (km/h), ticks from now, fuel left (mB). */
         public double s, pAlt, pSpd, pTicks, pFuel;
 
@@ -99,6 +101,7 @@ public final class LinerFms {
             w.rwy = rwy;
             w.ils = ils;
             w.ovfy = ovfy;
+            w.proc = proc;
             w.s = s;
             w.pAlt = pAlt;
             w.pSpd = pSpd;
@@ -124,6 +127,9 @@ public final class LinerFms {
             t.setString("R", rwy);
             t.setString("I", ils);
             t.setBoolean("O", ovfy);
+            if (proc) {
+                t.setBoolean("P", true);
+            }
         }
 
         static Wp read(NBTTagCompound t) {
@@ -140,6 +146,7 @@ public final class LinerFms {
             w.rwy = t.getString("R");
             w.ils = t.getString("I");
             w.ovfy = t.getBoolean("O");
+            w.proc = t.getBoolean("P");
             if (Double.isNaN(w.x) || Double.isNaN(w.z)) {
                 w.x = 0;
                 w.z = 0;
@@ -183,6 +190,8 @@ public final class LinerFms {
     public boolean apprActive;
     /** The take-off weight (t) the V-speeds were entered for (-1 none): a change - «ПРОВЕРЬ ДАННЫЕ ВЗЛЁТА». */
     public double towAtV = -1;
+    /** Airport wave B2: the approach chosen on the «ЗАХОД» page («ILS27L», "" none) and its transition (the entry fix, "" none). */
+    public String appr = "", via = "";
 
     // ---------------------------------------------------------------- state: the plan
 
@@ -270,6 +279,8 @@ public final class LinerFms {
         Wp d = airportWp(t, "", K_DEST);
         pts.add(d);
         pts.add(missed(d));
+        appr = "";
+        via = "";
         active = 1;
         phase = PH_PRE;
         apprActive = false;
@@ -286,11 +297,93 @@ public final class LinerFms {
         }
         Wp d = airportWp(a, rwyId, K_DEST);
         pts.set(i, d);
-        if (i + 1 < pts.size() && pts.get(i + 1).kind == K_MISSED) {
-            pts.set(i + 1, missed(d));
+        // airport wave B2: the chosen approach's entries go with its runway (back to the plain missed approach point)
+        for (int k = i - 1; k >= Math.max(0, active); k--) {
+            if (pts.get(k).proc) {
+                pts.remove(k);
+                i--;
+            }
         }
+        boolean hadMissed = false;
+        while (i + 1 < pts.size() && pts.get(i + 1).kind == K_MISSED) {
+            pts.remove(i + 1);
+            hadMissed = true;
+        }
+        if (hadMissed) {
+            pts.add(i + 1, missed(d));
+        }
+        appr = "";
+        via = "";
+        tidy(pts);
         rev++;
         return true;
+    }
+
+    /**
+     * Airport wave B2 (plan-next §9, item 33): an approach of the destination (airport.ApproachMath, the MCDU's «ЗАХОД» page)
+     * into the temporary plan - the destination moves to its runway's threshold (with the runway's ILS: the RAD NAV's
+     * auto-tuning), the previous approach's entries go, the transition's entry fix (`viaId`, "" none - at or above), the IF
+     * (at or above) and the FAF (at) come before it, the missed approach (the climb point at or above, the return fix at)
+     * after it; ВСТАВИТЬ makes it the plan. @return done (false: not the destination's airport, no such runway, the plan
+     * full)
+     */
+    public boolean insertApproach(NavDb.Airport a, com.sva.airport.ApproachMath.Approach ap, String viaId) {
+        if (a == null || ap == null || !a.ident.equals(to) || destIndex(shown()) < 0) {
+            return false;
+        }
+        NavDb.Rwy r = a.rwy(ap.rwy);
+        if (r == null || !r.id.equals(ap.rwy)) {
+            return false;
+        }
+        List<Wp> l = edit();
+        int act = tmpActive;
+        int di = destIndex(l);
+        for (int k = di - 1; k >= Math.max(0, act); k--) {
+            if (l.get(k).proc) {
+                l.remove(k);
+                di--;
+            }
+        }
+        while (di + 1 < l.size() && (l.get(di + 1).kind == K_MISSED || l.get(di + 1).proc)) {
+            l.remove(di + 1);
+        }
+        Wp d = airportWp(a, ap.rwy, K_DEST);
+        l.set(di, d);
+        List<Wp> before = new ArrayList<Wp>();
+        if (viaId != null && viaId.length() > 0) {
+            for (com.sva.airport.ApproachMath.Fix f : ap.trans) {
+                if (f.id.equals(viaId)) {
+                    before.add(procWp(f, K_WPT));
+                }
+            }
+        }
+        for (com.sva.airport.ApproachMath.Fix f : ap.fixes) {
+            before.add(procWp(f, K_WPT));
+        }
+        List<Wp> after = new ArrayList<Wp>();
+        for (com.sva.airport.ApproachMath.Fix f : ap.missed) {
+            after.add(procWp(f, K_MISSED));
+        }
+        if (l.size() + before.size() + after.size() > MAX) {
+            return false;
+        }
+        l.addAll(di + 1, after);
+        l.addAll(di, before);
+        tidy(l);
+        appr = ap.id;
+        via = viaId == null ? "" : viaId;
+        rev++;
+        return true;
+    }
+
+    /** An approach fix as a plan entry (its constraint; the approach's own - `proc`). */
+    static Wp procWp(com.sva.airport.ApproachMath.Fix f, int kind) {
+        Wp w = wpt(f.id, f.x, f.z);
+        w.kind = kind;
+        w.cst = f.cst == com.sva.airport.ApproachMath.C_AT ? C_AT : C_ABOVE;
+        w.alt = clamp(f.alt, ALT_MIN, ALT_MAX);
+        w.proc = true;
+        return w;
     }
 
     /** An airport's entry at a runway's threshold ("" the first runway; none: the airport's point). */
@@ -503,10 +596,10 @@ public final class LinerFms {
     /** The vehicle map's «Маршрут» set on the liner: the plan becomes the origin (if any), those points, the destination (if any). */
     public void importMap(RouteMath.Plan p) {
         Wp o = origin(), d = dest();
-        Wp m = null;
+        List<Wp> m = new ArrayList<Wp>();
         int di = destIndex(pts);
-        if (di >= 0 && di + 1 < pts.size() && pts.get(di + 1).kind == K_MISSED) {
-            m = pts.get(di + 1);
+        for (int k = di + 1; di >= 0 && k < pts.size() && pts.get(k).kind == K_MISSED; k++) {
+            m.add(pts.get(k));                                      // airport wave B2: an approach's missed approach has two
         }
         pts.clear();
         tmp = null;
@@ -520,9 +613,7 @@ public final class LinerFms {
         }
         if (d != null) {
             pts.add(d);
-            if (m != null) {
-                pts.add(m);
-            }
+            pts.addAll(m);
         }
         active = Math.min(pts.size(), first + Math.max(0, p.active));
         rev++;
@@ -1248,6 +1339,8 @@ public final class LinerFms {
                 ldgConf, apprActive ? 1 : 0, (int) Math.round(towAtV * 100), phase});
         t.setTag("Plan", list(pts));
         t.setInteger("Active", active);
+        t.setString("Appr", appr);
+        t.setString("Via", via);
         if (tmp != null) {
             t.setTag("Tmpy", list(tmp));
             t.setInteger("TmpyActive", tmpActive);
@@ -1308,6 +1401,8 @@ public final class LinerFms {
         pts.clear();
         readList(t.getTagList("Plan", 10), pts);
         active = clamp(t.getInteger("Active"), 0, pts.size());
+        appr = t.getString("Appr");
+        via = t.getString("Via");
         tmp = null;
         if (t.hasKey("Tmpy")) {
             tmp = new ArrayList<Wp>();

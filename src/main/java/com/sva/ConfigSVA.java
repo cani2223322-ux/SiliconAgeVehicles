@@ -337,6 +337,26 @@ public final class ConfigSVA {
     /** Client: how far (blocks) the runways' paint and lights are drawn. */
     public static int aptDrawDistance = 1500;
 
+    // ---------------------------------------------------------------- airport wave B2 (category "airport")
+    /** The towers' air-traffic services: ATIS, the datalink (CPDLC), the automatic tower, the follow-me lights. */
+    public static boolean aptAtc = true;
+    /** A tower without a player in its controller seat runs the automatic rules. */
+    public static boolean aptAutoTower = true;
+    /** A player in the controller seat takes over from the automatic tower (off: the automatic rules keep running beside him). */
+    public static boolean aptControllerOverride = true;
+    /** The automatic tower's minimum interval between two runway movements (seconds). */
+    public static int aptAutoInterval = 20;
+    /** The automatic tower sends an arrival around when the runway is occupied and it is below this height over it (blocks). */
+    public static int aptGoAroundHeight = 25;
+    /** The tower's upkeep (EU/t). */
+    public static int aptTowerEu = 32;
+    /** A tower makes / keeps an air-defence «аэродром» zone round its airport. */
+    public static boolean aptAdZone = true;
+    /** ATIS in the chat of the pilots who come within 30 km-eq of an airport (once per letter). */
+    public static boolean aptAtisChat = true;
+    /** The follow-me taxi lights lit ahead of a cleared aircraft (nodes). */
+    public static int aptTaxiAhead = 10;
+
     private ConfigSVA() {
     }
 
@@ -722,6 +742,20 @@ public final class ConfigSVA {
         aptLightsFar = c.getBoolean("lightsFar", a, true, "Client: the lights seen beyond the fog / Клиент: огни видны сквозь туман");
         aptModels = c.getBoolean("models", a, true, "Client: 3D models of the ILS antennas and devices / Клиент: 3D-модели антенн и приборов");
         aptDrawDistance = c.getInt("drawDistance", a, 1500, 128, 4000, "Client: runway paint / lights distance, blocks / Клиент: дальность разметки и огней");
+        // airport wave B2: the tower, ATIS, CPDLC, the automatic tower, follow-me
+        aptAtc = c.getBoolean("atc", a, true, "Towers' services: ATIS, datalink, automatic tower, follow-me lights / Службы вышки: ATIS, CPDLC, авто-вышка");
+        aptAutoTower = c.getBoolean("autoTower", a, true,
+                "A tower with nobody in its controller seat runs the automatic rules / Вышка без диспетчера работает автоматически");
+        aptControllerOverride = c.getBoolean("controllerOverride", a, true,
+                "A player controller takes over from the automatic tower / Игрок-диспетчер заменяет авто-вышку");
+        aptAutoInterval = c.getInt("autoInterval", a, 20, 5, 300,
+                "Automatic tower: minimum interval between runway movements, s / Авто-вышка: интервал между движениями на полосе, с");
+        aptGoAroundHeight = c.getInt("goAroundHeight", a, 25, 5, 120,
+                "Automatic tower: go-around below this height over an occupied runway, blocks / Уход на второй круг ниже этой высоты, блоков");
+        aptTowerEu = c.getInt("towerEu", a, 32, 0, 10000, "Control tower upkeep, EU/t / Расход диспетчерской вышки, EU/т");
+        aptAdZone = c.getBoolean("adZone", a, true, "A tower keeps an air-defence 'aerodrome' zone / Вышка создаёт зону ПВО 'аэродром'");
+        aptAtisChat = c.getBoolean("atisChat", a, true, "ATIS in the pilots' chat near an airport / ATIS в чат пилотам у аэродрома");
+        aptTaxiAhead = c.getInt("taxiAhead", a, 10, 3, 40, "Follow-me: taxi lights lit ahead of the aircraft / Огни рулёжки впереди самолёта");
     }
 
     /** NaN / infinity -> default, else clamped into [min, max] (pure; the self-test checks it). */

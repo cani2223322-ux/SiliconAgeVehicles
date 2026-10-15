@@ -123,7 +123,8 @@ public class GuiAptSVA extends GuiScreen {
             case 1:
                 return rwyWidth + " " + tr("blocks");
             case 2:
-                return lights == RunwayLayout.LIGHTS_AUTO ? tr("auto") : lights == 0 ? tr("off") : String.valueOf(lights);
+                return lights == RunwayLayout.LIGHTS_TOWER ? tr("tower") : lights == RunwayLayout.LIGHTS_AUTO ? tr("auto") : lights == 0 ? tr("off")
+                        : String.valueOf(lights);
             default:
                 return als != 0 ? tr("on") : tr("off");
         }
@@ -319,7 +320,7 @@ public class GuiAptSVA extends GuiScreen {
         } else if (row == 1) {
             rwyWidth = Math.max(IlsPairing.WIDTH_MIN, Math.min(IlsPairing.WIDTH_MAX, rwyWidth + d));
         } else if (row == 2) {
-            lights = Math.max(RunwayLayout.LIGHTS_AUTO, Math.min(RunwayLayout.STEPS, lights + d));
+            lights = Math.max(RunwayLayout.LIGHTS_TOWER, Math.min(RunwayLayout.STEPS, lights + d));   // wave B2: ВЫШКА below АВТО
         } else {
             als = als != 0 ? 0 : 1;
         }

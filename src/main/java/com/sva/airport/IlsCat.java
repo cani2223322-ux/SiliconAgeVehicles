@@ -56,9 +56,11 @@ public final class IlsCat {
     /** Issues (lang sva.apt.issue.KEY, hint sva.apt.hint.KEY). */
     public static final int I_NO_POWER = 0, I_LOC_BROKEN = 1, I_GS_BROKEN = 2, I_NO_GS = 3, I_LOC_LAT = 4, I_LOC_BEYOND = 5, I_GS_OFFSET = 6,
             I_GS_SETBACK = 7, I_TCH = 8, I_LOC_MON = 9, I_GS_MON = 10, I_LOC_CRIT = 11, I_GS_CRIT = 12, I_LOC_SENS = 13, I_GS_SENS = 14,
-            I_UNCAL = 15, I_CALIB = 16, I_LOC_TRIP = 17, I_GS_TRIP = 18, I_FREQ = 19, I_UNPAIRED = 20, I_NO_RWY = 21, ISSUES = 22;
+            I_UNCAL = 15, I_CALIB = 16, I_LOC_TRIP = 17, I_GS_TRIP = 18, I_FREQ = 19, I_UNPAIRED = 20, I_NO_RWY = 21,
+            /** Airport wave B2: the tower switched the station off. */
+            I_TOWER_OFF = 22, ISSUES = 23;
     public static final String[] ISSUE_KEYS = {"noPower", "locBroken", "gsBroken", "noGs", "locLat", "locBeyond", "gsOffset", "gsSetback", "tch",
-        "locMon", "gsMon", "locCrit", "gsCrit", "locSens", "gsSens", "uncal", "calib", "locTrip", "gsTrip", "freq", "unpaired", "noRwy"};
+        "locMon", "gsMon", "locCrit", "gsCrit", "locSens", "gsSens", "uncal", "calib", "locTrip", "gsTrip", "freq", "unpaired", "noRwy", "towerOff"};
 
     private IlsCat() {
     }
@@ -72,6 +74,8 @@ public final class IlsCat {
         public int locCrit, gsCrit, locSens, gsSens;
         /** The flight inspection's category (0 none yet). */
         public int calibCat;
+        /** Airport wave B2: the tower has switched the station off (ILS ВЫКЛ on its screen). */
+        public boolean towerOff;
     }
 
     /** The category, the status bits (LinerIls.F_*), the bends' amplitudes, the issues (I_*). */
@@ -194,6 +198,10 @@ public final class IlsCat {
         } else if (u.calibCat < c) {
             c = u.calibCat;
             r.issue(I_CALIB);
+        }
+        if (u.towerOff) {
+            f |= LinerIls.F_OFF | LinerIls.F_LOC_FAIL | LinerIls.F_GS_FAIL;   // airport wave B2: off from the tower - nothing radiated
+            r.issue(I_TOWER_OFF);
         }
         if ((f & (LinerIls.F_OFF | LinerIls.F_NO_POWER)) != 0) {
             c = 0;

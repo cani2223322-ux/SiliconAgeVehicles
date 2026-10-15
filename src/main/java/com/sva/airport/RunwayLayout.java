@@ -29,12 +29,19 @@ public final class RunwayLayout {
 
     /** The lights' mode of a runway end: AUTO, or a fixed step 0 (off) .. 5. */
     public static final int LIGHTS_AUTO = -1, STEPS = 5;
+    /**
+     * Airport wave B2: a runway end's mode «ВЫШКА» - its lights follow the tower that owns its runway (the tower's runway /
+     * approach steps); without a tower it is AUTO. Any other mode on the end's own screen is a local override.
+     */
+    public static final int LIGHTS_TOWER = -2;
     /** Intensity of each step (0 = off). */
     public static final double[] LEVEL = {0, 0.3, 0.5, 0.7, 0.85, 1.0};
     /** AUTO: on under this RVR (m-eq), the brightest under AUTO_RVR_LOW. */
     public static final double AUTO_RVR = 1500, AUTO_RVR_LOW = 800;
     /** Light colours. */
-    public static final int WHITE = 0, YELLOW = 1, RED = 2, GREEN = 3, FLASH = 4;
+    public static final int WHITE = 0, YELLOW = 1, RED = 2, GREEN = 3, FLASH = 4,
+            /** Airport wave B2: the taxiways' blue edge lights. */
+            BLUE = 5;
     /** Spacing (blocks). */
     public static final double EDGE_STEP = 6, EDGE_YELLOW = 60, CL_STEP = 1.5, CL_ALT = 90, CL_RED = 30, TDZ_STEP = 3, TDZ_LEN = 90,
             ALS_STEP = 3, ALS_LEN = 90, ALS_FLASH_END = 30, THR_STEP = 0.5;
@@ -300,7 +307,7 @@ public final class RunwayLayout {
 
     /** The step burning: the end's mode (AUTO or fixed) with the conditions. */
     public static int step(int mode, boolean night, boolean rain, double rvr) {
-        if (mode == LIGHTS_AUTO) {
+        if (mode == LIGHTS_AUTO || mode == LIGHTS_TOWER) {
             return autoStep(night, rain, rvr);
         }
         return Math.max(0, Math.min(STEPS, mode));

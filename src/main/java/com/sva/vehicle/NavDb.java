@@ -29,9 +29,11 @@ public final class NavDb {
     /** Where an entry came from. */
     public static final int SRC_ILS = 0, SRC_ZONE = 1, SRC_PILOT = 2, SRC_BASE = 3,
             /** Airport wave B1: a runway of two «Торец полосы» markers (its ICAO placeholder airport). */
-            SRC_RWY = 4;
+            SRC_RWY = 4,
+            /** Airport wave B2: an airport named by its «Диспетчерская вышка» (ICAO, approaches, entry fixes). */
+            SRC_TOWER = 5;
     /** Lang key part per source (sva.mcdu.src.KEY). */
-    public static final String[] SRC_KEYS = {"ils", "zone", "pilot", "base", "rwy"};
+    public static final String[] SRC_KEYS = {"ils", "zone", "pilot", "base", "rwy", "tower"};
     /** Beacons with one ident this close (blocks) are one airport. */
     public static final double SAME_AIRPORT = 3000;
     /** A runway's length when nothing tells it (blocks): the localizer antenna's distance beyond the threshold. */
@@ -69,6 +71,19 @@ public final class NavDb {
         public double x, z;
         public int elev = 64;
         public final List<Rwy> rwys = new ArrayList<Rwy>();
+        /** Airport wave B2: the tower's name ("" none) and its published approaches (ApproachMath; the MCDU's «ЗАХОД»). */
+        public String name = "";
+        public final List<com.sva.airport.ApproachMath.Approach> apprs = new ArrayList<com.sva.airport.ApproachMath.Approach>();
+
+        /** The approach by its id («ILS27L»), null none. */
+        public com.sva.airport.ApproachMath.Approach approach(String id) {
+            for (com.sva.airport.ApproachMath.Approach a : apprs) {
+                if (a.id.equals(id)) {
+                    return a;
+                }
+            }
+            return null;
+        }
 
         /** The runway by designator ("27"), the first one for "" / unknown; null without runways. */
         public Rwy rwy(String id) {
@@ -88,9 +103,11 @@ public final class NavDb {
             a.x = x;
             a.z = z;
             a.elev = elev;
+            a.name = name;
             for (Rwy r : rwys) {
                 a.rwys.add(r.copy());
             }
+            a.apprs.addAll(apprs);
             return a;
         }
 
@@ -377,6 +394,22 @@ public final class NavDb {
         r.hdg = (int) Math.round(LinerIls.wrap360(course)) % 360;
         r.len = len;
         a.rwys.add(r);
+    }
+
+    /** Airport wave B2: the lists sorted by ident again (the towers' airports and fixes added after build()). */
+    public void sort() {
+        java.util.Collections.sort(airports, new java.util.Comparator<Airport>() {
+            @Override
+            public int compare(Airport p, Airport q) {
+                return p.ident.compareTo(q.ident);
+            }
+        });
+        java.util.Collections.sort(wpts, new java.util.Comparator<Wpt>() {
+            @Override
+            public int compare(Wpt p, Wpt q) {
+                return p.ident.compareTo(q.ident);
+            }
+        });
     }
 
     /** The «База» waypoint's ident. */

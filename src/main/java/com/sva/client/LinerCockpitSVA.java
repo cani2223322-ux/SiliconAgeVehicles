@@ -440,6 +440,17 @@ public final class LinerCockpitSVA {
                 }
                 int[] lit = lamps(c, L);
                 float h = c.h / 2 - 2;
+                if (c == LinerControls.ATC_MSG_L || c == LinerControls.ATC_MSG_R) {
+                    // airport wave B2: «ATC MSG» - the whole face amber while an uplink is unread (flashing)
+                    float hw = c.w / 2 - 2;
+                    LinerGfxSVA.layer();
+                    LinerGfxSVA.rect(c.cx - hw + 3, c.cy - h + 3, c.cx + hw - 3, c.cy + h - 3, power && lit[0] != 0 ? scale(lit[0], 0.6F) : 0x262626);
+                    LinerGfxSVA.layer();
+                    int tc = power && lit[0] != 0 ? 0x1A1000 : 0x8A7A50;
+                    LinerGfxSVA.text("ATC", c.cx, c.cy - h / 2 + 1, c.h * 0.24F, tc, 0, c.w - 8);
+                    LinerGfxSVA.text("MSG", c.cx, c.cy + h / 2 - 1, c.h * 0.24F, tc, 0, c.w - 8);
+                    break;
+                }
                 if (c == LinerControls.MW_L || c == LinerControls.MW_R || c == LinerControls.MC_L || c == LinerControls.MC_R) {
                     if (power && lit[0] != 0) {
                         // the master lamps light whole: «ГЛАВН. / ОПАСН.» red, «ГЛАВН. / ВНИМ.» amber
@@ -618,6 +629,9 @@ public final class LinerCockpitSVA {
         }
         if ((c == LinerControls.MC_L || c == LinerControls.MC_R) && L.masterCaut) {
             top = bot = L_AMB;
+        }
+        if ((c == LinerControls.ATC_MSG_L || c == LinerControls.ATC_MSG_R) && L.atcUnread > 0 && L.powered() && flash) {
+            top = bot = L_AMB;                                      // airport wave B2: an unread uplink
         }
         return new int[] {top, bot};
     }

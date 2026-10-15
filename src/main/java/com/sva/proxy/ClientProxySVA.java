@@ -44,6 +44,7 @@ public class ClientProxySVA extends CommonProxySVA {
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityIlsAntennaSVA.class, apt);
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityIlsShelterSVA.class, apt);
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityAptDeviceSVA.class, apt);
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityTowerSVA.class, apt);    // wave B2
         // multiblock wave: the air-defence structures as models (one renderer, on the master)
         com.sva.client.RenderAirDefenseSVA ad = new com.sva.client.RenderAirDefenseSVA();
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityRadarSVA.class, ad);
@@ -247,6 +248,25 @@ public class ClientProxySVA extends CommonProxySVA {
         if (te != null) {
             mc.displayGuiScreen(new com.sva.client.GuiAptSVA(te));  // airport wave B1
         }
+    }
+
+    @Override
+    public void openTower(int x, int y, int z) {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        net.minecraft.tileentity.TileEntity te = mc.theWorld == null ? null : mc.theWorld.getTileEntity(x, y, z);
+        if (te instanceof com.sva.block.TileEntityTowerSVA) {
+            mc.displayGuiScreen(new com.sva.client.GuiTowerSVA((com.sva.block.TileEntityTowerSVA) te));   // airport wave B2
+        }
+    }
+
+    @Override
+    public void openChart(net.minecraft.item.ItemStack s) {
+        net.minecraft.client.Minecraft.getMinecraft().displayGuiScreen(new com.sva.client.GuiChartSVA(s));     // airport wave B2
+    }
+
+    @Override
+    public int chartVersion(String icao) {
+        return com.sva.client.AirportClientSVA.chartVersion(icao);
     }
 
     @Override

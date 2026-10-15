@@ -368,6 +368,9 @@ public final class LinerPfdSVA {
         if (F.msg != LinerAfs.MSG_NONE) {
             LinerGfxSVA.text(LinerDisplaysSVA.trAny("sva.liner.fma." + LinerAfs.MSG_KEYS[F.msg]), cw * 2, 33 * s, 7 * s,
                     F.msg == LinerAfs.MSG_TRIM ? AMB : WHT, 0, cw * 2 - 6 * s);
+        } else if (L.atcUnread > 0) {
+            // airport wave B2: the datalink's memo - an uplink unread
+            LinerGfxSVA.text("ATC MSG", cw * 2, 33 * s, 7 * s, AMB, 0, cw * 2 - 6 * s);
         }
         // column 4: the approach capability
         int cap = F.capability();

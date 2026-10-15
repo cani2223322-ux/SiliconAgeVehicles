@@ -81,6 +81,17 @@ public class AirDefenseDataSVA extends WorldSavedData {
         return out;
     }
 
+    /** Airport wave B2: every zone but those kept under a key prefix (the towers' «twr:» - the MCDU's database names their airports itself). */
+    public List<ZoneMath.Zone> allExcept(String prefix) {
+        List<ZoneMath.Zone> out = new ArrayList<ZoneMath.Zone>();
+        for (Map.Entry<String, List<ZoneMath.Zone>> e : zones.entrySet()) {
+            if (!e.getKey().startsWith(prefix)) {
+                out.addAll(e.getValue());
+            }
+        }
+        return out;
+    }
+
     /** The zones of one owner's command posts in a dimension (a launcher without a command post uses them). */
     public List<ZoneMath.Zone> ofOwner(String owner, int dim) {
         List<ZoneMath.Zone> out = new ArrayList<ZoneMath.Zone>();

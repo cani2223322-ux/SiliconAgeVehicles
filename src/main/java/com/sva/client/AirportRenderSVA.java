@@ -43,6 +43,12 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
  * end's mode (AUTO: night / rain / the RVR - RunwayLayout.step).</li>
  * </ul>
  * Config: airport.paint, airport.lights, airport.lightsFar, airport.drawDistance.
+ * <p>
+ * Airport wave B2: the approach lights burn at their own step (the tower's approach step; AirportClientSVA.alsStep), and
+ * the taxi lights («Огонь рулёжки» - AirportClientSVA.taxi) in the same kind of batch: the blue edges and the yellow stands
+ * at the taxiways' step (the nearest tower's), the green centre line at that step - or, while a tower leads anybody along a
+ * route («следуй за мной»), only the lights lit ahead of the cleared aircraft, brighter; the red stop bars (five lights
+ * across the taxiway) while they burn (D_TAXI).
  */
 @SideOnly(Side.CLIENT)
 public final class AirportRenderSVA {
@@ -63,7 +69,7 @@ public final class AirportRenderSVA {
             return;
         }
         AirportClientSVA.State st = AirportClientSVA.state;
-        if (st.runways.isEmpty()) {
+        if (st.runways.isEmpty() && AirportClientSVA.taxi.length == 0) {
             return;
         }
         EntityLivingBase v = mc.renderViewEntity;
@@ -93,10 +99,14 @@ public final class AirportRenderSVA {
             if (ConfigSVA.aptLights) {
                 int dir = l[0] < r.len / 2 ? 1 : -1;
                 int step = AirportClientSVA.step(rw, dir, night, rain);
-                if (step > 0) {
-                    lights(rw, dir, step, px, py, pz, time);
+                int alsStep = AirportClientSVA.alsStep(rw, dir, night, rain);
+                if (step > 0 || alsStep > 0) {
+                    lights(rw, dir, step, alsStep, px, py, pz, time);
                 }
             }
+        }
+        if (ConfigSVA.aptLights && AirportClientSVA.taxi.length > 0) {
+            taxi(px, py, pz, time, night, rain);                    // airport wave B2: the taxi lights
         }
         GL11.glPopAttrib();
         GL11.glPopMatrix();
@@ -161,7 +171,7 @@ public final class AirportRenderSVA {
     /** Per runway key + dir + version: the lights' world places {x, y, z} and their colour / run. */
     private final Map<String, Object[]> lightCache = new HashMap<String, Object[]>();
 
-    private void lights(AirportClientSVA.Rwy rw, int dir, int step, double px, double py, double pz, double time) {
+    private void lights(AirportClientSVA.Rwy rw, int dir, int step, int alsStep, double px, double py, double pz, double time) {
         IlsPairing.Rwy r = rw.r;
         String ck = r.key() + (dir > 0 ? "+" : "-") + AirportClientSVA.state.version;
         Object[] c = lightCache.get(ck);
@@ -173,8 +183,10 @@ public final class AirportRenderSVA {
             float[] pos = new float[l.size() * 3];
             int[] col = new int[l.size()];
             float[] run = new float[l.size()];
+            boolean[] alsL = new boolean[l.size()];
             for (int i = 0; i < l.size(); i++) {
                 RunwayLayout.Light li = l.get(i);
+                alsL[i] = dir > 0 ? li.v < -0.5 : li.v > r.len + 0.5;   // wave B2: before the landing threshold - the ALS
                 double[] wp = r.world(1, li.v, li.u);
                 pos[i * 3] = (float) wp[0];
                 pos[i * 3 + 1] = (float) (r.elev + li.h);
@@ -182,12 +194,13 @@ public final class AirportRenderSVA {
                 col[i] = li.colour;
                 run[i] = (float) li.run;
             }
-            c = new Object[] {pos, col, run};
+            c = new Object[] {pos, col, run, alsL};
             lightCache.put(ck, c);
         }
         float[] pos = (float[]) c[0];
         int[] col = (int[]) c[1];
         float[] run = (float[]) c[2];
+        boolean[] alsL = (boolean[]) c[3];
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, glow());
         GL11.glEnable(GL11.GL_BLEND);
@@ -200,19 +213,24 @@ public final class AirportRenderSVA {
         OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
         float rx = ActiveRenderInfo.rotationX, rz = ActiveRenderInfo.rotationZ;
         float ux = ActiveRenderInfo.rotationYZ, uy = ActiveRenderInfo.rotationXZ, uz = ActiveRenderInfo.rotationXY;
-        double lvl = RunwayLayout.LEVEL[Math.max(0, Math.min(RunwayLayout.STEPS, step))];
+        double lvlR = RunwayLayout.LEVEL[Math.max(0, Math.min(RunwayLayout.STEPS, step))];
+        double lvlA = RunwayLayout.LEVEL[Math.max(0, Math.min(RunwayLayout.STEPS, alsStep))];
         GL11.glBegin(GL11.GL_QUADS);
         for (int i = 0; i < col.length; i++) {
+            int stp = alsL[i] ? alsStep : step;
+            if (stp <= 0) {
+                continue;
+            }
             float x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
             double dx = x - px, dy = y - py, dz = z - pz, dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            double k = lvl;
+            double k = alsL[i] ? lvlA : lvlR;
             if (col[i] == RunwayLayout.FLASH) {
                 k = RunwayLayout.alsFlash(time, run[i]);
                 if (k < 0.02) {
                     continue;
                 }
             }
-            float s = (float) (RunwayLayout.spriteSize(dist, step) * (col[i] == RunwayLayout.FLASH ? 1.8 : 1.0));
+            float s = (float) (RunwayLayout.spriteSize(dist, stp) * (col[i] == RunwayLayout.FLASH ? 1.8 : 1.0));
             float[] rgb = rgb(col[i]);
             GL11.glColor4f(rgb[0], rgb[1], rgb[2], (float) Math.min(1, 0.35 + 0.65 * k));
             GL11.glTexCoord2f(0F, 0F);
@@ -240,6 +258,8 @@ public final class AirportRenderSVA {
                 return new float[] {0.22F, 1F, 0.38F};
             case RunwayLayout.FLASH:
                 return new float[] {0.85F, 0.92F, 1F};
+            case RunwayLayout.BLUE:
+                return new float[] {0.25F, 0.45F, 1F};
             default:
                 return new float[] {1F, 0.94F, 0.82F};
         }
@@ -267,6 +287,125 @@ public final class AirportRenderSVA {
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
         GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, n, n, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, b);
         return glowTex;
+    }
+
+    // ---------------------------------------------------------------- airport wave B2: the taxi lights
+
+    /** Per taxi version: each stop bar's across direction {ux, uz} (from its nearest neighbour light), by index. */
+    private int stopsFor = -2;
+    private float[] stopAcross = new float[0];
+
+    private void stopDirs(int[] tx) {
+        int n = tx.length / 4;
+        stopAcross = new float[n * 2];
+        for (int i = 0; i < n; i++) {
+            if (tx[i * 4 + 3] != com.sva.block.BlockTaxiLightSVA.STOP) {
+                continue;
+            }
+            int best = -1;
+            double bd = 100;
+            for (int j = 0; j < n; j++) {
+                int k = tx[j * 4 + 3];
+                if (j == i || k == com.sva.block.BlockTaxiLightSVA.EDGE) {
+                    continue;
+                }
+                double d = (tx[j * 4] - tx[i * 4]) * (tx[j * 4] - tx[i * 4]) + (tx[j * 4 + 2] - tx[i * 4 + 2]) * (tx[j * 4 + 2] - tx[i * 4 + 2]);
+                if (d < bd) {
+                    bd = d;
+                    best = j;
+                }
+            }
+            double ax = 1, az = 0;
+            if (best >= 0) {
+                double ex = tx[best * 4] - tx[i * 4], ez = tx[best * 4 + 2] - tx[i * 4 + 2], len = Math.sqrt(ex * ex + ez * ez);
+                ax = -ez / len;
+                az = ex / len;
+            }
+            stopAcross[i * 2] = (float) ax;
+            stopAcross[i * 2 + 1] = (float) az;
+        }
+        stopsFor = AirportClientSVA.taxiVersion;
+    }
+
+    private void taxi(double px, double py, double pz, double time, boolean night, boolean rain) {
+        int[] tx = AirportClientSVA.taxi;
+        AirportClientSVA.Lit lit = AirportClientSVA.lit;
+        boolean same = lit.version == AirportClientSVA.taxiVersion;
+        if (stopsFor != AirportClientSVA.taxiVersion || stopAcross.length != tx.length / 2) {
+            stopDirs(tx);
+        }
+        double max = Math.min(ConfigSVA.aptDrawDistance, 800);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, glow());
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+        GL11.glDepthMask(false);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        if (ConfigSVA.aptLightsFar) {
+            GL11.glDisable(GL11.GL_FOG);
+        }
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F);
+        float rx = ActiveRenderInfo.rotationX, rz = ActiveRenderInfo.rotationZ;
+        float ux = ActiveRenderInfo.rotationYZ, uy = ActiveRenderInfo.rotationXZ, uz = ActiveRenderInfo.rotationXY;
+        int lastStep = -1;
+        double lastX = Double.NaN, lastZ = Double.NaN;
+        GL11.glBegin(GL11.GL_QUADS);
+        for (int i = 0; i < tx.length / 4; i++) {
+            double x = tx[i * 4] + 0.5, y = tx[i * 4 + 1] + 0.09, z = tx[i * 4 + 2] + 0.5;
+            double dx = x - px, dy = y - py, dz = z - pz, dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist > max) {
+                continue;
+            }
+            if (Double.isNaN(lastX) || Math.abs(x - lastX) + Math.abs(z - lastZ) > 64) {
+                lastStep = AirportClientSVA.taxiStep(x, z, night, rain);
+                lastX = x;
+                lastZ = z;
+            }
+            int kind = tx[i * 4 + 3], step = lastStep, colour;
+            Integer key = Integer.valueOf(i);
+            if (kind == com.sva.block.BlockTaxiLightSVA.CENTRE) {
+                if (same && lit.follow) {
+                    step = lit.lit.contains(key) ? Math.max(4, step) : 0;
+                }
+                colour = RunwayLayout.GREEN;
+            } else if (kind == com.sva.block.BlockTaxiLightSVA.EDGE) {
+                colour = RunwayLayout.BLUE;
+            } else if (kind == com.sva.block.BlockTaxiLightSVA.STAND) {
+                colour = RunwayLayout.YELLOW;
+            } else {
+                step = same && lit.stops.contains(key) ? Math.max(4, step) : 0;
+                colour = RunwayLayout.RED;
+            }
+            if (step <= 0) {
+                continue;
+            }
+            float[] rgb = rgb(colour);
+            double k = RunwayLayout.LEVEL[Math.min(RunwayLayout.STEPS, step)];
+            GL11.glColor4f(rgb[0], rgb[1], rgb[2], (float) Math.min(1, 0.35 + 0.65 * k));
+            float s = (float) (RunwayLayout.spriteSize(dist, step) * 0.8);
+            if (kind == com.sva.block.BlockTaxiLightSVA.STOP) {
+                for (int q = -2; q <= 2; q++) {
+                    sprite((float) (x + stopAcross[i * 2] * q * 0.4), (float) y, (float) (z + stopAcross[i * 2 + 1] * q * 0.4), s, rx, rz, ux, uy, uz);
+                }
+            } else {
+                sprite((float) x, (float) y, (float) z, s, rx, rz, ux, uy, uz);
+            }
+        }
+        GL11.glEnd();
+        GL11.glDepthMask(true);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glEnable(GL11.GL_ALPHA_TEST);
+    }
+
+    static void sprite(float x, float y, float z, float s, float rx, float rz, float ux, float uy, float uz) {
+        GL11.glTexCoord2f(0F, 0F);
+        GL11.glVertex3f(x - rx * s - ux * s, y - uy * s, z - rz * s - uz * s);
+        GL11.glTexCoord2f(0F, 1F);
+        GL11.glVertex3f(x - rx * s + ux * s, y + uy * s, z - rz * s + uz * s);
+        GL11.glTexCoord2f(1F, 1F);
+        GL11.glVertex3f(x + rx * s + ux * s, y + uy * s, z + rz * s + uz * s);
+        GL11.glTexCoord2f(1F, 0F);
+        GL11.glVertex3f(x + rx * s - ux * s, y - uy * s, z + rz * s - uz * s);
     }
 
     /** A world left: the display lists go (their GL ids would leak). */

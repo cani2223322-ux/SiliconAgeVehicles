@@ -53,6 +53,7 @@ public final class AirportServerSVA {
             }
             long now = w.getTotalWorldTime();
             d.tick(w, now);
+            AtcServerSVA.INSTANCE.tick(w, d, now);                  // airport wave B2: the towers' services
             if (now % TILE_EVERY == 0) {
                 tiles(w, d);
             }
