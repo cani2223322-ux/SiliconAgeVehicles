@@ -422,3 +422,7 @@
   Тесты (сид мира 12345, порт 25871): self 1543/0 (старый jar 1535/0), world 495/2 - те же 2 падения у старого jar на этом
   сиде (plane strip phase 11; «des» упирается в рельеф Y 128) - зависят от мира, не от правки.
 - Осталось / next steps: проверить в клиенте на 144 км/ч; если TOGA LK снова - строка [SVA-AFLOOR] в latest.log.
+
+## 2026-10-15 — Релиз Alpha 0.1.1 (пре-релиз на GitHub)
+- Сделано: версия 0.1.1 (build.gradle, ReferenceSVA), CORE_DEP поднят до SiliconAge@[0.2.0,) — аддон вызывает TileEntityFieldGeneratorSC.privateRefusingName (есть только с ядра 0.2.0). README ru/en (водород и АКБ, кабины C+, 2K/4K, ИНС, ПВО, лайнер SA-320, клавиши, настройки, известные проблемы), CHANGELOG: раздел 0.1.1-alpha — 2026-10-15 + пустой «Не выпущено», +2 пункта «Исправлено» (Пульты, рывки назад). Сборка ок, 77+1 коммитов запушены (3161701), тег v0.1.1-alpha, пре-релиз SiliconAgeVehiclesAlpha-0.1.1 с SiliconAgeVehiclesAlpha-0.1.1.jar (10 754 699 байт), заметки ru/en. docs/mockups/veh_liner_menu.png не коммитился.
+- Осталось / next steps: проверка в клиенте (лайнер, ПВО, кабины C+); убрать диагностику [SVA-MOVE] / [SVA-AFLOOR] после проверки.
