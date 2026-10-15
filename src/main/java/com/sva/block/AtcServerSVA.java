@@ -95,6 +95,9 @@ public final class AtcServerSVA {
         /** The unread count it was chimed for; its squawk, mode, type (the strips). */
         public int unreadTold, code = -1, mode, type;
         public double course;
+        /** Wave A: the code a tower gave it (-1 none) and which tower (its key). */
+        public int sqCode = -1;
+        public String sqTower = "";
 
         Session(int id) {
             this.id = id;
@@ -123,6 +126,7 @@ public final class AtcServerSVA {
         taxiSent.clear();
         taxiSentAt.clear();
         zonesSent.clear();
+        IffServerSVA.INSTANCE.clear();
     }
 
     public Session session(int entityId) {
@@ -136,6 +140,11 @@ public final class AtcServerSVA {
             towerLogs.put(key, l);
         }
         return l;
+    }
+
+    /** Every session (the IFF's view of the codes given). */
+    public java.util.Collection<Session> allSessions() {
+        return sessions.values();
     }
 
     /** The sessions talking to a tower. */
@@ -168,6 +177,7 @@ public final class AtcServerSVA {
         if (now % TAXI_TICKS == 0) {
             taxi(w, d, now);
         }
+        IffServerSVA.INSTANCE.tick(w, d, now);                      // wave A: the towers' IFF
     }
 
     /** The dimension's towers. */
@@ -462,6 +472,13 @@ public final class AtcServerSVA {
             if (!s.mcdu) {
                 guessRequest(d, t, s, now);
             }
+            // wave A: an arrival entering the airport's zone with mode C / S on gets the airport's code (once per tower) - not one
+            // already in the landing sequence (it asked to land / is cleared / goes around: no new code on the final)
+            if (!a.ground && !s.sqTower.equals(t.key) && XpdrMath.fitted(v.getVehicleType()) && x.replying() && XpdrMath.givesAltitude(x.mode)
+                    && a.req != AutoTower.R_LAND && a.st != AutoTower.S_LAND && a.st != AutoTower.S_GOAROUND
+                    && ZoneMath.contains2D(IffServerSVA.zoneOf(t), v.posX, v.posZ)) {
+                offerSquawk(w, d, t, s, v, now);
+            }
             // ATIS in the chat: once per letter, not more often than ATIS_GAP
             Integer heard = s.atisHeard.get(t.key);
             if (ConfigSVA.aptAtisChat && t.letter >= 0 && t.atisText.length() > 0 && (heard == null || heard.intValue() != t.letter)
@@ -623,7 +640,67 @@ public final class AtcServerSVA {
                 break;
         }
         deliver(w, s, m);
+        if (type == Cpdlc.U_TAKEOFF || type == Cpdlc.U_LINEUP) {
+            // wave A: a departure gets the airport's code with its take-off / line-up clearance
+            Entity e = w.getEntityByID(s.id);
+            if (e instanceof EntityVehicleSVA && !s.sqTower.equals(t.key)) {
+                offerSquawk(w, d, t, s, (EntityVehicleSVA) e, now);
+            }
+        }
         return m;
+    }
+
+    // ---------------------------------------------------------------- wave A: the airport's transponder codes
+
+    /**
+     * The airport's code for an aircraft (AirportCodeMath.assign: its own code when it already squawks one of the range nobody
+     * else holds, else the first free one): the liner gets the CPDLC uplink «КОД ОТВЕТЧИКА 41xx» (its WILCO sets it -
+     * respond()), the others have it set at once (airdefense.autoSquawk) and told in the chat. @return the code (-1 none)
+     */
+    public int offerSquawk(World w, AirportDataSVA d, AirportDataSVA.Tower t, Session s, EntityVehicleSVA v, long now) {
+        if (!XpdrMath.fitted(v.getVehicleType())) {
+            return -1;
+        }
+        java.util.Set<Integer> used = new java.util.HashSet<Integer>();
+        for (Session o : sessions.values()) {
+            if (o.id != s.id) {
+                if (o.sqTower.equals(t.key) && o.sqCode >= 0) {
+                    used.add(Integer.valueOf(o.sqCode));
+                }
+                if (o.tower.equals(t.key) && o.code >= 0) {
+                    used.add(Integer.valueOf(o.code));
+                }
+            }
+        }
+        XpdrMath.Xpdr x = v.state.xpdr;
+        int keep = s.sqTower.equals(t.key) ? s.sqCode : x.code;
+        int code = com.sva.airdefense.AirportCodeMath.assign(t.codeLo, t.codeHi, used, keep);
+        s.sqTower = t.key;                                          // asked once per tower, even when the range is full
+        if (code < 0) {
+            return -1;
+        }
+        s.sqCode = code;
+        System.out.println("[SVA-ATC] squawk " + t.icao + " -> " + s.ac.call + ": " + XpdrMath.format(code));
+        if (x.code == code && !x.dayKey) {
+            return code;                                            // squawks it already
+        }
+        if (!s.mcdu && ConfigSVA.adAutoSquawk) {
+            setSquawk(v, code, now);
+        }
+        if (s.tower.equals(t.key)) {
+            uplink(w, d, t, s, Cpdlc.U_SQUAWK, code, "", -1, now);
+        } else {
+            AirDefenseSVA.INSTANCE.tellPilot(v, "sq" + t.key, 0, 0x5EC8F0, "sva.atc.squawk", t.icao, XpdrMath.format(code));
+        }
+        return code;
+    }
+
+    /** The code into the transponder (the «ключ дня» card no longer overrides it). */
+    public static void setSquawk(EntityVehicleSVA v, int code, long now) {
+        XpdrMath.Xpdr x = v.state.xpdr;
+        x.setCode(code, now);
+        x.dayKey = false;
+        x.cardDay = -1;
     }
 
     /** The tower's copy of an aircraft's message (null none). */
@@ -673,6 +750,7 @@ public final class AtcServerSVA {
         if (t == null || !t.online(now) || type < Cpdlc.D_FIRST || type > Cpdlc.D_FREE) {
             return false;
         }
+        IffServerSVA.INSTANCE.answer(v.getEntityId(), t.key);       // wave A: any word from the crew answers the IFF call
         Cpdlc.Msg m = s.log.make(false, type, arg, type == Cpdlc.D_FREE ? Cpdlc.cleanFree(str) : str, "", -1, now);
         m.tower = t.icao;
         m.call = s.ac.call;
@@ -705,6 +783,13 @@ public final class AtcServerSVA {
         Cpdlc.Msg resp = s.log.respond(id, r, now);
         if (resp == null) {
             return false;
+        }
+        Cpdlc.Msg up = s.log.byId(id);
+        if (up != null && up.up && up.type == Cpdlc.U_SQUAWK && r == Cpdlc.R_WILCO) {
+            setSquawk(v, up.arg & XpdrMath.MAX, now);               // wave A: the crew dials the airport's code
+        }
+        if (up != null && up.up && up.type == Cpdlc.U_IFF && s.tower.length() > 0) {
+            IffServerSVA.INSTANCE.answer(v.getEntityId(), s.tower);
         }
         if (s.tower.length() > 0) {
             Cpdlc.Log tl = towerLog(s.tower);

@@ -174,6 +174,12 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         return kind() == MISSILE ? Math.min(com.sva.airdefense.AdShapeMath.TUBES, ammo()) : Math.min(1, ammo());
     }
 
+    /** Wave A: the model's tubes refill in the real reload (the overclockers in). */
+    @Override
+    protected int reloadShown() {
+        return kind() == MISSILE ? fireInterval() : super.reloadShown();
+    }
+
     /** Engaged target ids (world tests). */
     public Map<Integer, long[]> engagements() {
         return eng;

@@ -42,6 +42,11 @@ public final class ZoneMath {
         public int type = FORBIDDEN, shape = CIRCLE;
         /** Rectangle: the corner blocks (x0 <= x1, z0 <= z1). Circle: the centre block and the radius. */
         public int x0, z0, x1, z1, cx, cz, r = 32;
+        /**
+         * Wave A (zone editing on the map): a rectangle turned clockwise by this many degrees (0..359) round its middle - the
+         * box x0..x1 / z0..z1 is its shape before the turn. Circles: always 0. Old saves have none: 0, the box as it was.
+         */
+        public int rot;
         /** The height band (Y). */
         public int lo = 0, hi = ALT_MAX;
         /** Aerodrome: its codes (octal ints, inclusive); corridor: its course (compass deg). */
@@ -71,6 +76,7 @@ public final class ZoneMath {
             t.setShort("CodeLo", (short) codeLo);
             t.setShort("CodeHi", (short) codeHi);
             t.setShort("Course", (short) course);
+            t.setShort("Rot", (short) rot);
             t.setBoolean("Show", show);
             t.setBoolean("Alarm", alarm);
             t.setString("Kp", kp == null ? "" : kp);
@@ -107,6 +113,7 @@ public final class ZoneMath {
             codeLo = clampI(t.getShort("CodeLo"), 0, XpdrMath.MAX);
             codeHi = clampI(t.getShort("CodeHi"), codeLo, XpdrMath.MAX);
             course = ((t.getShort("Course") % 360) + 360) % 360;
+            rot = shape == RECT ? ((t.getShort("Rot") % 360) + 360) % 360 : 0;
             show = !t.hasKey("Show") || t.getBoolean("Show");
             alarm = !t.hasKey("Alarm") || t.getBoolean("Alarm");
             kp = clip(t.getString("Kp"), 24);
@@ -149,10 +156,79 @@ public final class ZoneMath {
         return Math.max(lo, Math.min(hi, v));
     }
 
+    /** The middle of a rectangle (its turning point) / the centre of a circle (world x, z). */
+    public static double[] middle(Zone z) {
+        return z.shape == RECT ? new double[] {(z.x0 + z.x1 + 1) / 2.0, (z.z0 + z.z1 + 1) / 2.0} : new double[] {z.cx + 0.5, z.cz + 0.5};
+    }
+
+    /**
+     * Wave A: a world point in a turned rectangle's own frame (turned back by rot round its middle) - there the box tests
+     * hold as for an unturned one. Clockwise on the map (x east, z south): world = R(rot) local, local = R(-rot) world.
+     */
+    public static double[] local(Zone z, double x, double zz) {
+        if (z.shape != RECT || z.rot == 0) {
+            return new double[] {x, zz};
+        }
+        double[] m = middle(z);
+        double a = Math.toRadians(-z.rot), c = Math.cos(a), s = Math.sin(a), dx = x - m[0], dz = zz - m[1];
+        return new double[] {m[0] + dx * c - dz * s, m[1] + dx * s + dz * c};
+    }
+
+    /** The inverse of local(): a point of the rectangle's own frame in the world. */
+    public static double[] world(Zone z, double lx, double lz) {
+        if (z.shape != RECT || z.rot == 0) {
+            return new double[] {lx, lz};
+        }
+        double[] m = middle(z);
+        double a = Math.toRadians(z.rot), c = Math.cos(a), s = Math.sin(a), dx = lx - m[0], dz = lz - m[1];
+        return new double[] {m[0] + dx * c - dz * s, m[1] + dx * s + dz * c};
+    }
+
+    /** A rectangle's four corners in the world, clockwise from the north-west one (turned): {{x, z} x 4}. */
+    public static double[][] corners(Zone z) {
+        double[][] l = {{z.x0, z.z0}, {z.x1 + 1, z.z0}, {z.x1 + 1, z.z1 + 1}, {z.x0, z.z1 + 1}};
+        double[][] out = new double[4][];
+        for (int i = 0; i < 4; i++) {
+            out[i] = world(z, l[i][0], l[i][1]);
+        }
+        return out;
+    }
+
+    /**
+     * The outline as a closed polyline in the world (the ND's and the HUD's frames): a rectangle's four corners, a circle's
+     * `n` points (n >= 8). The last point is not repeated.
+     */
+    public static double[][] outline(Zone z, int n) {
+        if (z.shape == RECT) {
+            return corners(z);
+        }
+        n = Math.max(8, n);
+        double[][] out = new double[n][];
+        for (int k = 0; k < n; k++) {
+            double a = k * Math.PI * 2 / n;
+            out[k] = new double[] {z.cx + 0.5 + Math.cos(a) * z.r, z.cz + 0.5 + Math.sin(a) * z.r};
+        }
+        return out;
+    }
+
+    /** Wave A: the point of the outline nearest to (x, z) from outside (inside: the point itself) - the HUD's pointer. */
+    public static double[] nearestPoint(Zone z, double x, double zz) {
+        if (z.shape == RECT) {
+            double[] p = local(z, x, zz);
+            return world(z, Math.max(z.x0, Math.min(z.x1 + 1, p[0])), Math.max(z.z0, Math.min(z.z1 + 1, p[1])));
+        }
+        double dx = x - (z.cx + 0.5), dz = zz - (z.cz + 0.5), d = Math.sqrt(dx * dx + dz * dz);
+        if (d <= z.r || d < 1e-9) {
+            return new double[] {x, zz};
+        }
+        return new double[] {z.cx + 0.5 + dx / d * z.r, z.cz + 0.5 + dz / d * z.r};
+    }
+
     /** Inside the zone's outline (x, z: world coordinates, block centres at +0.5). */
     public static boolean contains2D(Zone z, double x, double zz) {
         if (z.shape == RECT) {
-            return x >= z.x0 && x <= z.x1 + 1 && zz >= z.z0 && zz <= z.z1 + 1;
+            double[] p = local(z, x, zz);
+            return p[0] >= z.x0 && p[0] <= z.x1 + 1 && p[1] >= z.z0 && p[1] <= z.z1 + 1;
         }
         double dx = x - (z.cx + 0.5), dz = zz - (z.cz + 0.5);
         return dx * dx + dz * dz <= (double) z.r * z.r;
@@ -170,7 +246,8 @@ public final class ZoneMath {
     /** The distance from (x, z) to the outline (0 inside). */
     public static double distance2D(Zone z, double x, double zz) {
         if (z.shape == RECT) {
-            double dx = Math.max(0, Math.max(z.x0 - x, x - (z.x1 + 1))), dz = Math.max(0, Math.max(z.z0 - zz, zz - (z.z1 + 1)));
+            double[] p = local(z, x, zz);
+            double dx = Math.max(0, Math.max(z.x0 - p[0], p[0] - (z.x1 + 1))), dz = Math.max(0, Math.max(z.z0 - p[1], p[1] - (z.z1 + 1)));
             return Math.sqrt(dx * dx + dz * dz);
         }
         double dx = x - (z.cx + 0.5), dz = zz - (z.cz + 0.5);
@@ -185,11 +262,12 @@ public final class ZoneMath {
         if (contains2D(z, x, zz)) {
             return 0;
         }
-        double a = Math.toRadians(course), dx = Math.sin(a), dz = -Math.cos(a);
+        double a = Math.toRadians(course - (z.shape == RECT ? z.rot : 0)), dx = Math.sin(a), dz = -Math.cos(a);
         double t;
         if (z.shape == RECT) {
             double tmin = 0, tmax = max;
-            double[] lo = {z.x0, z.z0}, hi = {z.x1 + 1, z.z1 + 1}, p = {x, zz}, d = {dx, dz};
+            double[] lp = local(z, x, zz);
+            double[] lo = {z.x0, z.z0}, hi = {z.x1 + 1, z.z1 + 1}, p = {lp[0], lp[1]}, d = {dx, dz};
             for (int i = 0; i < 2; i++) {
                 if (Math.abs(d[i]) < 1e-9) {
                     if (p[i] < lo[i] || p[i] > hi[i]) {
@@ -282,10 +360,46 @@ public final class ZoneMath {
 
     /** The compass course out of a zone from (x, z) - straight away from its centre (the message «ПОКИНЬТЕ ЗОНУ: КУРС 270»). */
     public static int exitCourse(Zone z, double x, double zz) {
-        double cx = z.shape == RECT ? (z.x0 + z.x1 + 1) / 2.0 : z.cx + 0.5, cz = z.shape == RECT ? (z.z0 + z.z1 + 1) / 2.0 : z.cz + 0.5;
+        double[] m = middle(z);
+        double cx = m[0], cz = m[1];
         if (Math.abs(x - cx) < 1e-6 && Math.abs(zz - cz) < 1e-6) {
             return 0;
         }
         return (int) Math.round(RadarMath.compass(x - cx, zz - cz)) % 360;
+    }
+    // ------------------------------------------------------------------ wave A: the pilots' prediction
+
+    /** A ground speed under this (blocks a tick) predicts nothing (hovering, taxiing). */
+    public static final double PREDICT_MIN_SPEED = 0.05;
+
+    /**
+     * Wave A (plan-next §9 A2): the seconds until the flight crosses into the zone on its TRACK (where it really goes, not
+     * where the nose points) at its ground speed (vx, vz in blocks a tick): 0 inside already, -1 when the track misses it,
+     * it is slower than PREDICT_MIN_SPEED or the crossing is more than maxSeconds away. The height band as contains().
+     */
+    public static double secondsToEntry(Zone z, double x, double y, double zz, double vx, double vz, boolean altKnown, double maxSeconds) {
+        if (!altIn(z, y, altKnown)) {
+            return -1;
+        }
+        if (contains2D(z, x, zz)) {
+            return 0;
+        }
+        double gs = Math.sqrt(vx * vx + vz * vz);
+        if (gs < PREDICT_MIN_SPEED || !(maxSeconds > 0)) {
+            return -1;
+        }
+        double d = ahead(z, x, zz, RadarMath.compass(vx, vz), gs * 20 * maxSeconds);
+        return d < 0 ? -1 : d / (gs * 20);
+    }
+
+    /** Wave A: the prediction's level - 0 none, 1 within `warnSeconds` (amber), 2 within a third of it (red, the tone again), 3 inside. */
+    public static int predictLevel(double seconds, double warnSeconds) {
+        if (seconds < 0) {
+            return 0;
+        }
+        if (seconds == 0) {
+            return 3;
+        }
+        return seconds <= warnSeconds / 3 ? 2 : seconds <= warnSeconds ? 1 : 0;
     }
 }

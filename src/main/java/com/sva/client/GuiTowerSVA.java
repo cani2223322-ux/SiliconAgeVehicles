@@ -84,7 +84,12 @@ public class GuiTowerSVA extends GuiScreen {
 
     private final List<Btn> btns = new ArrayList<Btn>();
     static final int B_TAB = 0, B_SEAT = 10, B_UP = 20, B_STRIP = 40, B_ZOOM = 41, B_ILS = 50, B_USE = 51, B_AUTO = 52, B_LT = 53, B_RESET = 54,
-            B_PRINT = 60, B_NODE = 61, B_SAVE = 70, B_EQUIP = 71, B_REPORT = 72, B_MAPZOOM = 73;
+            B_PRINT = 60, B_NODE = 61, B_SAVE = 70, B_EQUIP = 71, B_REPORT = 72, B_MAPZOOM = 73,
+            /** Wave A: the coverage map's height on the traffic scope. */
+            B_COV = 74;
+    /** Wave A: the coverage map's height (-1 off; kept between openings) and when it was last asked for. */
+    private static int cov = -1;
+    private int covAsked = -1000;
 
     public GuiTowerSVA(TileEntityTowerSVA te) {
         this.te = te;
@@ -144,6 +149,7 @@ public class GuiTowerSVA extends GuiScreen {
         cmd("close");
         Keyboard.enableRepeatEvents(false);
         AirportClientSVA.towerSnap = null;
+        CoverClientSVA.release();
     }
 
     @Override
@@ -159,6 +165,13 @@ public class GuiTowerSVA extends GuiScreen {
             d.setString("Op", "hb");
             NBTTagCompound s = snap();
             d.setBoolean("Seat", s != null && s.getCompoundTag("T").getBoolean("Me"));
+            cmd(d);
+        }
+        if (cov > 0 && tab == T_TRAFFIC && ticks - covAsked >= 100) {
+            covAsked = ticks;
+            NBTTagCompound d = new NBTTagCompound();
+            d.setString("Op", "cov");
+            d.setInteger("A", cov);
             cmd(d);
         }
         for (GuiTextField f : fields) {
@@ -334,8 +347,49 @@ public class GuiTowerSVA extends GuiScreen {
             circle(scx, scy, scR * k / 3F, 0x1F4A2A);
         }
         text(tr("range", com.sva.airport.AptScale.kmText(RANGES[zoom], ',')), 10, 38, MUTED);
+        // wave A (A9): the coverage of the tower's radars at the chosen height, clipped to the scope's square
+        int[] blk = h.getIntArray("Blk");
+        if (cov > 0 && blk.length == 3) {
+            GL11.glEnable(GL11.GL_SCISSOR_TEST);
+            net.minecraft.client.gui.ScaledResolution res = new net.minecraft.client.gui.ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+            int f = res.getScaleFactor();
+            GL11.glScissor((left + 6) * f, mc.displayHeight - (top + 36 + 2 * scR) * f, 2 * scR * f, 2 * scR * f);
+            NBTTagList rd = s.getTagList("Rd", 10);
+            for (int i = 0; i < rd.tagCount(); i++) {
+                CoverClientSVA.draw(rd.getCompoundTagAt(i).getString("Key"), cov, scx, scy, blk[0] + 0.5, blk[2] + 0.5, 1 / sppb);
+            }
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            GL11.glColor4f(1F, 1F, 1F, 1F);
+            text(rd.tagCount() == 0 ? Lang.tr("sva.ad.cov.none") : Lang.tr("sva.ad.cov.legend"), 10, 48, MUTED);
+        }
         button(B_ZOOM, "-1", 6, 36 + 2 * scR - 13, 22, 36 + 2 * scR - 1, "-", zoom < RANGES.length - 1, false);
         button(B_ZOOM, "1", 24, 36 + 2 * scR - 13, 40, 36 + 2 * scR - 1, "+", zoom > 0, false);
+        button(B_COV, "", 42, 36 + 2 * scR - 13, 112, 36 + 2 * scR - 1, cov > 0 ? Lang.tr("sva.ad.cov.on", Integer.valueOf(cov)) : Lang.tr("sva.ad.cov.off"),
+                true, cov > 0);
+        // wave A (A10): the IFF alarm - an aircraft near the airport without a proper transponder reply
+        if (h.getBoolean("IffAlarm") && ticks / 10 % 2 == 0) {
+            text(tr("iffAlarm"), 10, 58, RED);
+        }
+        NBTTagList il = s.getTagList("Iff", 11);
+        int iy = 36 + 2 * scR - 26;
+        for (int i = 0; i < il.tagCount() && i < 3; i++) {
+            int[] e = il.func_150306_c(i);
+            if (e.length < 4 || !com.sva.airdefense.IffMath.intruder(e[1]) && e[1] != com.sva.airdefense.IffMath.ANSWERED) {
+                continue;
+            }
+            String call = "?";
+            NBTTagList trl = s.getTagList("Tr", 10);
+            for (int k = 0; k < trl.tagCount(); k++) {
+                if (trl.getCompoundTagAt(k).getInteger("Id") == e[0]) {
+                    call = trl.getCompoundTagAt(k).getString("C");
+                }
+            }
+            String line = tr("iffLine", call.length() > 0 ? call : "?", Lang.tr("sva.iff.reason." + com.sva.airdefense.IffMath.REASON_KEYS[Math.max(0, Math.min(3, e[2]))]),
+                    Lang.tr("sva.iff.state." + com.sva.airdefense.IffMath.STATE_KEYS[Math.max(0, Math.min(4, e[1]))]))
+                    + (e[3] > 0 ? " " + e[3] + " " + tr("sec") : "");
+            text(fontRendererObj.trimStringToWidth(line, 2 * scR - 8), 10, iy, e[1] == com.sva.airdefense.IffMath.ANSWERED ? AMBER : RED);
+            iy -= 10;
+        }
         runwaysOnScope(s, h);
         // the approaches' finals
         NBTTagList al = s.getTagList("Ap", 10);
@@ -355,6 +409,14 @@ public class GuiTowerSVA extends GuiScreen {
             }
             boolean xp = (e.getInteger("Src") & TowerScreenSVA.SRC_XPDR) != 0;
             int c = xp ? GREEN : AMBER;
+            boolean intruder = com.sva.airdefense.IffMath.intruder(e.getByte("Iff"));
+            if (intruder) {
+                c = RED;                                            // wave A: an IFF intruder
+                if (ticks / 5 % 2 == 0) {
+                    circle(x, y, 6, RED);
+                }
+                fontRendererObj.drawString(tr("intruder"), (int) x + 5, (int) y + 18, RED);
+            }
             if (e.getInteger("Id") == sel) {
                 c = CYAN;
             }
@@ -705,6 +767,10 @@ public class GuiTowerSVA extends GuiScreen {
                 return;
             case B_ZOOM:
                 zoom = Math.max(0, Math.min(RANGES.length - 1, zoom - num(x.arg, 0)));
+                return;
+            case B_COV:
+                cov = com.sva.airdefense.CoverageMath.nextAlt(cov);
+                covAsked = -1000;
                 return;
             case B_MAPZOOM:
                 mapZoom = Math.max(0, Math.min(2, mapZoom - num(x.arg, 0)));

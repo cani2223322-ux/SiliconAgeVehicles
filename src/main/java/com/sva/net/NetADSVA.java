@@ -33,7 +33,9 @@ public final class NetADSVA {
             AD_EQUIP = 6, KP_OPEN = 7;
     public static final int D_KP = 1, D_LAUNCHER = 2, D_XPDR = 3, D_RWR = 4, D_ZONES = 5, D_MSG = 6,
             /** Upgrades wave: an equipment screen's picture (every 10 ticks while open). */
-            D_EQUIP = 7;
+            D_EQUIP = 7,
+            /** Wave A: a radar's coverage map (or its progress) to the player who asked. */
+            D_COVER = 8;
 
     private NetADSVA() {
     }

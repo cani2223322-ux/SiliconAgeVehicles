@@ -306,6 +306,30 @@ public final class ConfigSVA {
     public static int adModelDetailDistance = 64;
     /** Upgrades wave: the core's upgrade modules in the air-defence blocks' slots (off: they do nothing, new ones don't fit). */
     public static boolean adUpgrades = true;
+    // wave A (plan-next §9 A): the air defence finished
+    /** A1: a broken structure keeps its upgrade modules in its item (off: they drop loose as before). */
+    public static boolean adKeepModules = true;
+    /** A3: the gear / stores / cargo doors / reverser / afterburner make a vehicle easier to see. */
+    public static boolean adRcsExtras = true;
+    /** A2: the pilots' «вход в зону через N с» looks this far ahead (s). */
+    public static int adZoneWarnSeconds = 30;
+    /** A4: a tower's code is set at once on aircraft without an MCDU (off: only told in the chat). */
+    public static boolean adAutoSquawk = true;
+    /** A4: an aircraft squawking a friendly airport's code in / near that airport is the air defence's own. */
+    public static boolean adAirportFriends = true;
+    /** A5: a 7600 track waits for the command post's decision this long (s), «свой» lasts this long (min). */
+    public static int adNoRadioDecisionSeconds = 120, adNoRadioFriendMinutes = 10;
+    /** A9: the radar coverage maps; the beams computed a tick (all maps together). */
+    public static boolean adCoverage = true;
+    public static int adCoverageBudget = 32;
+    /** A10: the towers interrogate the aircraft their radars see near the airport. */
+    public static boolean adIff = true;
+    /** A10: the pilot's time to answer the tower's call (s). */
+    public static int adIffResponseSeconds = 30;
+    /** A10: no answer - the intruder is handed to the air defence (off, the default: the tower's warnings only). */
+    public static boolean adIffHandoff = false;
+    /** A2 (client): the zone frames on the HUD / ND / HSI, the entry prediction and its tones. */
+    public static boolean zoneFrames = true;
 
     // ---------------------------------------------------------------- airport wave B1 (category "airport")
     /** The ILS antennas need their shelters' EU (off: they always have power; a shelter still gives the monitor). */
@@ -516,6 +540,9 @@ public final class ConfigSVA {
             insAlignSeconds = c.getInt("insAlignSeconds", v, 10, 0, com.sva.vehicle.SystemsMath.ALIGN_MAX_S,
                     "INS alignment time in seconds, standing still with the board powered (0 = instant) / "
                             + "Время выставки ИНС в секундах, стоя на месте с питанием борта (0 - сразу)");
+            zoneFrames = c.getBoolean("zoneFrames", v, true,
+                    "Air-defence zones framed on the HUD / ND / HSI with the 'zone entry in N s' warning and its tones (client) / "
+                            + "Рамки зон ПВО на HUD / ND / HSI и предупреждение о входе в зону с тоном (клиент)");
             gearDoors = c.getBoolean("gearDoors", v, true,
                     "Jet / tiltrotor gear doors open before the legs move and shut after them (client) / "
                             + "Створки шасси реактивного и конвертоплана открываются до уборки ног и закрываются после (клиент)");
@@ -717,6 +744,31 @@ public final class ConfigSVA {
         adUpgrades = c.getBoolean("upgrades", a, true,
                 "Silicon Age upgrade modules in radars, launchers and the command post (transformers, storage, overclockers...); off - they do nothing / "
                         + "Модули Silicon Age в РЛС, ПУ и КП (трансформаторы, накопитель, ускорители...); выкл. - не действуют");
+        // wave A: the air defence finished
+        adKeepModules = c.getBoolean("keepModules", a, true,
+                "A broken radar / launcher / command post keeps its upgrade modules in its item (off: they drop loose) / Модули остаются в предмете при сломе");
+        adRcsExtras = c.getBoolean("rcsExtras", a, true,
+                "Gear down / stores +20 %, cargo doors +10 %, reverser / afterburner +15 % of the detection range / Шасси, подвески, грузовые двери, реверс и форсаж повышают заметность");
+        adZoneWarnSeconds = c.getInt("zoneWarnSeconds", a, 30, 5, 120,
+                "Pilots: 'zone entry in N s' looks this far ahead (s) / Пилотам: предупреждение о входе в зону за столько секунд");
+        adAutoSquawk = c.getBoolean("autoSquawk", a, true,
+                "A tower's transponder code is set at once on aircraft without an MCDU (off: only told) / Код вышки ставится сам на технике без MCDU");
+        adAirportFriends = c.getBoolean("airportFriends", a, true,
+                "A friendly airport's codes in / near it count as own for the air defence / Коды своего аэродрома у аэродрома - свои для ПВО");
+        adNoRadioDecisionSeconds = c.getInt("noRadioDecisionSeconds", a, 120, 0, 900,
+                "7600: the command post's time to decide, s (then the usual rules) / 7600: время на решение КП, с");
+        adNoRadioFriendMinutes = c.getInt("noRadioFriendMinutes", a, 10, 1, 120,
+                "7600: 'friend' from the command post lasts this long, min / 7600: 'свой' от КП действует, мин");
+        adCoverage = c.getBoolean("coverageMap", a, true,
+                "Radar coverage maps on the command post and the tower (terrain line of sight) / Карта покрытия РЛС на КП и вышке");
+        adCoverageBudget = c.getInt("coverageBudget", a, 32, 1, 1024,
+                "Coverage maps: radar beams computed per tick (all maps together) / Карта покрытия: лучей за тик");
+        adIff = c.getBoolean("iff", a, true,
+                "Towers interrogate the aircraft their radars see near the airport (IFF) / Вышки опрашивают ответчики у аэродрома");
+        adIffResponseSeconds = c.getInt("iffResponseSeconds", a, 30, 5, 600,
+                "IFF: the pilot's time to answer the tower's call, s / IFF: время пилоту на ответ, с");
+        adIffHandoff = c.getBoolean("iffHandoff", a, false,
+                "IFF: an intruder that does not answer is handed to the air defence (off: tower warnings only) / IFF: молчащий нарушитель передаётся ПВО");
     }
 
     /** Airport wave B1: the "airport" category - every feature switchable. */

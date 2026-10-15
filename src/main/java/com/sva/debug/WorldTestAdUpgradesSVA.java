@@ -40,7 +40,7 @@ import net.minecraftforge.common.util.ForgeDirection;
  *   EV packets go in through the part for real and it stands; the IC2 re-announce counted;
  * - overclockers: the scan interval shorter; storages: the buffer bigger, filled to it;
  * - the AA gun: an overclocker - a shorter burst interval; a puller - the shells come in from a chest beside it;
- * - breaking each structure drops its modules (and the gun its shells) with the one item.
+ * - breaking each structure drops the one item with its modules inside (wave A; the gun its shells loose).
  */
 final class WorldTestAdUpgradesSVA {
 
@@ -203,17 +203,37 @@ final class WorldTestAdUpgradesSVA {
     private void breaking(World w) {
         drops(w, rx, rz, null);
         w.func_147480_a(rx - 1, Y + 1, rz, true);
+        // wave A (plan-next §9 A7): the modules ride inside the dropped item now (airdefense.keepModules), none loose
+        int kept = kept(w, rx, rz + 1, Item.getItemFromBlock(ModContentSVA.radar));
         int mods = drops(w, rx, rz + 1, ModItems.upgrade), item = drops(w, rx, rz + 1, Item.getItemFromBlock(ModContentSVA.radar));
-        check(mods == 6 && item == 1 && w.getBlock(rx, Y + 1, rz) == Blocks.air,
-                "ad upgrades world: breaking the radar's part drops its 6 modules and the one radar (" + mods + ", " + item + ")");
+        check(mods == 0 && kept == 6 && item == 1 && w.getBlock(rx, Y + 1, rz) == Blocks.air,
+                "ad upgrades world: breaking the radar's part drops the one radar with its 6 modules inside (loose " + mods + ", inside " + kept + ", items "
+                        + item + ")");
         w.setBlockToAir(gx, Y + 1, gz - 1);
         drops(w, gx, gz, null);
         w.func_147480_a(gx + 1, Y + 1, gz + 1, true);
+        kept = kept(w, gx, gz, Item.getItemFromBlock(ModContentSVA.launcher));
         mods = drops(w, gx, gz, ModItems.upgrade);
         int shells = drops(w, gx, gz, ModContentSVA.ammo);
         item = drops(w, gx, gz, Item.getItemFromBlock(ModContentSVA.launcher));
-        check(mods == 2 && shells == 20 && item == 1, "ad upgrades world: breaking the gun drops its 2 modules, its 20 shells and the gun (" + mods + ", "
-                + shells + ", " + item + ")");
+        check(mods == 0 && kept == 2 && shells == 20 && item == 1, "ad upgrades world: breaking the gun drops its 20 shells and the gun with its 2 modules inside ("
+                + mods + " loose, " + kept + " inside, " + shells + ", " + item + ")");
+    }
+
+    /** Wave A: the modules inside the dropped items of `it` round (x, z) - counted, the items left lying. */
+    @SuppressWarnings("unchecked")
+    private static int kept(World w, int x, int z, Item it) {
+        List<EntityItem> l = w.getEntitiesWithinAABB(EntityItem.class, AxisAlignedBB.getBoundingBox(x - 6, Y - 3, z - 6, x + 7, Y + 8, z + 7));
+        int n = 0;
+        for (EntityItem e : l) {
+            ItemStack s = e.getEntityItem();
+            if (s != null && !e.isDead && s.getItem() == it && s.hasTagCompound()) {
+                for (ItemStack u : com.sva.block.TileEntityAirDefenseSVA.readModules(s.getTagCompound())) {
+                    n += u == null ? 0 : u.stackSize;
+                }
+            }
+        }
+        return n;
     }
 
     /** Dropped items of `it` round (x, z) - counted, then removed (null: every item). */

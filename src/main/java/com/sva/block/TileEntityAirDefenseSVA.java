@@ -52,8 +52,8 @@ import net.minecraft.world.World;
  *
  * The upgrades wave (2026-10-12): four upgrade slots for the core's modules (AdUpgradeMath: which fit and what they do -
  * the universal transformer, transformers, storage, overclockers, economizers; overdrive on radars, the puller on
- * launchers). They live in an inventory of their own (upgrades) so no hopper or pipe reaches them, drop loose when the
- * structure goes, and count only with airdefense.upgrades on. A change of the input tier re-announces the master and
+ * launchers). They live in an inventory of their own (upgrades) so no hopper or pipe reaches them, go into the dropped item
+ * when the structure goes (wave A; loose when no item drops - creative), and count only with airdefense.upgrades on. A change of the input tier re-announces the master and
  * every part to IC2 (it caches the sink tier), as the charging station does. The equipment screen (ContainerAdSVA /
  * GuiAdEquipSVA; the launcher's own screen has the slots too) gets equipSnapshot() every 10 ticks while open.
  */
@@ -76,9 +76,9 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
     protected int facing, struct = LEGACY;
     /** Set while the structure is taken down (its parts must not take the master down again) / no item to drop (creative). */
     public boolean dismantling, noDrop;
-    private int legacyTimer, syncTimer, syncState = -1, syncTarget = -2, syncAmmo = -1;
-    /** Synced to the client: the lamps, the entity to turn to (-1 none), the rounds to show. */
-    protected int cState, cTarget = -1, cAmmo;
+    private int legacyTimer, syncTimer, syncState = -1, syncTarget = -2, syncAmmo = -1, syncReload = -1;
+    /** Synced to the client: the lamps, the entity to turn to (-1 none), the rounds to show, the tubes' reload (wave A). */
+    protected int cState, cTarget = -1, cAmmo, cReload;
 
     protected TileEntityAirDefenseSVA(Tier t) {
         super(t);
@@ -181,6 +181,100 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
     /** World tests: how many times the input tier changed and the net was told. */
     public int tierRefreshes() {
         return tierRefreshes;
+    }
+
+    /**
+     * Wave A (plan-next §9 A7): the structure broken with its item dropped - the modules go INTO the item (its NBT "AdUpg",
+     * the tile's own list; airdefense.keepModules) and come back when it is placed (BlockAirDefenseSVA.onBlockPlacedBy).
+     * @return module stacks kept (the slots are emptied)
+     */
+    public int keepUpgradesIn(ItemStack item) {
+        if (item == null) {
+            return 0;
+        }
+        NBTTagCompound t = item.hasTagCompound() ? item.getTagCompound() : new NBTTagCompound();
+        int n = writeModules(t, upg);
+        if (n > 0) {
+            item.setTagCompound(t);
+            for (int i = 0; i < upg.length; i++) {
+                upg[i] = null;
+            }
+            markDirty();
+        }
+        return n;
+    }
+
+    /** Placed from an item that kept modules: they go back into their slots (taken - the first empty; no room - dropped beside it). */
+    public void restoreUpgrades(ItemStack item, World w, int x, int y, int z) {
+        if (item == null || !item.hasTagCompound()) {
+            return;
+        }
+        ItemStack[] in = readModules(item.getTagCompound());
+        for (int k = 0; k < in.length; k++) {
+            ItemStack s = in[k];
+            if (s == null) {
+                continue;
+            }
+            boolean put = false;
+            if (k < upg.length && upg[k] == null) {
+                upg[k] = s;
+                put = true;
+            }
+            for (int i = 0; i < upg.length && !put; i++) {
+                if (upg[i] == null) {
+                    upg[i] = s;
+                    put = true;
+                }
+            }
+            if (!put && w != null) {
+                w.spawnEntityInWorld(new EntityItem(w, x + 0.5, y + 0.5, z + 0.5, s));
+            }
+        }
+        markDirty();
+    }
+
+    /** The modules into an NBT tag as the tile saves them ("AdUpg": slot + stack). @return how many stacks */
+    public static int writeModules(NBTTagCompound t, ItemStack[] slots) {
+        NBTTagList u = new NBTTagList();
+        for (int i = 0; i < slots.length; i++) {
+            if (slots[i] != null) {
+                NBTTagCompound c = new NBTTagCompound();
+                c.setByte("Slot", (byte) i);
+                slots[i].writeToNBT(c);
+                u.appendTag(c);
+            }
+        }
+        if (u.tagCount() > 0) {
+            t.setTag("AdUpg", u);
+        } else {
+            t.removeTag("AdUpg");
+        }
+        return u.tagCount();
+    }
+
+    /** The modules of a tag (AdUpgradeMath.SLOTS slots, null - empty). */
+    public static ItemStack[] readModules(NBTTagCompound t) {
+        ItemStack[] out = new ItemStack[AdUpgradeMath.SLOTS];
+        if (t == null) {
+            return out;
+        }
+        NBTTagList u = t.getTagList("AdUpg", 10);
+        for (int i = 0; i < u.tagCount(); i++) {
+            NBTTagCompound c = u.getCompoundTagAt(i);
+            int sl = c.getByte("Slot") & 0xFF;
+            if (sl < out.length) {
+                out[sl] = ItemStack.loadItemStackFromNBT(c);
+            }
+        }
+        return out;
+    }
+
+    /** World tests: a module straight into a slot. */
+    public void debugUpgrade(int slot, ItemStack s) {
+        if (slot >= 0 && slot < upg.length) {
+            upg[slot] = s;
+            markDirty();
+        }
     }
 
     /** The structure is gone: the modules drop loose (BlockAirDefenseSVA.breakBlock). */
@@ -469,6 +563,21 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         return 0;
     }
 
+    /** Wave A: a tube's reload as the model shows it (server; the missile system's with its overclockers). */
+    protected int reloadShown() {
+        return com.sva.airdefense.BallisticsMath.MISSILE_RELOAD;
+    }
+
+    /** World tests: the reload the description packet carries now ("RL"). */
+    public int syncedReload() {
+        return reloadShown();
+    }
+
+    /** The reload the client's model uses (synced; the base one until the server has told). */
+    public int clientReload() {
+        return cReload > 0 ? cReload : com.sva.airdefense.BallisticsMath.MISSILE_RELOAD;
+    }
+
     public int clientState() {
         return cState;
     }
@@ -486,11 +595,12 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         if (++syncTimer % 10 != 0) {
             return;
         }
-        int s = stateBits(), t = targetId(), a = ammoShown();
-        if (s != syncState || t != syncTarget || a != syncAmmo) {
+        int s = stateBits(), t = targetId(), a = ammoShown(), rl = reloadShown();
+        if (s != syncState || t != syncTarget || a != syncAmmo || rl != syncReload) {
             syncState = s;
             syncTarget = t;
             syncAmmo = a;
+            syncReload = rl;
             worldObj.markBlockForUpdate(xCoord, yCoord, zCoord);
         }
     }
@@ -510,6 +620,7 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         t.setByte("S", (byte) stateBits());
         t.setInteger("T", targetId());
         t.setByte("N", (byte) Math.min(127, ammoShown()));
+        t.setShort("RL", (short) Math.max(0, Math.min(Short.MAX_VALUE, reloadShown())));
         writeSync(t);
         return new S35PacketUpdateTileEntity(xCoord, yCoord, zCoord, 0, t);
     }
@@ -522,6 +633,7 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         cState = t.getByte("S");
         cTarget = t.getInteger("T");
         cAmmo = t.getByte("N");
+        cReload = t.getShort("RL");
         readSync(t);
     }
 
@@ -566,17 +678,12 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         return worldObj.rand.nextDouble() - 0.5;
     }
 
-    /** Tubes still reloading (client): fired less than the missile system's reload ago. */
+    /** Tubes still reloading (client): fired less than the reload ago - wave A: the launcher's real one (overclockers in). */
     public int reloadingTubes() {
         if (worldObj == null) {
             return 0;
         }
-        long now = worldObj.getTotalWorldTime();
-        int n = 0;
-        for (long t : tubeFired) {
-            n += now - t < com.sva.airdefense.BallisticsMath.MISSILE_RELOAD ? 1 : 0;
-        }
-        return n;
+        return AdUpgradeMath.tubesReloading(tubeFired, worldObj.getTotalWorldTime(), clientReload());
     }
 
     /** One client tick of the model's moving parts (cheap: a few floats; the target looked up by its id). */

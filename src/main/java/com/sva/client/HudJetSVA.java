@@ -192,6 +192,27 @@ final class HudJetSVA {
                 lineAt(x + a(0.6), hy - a(0.1), x, hy + a(0.9));
             }
         }
+        // ---- wave A (plan-next §9 A2): the zone frame - a box on the heading tape where the nearest zone's border lies, its
+        // name and distance under the heading box, the entry prediction framed below (blinking at a third of the warning time)
+        if (com.sva.ConfigSVA.zoneFrames) {
+            Object[] nb = AirDefenseClientSVA.nearby(v, com.sva.airdefense.ZoneMath.WARN_FAR * 3);
+            if (nb != null) {
+                com.sva.airdefense.ZoneMath.Zone z = (com.sva.airdefense.ZoneMath.Zone) nb[0];
+                double dist = ((Double) nb[1]).doubleValue();
+                float zx = HudMath.headingX(hdg + ((Double) nb[2]).doubleValue(), hdg);
+                if (!Float.isNaN(zx) && dist > 0) {
+                    frameBox(zx, hy + a(0.45), a(0.6), a(0.6));
+                }
+                text(fr, Lang.tr(dist > 0 ? "sva.jethud.zone" : "sva.jethud.zoneIn", z.name, Integer.valueOf((int) Math.round(dist))), 0, HudMath.HDG_Y - 3.6,
+                        TEXT_DEG, rgb);
+            }
+            String pl = AirDefenseClientSVA.predLine();
+            if (pl != null && (AirDefenseClientSVA.predLevel < 2 || blinkOn)) {
+                float py = a(HudMath.HDG_Y - 5.4);
+                frameBox(0F, py, a(Math.min(14, pl.length() * 0.36 + 0.8)), a(0.95));
+                textAt(fr, pl, 0F, py, TEXT_DEG, rgb);
+            }
+        }
         // ---- the speed tape (left) and the altitude tape (right)
         tape(fr, kmh, HudMath.SPEED_X, HudMath.SPEED_DEG, 10, -1, rgb, kmh <= HudMath.SPEED_BLINK || blinkOn, Lang.tr("sva.jethud.kmh"));
         tape(fr, (int) Math.round(alt), HudMath.ALT_X, HudMath.ALT_DEG, 10, 1, rgb, true, Lang.tr("sva.jethud.alt"));

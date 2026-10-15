@@ -77,6 +77,14 @@ public final class AirDefenseSVA {
         public String zone = "", restricted = "", assigned = "", engagedBy = "";
         public double vx, vy, vz;
         public boolean said7700, saidOld, saidIdent;
+        /**
+         * Wave A (the command post's): the 7600 state (NoRadioMath.S_*, -1 not squawking it) and its seconds to decide; the
+         * IFF state at the towers (IffMath.*); handed to the air defence by a tower (said in the log); the friendly airport
+         * whose code it squawks ("" none).
+         */
+        public int nr = -1, nrLeft, iff;
+        public boolean saidIff;
+        public String airport = "";
 
         public Contact(int id) {
             this.id = id;
@@ -127,6 +135,9 @@ public final class AirDefenseSVA {
     private final Map<Integer, String> xpdrSent = new HashMap<Integer, String>(), rwrSent = new HashMap<Integer, String>();
     private final Map<Integer, double[]> motion = new HashMap<Integer, double[]>();
     private final Map<String, Long> said = new HashMap<String, Long>();
+    /** Wave A: the reverser / afterburner last seen per vehicle (the RCS bump); the IFF handoffs. */
+    private final Map<Integer, Long> bumpSeen = new HashMap<Integer, Long>();
+    private final Map<Integer, Handoff> handed = new HashMap<Integer, Handoff>();
     private final Random rnd = new Random();
     private int ticks, zonesSent = -1;
 
@@ -294,9 +305,77 @@ public final class AirDefenseSVA {
         return RadarMath.visible(rcs, cloak ? 0 : v.heightAboveGround(RadarMath.MIN_AGL + 0.5), cloak);
     }
 
-    /** The detection range multiplier from the vehicle's tuning. */
+    /** The detection range multiplier from the vehicle's tuning - wave A: and what sticks out of it now (extras). */
     public static double stealth(EntityVehicleSVA v) {
-        return RadarMath.stealthMul(v.state.tuning, ConfigSVA.tuning);
+        double m = RadarMath.stealthMul(v.state.tuning, ConfigSVA.tuning);
+        return ConfigSVA.adRcsExtras ? m * extras(v) : m;
+    }
+
+    /**
+     * Wave A (plan-next §9 A3): the gear out (the liner's by its sequence, a retracting gear by height and speed), stores on
+     * the pylons (an extra tank on an aircraft), the liner's cargo doors open, the reverser / afterburner a moment ago.
+     */
+    public static double extras(EntityVehicleSVA v) {
+        com.sva.vehicle.VehicleType t = v.getVehicleType();
+        com.sva.vehicle.LinerSystems L = v.state.liner();
+        boolean gear, doors = false;
+        if (L != null) {
+            gear = L.gear.pos < 0.9;
+            doors = (L.doorsOpen() & (com.sva.vehicle.LinerSystems.D_CARGO_F | com.sva.vehicle.LinerSystems.D_CARGO_A)) != 0;
+        } else {
+            double[] vel = INSTANCE.velocity(v);
+            gear = RadarMath.gearOut(com.sva.vehicle.GearMath.retracts(t), v.heightAboveGround(10), Math.sqrt(vel[0] * vel[0] + vel[2] * vel[2]));
+        }
+        boolean stores = t.movement.flies && ConfigSVA.tuning && TuningMath.has(v.state.tuning, TuningMath.EXTRA_TANK);
+        Long seen = INSTANCE.bumpSeen.get(Integer.valueOf(v.getEntityId()));
+        boolean bump = seen != null && RadarMath.bumpOn(seen.longValue(), v.worldObj.getTotalWorldTime());
+        return RadarMath.extrasMul(gear, stores, doors, bump);
+    }
+
+    /** The reverser deployed / the afterburner lit now (the bump's source). */
+    static boolean bumping(EntityVehicleSVA v) {
+        com.sva.vehicle.LinerSystems L = v.state.liner();
+        if (L != null && (L.afs.revPos[0] > 0.05 || L.afs.revPos[1] > 0.05)) {
+            return true;
+        }
+        return v.isBoosting() && v.getVehicleType().gases.boostGas != null;
+    }
+
+    /** World tests: the bump as if the reverser / afterburner were seen now. */
+    public void debugBump(EntityVehicleSVA v, long at) {
+        bumpSeen.put(Integer.valueOf(v.getEntityId()), Long.valueOf(at));
+    }
+
+    // ------------------------------------------------------------------ wave A: IFF handoffs (an intruder for the posts)
+
+    /** An aircraft a tower handed to the air defence: the airport's owner, its ICAO code, until when. */
+    public static final class Handoff {
+        public final String owner, icao;
+        public final long until;
+
+        Handoff(String owner, String icao, long until) {
+            this.owner = owner;
+            this.icao = icao;
+            this.until = until;
+        }
+    }
+
+    public void handoff(int id, String owner, String icao, long until) {
+        handed.put(Integer.valueOf(id), new Handoff(owner == null ? "" : owner, icao == null ? "" : icao, until));
+    }
+
+    public void release(int id) {
+        handed.remove(Integer.valueOf(id));
+    }
+
+    /** The handoff of an aircraft still in force (null none). */
+    public Handoff handedOff(int id, long now) {
+        Handoff h = handed.get(Integer.valueOf(id));
+        if (h != null && now > h.until) {
+            handed.remove(Integer.valueOf(id));
+            return null;
+        }
+        return h;
     }
 
     /** Is anyone (a player) aboard? */
@@ -605,6 +684,7 @@ public final class AirDefenseSVA {
         ticks++;
         try {
             moveShots();
+            CoverageSVA.INSTANCE.tick();
             if (ticks % 5 == 0) {
                 vehicles(ticks % 10 == 0, ticks % 20 == 0);
             }
@@ -640,6 +720,9 @@ public final class AirDefenseSVA {
                     continue;
                 }
                 sampleMotion(v, now);
+                if (bumping(v)) {
+                    bumpSeen.put(Integer.valueOf(v.getEntityId()), Long.valueOf(now));
+                }
                 if (!sync && !cards) {
                     continue;
                 }
@@ -740,6 +823,12 @@ public final class AirDefenseSVA {
         if (rwrSent.size() > 256) {
             rwrSent.clear();
         }
+        if (bumpSeen.size() > 256) {
+            bumpSeen.clear();
+        }
+        if (handed.size() > 256) {
+            handed.clear();
+        }
     }
 
     // ------------------------------------------------------------------ zones for the pilots
@@ -810,6 +899,9 @@ public final class AirDefenseSVA {
         xpdrSent.clear();
         rwrSent.clear();
         said.clear();
+        bumpSeen.clear();
+        handed.clear();
+        CoverageSVA.INSTANCE.clear();
         zonesSent = -1;
     }
 

@@ -146,6 +146,7 @@ public final class SelfTestSVA {
             SelfTestLinerSVA.run();                         // liner wave 1: the SA-320 - controls, ELEC, APU, bleed, engine start, quick start
             SelfTestAirportSVA.run();                       // airport wave B1: ILS, CAT, markers, RVR, wind, runway paint / lights, planner
             SelfTestAirportB2SVA.run();                     // airport wave B2: tower, ATIS, CPDLC, auto tower, approaches, charts, follow-me
+            SelfTestAdWaveASVA.run();                       // wave A: zone editing, prediction, RCS extras, airport codes, 7600, coverage, IFF
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);

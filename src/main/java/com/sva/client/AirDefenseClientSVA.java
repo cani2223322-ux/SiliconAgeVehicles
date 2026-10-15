@@ -92,7 +92,125 @@ public final class AirDefenseClientSVA {
             return;
         }
         zoneWarning(mc);
+        predict(mc);
         rwrTones(mc);
+    }
+
+    // ------------------------------------------------------------------ wave A: the zone entry predicted (HUD / ND / HSI / ECAM)
+
+    /** The zone the track enters next within airdefense.zoneWarnSeconds (null none), the seconds, ZoneMath.predictLevel. */
+    public static ZoneMath.Zone predZone;
+    public static double predSec = -1;
+    public static int predLevel;
+    private static int predSounded;
+    /** The track (blocks a tick, smoothed over a few ticks) from the positions the client sees. */
+    private static double svx, svz, lastX = Double.NaN, lastZ;
+    private static int lastId = -1;
+
+    /** The track's ground velocity now (blocks a tick) - the ND's / HUD's. */
+    public static double[] track() {
+        return new double[] {svx, svz};
+    }
+
+    private static void predict(Minecraft mc) {
+        EntityVehicleSVA v = mc.thePlayer == null ? null : HudVehicleSVA.vehicleOf(mc.thePlayer);
+        predZone = null;
+        predSec = -1;
+        predLevel = 0;
+        if (v == null || !v.getVehicleType().movement.flies || !com.sva.ConfigSVA.zoneFrames) {
+            predSounded = 0;
+            lastX = Double.NaN;
+            LinerEwdSVA.zoneMemo = null;
+            return;
+        }
+        if (v.getEntityId() != lastId || Double.isNaN(lastX)) {
+            svx = svz = 0;
+        } else {
+            svx = svx * 0.6 + (v.posX - lastX) * 0.4;
+            svz = svz * 0.6 + (v.posZ - lastZ) * 0.4;
+        }
+        lastId = v.getEntityId();
+        lastX = v.posX;
+        lastZ = v.posZ;
+        double warn = com.sva.ConfigSVA.adZoneWarnSeconds;
+        List<ZoneMath.Zone> zs = zones(v.dimension);
+        double course = RadarMath.compass(svx, svz);
+        for (ZoneMath.Zone c : zs) {
+            if (ZoneMath.corridorPass(c, v.posX, v.posY, v.posZ, course, true)) {
+                LinerEwdSVA.zoneMemo = null;
+                predSounded = 0;
+                return;                                             // in a corridor on its course: quiet
+            }
+        }
+        double bs = Double.MAX_VALUE;
+        for (ZoneMath.Zone z : zs) {
+            if (z.type != ZoneMath.FORBIDDEN && z.type != ZoneMath.RESTRICTED) {
+                continue;
+            }
+            double s = ZoneMath.secondsToEntry(z, v.posX, v.posY, v.posZ, svx, svz, true, warn);
+            if (s >= 0 && (s < bs || s == bs && z.type == ZoneMath.FORBIDDEN)) {
+                bs = s;
+                predZone = z;
+            }
+        }
+        if (predZone != null) {
+            predSec = bs;
+            predLevel = ZoneMath.predictLevel(bs, warn);
+        }
+        if (predLevel >= 1 && predLevel <= 2 && predLevel > predSounded) {
+            for (int i = 0; i < predLevel; i++) {
+                mc.getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(new ResourceLocation("note.pling"), predLevel == 2 ? 1.6F : 1.25F));
+            }
+        }
+        predSounded = predLevel == 0 ? 0 : Math.max(predSounded, predLevel);
+        // the liner's E/WD memo: amber before, red inside
+        if (v.getVehicleType() == com.sva.vehicle.VehicleType.LINER && predZone != null && predLevel > 0) {
+            LinerEwdSVA.zoneMemo = predLevel == 3 ? Lang.tr("sva.ad.ecam.inside", predZone.name) : Lang.tr("sva.ad.ecam.ahead", predZone.name,
+                    Integer.valueOf((int) Math.ceil(predSec)));
+            LinerEwdSVA.zoneMemoRed = predLevel >= 2 && predZone.type == ZoneMath.FORBIDDEN;
+        } else {
+            LinerEwdSVA.zoneMemo = null;
+        }
+    }
+
+    /** The prediction's HUD / ND line («ВХОД В ЗОНУ 3-1 ЧЕРЕЗ 12 С»; inside: «В ЗОНЕ 3-1»), null none. */
+    public static String predLine() {
+        if (predZone == null || predLevel == 0) {
+            return null;
+        }
+        return predLevel == 3 ? Lang.tr("sva.ad.hud.inZone", predZone.name) : Lang.tr("sva.ad.hud.entry", predZone.name, Integer.valueOf((int) Math.ceil(predSec)));
+    }
+
+    /** The prediction's colour: red for a forbidden zone at level 2+, else amber. */
+    public static int predColour() {
+        return predZone != null && predZone.type == ZoneMath.FORBIDDEN && predLevel >= 2 ? 0xFF5050 : 0xF0B040;
+    }
+
+    /**
+     * The nearest forbidden / restricted zone within `max` blocks of a vehicle (its outline): {zone, distance, bearing to its
+     * nearest point relative to the nose (deg clockwise)} or null - the HUDs' zone indicator.
+     */
+    public static Object[] nearby(EntityVehicleSVA v, double max) {
+        if (v == null) {
+            return null;
+        }
+        ZoneMath.Zone best = null;
+        double bd = max;
+        for (ZoneMath.Zone z : zones(v.dimension)) {
+            if ((z.type == ZoneMath.FORBIDDEN || z.type == ZoneMath.RESTRICTED) && ZoneMath.altIn(z, v.posY, true)) {
+                double d = ZoneMath.distance2D(z, v.posX, v.posZ);
+                if (d <= bd) {
+                    bd = d;
+                    best = z;
+                }
+            }
+        }
+        if (best == null) {
+            return null;
+        }
+        double[] p = ZoneMath.nearestPoint(best, v.posX, v.posZ);
+        double rel = bd <= 0 ? 0 : RadarMath.relBearing(v.posX, v.posZ, v.rotationYaw, p[0], p[1]);
+        return new Object[] {best, Double.valueOf(bd), Double.valueOf(rel)};
     }
 
     private static void apply(Minecraft mc, int kind, NBTTagCompound t) {
@@ -152,6 +270,9 @@ public final class AirDefenseClientSVA {
                 break;
             case NetADSVA.D_EQUIP:
                 GuiAdEquipSVA.receive(t);
+                break;
+            case NetADSVA.D_COVER:
+                CoverClientSVA.receive(t);
                 break;
             default:
                 break;
@@ -362,6 +483,9 @@ public final class AirDefenseClientSVA {
             fr.drawStringWithShadow(zoneLine, sw / 2 - w / 2, y, blink ? zoneColour : 0x803030);
             y += 14;
         }
+        if (com.sva.ConfigSVA.zoneFrames && v.getVehicleType().movement.flies) {
+            y = zoneFrame(fr, v, sw, y);
+        }
         // the RWR in words when the cockpit's scope is out of sight (third person) or the vehicle has none
         if (rwrFitted(v) && (mc.gameSettings.thirdPersonView != 0 || !com.sva.vehicle.GlassMath.hasMfd(v.getVehicleType()))) {
             float[][] th = rwrThreats(v);
@@ -385,6 +509,67 @@ public final class AirDefenseClientSVA {
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
+    /**
+     * Wave A (plan-next §9 A2, mock-up veh_ad_impl_a_2_hud_nd): the zone frame on the pilot's HUD (every aircraft; the liner's
+     * HUD is this one) - a box in the zone type's colour round the nearest zone within WARN_FAR x 3: its name and type, the
+     * blocks to it, a pointer to its nearest point (turned by the bearing from the nose), and the entry prediction («ВХОД В
+     * ЗОНУ 3-1 ЧЕРЕЗ 12 С», blinking red at a third of the warning time). @return the next line's y
+     */
+    private static int zoneFrame(FontRenderer fr, EntityVehicleSVA v, int sw, int y) {
+        Object[] nb = nearby(v, ZoneMath.WARN_FAR * 3);
+        String pl = predLine();
+        if (nb == null && pl == null) {
+            return y;
+        }
+        String l1 = null;
+        int col = 0xF0B040;
+        double rel = 0;
+        if (nb != null) {
+            ZoneMath.Zone z = (ZoneMath.Zone) nb[0];
+            int d = (int) Math.round(((Double) nb[1]).doubleValue());
+            rel = ((Double) nb[2]).doubleValue();
+            col = ZoneMath.COLOURS[z.type];
+            l1 = d <= 0 ? Lang.tr("sva.ad.hud.frameIn", Lang.tr("sva.ad.zone.type." + ZoneMath.TYPE_KEYS[z.type]), z.label())
+                    : Lang.tr("sva.ad.hud.frame", Lang.tr("sva.ad.zone.type." + ZoneMath.TYPE_KEYS[z.type]), z.label(), Integer.valueOf(d));
+        }
+        int w = Math.max(l1 == null ? 0 : fr.getStringWidth(l1) + 16, pl == null ? 0 : fr.getStringWidth(pl));
+        int h = (l1 == null ? 0 : 11) + (pl == null ? 0 : 11) + 4;
+        int x0 = sw / 2 - w / 2 - 5, x1 = sw / 2 + w / 2 + 5, y0 = y - 3, y1 = y - 3 + h;
+        boolean blink = predLevel >= 2 && ticks / 5 % 2 == 0;
+        int frame = 0xFF000000 | (pl != null ? predColour() : col);
+        Gui.drawRect(x0, y0, x1, y1, 0x90101418);
+        Gui.drawRect(x0, y0, x1, y0 + 1, frame);
+        Gui.drawRect(x0, y1 - 1, x1, y1, frame);
+        Gui.drawRect(x0, y0, x0 + 1, y1, frame);
+        Gui.drawRect(x1 - 1, y0, x1, y1, frame);
+        int ty = y;
+        if (l1 != null) {
+            fr.drawStringWithShadow(l1, x0 + 16, ty, col);
+            pointer(x0 + 8, ty + 4, rel, col);
+            ty += 11;
+        }
+        if (pl != null) {
+            fr.drawStringWithShadow(pl, sw / 2 - fr.getStringWidth(pl) / 2, ty, blink ? 0xFFFFFF : predColour());
+        }
+        GL11.glColor4f(1F, 1F, 1F, 1F);
+        return y1 + 5;
+    }
+
+    /** A small triangle at (x, y) pointing `rel` degrees clockwise from up (the nose). */
+    static void pointer(double x, double y, double rel, int rgb) {
+        double r = 4.5;
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f((rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F, 1F);
+        Tessellator t = Tessellator.instance;
+        t.startDrawing(GL11.GL_TRIANGLES);
+        for (double d : new double[] {0, -140, 140}) {
+            double a = Math.toRadians(rel + d), k = d == 0 ? r : r * 0.8;
+            t.addVertex(x + Math.sin(a) * k, y - Math.cos(a) * k, 0);
+        }
+        t.draw();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+    }
+
     // ------------------------------------------------------------------ the map (GuiMapSVA, GuiCommandPostSVA)
 
     /**
@@ -397,13 +582,19 @@ public final class AirDefenseClientSVA {
             int col = ZoneMath.COLOURS[z.type];
             double w = i == highlight ? 2.2 : 1.2;
             if (z.shape == ZoneMath.RECT) {
-                double x0 = ox + (z.x0 - cx) / scale, y0 = oy + (z.z0 - cz) / scale, x1 = ox + (z.x1 + 1 - cx) / scale, y1 = oy + (z.z1 + 1 - cz) / scale;
-                fill(x0, y0, x1, y1, col, 0.16F);
-                edge(x0, y0, x1, y0, w, col, z.type == ZoneMath.CORRIDOR);
-                edge(x1, y0, x1, y1, w, col, z.type == ZoneMath.CORRIDOR);
-                edge(x1, y1, x0, y1, w, col, z.type == ZoneMath.CORRIDOR);
-                edge(x0, y1, x0, y0, w, col, z.type == ZoneMath.CORRIDOR);
-                fr.drawStringWithShadow(z.label(), (int) x0 + 2, (int) y0 + 2, col);
+                // wave A: a turned rectangle - its four corners (ZoneMath.corners), the quad filled between them
+                double[][] c = ZoneMath.corners(z);
+                double[] px = new double[4], py = new double[4];
+                for (int k = 0; k < 4; k++) {
+                    px[k] = ox + (c[k][0] - cx) / scale;
+                    py[k] = oy + (c[k][1] - cz) / scale;
+                }
+                quad(px, py, col, 0.16F);
+                for (int k = 0; k < 4; k++) {
+                    edge(px[k], py[k], px[(k + 1) % 4], py[(k + 1) % 4], w, col, z.type == ZoneMath.CORRIDOR);
+                }
+                fr.drawStringWithShadow(z.label(), (int) Math.min(Math.min(px[0], px[1]), Math.min(px[2], px[3])) + 2,
+                        (int) Math.min(Math.min(py[0], py[1]), Math.min(py[2], py[3])) + 2, col);
             } else {
                 double px = ox + (z.cx + 0.5 - cx) / scale, py = oy + (z.cz + 0.5 - cz) / scale, r = z.r / scale;
                 disc(px, py, r, col, 0.16F);
@@ -421,7 +612,22 @@ public final class AirDefenseClientSVA {
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
-    private static void fill(double x0, double y0, double x1, double y1, int rgb, float a) {
+    /** A filled quad of four points (in order). */
+    static void quad(double[] px, double[] py, int rgb, float a) {
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glColor4f((rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F, a);
+        Tessellator t = Tessellator.instance;
+        t.startDrawingQuads();
+        for (int k = 3; k >= 0; k--) {
+            t.addVertex(px[k], py[k], 0);
+        }
+        t.draw();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+    }
+
+    static void fill(double x0, double y0, double x1, double y1, int rgb, float a) {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);

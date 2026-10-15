@@ -51,7 +51,8 @@ import net.minecraft.world.World;
  *
  * Upgrades wave (2026-10-12): RMB on a radar opens its equipment screen (GuiHandlerSVA.AD_EQUIP: the PPI scope, the state,
  * the upgrade slots); the command post's «Оборудование» tab and the way back go through NetADSVA (AD_EQUIP / KP_OPEN).
- * Broken, every block drops its upgrade modules loose (in creative too, as the launcher's ammunition).
+ * Broken, every block drops its upgrade modules loose (in creative too, as the launcher's ammunition) - wave A: with its
+ * item dropped they ride inside it instead (its NBT, airdefense.keepModules) and go back in when it is placed.
  */
 public class BlockAirDefenseSVA extends BlockContainer {
 
@@ -200,6 +201,7 @@ public class BlockAirDefenseSVA extends BlockContainer {
             return;
         }
         ((TileEntityAirDefenseSVA) te).setOwner(p);
+        ((TileEntityAirDefenseSVA) te).restoreUpgrades(s, w, x, y, z);  // wave A: the modules kept in the item
         if (kind == COMMAND_POST) {
             ((TileEntityCommandPostSVA) te).log("sva.ad.log.placed", p.getCommandSenderName());
         }
@@ -308,7 +310,12 @@ public class BlockAirDefenseSVA extends BlockContainer {
             TileEntityAirDefenseSVA t = (TileEntityAirDefenseSVA) te;
             t.dismantling = true;
             if (!t.noDrop) {
-                dropBlockAsItem(w, x, y, z, new ItemStack(this, 1, damageDropped(meta)));
+                // wave A: the upgrade modules ride in the item (its NBT) and come back on placing; creative / no item: loose
+                ItemStack item = new ItemStack(this, 1, damageDropped(meta));
+                if (ConfigSVA.adKeepModules) {
+                    t.keepUpgradesIn(item);
+                }
+                dropBlockAsItem(w, x, y, z, item);
             }
             removeParts(w, x, y, z, t);
             t.removed();

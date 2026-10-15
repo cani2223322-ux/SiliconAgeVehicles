@@ -102,7 +102,24 @@ public final class TowerScreenSVA {
         }
         h.setString("Acc", acc.toString());
         h.setLong("Time", w.getWorldTime());
+        h.setBoolean("IffAlarm", IffServerSVA.INSTANCE.alarm(t.key));    // wave A: an intruder near the airport
         s.setTag("T", h);
+        // wave A: the IFF list (intruders: id, state, reason, seconds to the handoff) and the radars for the coverage map
+        NBTTagList il = new NBTTagList();
+        for (int[] e : IffServerSVA.INSTANCE.list(t.key, now)) {
+            il.appendTag(new net.minecraft.nbt.NBTTagIntArray(e));
+        }
+        s.setTag("Iff", il);
+        NBTTagList rd = new NBTTagList();
+        for (TileEntityRadarSVA r : radars(w, te)) {
+            NBTTagCompound e = new NBTTagCompound();
+            e.setString("Key", r.key());
+            e.setInteger("X", r.xCoord);
+            e.setInteger("Z", r.zCoord);
+            e.setByte("K", (byte) r.kind());
+            rd.appendTag(e);
+        }
+        s.setTag("Rd", rd);
         // the runways
         NBTTagList rl = new NBTTagList();
         for (IlsPairing.Rwy r : t.rwys) {
@@ -222,6 +239,18 @@ public final class TowerScreenSVA {
         return m;
     }
 
+    /** Wave A: the tower's radars - its owner's, powered, within AtcServerSVA.RADAR_LINK (the traffic's and the coverage map's). */
+    static List<TileEntityRadarSVA> radars(World w, TileEntityTowerSVA te) {
+        List<TileEntityRadarSVA> l = new ArrayList<TileEntityRadarSVA>();
+        for (TileEntityRadarSVA r : AirDefenseSVA.INSTANCE.loaded(w, TileEntityRadarSVA.class)) {
+            if (r.getOwnerName().equalsIgnoreCase(te.getOwnerName()) && r.isPowered()
+                    && r.getDistanceFrom(te.xCoord + 0.5, te.yCoord + 0.5, te.zCoord + 0.5) <= AtcServerSVA.RADAR_LINK * AtcServerSVA.RADAR_LINK) {
+                l.add(r);
+            }
+        }
+        return l;
+    }
+
     /** The traffic: transponders within TRAFFIC_RANGE, the owner's radars' contacts (primary returns too). */
     static NBTTagList traffic(World w, AirportDataSVA d, TileEntityTowerSVA te, AirportDataSVA.Tower t, long now) {
         Map<Integer, NBTTagCompound> out = new HashMap<Integer, NBTTagCompound>();
@@ -272,8 +301,10 @@ public final class TowerScreenSVA {
             }
         }
         NBTTagList l = new NBTTagList();
-        for (NBTTagCompound e : out.values()) {
-            l.appendTag(e);
+        for (Map.Entry<Integer, NBTTagCompound> e : out.entrySet()) {
+            com.sva.airdefense.IffMath.Track tr = IffServerSVA.INSTANCE.track(t.key, e.getKey().intValue());
+            e.getValue().setByte("Iff", (byte) (tr == null ? 0 : tr.state));      // wave A: the IFF mark
+            l.appendTag(e.getValue());
         }
         return l;
     }
@@ -370,7 +401,12 @@ public final class TowerScreenSVA {
         }
         long now = w.getTotalWorldTime();
         String op = c.getString("Op");
-        if ("hb".equals(op)) {
+        if ("cov".equals(op)) {
+            // wave A (A9): the coverage maps of the tower's radars at a height, to this player
+            for (TileEntityRadarSVA r : radars(w, te)) {
+                com.sva.airdefense.CoverageSVA.INSTANCE.request(p, r, c.getInteger("A"));
+            }
+        } else if ("hb".equals(op)) {
             te.viewer(p, c.getBoolean("Seat"));
         } else if ("close".equals(op)) {
             te.closed(p);

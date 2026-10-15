@@ -30,7 +30,9 @@ public final class Cpdlc {
 
     /** Uplink types. */
     public static final int U_TAXI = 0, U_LINEUP = 1, U_TAKEOFF = 2, U_LAND = 3, U_GOAROUND = 4, U_CLIMB = 5, U_DESCEND = 6, U_HDG = 7,
-            U_REPORT = 8, U_FREE = 9, U_STBY = 10, U_UNABLE = 11, U_HOLDSHORT = 12, U_TYPES = 13;
+            U_REPORT = 8, U_FREE = 9, U_STBY = 10, U_UNABLE = 11, U_HOLDSHORT = 12,
+            /** Wave A (plan-next §9 A4 / A10): КОД ОТВЕТЧИКА 41xx (WILCO sets it), ОТВЕТЧИК НЕ ОТВЕЧАЕТ - ОТВЕТЬТЕ (the IFF call). */
+            U_SQUAWK = 13, U_IFF = 14, U_TYPES = 15;
     /** Downlink types (requests; then the pilot's responses). */
     public static final int D_READY = 20, D_LANDING = 21, D_CLIMB = 22, D_TAXI = 23, D_FREE = 24, D_WILCO = 25, D_UNABLE = 26, D_STBY = 27,
             D_FIRST = 20, D_LAST = 27;
@@ -123,6 +125,8 @@ public final class Cpdlc {
                 return new String[] {String.valueOf(m.arg)};
             case U_HDG:
                 return new String[] {TowerMath.three(m.arg)};
+            case U_SQUAWK:
+                return new String[] {com.sva.airdefense.XpdrMath.format(m.arg & com.sva.airdefense.XpdrMath.MAX)};
             case U_REPORT:
                 return new String[] {"#sva.cpdlc.rep." + Math.max(0, Math.min(REPORTS - 1, m.arg)), m.s};
             case U_FREE:

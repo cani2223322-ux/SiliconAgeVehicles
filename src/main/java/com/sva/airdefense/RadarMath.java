@@ -57,6 +57,7 @@ public final class RadarMath {
     /**
      * The radar cross-section («ЭПР») of a type: the Singular Ship 40, the shuttle 12, the tiltrotor 8, the helicopter 6,
      * the light plane 4, the jet 3, the hoverbike 0.5 (the cushion keeps it in the clutter anyway); ground vehicles 0.
+     * Wave A: the SA-320 liner (wave 7 came after the air defence and had none - no radar ever saw it) 20, a big airliner.
      */
     public static double rcs(VehicleType t) {
         if (t == null) {
@@ -65,6 +66,8 @@ public final class RadarMath {
         switch (t) {
             case SHIP:
                 return 40;
+            case LINER:
+                return 20;
             case SHUTTLE:
                 return 12;
             case TILT:
@@ -95,6 +98,34 @@ public final class RadarMath {
             m *= SMOOTH_MUL;
         }
         return m;
+    }
+
+    /**
+     * Wave A (plan-next §9 A3): what sticks out of the airframe now - on top of the coating / hull (the same detection
+     * range multipliers): the gear extended (retracting gear only - a fixed gear is in the type's RCS already) or stores on
+     * the pylons (the «Доп. бак» on an aircraft) +20 % each, the liner's cargo doors open +10 %, and for a moment after the
+     * thrust reverser deployed / the afterburner lit (BUMP_TICKS) +15 %.
+     */
+    public static final double GEAR_MUL = 1.2, STORES_MUL = 1.2, DOORS_MUL = 1.1, BUMP_MUL = 1.15;
+    /** How long the reverser's / afterburner's bump lasts after it was last seen (ticks; 3 s). */
+    public static final int BUMP_TICKS = 60;
+
+    /** The extras' range multiplier (all off: 1). */
+    public static double extrasMul(boolean gearOut, boolean stores, boolean doorsOpen, boolean bump) {
+        return (gearOut ? GEAR_MUL : 1) * (stores ? STORES_MUL : 1) * (doorsOpen ? DOORS_MUL : 1) * (bump ? BUMP_MUL : 1);
+    }
+
+    /**
+     * A retracting gear is out as the client's animation has it (AnimMath.gearTarget without its memory): below
+     * EXTEND_HEIGHT over the ground or slower than EXTEND_SPEED; a type with fixed gear: false (no extra).
+     */
+    public static boolean gearOut(boolean retracts, double agl, double speed) {
+        return retracts && (agl < com.sva.vehicle.AnimMath.EXTEND_HEIGHT || speed < com.sva.vehicle.AnimMath.EXTEND_SPEED);
+    }
+
+    /** The bump is still on: seen within BUMP_TICKS. */
+    public static boolean bumpOn(long lastSeen, long now) {
+        return lastSeen >= 0 && now >= lastSeen && now - lastSeen <= BUMP_TICKS;
     }
 
     /** The weather's range multiplier at the radar. */

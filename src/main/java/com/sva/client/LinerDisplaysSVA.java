@@ -284,6 +284,11 @@ public final class LinerDisplaysSVA {
                 LinerGfxSVA.text(ils.full() && ils.rwy.length() > 0 ? ils.apt + " " + ils.rwy : ils.ident, x + 6 * s, y + 8 * s, 8 * s, WHT, -1);
             }
         }
+        // wave A (plan-next §9 A2): the air-defence zones' boundaries and the entry prediction
+        if (com.sva.ConfigSVA.zoneFrames) {
+            LinerGfxSVA.layer();
+            ndZones(v, w, cx, cy, R, range, rot, s);
+        }
         // the aircraft (yellow) and the heading pointer
         LinerGfxSVA.layer();
         float ac = plan ? hdg : 0;
@@ -304,6 +309,62 @@ public final class LinerDisplaysSVA {
         }
         LinerGfxSVA.text(Lang.tr("sva.liner.pos." + LinerControls.ND_MODES[mode]), 6 * s, 269 * s, 7 * s, GRN, -1);
         LinerGfxSVA.text(tr("range", Integer.valueOf(Math.round(range))), 274 * s, 269 * s, 7 * s, CYN, 1);
+    }
+
+    /**
+     * Wave A (plan-next §9 A2, mock-up veh_ad_impl_a_2_hud_nd): the zones pilots see as dashed lines on the ND - forbidden red,
+     * restricted amber, the airports' cyan (the corridors are the map's) - only their parts inside the compass ring, the name
+     * by the nearest corner; the prediction «ВХОД В ЗОНУ 3-1 ЧЕРЕЗ 25 С» at the top (red when close to a forbidden one).
+     */
+    static void ndZones(EntityVehicleSVA v, float w, float cx, float cy, float R, float range, float rot, float s) {
+        for (com.sva.airdefense.ZoneMath.Zone z : AirDefenseClientSVA.zones(v.dimension)) {
+            if (z.type == com.sva.airdefense.ZoneMath.CORRIDOR || com.sva.airdefense.ZoneMath.distance2D(z, v.posX, v.posZ) > range * 1.4) {
+                continue;
+            }
+            int col = z.type == com.sva.airdefense.ZoneMath.FORBIDDEN ? RED : z.type == com.sva.airdefense.ZoneMath.RESTRICTED ? AMB : CYN;
+            double[][] o = com.sva.airdefense.ZoneMath.outline(z, 64);
+            double piece = Math.max(2, range / 24);
+            float bestR = Float.MAX_VALUE, lx = 0, ly = 0;
+            int dash = 0;
+            for (int k = 0; k < o.length; k++) {
+                double[] a = o[k], b = o[(k + 1) % o.length];
+                int n = Math.max(1, (int) Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / piece));
+                for (int i = 0; i < n; i++, dash++) {
+                    double f0 = i / (double) n, f1 = (i + 1) / (double) n;
+                    float[] p = ndMap(a[0] + (b[0] - a[0]) * f0, a[1] + (b[1] - a[1]) * f0, v.posX, v.posZ, cx, cy, R, range, rot);
+                    float[] q = ndMap(a[0] + (b[0] - a[0]) * f1, a[1] + (b[1] - a[1]) * f1, v.posX, v.posZ, cx, cy, R, range, rot);
+                    if (p[2] > R * 1.02F || q[2] > R * 1.02F) {
+                        continue;
+                    }
+                    if (dash % 2 == 0) {
+                        LinerGfxSVA.line(p[0], p[1], q[0], q[1], 1.4F * s, col);
+                    }
+                    if (p[2] < bestR) {
+                        bestR = p[2];
+                        lx = p[0];
+                        ly = p[1];
+                    }
+                }
+            }
+            if (bestR < R) {
+                LinerGfxSVA.text(z.name, lx + 4 * s, ly - 6 * s, 7 * s, col, -1);
+            }
+        }
+        String pl = AirDefenseClientSVA.predLine();
+        if (pl != null) {
+            int c = AirDefenseClientSVA.predColour() == 0xFF5050 ? RED : AMB;
+            if (AirDefenseClientSVA.predLevel < 2 || System.currentTimeMillis() / 400 % 2 == 0) {
+                LinerGfxSVA.text(pl, w / 2, 22 * s, 8 * s, c, 0, 128 * s);
+            }
+        }
+    }
+
+    /** A world point on the ND, not clamped: {x, y, its radius on the display}. */
+    static float[] ndMap(double px, double pz, double ax, double az, float cx, float cy, float R, float range, float rot) {
+        double dx = px - ax, dz = pz - az;
+        float a = (float) (Math.toDegrees(Math.atan2(dx, -dz)) - rot);
+        float r = (float) (Math.sqrt(dx * dx + dz * dz) / range * R);
+        return new float[] {LinerGfxSVA.px(cx, r, a), LinerGfxSVA.py(cy, r, a), r};
     }
 
     /** A world point on the ND: {x, y} (clamped to 1.3 R), its distance (blocks) and bearing (deg). */

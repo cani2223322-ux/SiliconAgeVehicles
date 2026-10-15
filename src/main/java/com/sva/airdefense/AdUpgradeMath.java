@@ -147,6 +147,21 @@ public final class AdUpgradeMath {
         return Math.pow(OD_RANGE, capGen(overdrive));
     }
 
+    /**
+     * Wave A (plan-next §9 A7): the model's tubes still reloading - fired less than `reload` ticks ago. The reload is the
+     * launcher's real one (with its overclockers, synced), not the base MISSILE_RELOAD: an overclocked system's tubes fill
+     * as fast as it really launches again.
+     */
+    public static int tubesReloading(long[] fired, long now, int reload) {
+        int n = 0;
+        if (fired != null) {
+            for (long t : fired) {
+                n += now - t < Math.max(1, reload) && now >= t ? 1 : 0;
+            }
+        }
+        return n;
+    }
+
     /** "6,0" / "0,5" - seconds from ticks with one decimal (the decimal sign passed: ',' ru / '.' en). Pure. */
     public static String seconds(int ticks, char point) {
         long tenths = Math.round(Math.max(0, ticks) / 2.0);

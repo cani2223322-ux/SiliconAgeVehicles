@@ -93,6 +93,18 @@ public class ItemBlockAirDefenseSVA extends ItemBlock {
         int blk = k == BlockAirDefenseSVA.RADAR ? com.sva.airdefense.AdUpgradeMath.B_RADAR
                 : k == BlockAirDefenseSVA.LAUNCHER ? com.sva.airdefense.AdUpgradeMath.B_LAUNCHER : com.sva.airdefense.AdUpgradeMath.B_KP;
         list.add("§7" + Lang.tr("sva.tooltip.ad.slots", Integer.valueOf(com.sva.airdefense.AdUpgradeMath.SLOTS)));
+        // wave A: the modules this item keeps (broken with them inside - they go back in when placed)
+        if (s.hasTagCompound()) {
+            StringBuilder km = new StringBuilder();
+            for (ItemStack u : TileEntityAirDefenseSVA.readModules(s.getTagCompound())) {
+                if (u != null) {
+                    km.append(km.length() > 0 ? ", " : "").append(u.stackSize).append(" x ").append(u.getDisplayName());
+                }
+            }
+            if (km.length() > 0) {
+                list.add("§b" + Lang.tr("sva.tooltip.ad.kept", km.toString()));
+            }
+        }
         StringBuilder mods = new StringBuilder();
         for (com.sc.machine.UpgradeType u : com.sva.airdefense.AdUpgradeMath.accepted(blk)) {
             mods.append(mods.length() > 0 ? ", " : "").append(com.sc.init.ModItems.upgrade.stackOf(u).getDisplayName());

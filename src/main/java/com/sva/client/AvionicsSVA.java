@@ -418,7 +418,11 @@ final class AvionicsSVA {
                 float a0 = -half + 2 * half * k / n, a1 = -half + 2 * half * (k + 1) / n;
                 CockpitInstrumentsSVA.line(a0, yy, a1, yy, R * 0.025F, Z2);
             }
-            CockpitInstrumentsSVA.text(fr, zb[0] + "  " + Math.round(zd), 0F, yy - R * 0.09F, R * 0.08F, R * 0.9F, zc);
+            // wave A: the seconds to the border on the track (AirDefenseClientSVA's prediction) when it is this zone
+            com.sva.airdefense.ZoneMath.Zone pz = AirDefenseClientSVA.predZone;
+            String sec = pz != null && pz.name.equals(zb[0]) && AirDefenseClientSVA.predSec > 0
+                    ? "  " + Lang.tr("sva.hsi.zoneSec", Integer.valueOf((int) Math.ceil(AirDefenseClientSVA.predSec))) : "";
+            CockpitInstrumentsSVA.text(fr, zb[0] + "  " + Math.round(zd) + sec, 0F, yy - R * 0.09F, R * 0.08F, R * 0.9F, zc);
         }
         // the aircraft symbol (yellow) and the lubber line (amber)
         CockpitInstrumentsSVA.glColor(YEL);

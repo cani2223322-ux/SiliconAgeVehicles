@@ -58,7 +58,13 @@ public class GuiCommandPostSVA extends GuiScreen {
             MUTED = 0x8A93A3, AMBER = 0xF0B040, RED = 0xF06060, GREEN = 0x62E06A, CYAN = 0x5EC8F0, UNKNOWN = 0xFF101318;
     private static final int B_TAB = 1, B_ALARM = 10, B_AUTO = 11, B_PRINT = 12, B_SEND = 13, B_ZOOM_OUT = 14, B_ZOOM_IN = 15,
             B_Z_SAVE = 20, B_Z_NEW = 21, B_Z_DEL = 22, B_Z_SHAPE = 23, B_Z_TYPE = 24, B_Z_SHOW = 28, B_Z_ALARM = 29, B_Z_HERE = 30,
-            B_S_SAVE = 40, B_S_KEY = 41, B_S_SECRET = 42, B_S_NEWSECRET = 43;
+            B_S_SAVE = 40, B_S_KEY = 41, B_S_SECRET = 42, B_S_NEWSECRET = 43,
+            /** Wave A: the coverage map's height, the zone editor's snap / copy / paste / undo. */
+            B_COV = 50, B_Z_SNAP = 51, B_Z_COPY = 52, B_Z_PASTE = 53, B_Z_UNDO = 54;
+    /** Wave A: the zone the editor copied (kept while the game runs - pasted into another post's screen too). */
+    private static ZoneMath.Zone clipboard;
+    /** Wave A: the coverage map's height on the screens (-1 off; kept between openings). */
+    private static int cov = -1;
 
     private static NBTTagCompound last;
     private static GuiCommandPostSVA open;
@@ -78,9 +84,17 @@ public class GuiCommandPostSVA extends GuiScreen {
     private GuiTextField msgField;
     // the zone editor
     private final ZoneMath.Zone edit = new ZoneMath.Zone();
-    private GuiTextField zName, zA, zB, zC, zD, zLo, zHi, zCodeLo, zCodeHi, zCourse;
+    private GuiTextField zName, zA, zB, zC, zD, zLo, zHi, zCodeLo, zCodeHi, zCourse, zRot;
+    /** Wave A: the handle being dragged (ZoneEditMath.H_*), the zone and the mouse's world point when it went down; snap. */
+    private int dragHandle = com.sva.airdefense.ZoneEditMath.H_NONE, covAsked = -1000;
+    private ZoneMath.Zone dragOrig;
+    private double dragSX, dragSZ;
+    private boolean snap;
+    private final com.sva.airdefense.ZoneEditMath.History hist = new com.sva.airdefense.ZoneEditMath.History();
+    /** Wave A: the 7600 decision panel's click areas {x0, y0, x1, y1, track id, 1 friend / 2 check}. */
+    private final List<int[]> nrBtns = new ArrayList<int[]>();
     // settings
-    private GuiTextField sName, sSecret, sWhite, sAccess;
+    private GuiTextField sName, sSecret, sWhite, sAccess, sTrust;
     private final GuiTextField[] sCodes = new GuiTextField[8];
     private boolean settingsLoaded, dayKey;
     private final List<GuiTextField> fields = new ArrayList<GuiTextField>();
@@ -125,6 +139,7 @@ public class GuiCommandPostSVA extends GuiScreen {
     public void onGuiClosed() {
         NetADSVA.cmd(NetADSVA.KP_CLOSE, kx, ky, kz, 0, null);
         Keyboard.enableRepeatEvents(false);
+        CoverClientSVA.release();
         if (terrain != null) {
             terrain.deleteGlTexture();
             terrain = null;
@@ -162,6 +177,10 @@ public class GuiCommandPostSVA extends GuiScreen {
             buttonList.add(b);
         }
         int rx = left + RX;
+        if (tab != 2) {
+            // wave A: the coverage map's height (off / 20 / 60 / 120), in the map's top right corner
+            buttonList.add(new GuiCargoSVA.Dark(B_COV, left + MAP_X + MAP - 66, top + MAP_Y + 2, 64, 11, "", Lang.tr("sva.ad.cov.tip")));
+        }
         if (tab == 0) {
             buttonList.add(new GuiCargoSVA.Dark(B_ZOOM_OUT, left + MAP_X, top + MAP_Y + MAP + 3, 12, 12, "-", null));
             buttonList.add(new GuiCargoSVA.Dark(B_ZOOM_IN, left + MAP_X + 14, top + MAP_Y + MAP + 3, 12, 12, "+", null));
@@ -182,6 +201,8 @@ public class GuiCommandPostSVA extends GuiScreen {
             zD = field(rx + 98, top + 172, 50, 7);
             zLo = field(rx + 58, top + 186, 30, 3);
             zHi = field(rx + 108, top + 186, 30, 3);
+            zRot = field(rx + 166, top + 186, 30, 3);
+            buttonList.add(new GuiCargoSVA.Dark(B_Z_SNAP, left + MAP_X + 2, top + MAP_Y + 2, 64, 11, "", Lang.tr("sva.ad.zone.snap.tip")));
             zCodeLo = field(rx + 58, top + 200, 30, 4);
             zCodeHi = field(rx + 92, top + 200, 30, 4);
             zCourse = field(rx + 166, top + 200, 30, 3);
@@ -190,7 +211,10 @@ public class GuiCommandPostSVA extends GuiScreen {
             buttonList.add(new GuiCargoSVA.Dark(B_Z_SAVE, rx, top + 230, 64, 13, Lang.tr("sva.ad.zone.save"), null));
             buttonList.add(new GuiCargoSVA.Dark(B_Z_NEW, rx + 67, top + 230, 64, 13, Lang.tr("sva.ad.zone.new"), null));
             buttonList.add(new GuiCargoSVA.Dark(B_Z_DEL, rx + 134, top + 230, 64, 13, Lang.tr("sva.ad.zone.delete"), null));
-            buttonList.add(new GuiCargoSVA.Dark(B_Z_HERE, rx, top + 246, RW, 13, Lang.tr("sva.ad.zone.here"), Lang.tr("sva.ad.zone.here.tip")));
+            buttonList.add(new GuiCargoSVA.Dark(B_Z_HERE, rx, top + 246, 48, 13, Lang.tr("sva.ad.zone.here"), Lang.tr("sva.ad.zone.here.tip")));
+            buttonList.add(new GuiCargoSVA.Dark(B_Z_COPY, rx + 50, top + 246, 48, 13, Lang.tr("sva.ad.zone.copy"), Lang.tr("sva.ad.zone.copy.tip")));
+            buttonList.add(new GuiCargoSVA.Dark(B_Z_PASTE, rx + 100, top + 246, 48, 13, Lang.tr("sva.ad.zone.paste"), Lang.tr("sva.ad.zone.paste.tip")));
+            buttonList.add(new GuiCargoSVA.Dark(B_Z_UNDO, rx + 150, top + 246, 48, 13, Lang.tr("sva.ad.zone.undo"), Lang.tr("sva.ad.zone.undo.tip")));
             loadZone(zoneSel);
         } else {
             sName = field(left + 66, top + 40, 120, 24);
@@ -203,6 +227,7 @@ public class GuiCommandPostSVA extends GuiScreen {
             }
             sWhite = field(left + 66, top + 150, W - 76, 200);
             sAccess = field(left + 66, top + 180, W - 76, 300);
+            sTrust = field(left + 66, top + 230, W - 76, 200);
             buttonList.add(new GuiCargoSVA.Dark(B_S_SAVE, left + W - 106, top + 210, 100, 14, Lang.tr("sva.ad.set.save"), null));
             settingsLoaded = false;
         }
@@ -282,6 +307,32 @@ public class GuiCommandPostSVA extends GuiScreen {
             case B_ZOOM_IN:
                 zoom = MapMath.zoomStep(zoom, -1);
                 return;
+            case B_COV:
+                cov = com.sva.airdefense.CoverageMath.nextAlt(cov);
+                covAsked = -1000;
+                return;
+            case B_Z_SNAP:
+                snap = !snap;
+                return;
+            case B_Z_COPY:
+                readZoneFields();
+                clipboard = edit.copy();
+                return;
+            case B_Z_PASTE:
+                if (clipboard != null) {
+                    readZoneFields();
+                    hist.push(edit);
+                    setEdit(com.sva.airdefense.ZoneEditMath.pasteAt(clipboard, cx, cz, snap));
+                    zoneSel = -1;                                   // a new zone: «Сохранить» adds it
+                }
+                return;
+            case B_Z_UNDO: {
+                ZoneMath.Zone u = hist.undo();
+                if (u != null) {
+                    setEdit(u);
+                }
+                return;
+            }
             case B_ALARM:
                 cmd("alarm", 0);
                 return;
@@ -296,6 +347,8 @@ public class GuiCommandPostSVA extends GuiScreen {
                 return;
             case B_Z_SHAPE:
                 readZoneFields();
+                hist.push(edit);
+                edit.rot = 0;
                 edit.shape = edit.shape == ZoneMath.RECT ? ZoneMath.CIRCLE : ZoneMath.RECT;
                 if (edit.shape == ZoneMath.CIRCLE && edit.r <= 1) {
                     edit.cx = (edit.x0 + edit.x1) / 2;
@@ -312,6 +365,7 @@ public class GuiCommandPostSVA extends GuiScreen {
                 return;
             case B_Z_HERE:
                 readZoneFields();
+                hist.push(edit);
                 if (edit.shape == ZoneMath.CIRCLE) {
                     edit.cx = MathHelper.floor_double(cx);
                     edit.cz = MathHelper.floor_double(cz);
@@ -340,6 +394,7 @@ public class GuiCommandPostSVA extends GuiScreen {
             }
             case B_Z_NEW:
                 zoneSel = -1;
+                hist.clear();
                 loadZone(-1);
                 return;
             case B_Z_DEL:
@@ -425,7 +480,16 @@ public class GuiCommandPostSVA extends GuiScreen {
             }
             d.setTag("Access", al);
         }
+        d.setString("Trust", sTrust.getText());
         cmd(d);
+    }
+
+    /** Wave A: the editor takes a zone (its NBT read - sanitised as the server will), the fields follow. */
+    private void setEdit(ZoneMath.Zone z) {
+        NBTTagCompound t = new NBTTagCompound();
+        z.write(t);
+        edit.read(t);
+        writeZoneFields();
     }
 
     private void loadZone(int i) {
@@ -466,6 +530,7 @@ public class GuiCommandPostSVA extends GuiScreen {
         zCodeLo.setText(XpdrMath.format(edit.codeLo));
         zCodeHi.setText(XpdrMath.format(edit.codeHi));
         zCourse.setText(String.format("%03d", Integer.valueOf(edit.course)));
+        zRot.setText(String.valueOf(edit.rot));
     }
 
     private static int num(GuiTextField f, int def) {
@@ -498,6 +563,7 @@ public class GuiCommandPostSVA extends GuiScreen {
         edit.codeLo = cl >= 0 ? cl : edit.codeLo;
         edit.codeHi = Math.max(edit.codeLo, ch >= 0 ? ch : edit.codeHi);
         edit.course = ((num(zCourse, edit.course) % 360) + 360) % 360;
+        edit.rot = edit.shape == ZoneMath.RECT ? ((num(zRot, edit.rot) % 360) + 360) % 360 : 0;
     }
 
     @Override
@@ -541,8 +607,27 @@ public class GuiCommandPostSVA extends GuiScreen {
         }
     }
 
+    /** A button under the mouse (the map's corner buttons lie over the map: they take the click). */
+    private boolean onButton(int mx, int my) {
+        for (Object o : buttonList) {
+            GuiButton b = (GuiButton) o;
+            if (b.visible && mx >= b.xPosition && my >= b.yPosition && mx < b.xPosition + b.width && my < b.yPosition + b.height) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     protected void mouseClicked(int mx, int my, int button) {
+        if (tab == 0 && button == 0) {
+            for (int[] b : nrBtns) {
+                if (mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3]) {
+                    cmd(b[5] == 1 ? "nrFriend" : "nrCheck", b[4]);   // wave A: the 7600 decision
+                    return;
+                }
+            }
+        }
         if (menuX >= 0) {
             int i = (my - menuY - 2) / 11;
             if (mx >= menuX && mx < menuX + 130 && i >= 0 && i < menu.size() && my >= menuY + 2) {
@@ -568,13 +653,27 @@ public class GuiCommandPostSVA extends GuiScreen {
         for (GuiTextField f : fields) {
             f.mouseClicked(mx, my, button);
         }
+        boolean onBtn = onButton(mx, my);
         super.mouseClicked(mx, my, button);
-        if (overMap(mx, my)) {
+        if (overMap(mx, my) && !onBtn) {
             double s = scale(), ox = left + MAP_X + MAP / 2.0, oy = top + MAP_Y + MAP / 2.0;
             if (tab == 1) {
                 readZoneFields();
                 double[] w = MapMath.toWorld(mx - ox, my - oy, cx, cz, s);
                 int bx = MathHelper.floor_double(w[0]), bz = MathHelper.floor_double(w[1]);
+                // wave A: a handle under the mouse - dragged (corners, edges, the centre, the turn knob, the radius)
+                int h = button == 0 ? com.sva.airdefense.ZoneEditMath.pick(edit, w[0], w[1], 5 * s) : com.sva.airdefense.ZoneEditMath.H_NONE;
+                if (h != com.sva.airdefense.ZoneEditMath.H_NONE) {
+                    hist.push(edit);
+                    dragHandle = h;
+                    dragOrig = edit.copy();
+                    dragSX = w[0];
+                    dragSZ = w[1];
+                    return;
+                }
+                hist.push(edit);
+                bx = com.sva.airdefense.ZoneEditMath.snap(bx, snap);
+                bz = com.sva.airdefense.ZoneEditMath.snap(bz, snap);
                 if (edit.shape == ZoneMath.CIRCLE && button == 0) {
                     edit.cx = bx;
                     edit.cz = bz;
@@ -583,11 +682,13 @@ public class GuiCommandPostSVA extends GuiScreen {
                 } else if (button == 0) {
                     edit.x0 = bx;
                     edit.z0 = bz;
+                    edit.rot = 0;
                 } else {
                     edit.x1 = bx;
                     edit.z1 = bz;
+                    edit.rot = 0;
                 }
-                writeZoneFields();
+                setEdit(edit.copy());                               // sanitised (corners in order)
                 return;
             }
             int hit = trackAt(mx, my);
@@ -640,6 +741,11 @@ public class GuiCommandPostSVA extends GuiScreen {
         menu.add(new String[] {Lang.tr("sva.ad.kp.menu.auto"), "assign", "auto"});
         menu.add(new String[] {Lang.tr("sva.ad.kp.menu.track"), "track", ""});
         menu.add(new String[] {Lang.tr("sva.ad.kp.menu.grant"), "grant", ""});
+        NBTTagCompound tr = track(id);
+        if (tr != null && tr.getByte("NR") >= 0) {
+            menu.add(new String[] {Lang.tr("sva.ad.kp.menu.nrFriend"), "nrFriend", ""});    // wave A: 7600
+            menu.add(new String[] {Lang.tr("sva.ad.kp.menu.nrCheck"), "nrCheck", ""});
+        }
         menu.add(new String[] {Lang.tr("sva.ad.kp.menu.msg"), "msg", ""});
         menuX = Math.min(mx, left + W - 132);
         menuY = Math.min(my, top + H - menu.size() * 11 - 16);
@@ -647,6 +753,12 @@ public class GuiCommandPostSVA extends GuiScreen {
 
     @Override
     protected void mouseClickMove(int mx, int my, int button, long time) {
+        if (dragHandle != com.sva.airdefense.ZoneEditMath.H_NONE && button == 0 && dragOrig != null) {
+            double s = scale(), ox = left + MAP_X + MAP / 2.0, oy = top + MAP_Y + MAP / 2.0;
+            double[] w = MapMath.toWorld(mx - ox, my - oy, cx, cz, s);
+            setEdit(com.sva.airdefense.ZoneEditMath.drag(dragOrig, dragHandle, dragSX, dragSZ, w[0], w[1], snap));
+            return;
+        }
         if (dragging && button == 0) {
             double s = scale();
             cx -= (mx - dragX) * s;
@@ -661,6 +773,8 @@ public class GuiCommandPostSVA extends GuiScreen {
     protected void mouseMovedOrUp(int mx, int my, int button) {
         if (button == 0) {
             dragging = false;
+            dragHandle = com.sva.airdefense.ZoneEditMath.H_NONE;
+            dragOrig = null;
         }
         super.mouseMovedOrUp(mx, my, button);
     }
@@ -719,6 +833,16 @@ public class GuiCommandPostSVA extends GuiScreen {
             sAccess.setText(a.toString());
             sAccess.setEnabled(last.getBoolean("Owner"));
             sSecret.setEnabled(last.getBoolean("Owner"));
+            sTrust.setText(last.getString("Trust"));
+        }
+        // wave A: the coverage maps asked for (again every 5 s - the server answers from its cache, recomputes when stale)
+        int now = mc.thePlayer.ticksExisted;
+        if (cov > 0 && tab != 2 && now - covAsked >= 100) {
+            covAsked = now;
+            NBTTagCompound d = new NBTTagCompound();
+            d.setString("Op", "cov");
+            d.setInteger("A", cov);
+            cmd(d);
         }
     }
 
@@ -758,6 +882,16 @@ public class GuiCommandPostSVA extends GuiScreen {
                 b.displayString = Lang.tr(dayKey ? "sva.ad.set.dayKeyOn" : "sva.ad.set.dayKeyOff");
             } else if (b.id == B_S_SECRET || b.id == B_S_NEWSECRET) {
                 b.enabled = s != null && s.getBoolean("Owner");
+            } else if (b.id == B_COV) {
+                b.displayString = cov > 0 ? Lang.tr("sva.ad.cov.on", Integer.valueOf(cov)) : Lang.tr("sva.ad.cov.off");
+                b.active = cov > 0;
+            } else if (b.id == B_Z_SNAP) {
+                b.displayString = Lang.tr(snap ? "sva.ad.zone.snapOn" : "sva.ad.zone.snapOff", Integer.valueOf(com.sva.airdefense.ZoneEditMath.SNAP));
+                b.active = snap;
+            } else if (b.id == B_Z_PASTE) {
+                b.enabled = clipboard != null;
+            } else if (b.id == B_Z_UNDO) {
+                b.enabled = hist.size() > 0;
             }
         }
         if (s == null) {
@@ -837,8 +971,19 @@ public class GuiCommandPostSVA extends GuiScreen {
         int f = res.getScaleFactor();
         GL11.glScissor(mapL * f, mc.displayHeight - (mapT + MAP) * f, MAP * f, MAP * f);
         double sc = scale(), ox = mapL + MAP / 2.0, oy = mapT + MAP / 2.0;
+        // wave A: the radars' coverage at the chosen height under everything else
+        if (cov > 0) {
+            NBTTagList cr = s.getTagList("Radars", 10);
+            for (int i = 0; i < cr.tagCount(); i++) {
+                CoverClientSVA.draw(cr.getCompoundTagAt(i).getString("Key"), cov, ox, oy, cx, cz, sc);
+            }
+            GL11.glColor4f(1F, 1F, 1F, 1F);
+        }
         List<ZoneMath.Zone> zs = tab == 1 ? withEdit() : zones();
         AirDefenseClientSVA.drawZones(fontRendererObj, zs, ox, oy, cx, cz, sc, tab == 1 ? (zoneSel >= 0 ? zoneSel : zs.size() - 1) : -1);
+        if (tab == 1) {
+            drawHandles(ox, oy, sc);
+        }
         // the radars' circles (on a plane's RCS), the radars and the launchers
         NBTTagList rl = s.getTagList("Radars", 10);
         for (int i = 0; i < rl.tagCount(); i++) {
@@ -890,6 +1035,10 @@ public class GuiCommandPostSVA extends GuiScreen {
             if (t.getInteger("Id") == selected) {
                 ring(x, y, 9, 0xFFFFFF);
             }
+            int iff = t.getByte("Iff");
+            if (com.sva.airdefense.IffMath.intruder(iff) && tick / 5 % 2 == 0) {
+                ring(x, y, 6, 0xF05050);                              // wave A: a tower's IFF intruder
+            }
             String l1 = code(t.getInteger("Code")) + (t.getInteger("Board") > 0 ? " B-" + t.getInteger("Board") : "");
             String l2 = alt(t) + " " + String.format("%03d", Integer.valueOf(t.getInteger("Spd"))) + " " + String.format("%03d", Integer.valueOf(t.getInteger("Crs")));
             GL11.glPushMatrix();
@@ -897,16 +1046,129 @@ public class GuiCommandPostSVA extends GuiScreen {
             GL11.glScalef(0.75F, 0.75F, 1F);
             fontRendererObj.drawStringWithShadow(l1, 0, 0, c);
             fontRendererObj.drawStringWithShadow(l2, 0, 10, c);
+            String l3 = mark(t);
+            if (l3 != null) {
+                fontRendererObj.drawStringWithShadow(l3, 0, 20, t.getByte("NR") >= 0 ? 0xF09040 : 0xF05050);
+            }
             GL11.glPopMatrix();
         }
+        if (cov > 0) {
+            covLegend(s, mapL, mapT);
+        }
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        nrBtns.clear();
+        if (tab == 0) {
+            drawNoRadio(mapL, mapT, tick);
+        }
         GL11.glColor4f(1F, 1F, 1F, 1F);
         fontRendererObj.drawString(Lang.tr("sva.ad.kp.scale", Integer.valueOf((int) sc)), mapL + 30, mapT + MAP + 5, MUTED);
         if (tab == 0) {
             TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.kp.mapHint"), mapL + 96, mapT + MAP + 5, MAP - 96, MUTED, false, 0, 0);
         } else {
-            TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.zone.mapHint"), mapL + 96, mapT + MAP + 5, MAP - 96, MUTED, false, 0, 0);
+            int bad = com.sva.airdefense.ZoneEditMath.check(edit);
+            TextFitSC.draw(fontRendererObj, bad == com.sva.airdefense.ZoneEditMath.OK ? Lang.tr("sva.ad.zone.mapHint2")
+                    : Lang.tr("sva.ad.zone.check." + com.sva.airdefense.ZoneEditMath.CHECK_KEYS[bad]), mapL + 96, mapT + MAP + 5, MAP - 96,
+                    bad == com.sva.airdefense.ZoneEditMath.OK ? MUTED : RED, false, 0, 0);
         }
+    }
+
+    /** Wave A: a track's third data line - «НЕТ СВЯЗИ 1:45» (7600 waiting) / «ПРОВЕРКА» / the IFF mark; null none. */
+    private static String mark(NBTTagCompound t) {
+        int nr = t.getByte("NR");
+        if (nr == com.sva.airdefense.NoRadioMath.S_PENDING) {
+            int sec = t.getInteger("NRt");
+            return Lang.tr("sva.ad.nr.mark", String.format("%d:%02d", Integer.valueOf(sec / 60), Integer.valueOf(sec % 60)));
+        }
+        if (nr == com.sva.airdefense.NoRadioMath.S_CHECK) {
+            return Lang.tr("sva.ad.nr.checkMark");
+        }
+        int iff = t.getByte("Iff");
+        if (iff == com.sva.airdefense.IffMath.WARNED || iff == com.sva.airdefense.IffMath.HANDED) {
+            return Lang.tr("sva.ad.iff.mark." + com.sva.airdefense.IffMath.STATE_KEYS[iff]);
+        }
+        return t.getString("Apt").length() > 0 ? Lang.tr("sva.ad.apt.mark", t.getString("Apt")) : null;
+    }
+
+    /**
+     * Wave A (plan-next §9 A5, mock-up veh_ad_impl_a_4_7600): the 7600 decision list at the map's bottom - each waiting track
+     * with its timer and the two answers «Свой» / «Проверить» (without one in time: the usual rules).
+     */
+    private void drawNoRadio(int mapL, int mapT, long tick) {
+        List<NBTTagCompound> l = new ArrayList<NBTTagCompound>();
+        NBTTagList tl = tracks();
+        for (int i = 0; i < tl.tagCount() && l.size() < 3; i++) {
+            if (tl.getCompoundTagAt(i).getByte("NR") == com.sva.airdefense.NoRadioMath.S_PENDING) {
+                l.add(tl.getCompoundTagAt(i));
+            }
+        }
+        if (l.isEmpty()) {
+            return;
+        }
+        int h = 12 + l.size() * 13, y0 = mapT + MAP - h - 2, x0 = mapL + 2, x1 = mapL + MAP - 2;
+        drawRect(x0 - 1, y0 - 1, x1 + 1, y0 + h + 1, tick / 10 % 2 == 0 ? 0xFFF09040 : 0xFF7A4A20);
+        drawRect(x0, y0, x1, y0 + h, 0xF0101418);
+        fontRendererObj.drawString(Lang.tr("sva.ad.nr.title"), x0 + 3, y0 + 2, 0xF09040);
+        for (int i = 0; i < l.size(); i++) {
+            NBTTagCompound t = l.get(i);
+            int y = y0 + 12 + i * 13, sec = t.getInteger("NRt");
+            String line = String.format("%02d", Integer.valueOf(t.getInteger("No"))) + " " + code(t.getInteger("Code")) + " "
+                    + String.format("%d:%02d", Integer.valueOf(sec / 60), Integer.valueOf(sec % 60));
+            fontRendererObj.drawString(line, x0 + 3, y + 2, TEXT);
+            int bx = x1 - 112;
+            nrButton(bx, y, 52, Lang.tr("sva.ad.nr.friend"), GREEN, t.getInteger("Id"), 1);
+            nrButton(bx + 56, y, 54, Lang.tr("sva.ad.nr.check"), AMBER, t.getInteger("Id"), 2);
+        }
+    }
+
+    private void nrButton(int x, int y, int w, String label, int c, int id, int op) {
+        drawRect(x, y, x + w, y + 12, 0xFF2A303C);
+        drawRect(x, y, x + w, y + 1, 0xFF000000 | c);
+        TextFitSC.draw(fontRendererObj, label, x + 3, y + 2, w - 6, c, false, 0, 0);
+        nrBtns.add(new int[] {x, y, x + w, y + 12, id, op});
+    }
+
+    /** Wave A: the coverage map's legend (and the computing progress) under its button. */
+    private void covLegend(NBTTagCompound s, int mapL, int mapT) {
+        NBTTagList cr = s.getTagList("Radars", 10);
+        int busy = -1;
+        for (int i = 0; i < cr.tagCount(); i++) {
+            int p = CoverClientSVA.percent(cr.getCompoundTagAt(i).getString("Key"), cov);
+            if (p >= 0 && p < 100) {
+                busy = Math.max(busy, p);
+            }
+        }
+        GL11.glPushMatrix();
+        GL11.glTranslated(mapL + MAP - 66, mapT + 15, 0);
+        GL11.glScalef(0.75F, 0.75F, 1F);
+        fontRendererObj.drawStringWithShadow(Lang.tr("sva.ad.cov.seen"), 0, 0, 0x62E06A);
+        fontRendererObj.drawStringWithShadow(Lang.tr("sva.ad.cov.dead"), 0, 10, 0xF06060);
+        if (busy >= 0) {
+            fontRendererObj.drawStringWithShadow(Lang.tr("sva.ad.cov.busy", Integer.valueOf(busy)), 0, 20, AMBER);
+        } else if (cr.tagCount() == 0) {
+            fontRendererObj.drawStringWithShadow(Lang.tr("sva.ad.cov.none"), 0, 20, MUTED);
+        }
+        GL11.glPopMatrix();
+    }
+
+    /** Wave A: the edited zone's handles - squares at the corners / edges / centre, the turn knob (a ring on its stalk). */
+    private void drawHandles(double ox, double oy, double sc) {
+        ZoneMath.Zone e = edit.copy();
+        double[] m = ZoneMath.middle(e);
+        for (double[] h : com.sva.airdefense.ZoneEditMath.handles(e)) {
+            double x = ox + (h[0] - cx) / sc, y = oy + (h[1] - cz) / sc;
+            int type = (int) h[2];
+            boolean on = type == dragHandle;
+            if (type == com.sva.airdefense.ZoneEditMath.H_ROTATE) {
+                double[] top0 = ZoneMath.world(e, m[0], e.z0);
+                AirDefenseClientSVA.edge(ox + (top0[0] - cx) / sc, oy + (top0[1] - cz) / sc, x, y, 1, CYAN, false);
+                ring(x, y, 3.5, on ? 0xFFFFFF : CYAN);
+                continue;
+            }
+            int c = on ? 0xFFFFFF00 : type == com.sva.airdefense.ZoneEditMath.H_CENTRE ? 0xFFFFFFFF : 0xFFE0E4EC;
+            drawRect((int) x - 2, (int) y - 2, (int) x + 3, (int) y + 3, 0xFF000000);
+            drawRect((int) x - 1, (int) y - 1, (int) x + 2, (int) y + 2, c);
+        }
+        GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
     /** The zones with the one being edited in place of its saved copy (or added). */
@@ -974,9 +1236,11 @@ public class GuiCommandPostSVA extends GuiScreen {
                 drawRect(rx, ry, rx + RW, ry + 10, 0xFF2E3542);
             }
             String cls = Lang.tr("sva.ad.cls." + RoeMath.CLASS_KEYS[Math.max(0, Math.min(RoeMath.CLASSES - 1, r.getByte("Cls")))]);
+            String mk = mark(r);
             String line = String.format("%02d", Integer.valueOf(r.getInteger("No"))) + " " + code(r.getInteger("Code")) + " "
                     + (r.getInteger("Board") > 0 ? String.format("B-%02d", Integer.valueOf(r.getInteger("Board"))) : "  -  ") + " " + alt(r) + " " + cls
-                    + (r.getInteger("Grant") > 0 ? " " + Lang.tr("sva.ad.kp.grantLeft", Integer.valueOf(r.getInteger("Grant") / 60 + 1)) : "");
+                    + (r.getInteger("Grant") > 0 ? " " + Lang.tr("sva.ad.kp.grantLeft", Integer.valueOf(r.getInteger("Grant") / 60 + 1)) : "")
+                    + (mk != null ? " " + mk : "");
             TextFitSC.draw(fontRendererObj, line, rx + 2, ry + 1, RW - 4, clsColour(r, tick), false, 0, 0);
         }
         // the log
@@ -1051,8 +1315,10 @@ public class GuiCommandPostSVA extends GuiScreen {
         fontRendererObj.drawString(c ? "R" : "X1", rxl, top + 174, MUTED);
         if (!c) {
             fontRendererObj.drawString("Z1", rxl + 76, top + 174, MUTED);
+            fontRendererObj.drawString(Lang.tr("sva.ad.zone.rot"), rxl + 142, top + 188, MUTED);
         }
         zD.setVisible(!c);
+        zRot.setVisible(!c);
         fontRendererObj.drawString(Lang.tr("sva.ad.zone.band"), rxl, top + 188, MUTED);
         fontRendererObj.drawString("-", rxl + 98, top + 188, MUTED);
         fontRendererObj.drawString(Lang.tr("sva.ad.zone.codes"), rxl, top + 202, edit.type == ZoneMath.AERODROME ? TEXT : 0x50565F);
@@ -1076,6 +1342,8 @@ public class GuiCommandPostSVA extends GuiScreen {
         TextFitSC.draw(fontRendererObj, Lang.tr(s.getBoolean("Owner") ? "sva.ad.set.accessHint" : "sva.ad.set.ownerOnly"), left + 66, top + 194, W - 76, MUTED,
                 false, 0, 0);
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.set.owner", s.getString("Own")), x, top + 214, 200, MUTED, false, 0, 0);
+        fontRendererObj.drawString(Lang.tr("sva.ad.set.trust"), x, top + 232, MUTED);
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.set.trustHint"), left + 66, top + 244, W - 76, MUTED, false, 0, 0);
     }
 
     // ------------------------------------------------------------------ the map's terrain (as GuiMapSVA's, MAP x MAP)

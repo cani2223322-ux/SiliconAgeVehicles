@@ -25,6 +25,12 @@ public final class LinerEwdSVA {
             RED = LinerDisplaysSVA.RED, CYN = LinerDisplaysSVA.CYN, GREY = LinerDisplaysSVA.GREY;
     /** The N1 limit per thrust mode (%): TOGA, FLX, CL. */
     static final float N1_TOGA = 101.6F, N1_FLX = 95.0F, N1_CL = 89.0F;
+    /**
+     * Wave A (plan-next §9 A2): the air-defence zone memo / caution on the right of the memo area - «ЗОНА ПВО 3-1: ВХОД 25 С»
+     * amber, red near a forbidden zone or inside (AirDefenseClientSVA sets it each client tick for the liner flown; null none).
+     */
+    public static String zoneMemo;
+    public static boolean zoneMemoRed;
 
     private LinerEwdSVA() {
     }
@@ -286,6 +292,10 @@ public final class LinerEwdSVA {
                 }
             }
             return;
+        }
+        if (zoneMemo != null) {
+            LinerGfxSVA.text(zoneMemo, 180 * s, y * s, 8 * s, zoneMemoRed ? LinerDisplaysSVA.RED : AMB, -1, 96 * s);
+            y += LH;
         }
         long memo = L.memos(ground);
         for (int i = 0; i < LinerSystems.MEMO_KEYS.length; i++) {
