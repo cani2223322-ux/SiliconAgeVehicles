@@ -32,6 +32,23 @@ public final class LinerPhysicsSVA {
         v.rotationYaw = (float) b.yaw;
         v.linerBank = b.bank;
         PlanePhysicsSVA.move(v, b.speed, vy);
+        drift(v);
+    }
+
+    /**
+     * Airport wave B1, airport.windPhysics (off by default): in the air the wind field (airport.WindField - the same on the
+     * server and on the driver's client: the server's seed / the synced one) pushes the liner WIND_DRIFT blocks a tick per
+     * m/s - a crab angle on a cross wind the autopilot's LOC flies out.
+     */
+    static void drift(EntityVehicleSVA v) {
+        if (!com.sva.ConfigSVA.aptWindPhysics || v.onGround || v.worldObj == null) {
+            return;
+        }
+        long seed = v.worldObj.isRemote ? com.sva.block.AirportDataSVA.syncedWindSeed : com.sva.block.AirportDataSVA.windSeed(v.worldObj);
+        com.sva.airport.WindField.Wind w = com.sva.airport.WindField.wind(seed, v.worldObj.getTotalWorldTime(), v.worldObj.isRaining(),
+                v.worldObj.isThundering(), Math.max(1, v.anim.height));
+        double[] m = w.vector();
+        v.moveEntity(m[0] * com.sva.airport.WindField.WIND_DRIFT, 0, m[1] * com.sva.airport.WindField.WIND_DRIFT);
     }
 
     /** The entity as LinerFlight's body: position, yaw, speed, vertical speed, bank, on the ground, the radio height, NAV's heading. */
@@ -45,6 +62,7 @@ public final class LinerPhysicsSVA {
         b.motionY = v.motionY;
         b.bank = v.linerBank;
         b.ground = v.onGround;
+        b.time = v.worldObj == null ? 0 : v.worldObj.getTotalWorldTime();
         boolean remote = v.worldObj != null && v.worldObj.isRemote;
         b.ra = !remote && L.lastAir != null ? L.lastAir.ra : Math.max(0, v.anim.height);
         if (L.afs.lat == com.sva.vehicle.LinerAfs.L_NAV && L.afs.apOn()) {

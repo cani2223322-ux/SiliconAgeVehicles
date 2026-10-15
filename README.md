@@ -48,6 +48,7 @@
 - **Без питания — тёмная кабина:** выключен, разряжен или снят аккумулятор — экраны, табло и автопилот не горят, работают только скорость, высотомер и вариометр.
 - **Механизация крыла и автопилот:** закрылки, предкрылки, интерцепторы / воздушный тормоз; панель автопилота HDG / ALT / VS / SPD / CAP / МАРШ, HSI, план полёта на карте; верхний пульт с тумблерами, запуск двигателя, отказы при износе; створки шасси, амортизаторы, сопло и ИЛС реактивного.
 - **Аэродром:** блоки «Огни PAPI» и «Огни подхода», разметка и огни ВПП появляются сами; посадочные фары под крылом.
+- **Аэропорт (волна Б1):** полоса из двух блоков «Торец полосы» - разметка и огни (кромка, осевые, зона приземления, ALS с бегущим огнём, 5 ступеней, АВТО) рисуются сами; ILS из курсового маяка 5x1 и глиссадной мачты с «Аппаратной ILS» (питание EU, монитор), категории CAT I / II / III (установка, критические зоны, облёт), ложные глиссады, DME, маркеры OM / MM / IM, RVR, метеостанция и колдун, «Планшет строителя аэродрома» с голограммой и проверкой ILS. Масштаб аэродрома: 1 блок = 10 м-экв. Автопосадка - только на CAT III.
 - **Износ и маркировка:** копоть, потёки, сколы, грязь; надписи и регистрация на самолётах.
 - **Рекуперация** при торможении, спуске и планировании (`vehicles.regen`).
 
@@ -203,6 +204,7 @@
 - **No power - dark cockpit:** with the battery off, flat or removed the screens, lamps and autopilot are dark; only airspeed, altimeter and vario still read.
 - **High-lift devices and autopilot:** flaps, slats, spoilers / airbrake; an autopilot panel HDG / ALT / VS / SPD / CAP / ROUTE, an HSI, a flight plan on the map; an overhead panel with switches, engine start, failures with wear; gear doors, struts, the jet's nozzle and HUD.
 - **Airfield:** "PAPI Lights" and "Approach Lights" blocks, runway marks and lights appear by themselves; landing lights under the wing.
+- **Airport (wave B1):** a runway of two "Runway End" blocks - markings and lights (edge, centre line, touchdown zone, ALS with the sequenced flasher, 5 steps, AUTO) are drawn by themselves; an ILS of a 5x1 localizer and a glide slope mast with an "ILS Shelter" (EU power, monitor), CAT I / II / III (placement, critical areas, flight inspection), false glide slopes, DME, OM / MM / IM markers, RVR, a weather station and a windsock, the "Airport Planner Tablet" with its hologram and ILS check. Airport scale: 1 block = 10 m-eq. Autoland only on CAT III.
 - **Weathering and markings:** soot, oil streaks, chipped paint, mud; stencils and registrations on aircraft.
 - **Regenerative braking** when braking, rolling downhill and gliding (`vehicles.regen`).
 

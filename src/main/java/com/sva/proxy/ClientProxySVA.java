@@ -39,6 +39,11 @@ public class ClientProxySVA extends CommonProxySVA {
                 new com.sva.client.RenderGarageSVA());                  // wave 2, ★7: the repair hologram
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityAirfieldSVA.class,
                 new com.sva.client.RenderAirfieldSVA());                // stage D1: PAPI, approach lights
+        // airport wave B1: the ILS antennas, the shelter, the devices (marker, RVR, weather station, windsock)
+        com.sva.client.RenderAptSVA apt = new com.sva.client.RenderAptSVA();
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityIlsAntennaSVA.class, apt);
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityIlsShelterSVA.class, apt);
+        cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityAptDeviceSVA.class, apt);
         // multiblock wave: the air-defence structures as models (one renderer, on the master)
         com.sva.client.RenderAirDefenseSVA ad = new com.sva.client.RenderAirDefenseSVA();
         cpw.mods.fml.client.registry.ClientRegistry.bindTileEntitySpecialRenderer(com.sva.block.TileEntityRadarSVA.class, ad);
@@ -83,6 +88,9 @@ public class ClientProxySVA extends CommonProxySVA {
         FMLCommonHandler.instance().bus().register(new com.sva.client.VehiclePickSVA());       // clicks on the whole model of big vehicles
         MinecraftForge.EVENT_BUS.register(new Wheel());                            // ★3 / ★4: the mouse wheel while riding
         MinecraftForge.EVENT_BUS.register(new com.sva.client.RunwayLightsSVA());   // stage D1: runway marks / inlaid lights
+        AIRPORT = new com.sva.client.AirportRenderSVA();
+        MinecraftForge.EVENT_BUS.register(AIRPORT);                                // airport wave B1: runways' paint and lights
+        MinecraftForge.EVENT_BUS.register(new com.sva.client.AirportPlannerSVA()); // airport wave B1: the planner's hologram
         com.sva.client.AirDefenseClientSVA ad = new com.sva.client.AirDefenseClientSVA();   // air-defence wave: messages, zones, RWR
         MinecraftForge.EVENT_BUS.register(ad);
         FMLCommonHandler.instance().bus().register(ad);
@@ -169,11 +177,17 @@ public class ClientProxySVA extends CommonProxySVA {
     }
 
     /** The charging plates' look belongs to the world being left. */
+    /** Airport wave B1: the runways' paint / lights renderer (its display lists go with the world). */
+    static com.sva.client.AirportRenderSVA AIRPORT;
+
     public static class WorldUnload {
         @SubscribeEvent
         public void onUnload(net.minecraftforge.event.world.WorldEvent.Unload e) {
             if (e.world.isRemote) {
                 com.sva.block.PlateStatesSVA.clear();
+                if (AIRPORT != null) {
+                    AIRPORT.clear();                                // airport wave B1: the runways' display lists
+                }
             }
         }
     }
@@ -219,6 +233,20 @@ public class ClientProxySVA extends CommonProxySVA {
     @Override
     public void openIls(com.sva.block.TileEntityIlsSVA te) {
         net.minecraft.client.Minecraft.getMinecraft().displayGuiScreen(new com.sva.client.GuiIlsSVA(te));   // liner wave 4
+    }
+
+    @Override
+    public void aptData(int kind, net.minecraft.nbt.NBTTagCompound data) {
+        com.sva.client.AirportClientSVA.receive(kind, data);       // airport wave B1: queued, applied on the client thread
+    }
+
+    @Override
+    public void openApt(int x, int y, int z) {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        net.minecraft.tileentity.TileEntity te = mc.theWorld == null ? null : mc.theWorld.getTileEntity(x, y, z);
+        if (te != null) {
+            mc.displayGuiScreen(new com.sva.client.GuiAptSVA(te));  // airport wave B1
+        }
     }
 
     @Override

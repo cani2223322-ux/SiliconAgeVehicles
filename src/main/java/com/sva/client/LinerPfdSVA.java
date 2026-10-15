@@ -51,6 +51,8 @@ public final class LinerPfdSVA {
         /** A callout to flash now (LinerAfs.CALL_* / a height; 0 none), the clock (ms) for the flashing. */
         public int flash;
         public long now;
+        /** Airport wave B1: the world's time (ticks) - the ILS beam's bends. */
+        public double time;
         /** INS alignment's sub-line (null none). */
         public String insSub;
         /**
@@ -92,6 +94,7 @@ public final class LinerPfdSVA {
         d.ls = L.on(captain ? LinerControls.LS_L : LinerControls.LS_R);
         d.fd = L.on(captain ? LinerControls.FD_L : LinerControls.FD_R);
         d.now = System.currentTimeMillis();
+        d.time = v.worldObj == null ? 0 : v.worldObj.getTotalWorldTime() + pt;
         // the FD bars: the synced modes' commands for this aircraft as this client sees it
         if (d.fd && (L.afs.lat != LinerAfs.L_NONE || L.afs.ver != LinerAfs.V_NONE)) {
             PlaneParams p = v.flightParams(VehicleType.LINER);
@@ -288,6 +291,8 @@ public final class LinerPfdSVA {
         if (d.ls && F.ils != null && d.ins && d.att) {
             ils(d, F, s, cx, cy, ay1);
         }
+        // airport wave B1: the marker beacon's lamp, the airport's QNH, the cross wind on the tuned runway
+        airport(d, F, s, ay1);
         if (d.stall && (d.now / 250) % 2 == 0) {
             LinerGfxSVA.layer();
             LinerGfxSVA.text(LinerDisplaysSVA.tr("stall"), cx, cy + 40 * s, 14 * s, RED, 0);
@@ -367,7 +372,7 @@ public final class LinerPfdSVA {
         // column 4: the approach capability
         int cap = F.capability();
         if (cap != LinerAfs.CAP_NONE) {
-            LinerGfxSVA.text(cap == LinerAfs.CAP_CAT3_DUAL ? "CAT 3" : "CAT 1", cw * 3.5F, 11 * s, 8.5F * s, WHT, 0, cw - 4 * s);
+            LinerGfxSVA.text(F.capText(), cw * 3.5F, 11 * s, 8.5F * s, WHT, 0, cw - 4 * s);
             if (cap == LinerAfs.CAP_CAT3_DUAL) {
                 LinerGfxSVA.text("DUAL", cw * 3.5F, 21 * s, 8.5F * s, WHT, 0, cw - 4 * s);
             }
@@ -457,7 +462,7 @@ public final class LinerPfdSVA {
 
     /** The LOC (under the attitude) and G/S (beside it) scales with the magenta diamonds; the station's words. */
     static void ils(Data d, LinerAfs F, float s, float cx, float cy, float ay1) {
-        LinerIls.Dev dv = LinerIls.dev(F.ils, d.x, d.y, d.z, 1e9);
+        LinerIls.Dev dv = LinerIls.dev(F.ils, d.x, d.y, d.z, 1e9, d.time);
         LinerGfxSVA.layer();
         float ly = ay1 + 7 * s, gx = 222 * s;
         for (int k = -2; k <= 2; k++) {
@@ -478,11 +483,87 @@ public final class LinerPfdSVA {
             float gy = cy + (float) LinerIls.gsDots(dv) * 20 * s;   // above the beam: the diamond (the beam) below
             diamond(gx, gy, 4.5F * s, MAG);
         }
-        // the station: ident, frequency, course, distance (km) - bottom left, magenta
+        // airport wave B1: a FULL station's red flags (its monitor shut it off / the LOC or the G/S failed)
+        if (F.ils.full()) {
+            if (dv.locFail) {
+                LinerGfxSVA.text("LOC", cx, ly + 1 * s, 9 * s, RED, 0);
+            }
+            if (dv.gsFail && (F.ils.flags & LinerIls.F_NO_GS) == 0) {
+                LinerGfxSVA.text("G/S", gx, cy - 50 * s, 9 * s, RED, 0);
+            }
+        }
+        // the station: ident, frequency, course, distance (km) - bottom left, magenta; a FULL station: its DME (km-eq) and CAT
         LinerGfxSVA.text(F.ils.ident + "  " + String.format("%03d", Integer.valueOf((int) Math.round(F.ils.course) % 360)), 4 * s, 264 * s, 7.5F * s, MAG,
                 -1, 62 * s);
-        LinerGfxSVA.text(LinerIls.freqText(F.ils.freq).replace('.', ',') + "  " + LinerGfxSVA.num(dv.dist / 1000, 1) + " " + LinerDisplaysSVA.tr("km"),
-                4 * s, 274 * s, 7 * s, MAG, -1, 62 * s);
+        if (F.ils.full()) {
+            LinerGfxSVA.text(LinerIls.freqText(F.ils.freq).replace('.', ',') + "  DME " + com.sva.airport.AptScale.kmText(dv.dist, ','), 4 * s, 274 * s, 7 * s,
+                    MAG, -1, 62 * s);
+            boolean off = F.ils.off();
+            LinerGfxSVA.text(off ? LinerDisplaysSVA.tr("ilsOff") : "ILS " + com.sva.airport.IlsCat.catText(F.ils.cat), 4 * s, 254 * s, 7 * s,
+                    off ? RED : F.ils.cat >= 3 ? GRN : AMB, -1, 62 * s);
+        } else {
+            LinerGfxSVA.text(LinerIls.freqText(F.ils.freq).replace('.', ',') + "  " + LinerGfxSVA.num(dv.dist / 1000, 1) + " " + LinerDisplaysSVA.tr("km"),
+                    4 * s, 274 * s, 7 * s, MAG, -1, 62 * s);
+        }
+    }
+
+    /**
+     * Airport wave B1: the marker beacon's lamp (OM cyan, MM amber, IM white, flashing with its tone - airport.MarkerMath) over
+     * the altitude tape's foot; the airport weather station's QNH under the baro setting (cyan; amber when the set one
+     * differs); the cross wind component on the tuned runway (bottom right: «X 12 >», km/h, the side it comes from).
+     */
+    static void airport(Data d, LinerAfs F, float s, float ay1) {
+        LinerGfxSVA.layer();
+        if (F.marker >= 0 && F.marker <= 2) {
+            long tick = (long) d.time;
+            boolean on = com.sva.airport.MarkerMath.keyAt(F.marker, tick) != 0 || com.sva.airport.MarkerMath.keyAt(F.marker, tick - 1) != 0;
+            int c = com.sva.airport.MarkerMath.lampColour(F.marker);
+            float x0 = 196 * s, y0 = ay1 - 22 * s;
+            LinerGfxSVA.frameRect(x0, y0, x0 + 22 * s, y0 + 12 * s, 1F * s, c);
+            if (on) {
+                LinerGfxSVA.rect(x0 + 1 * s, y0 + 1 * s, x0 + 21 * s, y0 + 11 * s, c);
+                LinerGfxSVA.layer();
+            }
+            LinerGfxSVA.text(com.sva.airport.MarkerMath.NAMES[F.marker], x0 + 11 * s, y0 + 6 * s, 8 * s, on ? BG : c, 0);
+        }
+        if (F.windFrom >= 0 && F.qnhApt > 0 && !F.std) {
+            LinerGfxSVA.text("QNH " + F.qnhApt, 252 * s, 259 * s, 6.5F * s, F.qnhApt == F.qnh ? CYN : AMB, 0);
+        }
+        if (F.windFrom >= 0 && F.ils != null) {
+            double[] c = com.sva.airport.WindField.components(F.windFrom, F.gustKmh, F.ils.course);
+            int x = (int) Math.round(Math.abs(c[1]));
+            if (x >= 1) {
+                LinerGfxSVA.text((c[1] > 0 ? "< " : "") + "X " + x + (c[1] < 0 ? " >" : ""), 252 * s, 270 * s, 7 * s, x >= 30 ? AMB : CYN, 0);
+            }
+        }
+    }
+
+    /**
+     * Airport wave B1: the ND's wind (under GS / TAS: «240/18» km/h and an arrow the way it blows, relative to the display's
+     * up = `rot`) and the tuned runway's RVR (bottom left: TDZ / MID / END, m-eq; amber under the category's need).
+     */
+    public static void ndAirport(LinerAfs F, float s, float rot) {
+        if (F.windFrom >= 0) {
+            LinerGfxSVA.text(String.format("%03d", Integer.valueOf(F.windFrom)) + "/" + F.windKmh, 6 * s, 21 * s, 8 * s, GRN, -1);
+            float a = (float) (F.windFrom + 180 - rot);
+            float ax = 62 * s, ay = 22 * s, r = 6 * s;
+            LinerGfxSVA.line(LinerGfxSVA.px(ax, -r, a), LinerGfxSVA.py(ay, -r, a), LinerGfxSVA.px(ax, r, a), LinerGfxSVA.py(ay, r, a), 1.4F * s, GRN);
+            LinerGfxSVA.tri(LinerGfxSVA.px(ax, r + 1 * s, a), LinerGfxSVA.py(ay, r + 1 * s, a), LinerGfxSVA.px(ax, r - 3 * s, a - 30),
+                    LinerGfxSVA.py(ay, r - 3 * s, a - 30), LinerGfxSVA.px(ax, r - 3 * s, a + 30), LinerGfxSVA.py(ay, r - 3 * s, a + 30), GRN);
+        }
+        if (F.rvr[0] >= 0 || F.rvr[1] >= 0 || F.rvr[2] >= 0) {
+            StringBuilder b = new StringBuilder("RVR ");
+            int worst = Integer.MAX_VALUE;
+            for (int i = 0; i < 3; i++) {
+                b.append(i > 0 ? "/" : "").append(F.rvr[i] < 0 ? "---" : com.sva.airport.RvrMath.text(F.rvr[i]));
+                if (F.rvr[i] >= 0) {
+                    worst = Math.min(worst, F.rvr[i]);
+                }
+            }
+            int need = com.sva.airport.RvrMath.requiredCat(worst);
+            int have = F.ils == null ? 1 : F.ils.category();
+            LinerGfxSVA.text(b.toString(), 6 * s, 258 * s, 7 * s, need > have ? AMB : WHT, -1, 120 * s);
+        }
     }
 
     static void diamond(float x, float y, float r, int c) {
@@ -513,8 +594,9 @@ public final class LinerPfdSVA {
             }
         }
         LinerGfxSVA.rect(cx - 2 * s, cy - R - 8 * s, cx + 2 * s, cy - R + 2 * s, YEL);
+        ndAirport(F, s, rot);
         if (F.ils != null) {
-            LinerIls.Dev dv = LinerIls.dev(F.ils, d.x, d.y, d.z, 1e9);
+            LinerIls.Dev dv = LinerIls.dev(F.ils, d.x, d.y, d.z, 1e9, d.time);
             float a = (float) (F.ils.course - rot);
             // the course pointer: the arrow through the rose's centre, the deviation bar off it (2 dots = 40 units)
             float r0 = R - 12 * s;
@@ -550,7 +632,11 @@ public final class LinerPfdSVA {
             LinerGfxSVA.text(F.ils.ident, 274 * s, 10 * s, 9 * s, MAG, 1);
             LinerGfxSVA.text(LinerIls.freqText(F.ils.freq).replace('.', ','), 274 * s, 22 * s, 8 * s, MAG, 1);
             LinerGfxSVA.text("CRS " + String.format("%03d", Integer.valueOf((int) Math.round(F.ils.course) % 360)), 274 * s, 34 * s, 8 * s, MAG, 1);
-            LinerGfxSVA.text(LinerGfxSVA.num(dv.dist / 1000, 1) + " " + LinerDisplaysSVA.tr("km"), 274 * s, 46 * s, 8 * s, MAG, 1);
+            LinerGfxSVA.text(F.ils.full() ? "DME " + com.sva.airport.AptScale.kmText(dv.dist, ',') : LinerGfxSVA.num(dv.dist / 1000, 1) + " "
+                    + LinerDisplaysSVA.tr("km"), 274 * s, 46 * s, 8 * s, MAG, 1);
+            if (F.ils.full() && F.ils.rwy.length() > 0) {
+                LinerGfxSVA.text(F.ils.apt + " " + F.ils.rwy, 274 * s, 58 * s, 8 * s, MAG, 1);
+            }
         } else {
             LinerGfxSVA.text(LinerDisplaysSVA.tr("noIls"), cx, cy + 40 * s, 9 * s, AMB, 0);
         }

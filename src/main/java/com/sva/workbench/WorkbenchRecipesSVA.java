@@ -407,5 +407,35 @@ public final class WorkbenchRecipesSVA {
         block("ils", new ItemStack(ModContentSVA.ils), Tier.HV, "BRB", "MCM", "NEN",
                 'B', new ItemStack(Blocks.iron_bars), 'R', Items.redstone, 'M', new ItemStack(Items.compass), 'C', controller, 'N', sensor,
                 'E', cellHV);
+
+        // ---- airport wave B1 (appended: the list index is the sync id)
+        ItemStack bars2 = new ItemStack(Blocks.iron_bars);
+        // the localizer's 5 x 1 array (HV): the dipoles (iron bars) over two sensors and the controller, steel casings, an HV cell
+        block("ilsLoc", new ItemStack(ModContentSVA.ilsAntenna, 1, com.sva.block.BlockIlsAntennaSVA.LOC), Tier.HV, "BBB", "NCN", "XAX",
+                'B', bars2, 'N', sensor, 'C', controller, 'X', casing, 'A', alFrame);
+        // the glide slope's mast (HV): an aluminium lattice, the antenna (iron bars), two sensors, the controller, an HV cell
+        block("ilsGs", new ItemStack(ModContentSVA.ilsAntenna, 1, com.sva.block.BlockIlsAntennaSVA.GS), Tier.HV, "ABA", "NCN", "XEX",
+                'A', alFrame, 'B', bars2, 'N', sensor, 'C', controller, 'X', casing, 'E', cellHV);
+        // the ILS shelter (MV): the monitor's screens (glass panes), memory chips, the controller, steel casings, an MV cell
+        block("ilsShelter", new ItemStack(ModContentSVA.ilsShelter), Tier.MV, "XGX", "MCM", "XEX",
+                'X', casing, 'G', Blocks.glass_pane, 'M', memory, 'C', controller, 'E', cellMV);
+        // the marker beacon (MV, x2): crossed dipoles (iron bars), redstone, a sensor in a steel casing
+        block("aptMarker", new ItemStack(ModContentSVA.aptDevice, 2, com.sva.block.AirportDataSVA.K_MARKER), Tier.MV, "BRB", "XNX",
+                'B', bars2, 'R', Items.redstone, 'X', casing, 'N', sensor);
+        // the RVR transmissometer (MV): two lenses (glass) round a sensor, the controller, steel casings, an iron post
+        block("aptRvr", new ItemStack(ModContentSVA.aptDevice, 1, com.sva.block.AirportDataSVA.K_RVR), Tier.MV, "GNG", "XCX", " I ",
+                'G', Blocks.glass, 'N', sensor, 'X', casing, 'C', controller, 'I', iron);
+        // the weather station (MV): the anemometer's cups (aluminium foil), a sensor, an iron mast, the controller in a casing
+        block("aptWeather", new ItemStack(ModContentSVA.aptDevice, 1, com.sva.block.AirportDataSVA.K_WX), Tier.MV, "FNF", " I ", "XCX",
+                'F', alFoil, 'N', sensor, 'I', iron, 'X', casing, 'C', controller);
+        // the windsock (MV - vanilla only): orange and white wool on an iron pole
+        block("aptWindsock", new ItemStack(ModContentSVA.aptDevice, 1, com.sva.block.AirportDataSVA.K_SOCK), Tier.MV, "IOW", "I  ", "I  ",
+                'I', iron, 'O', new ItemStack(Blocks.wool, 1, 1), 'W', new ItemStack(Blocks.wool, 1, 0));
+        // the runway end marker (MV, x2): runway blocks, glowstone dust and green dye (the threshold's lights)
+        block("runwayEnd", new ItemStack(ModContentSVA.runwayEnd, 2), Tier.MV, "RLR", "RGR",
+                'R', new ItemStack(ModContentSVA.runway, 1, com.sva.block.BlockRunwaySVA.PLAIN), 'L', Items.glowstone_dust, 'G', new ItemStack(Items.dye, 1, 2));
+        // the airport builder's tablet (MV): a glass screen, memory, two sensors, the controller, polymer, redstone
+        module("aptPlanner", new ItemStack(ModContentSVA.aptPlanner), Tier.MV, "GMG", "NCN", "PRP",
+                'G', Blocks.glass_pane, 'M', memory, 'N', sensor, 'C', controller, 'P', polymer, 'R', Items.redstone);
     }
 }

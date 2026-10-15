@@ -174,6 +174,11 @@ public final class LinerDisplaysSVA {
         LinerGfxSVA.text(String.valueOf(Math.round(spd)), 22 * s, 10 * s, 9 * s, GRN, -1);
         LinerGfxSVA.text("TAS", 52 * s, 10 * s, 8 * s, WHT, -1);
         LinerGfxSVA.text(String.valueOf(Math.round(spd)), 72 * s, 10 * s, 9 * s, GRN, -1);
+        if (hdgOk) {
+            // airport wave B1: the wind and the tuned runway's RVR
+            LinerPfdSVA.ndAirport(L.afs, s, mode == 4 ? 0F
+                    : (float) ((heading(v, pt) + A.hdgOff(com.sva.vehicle.LinerAdirs.source(side, attSw))) % 360 + 360) % 360);
+        }
         if (!map) {
             if (!hdgOk) {
                 flag(tr("flag.hdg"), w / 2, 50 * s, 11 * s);
@@ -272,10 +277,11 @@ public final class LinerDisplaysSVA {
             if (r < R * 1.2F) {
                 float a = (float) (br - rot);
                 float x = LinerGfxSVA.px(cx, r, a), y = LinerGfxSVA.py(cy, r, a);
-                float c = (float) (ils.course - rot), len = (float) (com.sva.vehicle.LinerIls.LOC_DIST / range * R);
+                float c = (float) (ils.course - rot), len = (float) ((ils.full() && ils.rwyLen > 0 ? ils.rwyLen : com.sva.vehicle.LinerIls.LOC_DIST)
+                        / range * R);
                 LinerGfxSVA.layer();
                 LinerGfxSVA.line(x, y, LinerGfxSVA.px(x, Math.max(3 * s, len), c), LinerGfxSVA.py(y, Math.max(3 * s, len), c), 2.4F * s, WHT);
-                LinerGfxSVA.text(ils.ident, x + 6 * s, y + 8 * s, 8 * s, WHT, -1);
+                LinerGfxSVA.text(ils.full() && ils.rwy.length() > 0 ? ils.apt + " " + ils.rwy : ils.ident, x + 6 * s, y + 8 * s, 8 * s, WHT, -1);
             }
         }
         // the aircraft (yellow) and the heading pointer

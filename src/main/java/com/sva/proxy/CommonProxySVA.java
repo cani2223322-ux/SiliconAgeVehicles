@@ -23,6 +23,7 @@ public class CommonProxySVA {
         ModContentSVA.preInit();
         NetSVA.init();
         com.sva.net.NetADSVA.init();                                // air-defence wave: its own channel
+        com.sva.net.NetAptSVA.init();                               // airport wave B1: its own channel
     }
 
     public void init(FMLInitializationEvent e) {
@@ -31,6 +32,7 @@ public class CommonProxySVA {
         FMLCommonHandler.instance().bus().register(ServerQueueSVA.INSTANCE);
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new com.sva.entity.EventsSVA());     // stage E: invisibility
         FMLCommonHandler.instance().bus().register(com.sva.airdefense.AirDefenseSVA.INSTANCE);         // air-defence wave
+        FMLCommonHandler.instance().bus().register(com.sva.block.AirportServerSVA.INSTANCE);           // airport wave B1
     }
 
     public void postInit(FMLPostInitializationEvent e) {
@@ -64,6 +66,14 @@ public class CommonProxySVA {
 
     /** Air-defence wave: a NetADSVA.Data payload (client: handed to client.AirDefenseClientSVA on the client thread). */
     public void adData(int kind, net.minecraft.nbt.NBTTagCompound data) {
+    }
+
+    /** Airport wave B1: a NetAptSVA.Data payload (client: the airport's copy). */
+    public void aptData(int kind, net.minecraft.nbt.NBTTagCompound data) {
+    }
+
+    /** Airport wave B1: the screen of an ILS antenna / a runway end at (x, y, z) (client). */
+    public void openApt(int x, int y, int z) {
     }
 
     /** Liner wave 4: the ILS beacon's screen (client). */

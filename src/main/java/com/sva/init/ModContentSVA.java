@@ -65,6 +65,13 @@ public final class ModContentSVA {
     public static com.sva.block.BlockAdPartSVA adPart;
     public static com.sva.item.ItemAmmoSVA ammo;
     public static com.sva.item.ItemCodeCardSVA codeCard;
+    // airport wave B1: the ILS antennas and their parts, the shelter, the devices, the runway end, the planner tablet
+    public static com.sva.block.BlockIlsAntennaSVA ilsAntenna;
+    public static com.sva.block.BlockAptPartSVA aptPart;
+    public static com.sva.block.BlockIlsShelterSVA ilsShelter;
+    public static com.sva.block.BlockAptDeviceSVA aptDevice;
+    public static com.sva.block.BlockRunwayEndSVA runwayEnd;
+    public static com.sva.item.ItemAptPlannerSVA aptPlanner;
 
     public static final CreativeTabs TAB = new CreativeTabs(ReferenceSVA.ASSETS) {
         @Override
@@ -187,6 +194,28 @@ public final class ModContentSVA {
         ils.setCreativeTab(TAB);
         GameRegistry.registerBlock(ils, com.sva.block.ItemBlockIlsSVA.class, "ils");
         GameRegistry.registerTileEntity(com.sva.block.TileEntityIlsSVA.class, ReferenceSVA.MODID + ":ils");
+        // airport wave B1 (Engineering Workbench - WorkbenchRecipesSVA)
+        ilsAntenna = new com.sva.block.BlockIlsAntennaSVA();
+        ilsAntenna.setCreativeTab(TAB);
+        GameRegistry.registerBlock(ilsAntenna, com.sva.block.ItemBlockIlsAntennaSVA.class, "ilsAntenna");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityIlsAntennaSVA.class, ReferenceSVA.MODID + ":ilsAntenna");
+        aptPart = new com.sva.block.BlockAptPartSVA();
+        GameRegistry.registerBlock(aptPart, "aptPart");
+        ilsShelter = new com.sva.block.BlockIlsShelterSVA();
+        ilsShelter.setCreativeTab(TAB);
+        GameRegistry.registerBlock(ilsShelter, com.sva.block.ItemBlockAptSVA.class, "ilsShelter");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityIlsShelterSVA.class, ReferenceSVA.MODID + ":ilsShelter");
+        aptDevice = new com.sva.block.BlockAptDeviceSVA();
+        aptDevice.setCreativeTab(TAB);
+        GameRegistry.registerBlock(aptDevice, com.sva.block.ItemBlockAptSVA.class, "aptDevice");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityAptDeviceSVA.class, ReferenceSVA.MODID + ":aptDevice");
+        runwayEnd = new com.sva.block.BlockRunwayEndSVA();
+        runwayEnd.setCreativeTab(TAB);
+        GameRegistry.registerBlock(runwayEnd, com.sva.block.ItemBlockAptSVA.class, "runwayEnd");
+        GameRegistry.registerTileEntity(com.sva.block.TileEntityRunwayEndSVA.class, ReferenceSVA.MODID + ":runwayEnd");
+        aptPlanner = new com.sva.item.ItemAptPlannerSVA();
+        aptPlanner.setCreativeTab(TAB);
+        GameRegistry.registerItem(aptPlanner, "aptPlanner");
         // ids are append-only
         EntityRegistry.registerModEntity(EntityVehicleSVA.class, "vehicle", 0, SVAMod.instance, 128, 1, false);
         EntityRegistry.registerModEntity(EntitySeatSVA.class, "seat", 1, SVAMod.instance, 128, 20, false);

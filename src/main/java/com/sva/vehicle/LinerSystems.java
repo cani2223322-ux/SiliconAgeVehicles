@@ -2099,6 +2099,14 @@ public final class LinerSystems {
             }
             b.append(w7[i]);
         }
+        b.append('|');                                              // airport wave B1: the FULL station, the markers, RVR, weather
+        int[] w8 = afs.packApt();
+        for (int i = 0; i < w8.length; i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append(w8[i]);
+        }
         return b.toString();
     }
 
@@ -2239,6 +2247,7 @@ public final class LinerSystems {
         int[] w4 = part.length > 3 ? ints(part[3]) : null;
         int[] w6 = part.length > 4 ? ints(part[4]) : null;
         int[] w7 = part.length > 5 ? ints(part[5]) : null;
+        int[] w8 = part.length > 6 ? ints(part[6]) : null;
         if (v == null || v.length < 36) {
             return;
         }
@@ -2256,6 +2265,9 @@ public final class LinerSystems {
         }
         if (w7 != null) {
             unpackWave7(w7);                                        // wave 7: ADIRS, the fire, the doors, the trim
+        }
+        if (w4 != null) {
+            afs.unpackApt(w8);                                      // airport wave B1 (after the AFS: its station object)
         }
         int f = v[0];
         masterWarn = (f & 1) != 0;

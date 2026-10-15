@@ -27,9 +27,11 @@ import net.minecraft.nbt.NBTTagCompound;
 public final class NavDb {
 
     /** Where an entry came from. */
-    public static final int SRC_ILS = 0, SRC_ZONE = 1, SRC_PILOT = 2, SRC_BASE = 3;
+    public static final int SRC_ILS = 0, SRC_ZONE = 1, SRC_PILOT = 2, SRC_BASE = 3,
+            /** Airport wave B1: a runway of two «Торец полосы» markers (its ICAO placeholder airport). */
+            SRC_RWY = 4;
     /** Lang key part per source (sva.mcdu.src.KEY). */
-    public static final String[] SRC_KEYS = {"ils", "zone", "pilot", "base"};
+    public static final String[] SRC_KEYS = {"ils", "zone", "pilot", "base", "rwy"};
     /** Beacons with one ident this close (blocks) are one airport. */
     public static final double SAME_AIRPORT = 3000;
     /** A runway's length when nothing tells it (blocks): the localizer antenna's distance beyond the threshold. */
@@ -227,7 +229,8 @@ public final class NavDb {
                     continue;
                 }
                 db.ils.add(s);
-                String id = cleanIdent(s.ident);
+                // airport wave B1: a FULL station's airport is its runway's (the ICAO placeholder), its runway «27L»
+                String id = cleanIdent(s.full() && s.apt.length() > 0 ? s.apt : s.ident);
                 if (id.length() == 0) {
                     continue;
                 }
@@ -251,7 +254,7 @@ public final class NavDb {
                     db.airports.add(a);
                 }
                 Rwy r = new Rwy();
-                r.id = rwyId(s.course);
+                r.id = s.full() && s.rwy.length() > 0 ? s.rwy : rwyId(s.course);
                 r.x = s.tx();
                 r.z = s.tz();
                 r.elev = (int) Math.round(s.elev);
@@ -259,6 +262,9 @@ public final class NavDb {
                 r.ilsKey = s.key();
                 r.ilsIdent = s.ident;
                 r.freq = s.freq;
+                if (s.full() && s.rwyLen > 0) {
+                    r.len = s.rwyLen;
+                }
                 // two opposite thresholds: the runway's length is the distance between them
                 for (Rwy o : a.rwys) {
                     double diff = Math.abs(CruiseMath.wrap(o.hdg - r.hdg));
@@ -330,6 +336,47 @@ public final class NavDb {
             }
         });
         return db;
+    }
+
+    /**
+     * Airport wave B1: a runway end of the airport list (two «Торец полосы» markers; its ICAO placeholder airport `apt`) joins
+     * the database - into that airport (made if missing), unless a runway with its designator is there (an ILS's).
+     */
+    public void addRunway(String apt, int dim, String id, double x, double z, int elev, double course, int len) {
+        String ident = cleanIdent(apt);
+        if (ident.length() == 0) {
+            return;
+        }
+        Airport a = airport(ident);
+        if (a == null) {
+            a = new Airport();
+            a.ident = ident;
+            a.src = SRC_RWY;
+            a.dim = dim;
+            a.x = x;
+            a.z = z;
+            a.elev = elev;
+            airports.add(a);
+            java.util.Collections.sort(airports, new java.util.Comparator<Airport>() {
+                @Override
+                public int compare(Airport p, Airport q) {
+                    return p.ident.compareTo(q.ident);
+                }
+            });
+        }
+        for (Rwy o : a.rwys) {
+            if (o.id.equals(id)) {
+                return;
+            }
+        }
+        Rwy r = new Rwy();
+        r.id = id;
+        r.x = x;
+        r.z = z;
+        r.elev = elev;
+        r.hdg = (int) Math.round(LinerIls.wrap360(course)) % 360;
+        r.len = len;
+        a.rwys.add(r);
     }
 
     /** The «База» waypoint's ident. */

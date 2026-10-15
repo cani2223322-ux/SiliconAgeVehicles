@@ -212,6 +212,7 @@ public final class LinerLogicSVA {
                 v.vanillaSound("note.pling", 0.45F, (float) (0.8F + (100 - Math.min(100, c)) / 100.0));
             }
         }
+        aurals(v, L);                                               // airport wave B1: the marker beacons, the ILS ident in Morse
         // wave 7: the stall warning's aural (crickets - ALTN / DIRECT), the cabin call (two high-low notes and the line to the
         // passengers), a fire (the riders told; the red chime is the ECAM's)
         if ((L.events & LinerSystems.E_STALL) != 0) {
@@ -496,6 +497,63 @@ public final class LinerLogicSVA {
             v.linerIls = d == null ? new java.util.ArrayList<LinerIls.Station>() : d.near(v.worldObj.provider.dimensionId, v.posX, v.posZ, a.ilsRange * 1.2);
         }
         a.ils = v.linerIls;
+        a.time = v.worldObj.getTotalWorldTime();
+        airport(v, L);
+    }
+
+    /**
+     * Airport wave B1: what the airport tells the liner (block.AirportDataSVA): the marker beacon overhead (every tick - its
+     * fan is short), the tuned runway's RVR and the airport's weather station (every 20 ticks) - into the AFS' synced words.
+     */
+    static void airport(EntityVehicleSVA v, LinerSystems L) {
+        com.sva.block.AirportDataSVA d = com.sva.block.AirportDataSVA.get(v.worldObj);
+        LinerAfs F = L.afs;
+        if (d == null) {
+            F.marker = -1;
+            return;
+        }
+        int dim = v.worldObj.provider.dimensionId;
+        F.marker = d.markerAt(dim, v.posX, v.posY, v.posZ);
+        if (v.ticksExisted % 20 != 0) {
+            return;
+        }
+        LinerIls.Station s = F.ils;
+        int[] rv = s != null && s.full() ? d.rvr(s.key()) : new int[] {-1, -1, -1};
+        System.arraycopy(rv, 0, F.rvr, 0, 3);
+        com.sva.block.AirportDataSVA.Device wx = d.weatherNear(dim, s != null ? s.tx() : v.posX, s != null ? s.tz() : v.posZ);
+        if (wx == null) {
+            F.windFrom = -1;
+        } else {
+            F.windFrom = (int) Math.round(wx.windFrom) % 360;
+            F.windKmh = com.sva.airport.WindField.kmh(wx.windSpeed);
+            F.gustKmh = com.sva.airport.WindField.kmh(wx.windGust);
+            F.qnhApt = (int) Math.round(wx.qnh);
+            F.tempApt = (int) Math.round(wx.temp);
+        }
+    }
+
+    /**
+     * Airport wave B1: the cockpit's aurals - the marker beacon's tone (airport.MarkerMath's keying, vanilla notes) and, with
+     * an LS pushed and the tuned station received, its ident in Morse (airport.IlsBeam.keyAt) - config airport.aurals.
+     */
+    static void aurals(EntityVehicleSVA v, LinerSystems L) {
+        if (!ConfigSVA.aptAurals || v.worldObj == null) {
+            return;
+        }
+        LinerAfs F = L.afs;
+        long t = v.worldObj.getTotalWorldTime();
+        if (F.marker >= 0 && F.marker <= 2 && com.sva.airport.MarkerMath.keyAt(F.marker, t) == 1) {
+            v.vanillaSound(com.sva.airport.MarkerMath.SOUND[F.marker], 0.45F, com.sva.airport.MarkerMath.PITCH[F.marker]);
+        }
+        if ((L.on(LinerControls.LS_L) || L.on(LinerControls.LS_R)) && F.ils != null && !F.ils.off() && L.acPowered()) {
+            int k = com.sva.airport.IlsBeam.keyAt(F.ils.ident, t);
+            if (k == 1 || k == 2 || k == 3 && t % 2 == 0) {
+                LinerIls.Dev d = LinerIls.dev(F.ils, v.posX, v.posY, v.posZ, Math.max(500, ConfigSVA.linerIlsRange), t);
+                if (d.locValid) {
+                    v.vanillaSound("note.harp", 0.22F, 1.6F);
+                }
+            }
+        }
     }
 
     /** The vehicle's H2 now (mB, the spent part below one mB taken off). */

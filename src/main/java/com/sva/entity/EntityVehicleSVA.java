@@ -482,6 +482,23 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         tellRiders(key);
     }
 
+    /**
+     * Airport wave B1: a chat line to every player aboard (the driver and the seats) - the flight inspection's result, the
+     * ILS's state; arguments may be lang keys (wrapped as translations, «@key»).
+     */
+    public void tellAboard(String key, Object... args) {
+        Object[] a = new Object[args.length];
+        for (int i = 0; i < args.length; i++) {
+            Object o = args[i];
+            a[i] = o instanceof String && ((String) o).startsWith("@") ? new ChatComponentTranslation(((String) o).substring(1)) : o;
+        }
+        for (Entity e : riders()) {
+            if (e instanceof EntityPlayer) {
+                ((EntityPlayer) e).addChatComponentMessage(new ChatComponentTranslation(key, a));
+            }
+        }
+    }
+
     void lockedMsgTo(EntityPlayer p) {
         lockedMsg(p);
     }
