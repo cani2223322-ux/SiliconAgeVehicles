@@ -97,7 +97,7 @@ public class TileEntityTowerSVA extends TileEntityEnergyBase {
     }
 
     public int upgradeCount(UpgradeType type) {
-        if (!ConfigSVA.adUpgrades || !AdUpgradeMath.accepts(TileEntityIlsShelterSVA.B_ILS, type)) {
+        if (!com.sva.net.ServerConfigSVA.adUpgrades() || !AdUpgradeMath.accepts(TileEntityIlsShelterSVA.B_ILS, type)) {
             return 0;
         }
         int n = 0;
@@ -110,7 +110,7 @@ public class TileEntityTowerSVA extends TileEntityEnergyBase {
     }
 
     public boolean upgradeAccepted(ItemStack s) {
-        return ConfigSVA.adUpgrades && s != null && s.getItem() instanceof ItemUpgradeSC
+        return com.sva.net.ServerConfigSVA.adUpgrades() && s != null && s.getItem() instanceof ItemUpgradeSC
                 && AdUpgradeMath.accepts(TileEntityIlsShelterSVA.B_ILS, ItemUpgradeSC.typeOf(s)) && ItemUpgradeSC.typeOf(s) != UpgradeType.OVERCLOCKER;
     }
 
@@ -284,6 +284,7 @@ public class TileEntityTowerSVA extends TileEntityEnergyBase {
                     t.owner = ownerName;
                     d.markDirty();
                 }
+                t.access = new ArrayList<String>(access);           // audit 2026-10-22: who gets its codes (AtcServerSVA)
                 d.towerReport(t.key, powered, controller, now);
             }
             int pw = powered ? 1 : 0;

@@ -90,7 +90,13 @@ public class GuiCommandPostSVA extends GuiScreen {
     private ZoneMath.Zone dragOrig;
     private double dragSX, dragSZ;
     private boolean snap;
+    /**
+     * Wave A: the editor's undo stack. Audit 2026-10-22 (bug 13): each entry knows its zone's index (an undo goes back to
+     * that zone), choosing another zone clears it, and the fields typed in / the type, show and alarm switches go in too.
+     */
     private final com.sva.airdefense.ZoneEditMath.History hist = new com.sva.airdefense.ZoneEditMath.History();
+    /** Bug 13: the zone field typed into since the last entry (its first change made one); null after any other edit. */
+    private GuiTextField typed;
     /** Wave A: the 7600 decision panel's click areas {x0, y0, x1, y1, track id, 1 friend / 2 check}. */
     private final List<int[]> nrBtns = new ArrayList<int[]>();
     // settings
@@ -117,6 +123,13 @@ public class GuiCommandPostSVA extends GuiScreen {
             last = t;
             open = new GuiCommandPostSVA(p[0], p[1], p[2]);
             mc.displayGuiScreen(open);
+            return;
+        }
+        if (t.getBoolean("Shut")) {
+            // audit 2026-10-22: taken off the post's access list - the screen closes (no more pictures come)
+            if (open != null && mc.currentScreen == open && open.kx == p[0] && open.ky == p[1] && open.kz == p[2]) {
+                mc.displayGuiScreen(null);
+            }
             return;
         }
         if (open != null && mc.currentScreen == open && open.kx == p[0] && open.ky == p[1] && open.kz == p[2]) {
@@ -321,15 +334,20 @@ public class GuiCommandPostSVA extends GuiScreen {
             case B_Z_PASTE:
                 if (clipboard != null) {
                     readZoneFields();
-                    hist.push(edit);
+                    pushEdit();
                     setEdit(com.sva.airdefense.ZoneEditMath.pasteAt(clipboard, cx, cz, snap));
                     zoneSel = -1;                                   // a new zone: «Сохранить» adds it
+                    hist.moveTo(-1);
                 }
                 return;
             case B_Z_UNDO: {
-                ZoneMath.Zone u = hist.undo();
+                // bug 13: back to the zone the entry was made for (a paste's undo: the zone it was pasted over)
+                com.sva.airdefense.ZoneEditMath.History.Entry u = hist.undoEntry();
                 if (u != null) {
-                    setEdit(u);
+                    zoneSel = u.zone < zones().size() ? u.zone : -1;
+                    hist.moveTo(zoneSel);
+                    setEdit(u.before);
+                    typed = null;
                 }
                 return;
             }
@@ -347,7 +365,7 @@ public class GuiCommandPostSVA extends GuiScreen {
                 return;
             case B_Z_SHAPE:
                 readZoneFields();
-                hist.push(edit);
+                pushEdit();
                 edit.rot = 0;
                 edit.shape = edit.shape == ZoneMath.RECT ? ZoneMath.CIRCLE : ZoneMath.RECT;
                 if (edit.shape == ZoneMath.CIRCLE && edit.r <= 1) {
@@ -358,14 +376,18 @@ public class GuiCommandPostSVA extends GuiScreen {
                 writeZoneFields();
                 return;
             case B_Z_SHOW:
+                readZoneFields();
+                pushEdit();                                         // bug 13: the switches go into the history too
                 edit.show = !edit.show;
                 return;
             case B_Z_ALARM:
+                readZoneFields();
+                pushEdit();
                 edit.alarm = !edit.alarm;
                 return;
             case B_Z_HERE:
                 readZoneFields();
-                hist.push(edit);
+                pushEdit();
                 if (edit.shape == ZoneMath.CIRCLE) {
                     edit.cx = MathHelper.floor_double(cx);
                     edit.cz = MathHelper.floor_double(cz);
@@ -389,12 +411,15 @@ public class GuiCommandPostSVA extends GuiScreen {
                 cmd(d);
                 if (zoneSel < 0) {
                     zoneSel = zones().size();
+                    hist.saved(zoneSel);                            // bug 13: its entries made while it was new belong to it now
                 }
                 return;
             }
             case B_Z_NEW:
                 zoneSel = -1;
                 hist.clear();
+                hist.select(-1);
+                typed = null;
                 loadZone(-1);
                 return;
             case B_Z_DEL:
@@ -404,6 +429,9 @@ public class GuiCommandPostSVA extends GuiScreen {
                     d.setInteger("Idx", zoneSel);
                     cmd(d);
                     zoneSel = -1;
+                    hist.clear();                                   // bug 13: the indices after it move - nothing to go back to
+                    hist.select(-1);
+                    typed = null;
                     loadZone(-1);
                 }
                 return;
@@ -423,10 +451,18 @@ public class GuiCommandPostSVA extends GuiScreen {
                 saveSettings();
                 return;
             default:
-                if (b.id >= B_Z_TYPE && b.id < B_Z_TYPE + ZoneMath.TYPES) {
+                if (b.id >= B_Z_TYPE && b.id < B_Z_TYPE + ZoneMath.TYPES && edit.type != b.id - B_Z_TYPE) {
+                    readZoneFields();
+                    pushEdit();                                     // bug 13: a type change can be taken back
                     edit.type = b.id - B_Z_TYPE;
                 }
         }
+    }
+
+    /** Bug 13: an undo entry of the zone as it is now, for the zone being edited (its list index; -1 a new one). */
+    private void pushEdit() {
+        hist.push(zoneSel, edit);
+        typed = null;
     }
 
     private void sendMessage() {
@@ -578,6 +614,18 @@ public class GuiCommandPostSVA extends GuiScreen {
                     sendMessage();
                     return;
                 }
+                if (tab == 1 && f != msgField && zoneField(f)) {
+                    // bug 13: a field's first change since the last entry makes one (the zone as it was before the typing)
+                    readZoneFields();
+                    ZoneMath.Zone pre = edit.copy();
+                    String was = f.getText();
+                    f.textboxKeyTyped(c, key);
+                    if (!was.equals(f.getText()) && f != typed) {
+                        hist.push(zoneSel, pre);
+                        typed = f;
+                    }
+                    return;
+                }
                 f.textboxKeyTyped(c, key);
                 return;
             }
@@ -585,6 +633,12 @@ public class GuiCommandPostSVA extends GuiScreen {
         if (key == Keyboard.KEY_ESCAPE || key == mc.gameSettings.keyBindInventory.getKeyCode()) {
             mc.displayGuiScreen(null);
         }
+    }
+
+    /** One of the zone editor's fields. */
+    private boolean zoneField(GuiTextField f) {
+        return f != null && (f == zName || f == zA || f == zB || f == zC || f == zD || f == zLo || f == zHi || f == zCodeLo || f == zCodeHi
+                || f == zCourse || f == zRot);
     }
 
     private boolean overMap(int mx, int my) {
@@ -623,7 +677,7 @@ public class GuiCommandPostSVA extends GuiScreen {
         if (tab == 0 && button == 0) {
             for (int[] b : nrBtns) {
                 if (mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3]) {
-                    cmd(b[5] == 1 ? "nrFriend" : "nrCheck", b[4]);   // wave A: the 7600 decision
+                    cmd(b[5] == 1 ? "nrFriend" : b[5] == 2 ? "nrCheck" : "nrHostile", b[4]);   // wave A: the 7600 decision (+ «враждебный»)
                     return;
                 }
             }
@@ -664,14 +718,14 @@ public class GuiCommandPostSVA extends GuiScreen {
                 // wave A: a handle under the mouse - dragged (corners, edges, the centre, the turn knob, the radius)
                 int h = button == 0 ? com.sva.airdefense.ZoneEditMath.pick(edit, w[0], w[1], 5 * s) : com.sva.airdefense.ZoneEditMath.H_NONE;
                 if (h != com.sva.airdefense.ZoneEditMath.H_NONE) {
-                    hist.push(edit);
+                    pushEdit();
                     dragHandle = h;
                     dragOrig = edit.copy();
                     dragSX = w[0];
                     dragSZ = w[1];
                     return;
                 }
-                hist.push(edit);
+                pushEdit();
                 bx = com.sva.airdefense.ZoneEditMath.snap(bx, snap);
                 bz = com.sva.airdefense.ZoneEditMath.snap(bz, snap);
                 if (edit.shape == ZoneMath.CIRCLE && button == 0) {
@@ -723,6 +777,8 @@ public class GuiCommandPostSVA extends GuiScreen {
                 int i = (my - ly) / 11 + zoneScroll;
                 if (i >= 0 && i < zones().size()) {
                     zoneSel = i;
+                    hist.select(i);                                 // bug 13: another zone - its own history (the old one cleared)
+                    typed = null;
                     loadZone(i);
                 }
             }
@@ -745,6 +801,7 @@ public class GuiCommandPostSVA extends GuiScreen {
         if (tr != null && tr.getByte("NR") >= 0) {
             menu.add(new String[] {Lang.tr("sva.ad.kp.menu.nrFriend"), "nrFriend", ""});    // wave A: 7600
             menu.add(new String[] {Lang.tr("sva.ad.kp.menu.nrCheck"), "nrCheck", ""});
+            menu.add(new String[] {Lang.tr("sva.ad.kp.menu.nrHostile"), "nrHostile", ""});   // audit 2026-10-22 (bug 8)
         }
         menu.add(new String[] {Lang.tr("sva.ad.kp.menu.msg"), "msg", ""});
         menuX = Math.min(mx, left + W - 132);
@@ -1065,9 +1122,11 @@ public class GuiCommandPostSVA extends GuiScreen {
         if (tab == 0) {
             TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.kp.mapHint"), mapL + 96, mapT + MAP + 5, MAP - 96, MUTED, false, 0, 0);
         } else {
-            int bad = com.sva.airdefense.ZoneEditMath.check(edit);
+            // audit 2026-10-22 (bug 1): the server's limit on the zone's distance from this post comes with the picture
+            int far = last == null ? 0 : last.getInteger("ZoneMax");
+            int bad = com.sva.airdefense.ZoneEditMath.check(edit, kx, kz, far);
             TextFitSC.draw(fontRendererObj, bad == com.sva.airdefense.ZoneEditMath.OK ? Lang.tr("sva.ad.zone.mapHint2")
-                    : Lang.tr("sva.ad.zone.check." + com.sva.airdefense.ZoneEditMath.CHECK_KEYS[bad]), mapL + 96, mapT + MAP + 5, MAP - 96,
+                    : Lang.tr("sva.ad.zone.check." + com.sva.airdefense.ZoneEditMath.CHECK_KEYS[bad], Integer.valueOf(far)), mapL + 96, mapT + MAP + 5, MAP - 96,
                     bad == com.sva.airdefense.ZoneEditMath.OK ? MUTED : RED, false, 0, 0);
         }
     }
@@ -1082,6 +1141,12 @@ public class GuiCommandPostSVA extends GuiScreen {
         if (nr == com.sva.airdefense.NoRadioMath.S_CHECK) {
             return Lang.tr("sva.ad.nr.checkMark");
         }
+        if (nr == com.sva.airdefense.NoRadioMath.S_HOSTILE) {
+            return Lang.tr("sva.ad.nr.hostileMark");
+        }
+        if (t.getBoolean("Hold")) {
+            return Lang.tr("sva.ad.kp.holdMark");                   // audit 2026-10-22: «только вести» - its launchers hold fire
+        }
         int iff = t.getByte("Iff");
         if (iff == com.sva.airdefense.IffMath.WARNED || iff == com.sva.airdefense.IffMath.HANDED) {
             return Lang.tr("sva.ad.iff.mark." + com.sva.airdefense.IffMath.STATE_KEYS[iff]);
@@ -1091,7 +1156,8 @@ public class GuiCommandPostSVA extends GuiScreen {
 
     /**
      * Wave A (plan-next §9 A5, mock-up veh_ad_impl_a_4_7600): the 7600 decision list at the map's bottom - each waiting track
-     * with its timer and the two answers «Свой» / «Проверить» (without one in time: the usual rules).
+     * with its timer and the answers «Свой» / «Проверить» / «Враг» (audit 2026-10-22: «враждебный» - no grace; without one in
+     * time: the usual rules).
      */
     private void drawNoRadio(int mapL, int mapT, long tick) {
         List<NBTTagCompound> l = new ArrayList<NBTTagCompound>();
@@ -1114,9 +1180,11 @@ public class GuiCommandPostSVA extends GuiScreen {
             String line = String.format("%02d", Integer.valueOf(t.getInteger("No"))) + " " + code(t.getInteger("Code")) + " "
                     + String.format("%d:%02d", Integer.valueOf(sec / 60), Integer.valueOf(sec % 60));
             fontRendererObj.drawString(line, x0 + 3, y + 2, TEXT);
-            int bx = x1 - 112;
-            nrButton(bx, y, 52, Lang.tr("sva.ad.nr.friend"), GREEN, t.getInteger("Id"), 1);
-            nrButton(bx + 56, y, 54, Lang.tr("sva.ad.nr.check"), AMBER, t.getInteger("Id"), 2);
+            // audit review 2026-10-22: the buttons right of the text - x1 - 150 put «Свой» over the countdown
+            int[][] b = com.sva.airdefense.AdLayoutMath.nrButtons(x0 + 3 + fontRendererObj.getStringWidth(line), x1);
+            nrButton(b[0][0], y, b[0][1], Lang.tr("sva.ad.nr.friend"), GREEN, t.getInteger("Id"), 1);
+            nrButton(b[1][0], y, b[1][1], Lang.tr("sva.ad.nr.check"), AMBER, t.getInteger("Id"), 2);
+            nrButton(b[2][0], y, b[2][1], Lang.tr("sva.ad.nr.hostile"), RED, t.getInteger("Id"), 3);
         }
     }
 

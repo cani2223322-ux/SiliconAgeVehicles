@@ -17,7 +17,9 @@ package com.sva.vehicle;
  * - Аккумулятор+ and Люстра фар: every vehicle.
  * Air-defence wave (kinds 9..11, aircraft only - everything that really flies): «Радиопоглощающее покрытие» (the radars
  * see it at x0.6 of the range), «Гладкий корпус» (x0.9; not with Броня - the plates are anything but smooth),
- * «Приёмник облучения» (the RWR: the cockpit's scope, lamp and sound - airdefense.RadarMath).
+ * «Приёмник облучения» (the RWR: the cockpit's scope, the ОБЗОР / ЗАХВАТ / ПУСК lamps and the sounds - airdefense.RadarMath;
+ * the jet / tiltrotor a glare-shield unit, the liner its ND and E/WD). Like every tuning it works only with vehicles.tuning
+ * on (AirDefenseSVA.syncRiders sends no threats otherwise) - there is no switch of its own.
  */
 public final class TuningMath {
 

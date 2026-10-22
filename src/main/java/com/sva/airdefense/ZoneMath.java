@@ -26,6 +26,11 @@ public final class ZoneMath {
     public static final int RECT = 0, CIRCLE = 1;
     /** Zones per command post; the largest radius / half side; the top of the height band. */
     public static final int MAX_ZONES = 16, MAX_HALF = 512, ALT_MAX = 255;
+    /**
+     * Audit 2026-10-22, bug 1: the world's border (vanilla: 30 000 000) - every coordinate a zone keeps is clamped to it, so
+     * a box from a modified client ({-2e9, 2e9}) can no longer overflow the size check into a zone over the whole world.
+     */
+    public static final int WORLD_LIMIT = 30000000;
     /** Warning distances to the border (blocks). */
     public static final int WARN_FAR = 40, WARN_NEAR = 20, WARN_CLOSE = 10;
     /** A corridor's course tolerance (deg). */
@@ -56,6 +61,11 @@ public final class ZoneMath {
         /** The command post: its name, owner and block. */
         public String kp = "", owner = "";
         public int kx, ky, kz, dim;
+        /**
+         * Audit 2026-10-22 (bug 7): a control tower's aerodrome zone (AirDefenseDataSVA keeps it under «twr:»; its name is the
+         * tower's unique ICAO code) - only these may be trusted by name. Set by AirDefenseDataSVA; not saved, not copied.
+         */
+        public boolean tower;
 
         public Zone copy() {
             Zone z = new Zone();
@@ -91,21 +101,24 @@ public final class ZoneMath {
             shape = t.getByte("Shape") == RECT ? RECT : CIRCLE;
             int[] b = t.getIntArray("Box");
             if (b.length == 4) {
-                x0 = Math.min(b[0], b[2]);
-                x1 = Math.max(b[0], b[2]);
-                z0 = Math.min(b[1], b[3]);
-                z1 = Math.max(b[1], b[3]);
-                if (x1 - x0 > 2 * MAX_HALF) {
+                // bug 1: inside the world's border, the sizes in long (x1 - x0 of {-2e9, 2e9} overflowed an int below the cap)
+                int ax = clampI(b[0], -WORLD_LIMIT, WORLD_LIMIT), az = clampI(b[1], -WORLD_LIMIT, WORLD_LIMIT);
+                int bx = clampI(b[2], -WORLD_LIMIT, WORLD_LIMIT), bz = clampI(b[3], -WORLD_LIMIT, WORLD_LIMIT);
+                x0 = Math.min(ax, bx);
+                x1 = Math.max(ax, bx);
+                z0 = Math.min(az, bz);
+                z1 = Math.max(az, bz);
+                if ((long) x1 - x0 > 2L * MAX_HALF) {
                     x1 = x0 + 2 * MAX_HALF;
                 }
-                if (z1 - z0 > 2 * MAX_HALF) {
+                if ((long) z1 - z0 > 2L * MAX_HALF) {
                     z1 = z0 + 2 * MAX_HALF;
                 }
             }
             int[] c = t.getIntArray("Circle");
             if (c.length == 3) {
-                cx = c[0];
-                cz = c[1];
+                cx = clampI(c[0], -WORLD_LIMIT, WORLD_LIMIT);
+                cz = clampI(c[1], -WORLD_LIMIT, WORLD_LIMIT);
                 r = clampI(c[2], 1, MAX_HALF);
             }
             lo = clampI(t.getShort("Lo"), 0, ALT_MAX);
@@ -297,6 +310,48 @@ public final class ZoneMath {
         return t <= max ? t : -1;
     }
 
+    /**
+     * Audit 2026-10-22, bug 1: the zone's farthest point from (x, z) - a rectangle's farthest corner (turned), a circle's
+     * centre distance plus its radius.
+     */
+    public static double farthest(Zone z, double x, double zz) {
+        if (z.shape == RECT) {
+            double best = 0;
+            for (double[] c : corners(z)) {
+                best = Math.max(best, Math.hypot(c[0] - x, c[1] - zz));
+            }
+            return best;
+        }
+        return Math.hypot(z.cx + 0.5 - x, z.cz + 0.5 - zz) + z.r;
+    }
+
+    /**
+     * Bug 1: the whole zone lies within `max` blocks of its command post's block (kx, kz) - the server takes no zone from a
+     * screen that reaches further (airdefense.zoneMaxDistance; max <= 0: no limit).
+     */
+    public static boolean withinReach(Zone z, int kx, int kz, int max) {
+        return max <= 0 || farthest(z, kx + 0.5, kz + 0.5) <= max;
+    }
+
+    /**
+     * Bug 1 (the liner's ND): the part of the segment a - b inside the circle (cx, cz, r) as {t0, t1} (0..1 along the
+     * segment), null when it misses - an edge is clipped to the screen before it is cut into dashes, so a long one (a zone
+     * from an old save) costs only the pieces on the screen.
+     */
+    public static double[] clipToCircle(double ax, double az, double bx, double bz, double cx, double cz, double r) {
+        double dx = bx - ax, dz = bz - az, fx = ax - cx, fz = az - cz;
+        double a = dx * dx + dz * dz, c = fx * fx + fz * fz - r * r;
+        if (a < 1e-12) {
+            return c <= 0 ? new double[] {0, 1} : null;
+        }
+        double b = 2 * (fx * dx + fz * dz), disc = b * b - 4 * a * c;
+        if (disc < 0) {
+            return null;
+        }
+        double sq = Math.sqrt(disc), t0 = Math.max(0, (-b - sq) / (2 * a)), t1 = Math.min(1, (-b + sq) / (2 * a));
+        return t0 <= t1 ? new double[] {t0, t1} : null;
+    }
+
     /** The pilot's warning level for the distance to the border. */
     public static int warnLevel(double dist) {
         if (dist < 0) {
@@ -339,6 +394,31 @@ public final class ZoneMath {
             }
         }
         return hit;
+    }
+
+    /** Two zones of the same command post (its block and dimension travel with every zone it publishes). */
+    public static boolean sameKp(Zone a, Zone b) {
+        return a.dim == b.dim && a.kx == b.kx && a.ky == b.ky && a.kz == b.kz;
+    }
+
+    /**
+     * Audit 2026-10-22 (bug 14): the pilots' copy of violated(), per command post - a zone the flight need not be warned
+     * about here: a forbidden zone whose OWN post's corridor lets this flight through, or whose own post's aerodrome zone
+     * it is in. The client used to go quiet inside any corridor at all, while every post judges only its own zones
+     * (TileEntityCommandPostSVA) - a corridor of Alice's post across Bob's forbidden zone hid Bob's zone from the pilot
+     * (no frame, no prediction, no tone) while Bob's post took him for a violator. A restricted zone is never opened (the
+     * post warns in it whatever the corridors).
+     */
+    public static boolean opened(List<Zone> zones, Zone z, double x, double y, double zz, double course, boolean altKnown) {
+        if (zones == null || z == null || z.type != FORBIDDEN) {
+            return false;
+        }
+        for (Zone c : zones) {
+            if (c != z && sameKp(c, z) && (corridorPass(c, x, y, zz, course, altKnown) || c.type == AERODROME && contains(c, x, y, zz, altKnown))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The first zone of `type` the point is in (altitude rule as above), or null. */

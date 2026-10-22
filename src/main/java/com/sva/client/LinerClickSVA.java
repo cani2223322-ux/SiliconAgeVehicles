@@ -293,6 +293,14 @@ public final class LinerClickSVA {
             String t = L.fctl.manualTrim() ? Lang.tr("sva.liner.gui.trimMan", LinerGfxSVA.num(L.fctl.manTrim, 1)) : Lang.tr("sva.liner.gui.trimAuto");
             return new String[] {name + ": " + t, Lang.tr("sva.liner.gui.hint.trim")};
         }
+        if (c == LinerControls.XPDR) {
+            // audit 2026-10-22: the live transponder - its code and mode, the click opens its panel
+            EntityVehicleSVA v = HudVehicleSVA.vehicleOf(Minecraft.getMinecraft().thePlayer);
+            String now = v == null ? "" : ": " + com.sva.airdefense.XpdrMath.format(AirDefenseClientSVA.xpdrCode(v)) + " "
+                    + Lang.tr("sva.xpdr.mode." + com.sva.airdefense.XpdrMath.MODE_KEYS[Math.max(0, Math.min(com.sva.airdefense.XpdrMath.MODES - 1,
+                            AirDefenseClientSVA.xpdrMode(v)))]);
+            return new String[] {name + now, Lang.tr("sva.liner.gui.hint.xpdr")};
+        }
         if (c == LinerControls.AI_PROBE && L.at(c) == 0) {
             return new String[] {name + ": " + Lang.tr("sva.liner.pos.auto"), Lang.tr("sva.liner.gui.hint.pb")};   // wave 7: out = АВТО
         }
@@ -307,6 +315,13 @@ public final class LinerClickSVA {
         if (c == LinerControls.MCDU1 || c == LinerControls.MCDU2) {
             // wave 5: an MCDU clicked (the cockpit, the «Пульты» screen) - its keyboard screen
             Minecraft.getMinecraft().displayGuiScreen(new GuiMcduSVA(v, c == LinerControls.MCDU1 ? 0 : 1));
+            return;
+        }
+        if (c == LinerControls.XPDR) {
+            // audit 2026-10-22: the pedestal's transponder - its panel (either pilot; the server checks the seat too)
+            if (GuiTransponderSVA.operator(Minecraft.getMinecraft(), v)) {
+                Minecraft.getMinecraft().displayGuiScreen(new GuiTransponderSVA(v));
+            }
             return;
         }
         if (c.kind == LinerControls.INFO && c != LinerControls.TL1 && c != LinerControls.TL2 && c != LinerControls.TRIM_L && c != LinerControls.TRIM_R) {

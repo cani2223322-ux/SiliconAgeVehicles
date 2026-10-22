@@ -517,6 +517,40 @@ public final class CockpitLayout {
         return null;
     }
 
+    // ---------------------------------------------------------------- audit 2026-10-22: the RWR unit on the glare shield
+
+    /**
+     * Audit 2026-10-22 (mock-up veh_ad_2, «Реактивный: на козырьке слева, у края стекла»): the jet and the tiltrotor carry
+     * the RWR as a small unit standing on the glare shield - the scope and the ОБЗОР / ЗАХВАТ / ПУСК lamps - the light plane
+     * and the helicopter have their own 'rwr' panel, the liner its ND.
+     */
+    public static boolean rwrUnit(VehicleType t) {
+        return t == VehicleType.JET || t == VehicleType.TILT;
+    }
+
+    /** The unit's gap over the main screen's top edge (clears the shield's lip: the jet's 0.012, the tiltrotor's 0.015) and its height range. */
+    public static final float RWR_GAP = 0.02F, RWR_H_MIN = 0.045F, RWR_H_MAX = 0.065F;
+
+    /**
+     * The RWR unit's face (rwrUnit types): in the plane of the main screen (the largest - the jet's 0.197 x 0.112, the
+     * tiltrotor's 0.263 x 0.075; it already faces the pilot), RWR_GAP over its top edge - on the glare shield (measured from
+     * the OBJs: the jet's shield top 0.821 over the screen's top 0.809, the tiltrotor's 0.783 over 0.768) - its left end
+     * over the screen's left end; 0.6 of the screen's height (RWR_H_MIN..MAX), 1.1 as wide. Null without a screen.
+     */
+    public Screen rwrUnitFace() {
+        if (screens.isEmpty()) {
+            return null;
+        }
+        Screen m = screens.get(0);
+        float h = Math.max(RWR_H_MIN, Math.min(RWR_H_MAX, m.h * 0.6F)), w = h * 1.1F;
+        float up = m.h / 2 + RWR_GAP + h / 2, side = -m.w / 2 + w / 2;
+        float[] c = new float[3];
+        for (int i = 0; i < 3; i++) {
+            c[i] = m.c[i] + m.up[i] * up + m.right[i] * side;
+        }
+        return new Screen("rwrunit", c, m.n, m.up, m.right, w, h, m.front);
+    }
+
     /**
      * Cockpit stage 2: lamps in rows, top -> bottom (heights within ROW_DY of the row's top lamp), each row left -> right
      * (z up) - the order the per-type role tables (CockpitLamps.table) are written in.

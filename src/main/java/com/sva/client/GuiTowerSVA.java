@@ -61,7 +61,7 @@ public class GuiTowerSVA extends GuiScreen {
 
     private final TileEntityTowerSVA te;
     private int left, top, tab, ticks, zoom = 1, sel = -1, report, linkA = -1, mapZoom;
-    private GuiTextField fAlt, fHdg, fFree, sIcao, sName, sLo, sHi, sAcc;
+    private GuiTextField fAlt, fHdg, fFree, sIcao, sName, sLo, sHi, sAcc, sSqTrust;
     private final List<GuiTextField> fields = new ArrayList<GuiTextField>();
     private boolean settingsLoaded;
 
@@ -140,6 +140,7 @@ public class GuiTowerSVA extends GuiScreen {
         sLo = field(left + 120, top + 86, 40, 4);
         sHi = field(left + 170, top + 86, 40, 4);
         sAcc = field(left + 120, top + 104, 300, 200);
+        sSqTrust = field(left + 120, top + 122, 300, 200);         // audit 2026-10-22: «коды: доверенные»
         settingsLoaded = false;
         cmd("hb");
     }
@@ -290,6 +291,7 @@ public class GuiTowerSVA extends GuiScreen {
             l.add(sLo);
             l.add(sHi);
             l.add(sAcc);
+            l.add(sSqTrust);
         }
         return l;
     }
@@ -482,6 +484,9 @@ public class GuiTowerSVA extends GuiScreen {
         button(B_REPORT, "", sx0, 227, sx0 + 98, 241, tr("rep", Lang.tr("sva.cpdlc.rep." + report)), on, false);
         button(B_UP, "8", sx0 + 100, 227, sx0 + 134, 241, tr("send"), on, false);
         button(B_UP, "9", 404, 245, 436, 259, tr("send"), on, false);
+        // audit 2026-10-22 (bug 5): the controller gives the airport's code by hand (any aircraft; the tower on its own only
+        // gives it to its owner's, his access list's and its trusted owners' aircraft)
+        button(B_UP, String.valueOf(Cpdlc.U_SQUAWK), 372, 231, 436, 243, tr("up.squawk"), on, false);
         if (!me) {
             text(tr("seatHint"), sx0, 262, MUTED);
         }
@@ -706,6 +711,7 @@ public class GuiTowerSVA extends GuiScreen {
                 sHi.setText(XpdrMath.format(c[1]));
             }
             sAcc.setText(h.getString("Acc"));
+            sSqTrust.setText(h.getString("SqTrust"));
         }
         boolean owner = h.getBoolean("Owner");
         text(tr("setHdr"), 8, 36, GOLD);
@@ -713,16 +719,19 @@ public class GuiTowerSVA extends GuiScreen {
         text(tr("name"), 10, 70, TEXT);
         text(tr("codes"), 10, 88, TEXT);
         text(tr("access"), 10, 106, TEXT);
-        text(tr("owner", h.getString("Own")), 10, 128, MUTED);
-        text(tr("energy", h.getInteger("E"), h.getInteger("EMax"), h.getInteger("Use")), 10, 140, h.getBoolean("Pow") ? TEXT : RED);
-        text(tr("elev", h.getInteger("Elev")), 10, 152, MUTED);
-        text(tr("charts", h.getInteger("Ver")), 10, 164, MUTED);
-        button(B_SAVE, "", 10, 186, 120, 200, tr("save"), owner, false);
-        button(B_EQUIP, "", 130, 186, 240, 200, tr("equip"), true, false);
+        text(tr("sqTrust"), 10, 124, TEXT);
+        text(tr("owner", h.getString("Own")), 10, 142, MUTED);
+        text(tr("energy", h.getInteger("E"), h.getInteger("EMax"), h.getInteger("Use")), 10, 154, h.getBoolean("Pow") ? TEXT : RED);
+        text(tr("elev", h.getInteger("Elev")), 10, 166, MUTED);
+        text(tr("charts", h.getInteger("Ver")), 10, 178, MUTED);
+        button(B_SAVE, "", 10, 192, 120, 206, tr("save"), owner, false);
+        button(B_EQUIP, "", 130, 192, 240, 206, tr("equip"), true, false);
         if (!owner) {
-            text(tr("ownerOnly"), 10, 206, AMBER);
+            text(tr("ownerOnly"), 10, 212, AMBER);
         }
-        text(tr("icaoHint"), 10, 222, MUTED);
+        // audit review 2026-10-22: the hints fitted to the panel (the English «коды: доверенные» one ran 20 px past its edge)
+        com.sc.inventory.TextFitSC.draw(fontRendererObj, tr("icaoHint"), left + 10, top + 226, W - 20, MUTED, false, 0, 0);
+        com.sc.inventory.TextFitSC.draw(fontRendererObj, tr("sqTrustHint"), left + 10, top + 238, W - 20, MUTED, false, 0, 0);
     }
 
     // ---------------------------------------------------------------- input
@@ -871,6 +880,7 @@ public class GuiTowerSVA extends GuiScreen {
                 d.setString("Lo", sLo.getText());
                 d.setString("Hi", sHi.getText());
                 d.setString("Acc", sAcc.getText());
+                d.setString("SqTrust", sSqTrust.getText());
                 cmd(d);
                 return;
             case B_EQUIP:

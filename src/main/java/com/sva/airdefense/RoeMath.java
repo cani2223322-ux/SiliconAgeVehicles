@@ -6,7 +6,8 @@ package com.sva.airdefense;
  * <p>
  * Classes: СВОЙ-ВЛАДЕЛЕЦ (the air defence owner's or his friends' own vehicle - never fired at), СВОЙ (today's / an own
  * code, the Mode S white list, «свой на 10 минут»), ЧУЖОЙ, НАРУШИТЕЛЬ (a stranger in a forbidden zone), АВАРИЯ (7700 -
- * never), НЕТ СВЯЗИ (7600 - no fire during its grace).
+ * never), НЕТ СВЯЗИ (7600 - no fire during its grace), НЕИЗВЕСТЕН (audit 2026-10-22, bug 15: a command post's track no
+ * surveillance radar has interrogated yet - its transponder unknown, never fired at).
  * <p>
  * Rules of engagement (each launcher): ОГОНЬ ЗАПРЕЩЁН (track only), ПО НАРУШИТЕЛЯМ ЗОНЫ, ПО ВСЕМ ЧУЖИМ, ПО ОТМЕТКАМ ИЗ КП
  * (only what the command post's operator assigned; with the post's «Авто» also violators). A launcher without a command
@@ -28,10 +29,10 @@ public final class RoeMath {
     public static final int HOLD = 0, VIOLATORS = 1, FOREIGN_ALL = 2, KP_MARKS = 3, ROES = 4;
     public static final String[] ROE_KEYS = {"hold", "violators", "foreign", "kp"};
 
-    public static final int OWN = 0, FRIEND = 1, FOREIGN = 2, VIOLATOR = 3, EMERGENCY = 4, NO_RADIO = 5, CLASSES = 6;
-    public static final String[] CLASS_KEYS = {"own", "friend", "foreign", "violator", "emergency", "noRadio"};
-    /** Scope colours (RGB): own / friend green, foreign yellow, violator red, emergency red (flashing), no radio orange. */
-    public static final int[] CLASS_COLOURS = {0x62E06A, 0x62E06A, 0xF0D040, 0xF05050, 0xFF3030, 0xF09040};
+    public static final int OWN = 0, FRIEND = 1, FOREIGN = 2, VIOLATOR = 3, EMERGENCY = 4, NO_RADIO = 5, UNKNOWN = 6, CLASSES = 7;
+    public static final String[] CLASS_KEYS = {"own", "friend", "foreign", "violator", "emergency", "noRadio", "unknown"};
+    /** Scope colours (RGB): own / friend green, foreign yellow, violator red, emergency red (flashing), no radio orange, unknown grey. */
+    public static final int[] CLASS_COLOURS = {0x62E06A, 0x62E06A, 0xF0D040, 0xF05050, 0xFF3030, 0xF09040, 0xA0A8B0};
 
     /** fireBlock results: OK - fire; the rest say why not. */
     public static final int OK = 0, B_DISABLED = 1, B_SPAWN = 2, B_PROTECTED = 3, B_OWN = 4, B_PVP = 5, B_UNMANNED = 6, B_SPECIAL = 7,
@@ -62,19 +63,38 @@ public final class RoeMath {
      */
     public static int classify(boolean ownOrFriend, boolean replied, int code, boolean ownCode, boolean whitelisted, boolean granted,
             boolean noRadioGrace, boolean violator) {
+        return classify(ownOrFriend, replied, code, ownCode, false, whitelisted, granted, noRadioGrace, violator);
+    }
+
+    /**
+     * Audit 2026-10-22 (bug 6): as above with a friendly airport's code apart - `airportCode` (the code a friendly tower gave
+     * this very aircraft, near that airport) makes it a friend only while it is no violator: a forbidden zone entered or a
+     * tower's IFF handoff (both come as `violator`) is not cancelled by an aerodrome code. The own codes, today's code, the
+     * white list and «свой на 10 минут» still are (the owner's own word).
+     */
+    public static int classify(boolean ownOrFriend, boolean replied, int code, boolean ownCode, boolean airportCode, boolean whitelisted,
+            boolean granted, boolean noRadioGrace, boolean violator) {
         if (replied && code == XpdrMath.EMERGENCY) {
             return EMERGENCY;
         }
         if (ownOrFriend) {
             return OWN;
         }
-        if (granted || replied && ownCode || whitelisted) {
+        if (granted || replied && ownCode || whitelisted || replied && airportCode && !violator) {
             return FRIEND;
         }
         if (replied && code == XpdrMath.NO_RADIO && noRadioGrace) {
             return NO_RADIO;
         }
         return violator ? VIOLATOR : FOREIGN;
+    }
+
+    /**
+     * Audit 2026-10-22 (bug 15): a command post's track no surveillance radar (nor the post itself) has interrogated yet - a
+     * class fire may be opened on becomes UNKNOWN (its transponder may well say 7700): no warnings, no fire.
+     */
+    public static int unknownUntilAsked(int cls, boolean asked) {
+        return !asked && hostile(cls) ? UNKNOWN : cls;
     }
 
     /** A class fire may ever be opened on (foreign, violator). */
@@ -171,6 +191,24 @@ public final class RoeMath {
             return t[1] >= 0 ? ST_WARN : ST_LOCK;
         }
         return ST_FIRE;
+    }
+
+    /**
+     * Audit 2026-10-22: the warnings so far went to an empty cockpit (nobody aboard at the last round) and somebody is aboard
+     * now - the engagement starts over, so he hears the message, the lock and the warning shot before any fire (before, a
+     * hold-fire for an unmanned vehicle lifted by a pilot boarding it at the fire stage meant fire without a word).
+     */
+    public static boolean restartWarnings(boolean heardBefore, boolean mannedNow, int stage) {
+        return !heardBefore && mannedNow && stage > ST_NONE;
+    }
+
+    /**
+     * Audit review 2026-10-22: «heard» for the next round - sticky for the whole engagement once anyone was aboard. It was
+     * «aboard at the last round»: a pilot who had heard every warning stepped out for one round before the fire and back
+     * in, the warnings started over, and again - the launcher never fired.
+     */
+    public static boolean heard(boolean heardBefore, boolean mannedNow) {
+        return heardBefore || mannedNow;
     }
 
     /** Whole seconds left to fire (0 once firing). */

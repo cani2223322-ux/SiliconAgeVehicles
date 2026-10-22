@@ -268,5 +268,32 @@
         "stream": false
       }
     ]
+  },
+  "rwr_search": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rwr_search",
+        "stream": false
+      }
+    ]
+  },
+  "rwr_lock": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rwr_lock",
+        "stream": false
+      }
+    ]
+  },
+  "rwr_launch": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rwr_launch",
+        "stream": false
+      }
+    ]
   }
 }

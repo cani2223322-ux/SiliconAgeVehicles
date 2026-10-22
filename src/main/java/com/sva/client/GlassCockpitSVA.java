@@ -46,9 +46,12 @@ import net.minecraft.util.ResourceLocation;
  * red line at 100 %), 'hoverind' (the drift vector, rings 1 / 2 m/s), 'radalt' (blocks over the ground on a compressed
  * scale, the decision bug at 5) and the callouts «50.. 40.. 30..» on the descent (config vehicles.radarAltCallouts).</li>
  * </ul>
- * The hydrogen, battery, radar warning and transponder come from CockpitDataSVA (the radar warning / transponder are
- * placeholders until the air defence wave). Config
- * vehicles.glassCockpit (off: the faces stay dark).
+ * The hydrogen, battery, radar warning and transponder come from CockpitDataSVA (the radar warning and the transponder
+ * are the air defence's live copies). Audit 2026-10-22: the RWR scope puts a near emitter at its centre, a far one at the
+ * edge (it was turned over), tells a launcher's lock (a square «ПУ») from a tracking radar's (a diamond «С»), circles a
+ * site that launched, says «НЕТ МОДУЛЯ СПО» without the module (not a clean scope) and has the ОБЗОР / ЗАХВАТ / ПУСК
+ * lamps; a code that is not sent (ВЫКЛ / ДЕЖ) is dimmed; the jet's and the tiltrotor's glare-shield unit (rwrUnit).
+ * Config vehicles.glassCockpit (off: the faces stay dark), vehicles.rwrCockpit (the lamps, the unit).
  */
 @SideOnly(Side.CLIENT)
 final class GlassCockpitSVA {
@@ -841,10 +844,15 @@ final class GlassCockpitSVA {
         float x = w * 0.1F, bw = w * 0.38F;
         textL(fr, Lang.tr("sva.mfd.rwr.title"), x, top - fs * 1.5F, fs, bw, tint(WHITE));
         float[][] th = CockpitDataSVA.rwrThreat(v);
-        textL(fr, th.length == 0 ? Lang.tr("sva.mfd.rwr.clear") : Lang.tr("sva.mfd.rwr.threats", Integer.valueOf(th.length)), x, top - fs * 3F, fs * 1.05F, bw,
-                th.length == 0 ? GRN : 0xFF6E5A);
+        if (!CockpitDataSVA.rwrFitted(v)) {
+            // audit 2026-10-22: no module - said so (a green «НЕТ» read as «nobody paints me»)
+            textL(fr, Lang.tr("sva.ad.rwr.noModule"), x, top - fs * 3F, fs * 1.05F, bw, 0x9A8A60);
+        } else {
+            textL(fr, th.length == 0 ? Lang.tr("sva.mfd.rwr.clear") : Lang.tr("sva.mfd.rwr.threats", Integer.valueOf(th.length)), x, top - fs * 3F, fs * 1.05F,
+                    bw, th.length == 0 ? GRN : 0xFF6E5A);
+        }
         textL(fr, Lang.tr("sva.xpdr.title"), x, top - fs * 4.8F, fs, bw, tint(WHITE));
-        textL(fr, GlassMath.squawk(CockpitDataSVA.xpdrCode(v)), x, top - fs * 6.6F, fs * 2.1F, bw, AMB);
+        textL(fr, GlassMath.squawk(CockpitDataSVA.xpdrCode(v)), x, top - fs * 6.6F, fs * 2.1F, bw, showColour(CockpitDataSVA.xpdrShow(v)));
         textL(fr, Lang.tr("sva.xpdr.mode") + "  " + Lang.tr(CockpitDataSVA.xpdrMode(v)), x, top - fs * 8.6F, fs * 1.05F, bw, GRN);
         boolean reply = CockpitDataSVA.xpdrReply(v);
         col(reply ? GRN : 0x1E2A22);
@@ -853,22 +861,37 @@ final class GlassCockpitSVA {
         textL(fr, Lang.tr("sva.mfd.rwr.note"), -w * 0.44F, cy - R * 1.25F, fs * 0.85F, w * 0.88F, DIMT);
     }
 
-    /** The radar-warning scope at the origin, radius R: rings, ticks, own symbol, the threats (CockpitDataSVA). */
+    /** Audit 2026-10-22: a code window's colour for XpdrMath.show - amber sent, dimmed not sent (ВЫКЛ / ДЕЖ), red 7700. */
+    private static int showColour(int show) {
+        return show == com.sva.airdefense.XpdrMath.SHOW_RED ? RED : show == com.sva.airdefense.XpdrMath.SHOW_AMBER ? AMB : 0x5A4A2A;
+    }
+
+    /**
+     * The radar-warning scope at the origin, radius R: rings, ticks, own symbol, the threats (CockpitDataSVA). Without the
+     * module (audit 2026-10-22): dim rings and «НЕТ МОДУЛЯ СПО» - never a clean scope that reads as «nobody paints me».
+     */
     private static void scope(FontRenderer fr, EntityVehicleSVA v, float R) {
+        boolean fitted = CockpitDataSVA.rwrFitted(v);
         col(0x050807);
         CockpitInstrumentsSVA.disc(0F, 0F, R, Z0 * 3);
-        col(0x287840);
+        col(fitted ? 0x287840 : 0x1E2A22);
         for (float k : new float[] {0.33F, 0.62F, 0.86F}) {
             AvionicsSVA.ring(0F, 0F, R * k, R * 0.02F, Z1);
         }
-        col(0x46C864);
+        col(fitted ? 0x46C864 : 0x24302A);
         for (int a = 0; a < 360; a += 30) {
             CockpitInstrumentsSVA.ray(a, R * 0.78F, R * 0.86F, R * 0.03F, Z1);
         }
+        if (!fitted) {
+            textC(fr, Lang.tr("sva.ad.rwr.noModule"), 0F, 0F, R * 0.16F, R * 1.5F, 0x9A8A60);
+            return;
+        }
         col(0x78FF96);
         CockpitInstrumentsSVA.poly(new float[][] {{0F, R * 0.12F}, {-R * 0.1F, -R * 0.08F}, {0F, -R * 0.03F}, {R * 0.1F, -R * 0.08F}}, Z2);
-        // air-defence wave: each emitter - a diamond at its bearing (nearer = closer to the centre) with its letter (О обзорная,
-        // С сопровождение, В высотомер, Р ракета); a lock is orange, a missile red with the outer ring flashing
+        // air-defence wave: each emitter at its bearing - audit 2026-10-22 (bug 11): nearer = closer to the centre (it was the
+        // other way round) - with its letter (О обзорная, С сопровождение, В высотомер, Р ракета): a radar a diamond (yellow,
+        // a tracking lock orange), a launcher's own lock a square «ПУ» (orange), a missile red with the outer ring flashing,
+        // a site that launched at us a red circle round it
         boolean missile = false;
         for (float[] t : CockpitDataSVA.rwrThreat(v)) {
             double a = Math.toRadians(t[0]);
@@ -876,8 +899,19 @@ final class GlassCockpitSVA {
             float x = (float) Math.sin(a) * rr, y = (float) Math.cos(a) * rr, q = R * 0.13F;
             int kind = (int) t[2];
             missile |= kind == com.sva.airdefense.RadarMath.T_MISSILE;
-            col(kind == com.sva.airdefense.RadarMath.T_MISSILE ? 0xFF3C32 : kind == com.sva.airdefense.RadarMath.T_LOCK ? 0xFF8C32 : 0xF0C846);
-            CockpitInstrumentsSVA.poly(new float[][] {{x, y + q}, {x + q, y}, {x, y - q}, {x - q, y}}, Z2);
+            if (kind == com.sva.airdefense.RadarMath.T_LAUNCH) {
+                col(0xFF3C32);
+                AvionicsSVA.ring(x, y, q * 1.55F, R * 0.025F, Z2);
+                continue;
+            }
+            col(kind == com.sva.airdefense.RadarMath.T_MISSILE ? 0xFF3C32 : kind == com.sva.airdefense.RadarMath.T_LOCK
+                    || kind == com.sva.airdefense.RadarMath.T_LAUNCHER ? 0xFF8C32 : 0xF0C846);
+            if (kind == com.sva.airdefense.RadarMath.T_LAUNCHER) {
+                float s = q * 0.78F;
+                CockpitInstrumentsSVA.rect(x - s, y - s, x + s, y + s, Z2);
+            } else {
+                CockpitInstrumentsSVA.poly(new float[][] {{x, y + q}, {x + q, y}, {x, y - q}, {x - q, y}}, Z2);
+            }
             textC(fr, Lang.tr("sva.ad.rwr.letter." + kind), x, y + q * 1.6F, R * 0.12F, R * 0.3F, 0xFFFFFF);
         }
         if (missile && System.currentTimeMillis() / 250 % 2 == 0) {
@@ -885,6 +919,76 @@ final class GlassCockpitSVA {
             AvionicsSVA.ring(0F, 0F, R * 0.95F, R * 0.04F, Z2);
         }
         textC(fr, Lang.tr("sva.mfd.rwr.short"), 0F, -R * 0.5F, R * 0.13F, R * 0.8F, 0x6EE68C);
+    }
+
+    /** Audit 2026-10-22: the lamps' colours lit - ОБЗОР yellow, ЗАХВАТ orange, ПУСК red (mock-up veh_ad_2). */
+    private static final int[] LAMP_RGB = {0xE8C030, 0xF07028, 0xF03028};
+    private static final String[] LAMP_KEYS = {"search", "lock", "launch"};
+
+    /**
+     * Audit 2026-10-22 (mock-up veh_ad_2): the RWR's three lamps ОБЗОР / ЗАХВАТ / ПУСК in a row centred at (x, y), `w` wide
+     * and `h` tall; ПУСК flashes. All lit in the startup's lamp test, all dark without power / module.
+     */
+    private static void rwrLamps(FontRenderer fr, EntityVehicleSVA v, float x, float y, float w, float h) {
+        int ph = phase();
+        boolean test = ph == CockpitLamps.PH_TEST;
+        boolean live = ph == CockpitLamps.PH_NORMAL && CockpitDataSVA.rwrFitted(v);
+        int lit = test ? 7 : live ? CockpitDataSVA.rwrLamps(v) : 0;
+        boolean blink = System.currentTimeMillis() / 250 % 2 == 0;
+        float lw = w / 3F;
+        for (int i = 0; i < 3; i++) {
+            float x0 = x - w / 2 + i * lw + lw * 0.06F, x1 = x0 + lw * 0.88F;
+            boolean on = (lit & 1 << i) != 0 && (i < 2 || test || blink);
+            col(on ? LAMP_RGB[i] : CockpitLamps.mix(LAMP_RGB[i], 0x101012, 0.82F));
+            rect(x0, y - h / 2, x1, y + h / 2, Z1);
+            if (ph != CockpitLamps.PH_DARK) {
+                textC(fr, Lang.tr("sva.ad.rwr.lamp." + LAMP_KEYS[i]), (x0 + x1) / 2, y, h * 0.55F, (x1 - x0) * 0.9F,
+                        on ? 0x141008 : CockpitLamps.mix(LAMP_RGB[i], 0x101012, 0.5F));
+            }
+        }
+    }
+
+    /**
+     * Audit 2026-10-22 (mock-up veh_ad_2, «Реактивный: на козырьке слева»): the jet's and the tiltrotor's RWR unit on the
+     * glare shield (CockpitLayout.rwrUnitFace) - a dark box with the scope and the three lamps under it. Without power it
+     * stays dark; vehicles.rwrCockpit off - not drawn.
+     */
+    static void rwrUnit(FontRenderer fr, CockpitLayout l, EntityVehicleSVA v, VehicleType t) {
+        if (!ConfigSVA.rwrCockpit || !CockpitLayout.rwrUnit(t)) {
+            return;
+        }
+        CockpitLayout.Screen s = l.rwrUnitFace();
+        if (s == null) {
+            return;
+        }
+        CockpitInstrumentsSVA.frame(s.c, s.n, s.up, s.right, s.front + CockpitInstrumentsSVA.LIFT_FACE);
+        float w = s.w, h = s.h, d = h * 0.45F;
+        // the casing: the face, then its four sides back into the shield
+        col(0x1C1D22);
+        rect(-w / 2, -h / 2, w / 2, h / 2, 0F);
+        col(0x121317);
+        float[][] e = {{-w / 2, -h / 2}, {w / 2, -h / 2}, {w / 2, h / 2}, {-w / 2, h / 2}};
+        GL11.glBegin(GL11.GL_QUADS);
+        for (int k = 0; k < 4; k++) {
+            float[] a = e[k], b = e[(k + 1) % 4];
+            GL11.glVertex3f(a[0], a[1], 0F);
+            GL11.glVertex3f(b[0], b[1], 0F);
+            GL11.glVertex3f(b[0], b[1], -d);
+            GL11.glVertex3f(a[0], a[1], -d);
+        }
+        GL11.glEnd();
+        float R = Math.min(w * 0.42F, h * 0.36F), cy = h * 0.12F;
+        int ph = phase();
+        col(ph == CockpitLamps.PH_DARK ? 0x030405 : 0x06080C);
+        CockpitInstrumentsSVA.disc(0F, cy, R * 1.04F, Z0);
+        if (ph == CockpitLamps.PH_NORMAL) {
+            GL11.glPushMatrix();
+            GL11.glTranslatef(0F, cy, 0F);
+            scope(fr, v, R);
+            GL11.glPopMatrix();
+        }
+        rwrLamps(fr, v, 0F, -h * 0.37F, w * 0.9F, h * 0.17F);
+        GL11.glPopMatrix();
     }
 
     // ---------------------------------------------------------------- the plane's MFD keys
@@ -967,7 +1071,9 @@ final class GlassCockpitSVA {
         textC(fr, Lang.tr("sva.xpdr.title"), 0F, h * 0.42F, h * 0.08F, w * 0.9F, tint(WHITE));
         box(-w * 0.45F, h * 0.12F, w * 0.45F, h * 0.34F, h * 0.01F, 0x5A5C64, 0x040506, Z0);
         if (ph != CockpitLamps.PH_DARK && ph != CockpitLamps.PH_LOGO) {
-            textC(fr, ph == CockpitLamps.PH_TEST ? "8888" : GlassMath.squawk(CockpitDataSVA.xpdrCode(v)), 0F, h * 0.23F, h * 0.15F, w * 0.82F, AMB);
+            // audit 2026-10-22: ВЫКЛ / ДЕЖ - the code dimmed (not sent), 7700 sent - red
+            textC(fr, ph == CockpitLamps.PH_TEST ? "8888" : GlassMath.squawk(CockpitDataSVA.xpdrCode(v)), 0F, h * 0.23F, h * 0.15F, w * 0.82F,
+                    ph == CockpitLamps.PH_TEST ? AMB : showColour(CockpitDataSVA.xpdrShow(v)));
         }
         // the modes: ВЫКЛ ДЕЖ A C S, the current one green
         String cur = CockpitDataSVA.xpdrMode(v);
@@ -1004,8 +1110,23 @@ final class GlassCockpitSVA {
     // ---------------------------------------------------------------- round faces
 
     private static void rwrFace(FontRenderer fr, CockpitLayout.Screen s, EntityVehicleSVA v) {
+        float r = Math.min(s.w, s.h) / 2;
+        if (!ConfigSVA.rwrCockpit) {
+            if (open(fr, s, true)) {
+                scope(fr, v, r * 0.9F);
+            }
+            GL11.glPopMatrix();
+            return;
+        }
+        // audit 2026-10-22: the scope up, the ОБЗОР / ЗАХВАТ / ПУСК lamps under it inside the round face (mock-up veh_ad_2)
         if (open(fr, s, true)) {
-            scope(fr, v, Math.min(s.w, s.h) / 2 * 0.9F);
+            GL11.glPushMatrix();
+            GL11.glTranslatef(0F, r * 0.2F, 0F);
+            scope(fr, v, r * 0.66F);
+            GL11.glPopMatrix();
+        }
+        if (phase() != CockpitLamps.PH_LOGO) {
+            rwrLamps(fr, v, 0F, -r * 0.62F, r * 1.3F, r * 0.2F);
         }
         GL11.glPopMatrix();
     }

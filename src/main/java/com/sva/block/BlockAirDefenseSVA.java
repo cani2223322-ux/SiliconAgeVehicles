@@ -37,7 +37,7 @@ import net.minecraft.world.World;
  * Air-defence wave: the three air-defence blocks - RADAR (meta = RadarMath kind: «Обзорная РЛС», «РЛС сопровождения»,
  * «Высотомер»), LAUNCHER (meta TileEntityLauncherSVA.GUN «Зенитная установка» / MISSILE «Ракетный комплекс») and
  * COMMAND_POST («Командный пункт ПВО»; meta = the facing of its screen). Placing one makes the placer its owner (the
- * airdefense.maxRadarsPerPlayer / maxLaunchersPerPlayer limits are checked: over them the block comes back). RMB: the
+ * airdefense.maxRadarsPerPlayer / maxLaunchersPerPlayer limits are checked: over them nothing is placed). RMB: the
  * radar tells its state in the chat, the launcher opens its screen (Shift+RMB with ammunition: loads it), the command
  * post opens its screen (with a code card in hand: prints today's code on it). Broken: the launcher drops its ammunition,
  * the post's zones are gone. The command post gives a redstone signal 15 on every side while its alarm is on.
@@ -53,6 +53,12 @@ import net.minecraft.world.World;
  * the upgrade slots); the command post's «Оборудование» tab and the way back go through NetADSVA (AD_EQUIP / KP_OPEN).
  * Broken, every block drops its upgrade modules loose (in creative too, as the launcher's ammunition) - wave A: with its
  * item dropped they ride inside it instead (its NBT, airdefense.keepModules) and go back in when it is placed.
+ *
+ * Audit 2026-10-22 (exploits and hardening): the per-player limit and the protections of every cell are asked BEFORE the
+ * structure is built (ItemBlockAirDefenseSVA: overLimit, refusedCell) - a refusal places, consumes and gives back nothing
+ * (the old refusal in onBlockPlacedBy gave the item back while Forge restored the stack of a cancelled placement: a dupe).
+ * Taken down while Forge restores a cancelled placement's snapshots nothing drops at all (the stack in the hand comes back
+ * with its modules); with doTileDrops off no item drops, so the modules drop loose instead of vanishing inside it.
  */
 public class BlockAirDefenseSVA extends BlockContainer {
 
@@ -112,19 +118,94 @@ public class BlockAirDefenseSVA extends BlockContainer {
         return null;
     }
 
-    /** A legacy single block in this facing: AdShapeMath.legacy over its cells (WAIT while one isn't loaded). */
-    public static int legacyDecision(World w, int x, int y, int z, int shape, int facing) {
+    /**
+     * A legacy single block in this facing: AdShapeMath.legacy over its cells (WAIT while one isn't loaded). Audit
+     * 2026-10-22: a cell its owner may not build in (quietRefused) is not free - the parts never grow into a private field.
+     */
+    public static int legacyDecision(World w, int x, int y, int z, int shape, int facing, String owner) {
         int[][] c = AdShapeMath.worldCells(shape, facing);
         boolean loaded = true, free = true;
         for (int i = 1; i < c.length; i++) {
             int cx = x + c[i][0], cy = y + c[i][1], cz = z + c[i][2];
             if (cy >= 0 && cy <= 255 && !w.blockExists(cx, cy, cz)) {
                 loaded = false;
-            } else if (!free(w, cx, cy, cz, c[i][3])) {
+            } else if (!free(w, cx, cy, cz, c[i][3]) || quietRefused(w, owner, cx, cy, cz)) {
                 free = false;
             }
         }
         return AdShapeMath.legacy(loaded, free);
+    }
+
+    // ------------------------------------------------------------------ audit 2026-10-22: limits and protections
+
+    /** World tests: cells ("dim:x:y:z") quietRefused() treats as another's protected ground (the legacy conversion's check). */
+    public static final java.util.Set<String> DEBUG_PROTECTED = new java.util.HashSet<String>();
+
+    /**
+     * Bug 17: the player has as many of this kind as airdefense.maxRadarsPerPlayer / maxLaunchersPerPlayer allow (creative,
+     * the command post, no player: never) - asked before anything is built.
+     */
+    public static boolean overLimit(World w, int kind, EntityPlayer p) {
+        if (p == null || p.capabilities.isCreativeMode || kind == COMMAND_POST) {
+            return false;
+        }
+        int max = limitOf(kind);
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(w);
+        return max > 0 && d != null && d.count(p.getCommandSenderName(), kind == RADAR ? AirDefenseDataSVA.N_RADAR : AirDefenseDataSVA.N_LAUNCHER) >= max;
+    }
+
+    /** The limit of this kind (0: none) - also the chat line's number. */
+    public static int limitOf(int kind) {
+        return kind == RADAR ? ConfigSVA.adMaxRadars : kind == LAUNCHER ? ConfigSVA.adMaxLaunchers : 0;
+    }
+
+    /**
+     * Audit 7.3: the first cell of the structure (the master's too) this player may not build in, {x, y, z}, or null. Every
+     * cell is asked as a block placed there: the vanilla edit right, the core's private fields and a PlaceEvent fired for it
+     * (claim mods, the core's settlements and docks; the core's conduits do the same). Forge's MultiPlaceEvent after the
+     * placing names only the master's cell, and most protections look at that one alone - a 3x3 structure reached 2 blocks
+     * into a field. Stops at the first refusal (one claim penalty at most). Server only; no player (a test, a machine): null.
+     */
+    public static int[] refusedCell(World w, int x, int y, int z, int shape, int facing, EntityPlayer p, int side) {
+        if (w.isRemote || p == null) {
+            return null;
+        }
+        net.minecraftforge.common.util.ForgeDirection dir = net.minecraftforge.common.util.ForgeDirection.getOrientation(side);
+        int[][] c = AdShapeMath.worldCells(shape, facing);
+        net.minecraft.server.MinecraftServer srv = net.minecraft.server.MinecraftServer.getServer();
+        for (int i = 0; i < c.length; i++) {
+            int cx = x + c[i][0], cy = y + c[i][1], cz = z + c[i][2];
+            // audit review 2026-10-22: the vanilla spawn protection too (the server asks it of the clicked block only - a
+            // 3x3 placed just outside reached into it)
+            if (srv != null && srv.isBlockProtected(w, cx, cy, cz, p)
+                    || !p.canPlayerEdit(cx, cy, cz, side, p.getHeldItem()) || com.sc.ShieldEventHandler.privateFor(w, p, cx, cy, cz)
+                    || net.minecraftforge.event.ForgeEventFactory.onPlayerBlockPlace(p,
+                            net.minecraftforge.common.util.BlockSnapshot.getBlockSnapshot(w, cx, cy, cz), dir).isCanceled()) {
+                return new int[] {cx, cy, cz};
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The legacy conversion's check (tryLegacy - its owner is not there to ask): a private field of the core refusing the
+     * owner's name, or a test's protected cell. No event - a claim would punish the absent owner for an automatic step.
+     */
+    public static boolean quietRefused(World w, String owner, int x, int y, int z) {
+        if (w.isRemote) {
+            return false;
+        }
+        if (!DEBUG_PROTECTED.isEmpty() && DEBUG_PROTECTED.contains(AirDefenseDataSVA.key(w.provider.dimensionId, x, y, z))) {
+            return true;
+        }
+        return com.sc.tileentity.TileEntityFieldGeneratorSC.privateRefusingName(w, owner == null ? "" : owner, x + 0.5, y + 0.5, z + 0.5) != null;
+    }
+
+    /** A refused placement on the server: the client guessed it went in - its inventory is sent again (the stack's real size). */
+    public static void resync(EntityPlayer p) {
+        if (realPlayer(p)) {
+            ((EntityPlayerMP) p).sendContainerToPlayer(p.inventoryContainer);
+        }
     }
 
     /**
@@ -186,11 +267,10 @@ public class BlockAirDefenseSVA extends BlockContainer {
             return;
         }
         EntityPlayer p = (EntityPlayer) e;
-        int max = kind == RADAR ? ConfigSVA.adMaxRadars : kind == LAUNCHER ? ConfigSVA.adMaxLaunchers : 0;
-        AirDefenseDataSVA d = AirDefenseDataSVA.get(w);
-        int node = kind == RADAR ? AirDefenseDataSVA.N_RADAR : AirDefenseDataSVA.N_LAUNCHER;
-        if (max > 0 && d != null && kind != COMMAND_POST && d.count(p.getCommandSenderName(), node) >= max && !p.capabilities.isCreativeMode) {
-            p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.limit", Integer.valueOf(max)));
+        // the item's placeBlockAt refused it before building (bug 17); this is for a block set some other way (another
+        // mod's placer) - never inside Forge's placing, whose cancel would bring the stack back as well
+        if (overLimit(w, kind, p) && !w.captureBlockSnapshots) {
+            p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.limit", Integer.valueOf(limitOf(kind))));
             ((TileEntityAirDefenseSVA) te).noDrop = true;          // the item comes back below, not as a drop
             w.setBlockToAir(x, y, z);
             ItemStack back = s.copy();
@@ -201,9 +281,39 @@ public class BlockAirDefenseSVA extends BlockContainer {
             return;
         }
         ((TileEntityAirDefenseSVA) te).setOwner(p);
+        // audit 2026-10-22: counted for the limit at once (not on its first tick - two placed in one tick both passed)
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(w);
+        if (d != null) {
+            d.addNode(((TileEntityAirDefenseSVA) te).key(), ((TileEntityAirDefenseSVA) te).nodeKind(), p.getCommandSenderName());
+        }
         ((TileEntityAirDefenseSVA) te).restoreUpgrades(s, w, x, y, z);  // wave A: the modules kept in the item
+        if (kind != COMMAND_POST) {
+            linkOnPlace((TileEntityAirDefenseSVA) te);
+        }
         if (kind == COMMAND_POST) {
             ((TileEntityCommandPostSVA) te).log("sva.ad.log.placed", p.getCommandSenderName());
+        }
+    }
+
+    /**
+     * Audit 2026-10-22 (bug 19): a radar / launcher placed answers to one command post - the nearest powered one of its owner
+     * within LINK, else the nearest of his at all (its screen moves the link).
+     */
+    static void linkOnPlace(TileEntityAirDefenseSVA t) {
+        TileEntityCommandPostSVA k = AirDefenseSVA.INSTANCE.commandPost(t.getWorldObj(), t.getOwnerName(), t.xCoord + 0.5, t.yCoord + 0.5, t.zCoord + 0.5,
+                com.sva.airdefense.BallisticsMath.LINK);
+        if (k == null) {
+            double best = com.sva.airdefense.BallisticsMath.LINK * com.sva.airdefense.BallisticsMath.LINK;
+            for (TileEntityCommandPostSVA p : AirDefenseSVA.INSTANCE.loaded(t.getWorldObj(), TileEntityCommandPostSVA.class)) {
+                double d = p.getDistanceFrom(t.xCoord + 0.5, t.yCoord + 0.5, t.zCoord + 0.5);
+                if (p.getOwnerName().equalsIgnoreCase(t.getOwnerName()) && d <= best) {
+                    best = d;
+                    k = p;
+                }
+            }
+        }
+        if (k != null) {
+            t.setKpLink(k.key());
         }
     }
 
@@ -257,7 +367,7 @@ public class BlockAirDefenseSVA extends BlockContainer {
             return true;
         }
         TileEntityRadarSVA r = (TileEntityRadarSVA) te;
-        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(w, r.getOwnerName(), x, y, z, com.sva.airdefense.BallisticsMath.LINK);
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.linkedPost(r);
         p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.radar", new ChatComponentTranslation(r.nameKey()),
                 new ChatComponentTranslation(r.isPowered() ? "sva.ad.st.powered" : "sva.ad.st.noPower"), Integer.valueOf(r.contacts().size()),
                 kp == null ? new ChatComponentTranslation("sva.ad.st.noKp") : kp.name()));
@@ -309,16 +419,24 @@ public class BlockAirDefenseSVA extends BlockContainer {
         if (!w.isRemote && te instanceof TileEntityAirDefenseSVA) {
             TileEntityAirDefenseSVA t = (TileEntityAirDefenseSVA) te;
             t.dismantling = true;
-            if (!t.noDrop) {
-                // wave A: the upgrade modules ride in the item (its NBT) and come back on placing; creative / no item: loose
+            // audit 2026-10-22: Forge restoring a cancelled placement - its stack comes back to the hand with the modules in
+            // its NBT, so nothing of this structure drops (keepModules off: the modules dropped loose besides - a dupe)
+            boolean restoring = w.restoringBlockSnapshots;
+            if (!t.noDrop && !restoring) {
+                // wave A: the upgrade modules ride in the item (its NBT) and come back on placing; creative / no item: loose.
+                // Audit 2026-10-22: doTileDrops off drops no item - the modules then drop loose instead of vanishing with it
                 ItemStack item = new ItemStack(this, 1, damageDropped(meta));
-                if (ConfigSVA.adKeepModules) {
+                if (ConfigSVA.adKeepModules && w.getGameRules().getGameRuleBooleanValue("doTileDrops")) {
                     t.keepUpgradesIn(item);
                 }
                 dropBlockAsItem(w, x, y, z, item);
             }
             removeParts(w, x, y, z, t);
             t.removed();
+            if (restoring) {
+                super.breakBlock(w, x, y, z, b, meta);
+                return;
+            }
             t.dropUpgrades(w, x, y, z);
             if (te instanceof TileEntityLauncherSVA) {
                 TileEntityLauncherSVA l = (TileEntityLauncherSVA) te;

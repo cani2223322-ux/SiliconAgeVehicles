@@ -11,7 +11,6 @@ import com.sva.block.TileEntityRadarSVA;
 import com.sva.net.NetADSVA;
 import com.sva.vehicle.VehicleType;
 
-import net.minecraft.block.material.Material;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.world.World;
@@ -22,6 +21,10 @@ import net.minecraft.world.World;
  * while the ground under the map is the same (its heights' signature, checked when the map is asked for again, at most once
  * in RECHECK ticks) and the radar stands where it stood (its key is its place), at most MAX_AGE old. A map goes, packed, only
  * to the players who asked (the command post's / the tower's open screen - NetADSVA D_COVER).
+ * <p>
+ * Audit 2026-10-22: a kept map goes with the antenna point and reach it was computed with (before - the radar's present
+ * ones: an overdrive taken in drew the old grid at the new scale) and is stale when they changed; the unloaded chunks' ground
+ * and hills come from the terrain memory (AdTerrainSVA, bug 10).
  */
 public final class CoverageSVA {
 
@@ -39,6 +42,8 @@ public final class CoverageSVA {
         byte[] grid;
         long sig, builtAt, checkedAt;
         int version;
+        /** Audit 2026-10-22: the antenna point and reach the grid was computed with {ax, ay, az, range} (sent with it). */
+        double[] built;
         final List<EntityPlayerMP> waiting = new ArrayList<EntityPlayerMP>();
     }
 
@@ -56,27 +61,22 @@ public final class CoverageSVA {
         return RadarMath.detectRange(r.kind(), RadarMath.rcs(VehicleType.PLANE), 1, 1) * r.rangeMul();
     }
 
-    /** The world as the map sees it: the ground (the top block that stops a beam, + 1) and the beam's blocks. */
+    /**
+     * The world as the map sees it: the ground (the top block that stops a beam, + 1; the sea's surface for a low flyer) and
+     * the beam's blocks. Audit 2026-10-22 (bug 10): an unloaded chunk from the terrain memory (AdTerrainSVA) - a hill there
+     * still throws its shadow, a cell there is known; a chunk never seen stays UNKNOWN.
+     */
     public static CoverageMath.Terrain terrain(final World w) {
+        final AirDefenseSVA.BeamProbe p = new AirDefenseSVA.BeamProbe(w);
         return new CoverageMath.Terrain() {
             @Override
             public int ground(int x, int z) {
-                if (!w.blockExists(x, 64, z)) {
-                    return Integer.MIN_VALUE;
-                }
-                int y = Math.min(255, w.getHeightValue(x, z));
-                while (y > 0 && !AirDefenseSVA.beamStopper(w, x, y - 1, z)) {
-                    if (w.getBlock(x, y - 1, z).getMaterial() == Material.water && y < 255) {
-                        break;                                      // the sea's surface is the ground for a low flyer
-                    }
-                    y--;
-                }
-                return y;
+                return p.ground(x, z);
             }
 
             @Override
             public boolean blocks(int x, int y, int z) {
-                return AirDefenseSVA.beamStopper(w, x, y, z);
+                return p.blocks(x, y, z);
             }
         };
     }
@@ -102,13 +102,14 @@ public final class CoverageSVA {
         double[] a = antenna(r);
         double range = reach(r);
         if (e != null && e.grid != null && e.job == null) {
-            boolean stale = now - e.builtAt > MAX_AGE || now < e.builtAt;
+            // audit 2026-10-22: a map of another reach (an overdrive in / out) or antenna point is stale too
+            boolean stale = now - e.builtAt > MAX_AGE || now < e.builtAt || !CoverageMath.sameJob(e.built, a[0], a[1], a[2], range);
             if (!stale && now - e.checkedAt >= RECHECK) {
                 e.checkedAt = now;
                 stale = CoverageMath.signature(terrain(w), a[0], a[2], range) != e.sig;
             }
             if (!stale) {
-                send(p, e, r, range);
+                sendRaw(p, e, e.built[0], e.built[2], e.built[3]);  // with what it was computed with
                 return 2;
             }
         }
@@ -140,6 +141,12 @@ public final class CoverageSVA {
         return e == null || e.job != null ? null : e.grid;
     }
 
+    /** The world test (audit 2026-10-22): what a finished map was computed with {ax, ay, az, range} (null none). */
+    public double[] builtWith(TileEntityRadarSVA r, int agl) {
+        Entry e = maps.get(r.key() + "|" + agl);
+        return e == null || e.job != null || e.built == null ? null : e.built.clone();
+    }
+
     /** One slice of the oldest map being computed (`budget` beams); the world test calls it too. */
     public void run(int budget) {
         for (Iterator<Entry> it = maps.values().iterator(); it.hasNext();) {
@@ -158,6 +165,7 @@ public final class CoverageSVA {
                 e.sig = CoverageMath.signature(t, e.job.ax, e.job.az, e.job.range);
                 e.builtAt = e.checkedAt = e.w.getTotalWorldTime();
                 e.version++;
+                e.built = new double[] {e.job.ax, e.job.ay, e.job.az, e.job.range};
                 CoverageMath.Job j = e.job;
                 e.job = null;
                 for (EntityPlayerMP p : e.waiting) {
@@ -177,11 +185,6 @@ public final class CoverageSVA {
             return;
         }
         run(ConfigSVA.adCoverageBudget);
-    }
-
-    private void send(EntityPlayerMP p, Entry e, TileEntityRadarSVA r, double range) {
-        double[] a = antenna(r);
-        sendRaw(p, e, a[0], a[2], range);
     }
 
     private static void sendRaw(EntityPlayerMP p, Entry e, double ax, double az, double range) {

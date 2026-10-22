@@ -33,7 +33,7 @@ No bleed pressure (APU or X BLEED), ENG MODE not START, pumps off or no hydrogen
 
 # Air defence and airport
 ## The air defence won't fire
-By default the server only warns: fire is airdefense.mode = fire. It needs radars (a tracking one for missiles), ammunition, power and the post's rules of engagement. Never at your own or at 7700.
+By default the server only warns: fire is airdefense.mode = fire. It needs radars (for missiles a tracking one or a target within 48 blocks of the launcher), ammunition, power, a rule of engagement on the launcher itself (on "the post's marks" - an assignment or "Auto" on the KP) and the site's chunks loaded (a player near). With vehicles.wear = false shells hit but do no damage. Never at your own, at 7700, the day code, own codes or the white list; a dark board's transponder does not answer.
 ## The ILS doesn't work
 Run the tablet's "ILS check" (Shift + right-click in the air): no shelter or power, a broken antenna element, a frequency conflict, the tower switched it off.
 ## The approach chart reads OUTDATED

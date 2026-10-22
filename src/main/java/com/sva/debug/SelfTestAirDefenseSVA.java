@@ -169,7 +169,8 @@ final class SelfTestAirDefenseSVA {
                 && near(RadarMath.relBearing(0, 0, 0, 100, 0), 270, 1e-6), "ad rwr: the threat's bearing relative to the nose, clockwise");
         check(RadarMath.rwrLevel(new int[] {RadarMath.T_SEARCH}) == 1 && RadarMath.rwrLevel(new int[] {RadarMath.T_SEARCH, RadarMath.T_LOCK}) == 2
                 && RadarMath.rwrLevel(new int[] {RadarMath.T_MISSILE, RadarMath.T_HEIGHT}) == 3 && RadarMath.rwrLevel(new int[0]) == 0
-                && RadarMath.rwrRadius(0) > RadarMath.rwrRadius(500), "ad rwr: levels search / lock / missile; nearer - closer to the scope's centre");
+                && RadarMath.rwrRadius(0) < RadarMath.rwrRadius(500), "ad rwr: levels search / lock / missile; nearer - closer to the scope's centre");
+        // audit 2026-10-22 (bug 11): the check above held the radius turned over (0 blocks > 500 blocks) - inverted
     }
 
     private static void beam() {

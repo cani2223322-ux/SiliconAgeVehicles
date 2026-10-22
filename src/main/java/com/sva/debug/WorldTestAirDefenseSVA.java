@@ -61,7 +61,7 @@ final class WorldTestAirDefenseSVA {
     private int shells0, missiles0;
     private String mode0;
     private int minWarn0;
-    private boolean pvp0, unmanned0, lockSeen;
+    private boolean pvp0, unmanned0, lockSeen, launcherLockSeen;
     boolean done;
 
     WorldTestAirDefenseSVA(WorldTestSVA t) {
@@ -91,6 +91,9 @@ final class WorldTestAirDefenseSVA {
             if (gun.engagements().containsKey(Integer.valueOf(a.getEntityId())) && gun.engagements().get(Integer.valueOf(a.getEntityId()))[1] >= RoeMath.ST_LOCK) {
                 for (double[] th : AirDefenseSVA.INSTANCE.threats(a)) {
                     lockSeen |= (int) th[0] == RadarMath.T_LOCK;
+                    // audit 2026-10-22: the gun's own lock - its own kind at the gun (the tracking radar's alone proved nothing of it)
+                    launcherLockSeen |= (int) th[0] == RadarMath.T_LAUNCHER && Math.abs(th[1] - (gun.xCoord + 0.5)) < 1.5
+                            && Math.abs(th[2] - (gun.zCoord + 0.5)) < 1.5;
                 }
             }
         }
@@ -148,6 +151,7 @@ final class WorldTestAirDefenseSVA {
                 && !sam.engagements().containsKey(Integer.valueOf(e.getEntityId())), "ad world: only the violator A is engaged (rule: violators)");
         check(lockSeen && a.state.hp == a.state.maxHp() && gun.ammo() == 64 && log("sva.ad.log.lock"),
                 "ad world: \"warnings only\" - A locked (the RWR paint, the log) but not one shot fired");
+        check(launcherLockSeen, "ad world: the gun's lock reaches A's RWR as a launcher's lock (T_LAUNCHER at the gun), apart from the tracking radar's");
     }
 
     private void fire() {

@@ -32,6 +32,7 @@ public class CommonProxySVA {
         FMLCommonHandler.instance().bus().register(ServerQueueSVA.INSTANCE);
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new com.sva.entity.EventsSVA());     // stage E: invisibility
         FMLCommonHandler.instance().bus().register(com.sva.airdefense.AirDefenseSVA.INSTANCE);         // air-defence wave
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(com.sva.airdefense.AdTerrainSVA.INSTANCE);  // audit 2026-10-22: terrain memory
         FMLCommonHandler.instance().bus().register(com.sva.block.AirportServerSVA.INSTANCE);           // airport wave B1
         FMLCommonHandler.instance().bus().register(new com.sva.book.BookGiveSVA());                     // wave C: the handbook on the first join
     }

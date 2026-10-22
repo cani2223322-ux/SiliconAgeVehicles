@@ -48,6 +48,11 @@
 @kv rcsExtras, coverageMap | заметность, карта покрытия
 @kv iff, iffHandoff, iffResponseSeconds | опрос вышкой и передача ПВО
 @kv autoSquawk, airportFriends | коды аэродрома
+@kv fireInProtectedRegions | огонь по целям в чужих приватах
+@kv damageMultiplier | урон ПВО x (при vehicles.wear = false урона нет)
+@kv noRadioDecisionSeconds, noRadioMemoryMinutes | 7600: время решения КП, память эпизодов
+@kv terrainCache, terrainCacheRadius | память рельефа выгруженных чанков
+@kv zoneMaxDistance, maxZonesPerPlayer | зона от своего КП, зон на игрока
 @kv models | 3D-модели сооружений (клиент)
 
 # airport и book

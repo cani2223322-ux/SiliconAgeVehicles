@@ -114,7 +114,7 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
 
     /** How many of a kind sit in the slots (only modules that fit, only with airdefense.upgrades on; capped as in the core). */
     public int upgradeCount(UpgradeType type) {
-        if (!ConfigSVA.adUpgrades || !AdUpgradeMath.accepts(upgradeBlock(), type)) {
+        if (!com.sva.net.ServerConfigSVA.adUpgrades() || !AdUpgradeMath.accepts(upgradeBlock(), type)) {
             return 0;
         }
         int n = 0;
@@ -128,7 +128,9 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
 
     /** The module fits this block's upgrade slot. */
     public boolean upgradeAccepted(ItemStack s) {
-        return ConfigSVA.adUpgrades && s != null && s.getItem() instanceof ItemUpgradeSC && AdUpgradeMath.accepts(upgradeBlock(), ItemUpgradeSC.typeOf(s));
+        // audit 2026-10-22: the server's airdefense.upgrades on the client too (the slots agree)
+        return com.sva.net.ServerConfigSVA.adUpgrades() && s != null && s.getItem() instanceof ItemUpgradeSC
+                && AdUpgradeMath.accepts(upgradeBlock(), ItemUpgradeSC.typeOf(s));
     }
 
     /** The universal transformer: any voltage, nothing overvolts it (the core machines', the charging station's). */
@@ -526,7 +528,8 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
     /**
      * An older world's single block: converted to the multiblock in the first facing (its own for the command post, else
      * south, west, north, east) whose cells are all loaded and free; kept COMPACT when none is; decided later while a
-     * chunk is missing (AdShapeMath.legacy / legacyAll).
+     * chunk is missing (AdShapeMath.legacy / legacyAll). Audit 2026-10-22: a cell in a private field refusing the owner is
+     * not free (BlockAirDefenseSVA.quietRefused) - the conversion fires no event, so it asks the protections itself.
      */
     protected void tryLegacy() {
         int shape = shape();
@@ -535,7 +538,7 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
                 ? AdShapeMath.facingFromSide(getBlockMetadata()) : 0;
         int[] d = new int[4];
         for (int i = 0; i < 4; i++) {
-            d[i] = BlockAirDefenseSVA.legacyDecision(worldObj, xCoord, yCoord, zCoord, shape, (first + i) & 3);
+            d[i] = BlockAirDefenseSVA.legacyDecision(worldObj, xCoord, yCoord, zCoord, shape, (first + i) & 3, ownerName);
         }
         int pick = AdShapeMath.legacyAll(d);
         if (pick >= 0) {
@@ -767,6 +770,24 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         return AirDefenseDataSVA.key(worldObj == null ? 0 : worldObj.provider.dimensionId, xCoord, yCoord, zCoord);
     }
 
+    /**
+     * Audit 2026-10-22 (bug 19): a radar's / launcher's command post - its key ("" none yet: AirDefenseSVA.linkedPost takes
+     * the nearest powered one and remembers it). Saved; set on placement, changed on the block's screen.
+     */
+    private String kpLink = "";
+
+    public String kpLink() {
+        return kpLink;
+    }
+
+    public void setKpLink(String k) {
+        k = k == null ? "" : k;
+        if (!k.equals(kpLink)) {
+            kpLink = k;
+            markDirty();
+        }
+    }
+
     @Override
     public boolean canUpdate() {
         return true;
@@ -850,6 +871,7 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         super.readFromNBT(t);
         ownerName = t.getString("AdOwner");
         ownerId = t.getString("AdOwnerId");
+        kpLink = t.getString("AdKpLink");
         facing = t.getByte("AdFacing") & 3;
         struct = t.hasKey("AdStruct") ? t.getByte("AdStruct") : LEGACY;
         access.clear();
@@ -875,6 +897,7 @@ public abstract class TileEntityAirDefenseSVA extends TileEntityEnergyBase {
         super.writeToNBT(t);
         t.setString("AdOwner", ownerName);
         t.setString("AdOwnerId", ownerId);
+        t.setString("AdKpLink", kpLink);
         t.setByte("AdFacing", (byte) facing);
         t.setByte("AdStruct", (byte) struct);
         NBTTagList l = new NBTTagList();

@@ -340,7 +340,7 @@ public class HudVehicleSVA {
         int riders = num(info, 0);
         boolean ship = t.singular;
         boolean dock = v.isDockNear();
-        int rows = 2 + (dock ? 1 : 0) + (ship ? 5 : 0);
+        int rows = com.sva.airdefense.AdLayoutMath.spaceRows(dock, ship);   // the transponder's HUD line goes under it
         int pw = 200, ph = rows * 11 + 8, px = sw - pw - 4, py = 4;
         long now = mc.theWorld.getTotalWorldTime();
         boolean blink = (now / 8) % 2 == 0;

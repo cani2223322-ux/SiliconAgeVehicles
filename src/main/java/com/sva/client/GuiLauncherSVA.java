@@ -33,7 +33,9 @@ public class GuiLauncherSVA extends GuiContainer {
 
     private static final int W = 260, H = 240, BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, GOLD = 0xF2A040, TEXT = 0xD8DCE4,
             MUTED = 0x8A93A3, AMBER = 0xF0B040, RED = 0xF06060, GREEN = 0x62E06A, CYAN = 0x5EC8F0;
-    private static final int B_ROE = 10, B_MSG = 20, B_WARN = 21, B_WAIT_DN = 22, B_WAIT_UP = 23, B_R_DN = 24, B_R_UP = 25;
+    private static final int B_ROE = 10, B_MSG = 20, B_WARN = 21, B_WAIT_DN = 22, B_WAIT_UP = 23, B_R_DN = 24, B_R_UP = 25,
+            /** Audit 2026-10-22 (bug 19): the link to the owner's next command post in reach. */
+            B_KP = 26;
 
     private static NBTTagCompound last;
 
@@ -68,6 +70,7 @@ public class GuiLauncherSVA extends GuiContainer {
         buttonList.add(new GuiCargoSVA.Dark(B_WAIT_UP, guiLeft + 240, guiTop + 94, 12, 12, "+", null));
         buttonList.add(new GuiCargoSVA.Dark(B_R_DN, guiLeft + 176, guiTop + 80, 12, 12, "-", null));
         buttonList.add(new GuiCargoSVA.Dark(B_R_UP, guiLeft + 240, guiTop + 80, 12, 12, "+", null));
+        buttonList.add(new GuiCargoSVA.Dark(B_KP, guiLeft + W - 20, guiTop + 40, 14, 11, ">", Lang.tr("sva.ad.l.kpNext.tip")));
     }
 
     private void send() {
@@ -95,6 +98,10 @@ public class GuiLauncherSVA extends GuiContainer {
 
     @Override
     protected void actionPerformed(GuiButton b) {
+        if (b.id == B_KP) {
+            NetADSVA.cmd(NetADSVA.KP_LINK, tile.xCoord, tile.yCoord, tile.zCoord, 0, null);
+            return;
+        }
         if (!loaded) {
             return;
         }
@@ -187,7 +194,9 @@ public class GuiLauncherSVA extends GuiContainer {
         line(Lang.tr(missile ? "sva.ad.l.missiles" : "sva.ad.l.shells", Integer.valueOf(t.getInteger("Ammo")), Integer.valueOf(t.getInteger("AmmoMax"))), sx, sy + 11,
                 t.getInteger("Ammo") > 0 ? TEXT : RED);
         String kp = t.getString("Kp");
-        line(kp.length() > 0 ? Lang.tr("sva.ad.l.kp", kp) : Lang.tr("sva.ad.l.noKp"), sx, sy + 22, kp.length() > 0 ? GREEN : AMBER);
+        boolean kpOn = t.getBoolean("KpOn");
+        TextFitSC.draw(fontRendererObj, kp.length() == 0 ? Lang.tr("sva.ad.l.noKp") : Lang.tr(kpOn ? "sva.ad.l.kp" : "sva.ad.l.kpOff", kp), sx, sy + 22,
+                W - sx - 24, kp.length() > 0 && kpOn ? GREEN : AMBER, false, guiLeft, guiTop);
         if (missile) {
             line(Lang.tr(t.getBoolean("Track") ? "sva.ad.l.track" : "sva.ad.l.noTrack"), sx, sy + 33, t.getBoolean("Track") ? GREEN : AMBER);
         }

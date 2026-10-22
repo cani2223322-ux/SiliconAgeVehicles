@@ -36,6 +36,11 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
  * open screens. Draws the pilot's HUD lines: the air defence's / command post's message (5 s, big), the zone warning
  * («Через 20 блоков запретная зона 3-1», inside - red) with its tones at 20 and 10 blocks, and the RWR's line and tones
  * when no cockpit scope is in view (third person).
+ * <p>
+ * Audit 2026-10-22 (the RWR, mock-up veh_ad_2): the sounds are the mock-up's - a short soft ping once when a search radar
+ * starts painting, a continuous tone while locked, a fast warble while a missile flies (rwr_*.ogg, the tones loop) - and
+ * the whole RWR (sounds, HUD line) is silent in an unpowered cockpit. The transponder's HUD line for the aircraft whose
+ * code has no face in view (xpdrHud).
  */
 @SideOnly(Side.CLIENT)
 public final class AirDefenseClientSVA {
@@ -54,7 +59,7 @@ public final class AirDefenseClientSVA {
     private static String msg;
     private static int msgColour;
     private static long msgUntil;
-    /** The zone warning: its text, colour, level; the level last sounded; the RWR level last sounded. */
+    /** The zone warning: its text, colour, level; the level last sounded; the RWR's search emitters counted last tick. */
     private static String zoneLine;
     private static int zoneColour, zoneLevel, zoneSounded, rwrSounded;
     private static long ticks;
@@ -89,6 +94,7 @@ public final class AirDefenseClientSVA {
         if (mc.theWorld == null) {
             XPDR.clear();
             RWR.clear();
+            stopTone();
             return;
         }
         zoneWarning(mc);
@@ -132,20 +138,16 @@ public final class AirDefenseClientSVA {
         lastId = v.getEntityId();
         lastX = v.posX;
         lastZ = v.posZ;
-        double warn = com.sva.ConfigSVA.adZoneWarnSeconds;
+        double warn = com.sva.net.ServerConfigSVA.adZoneWarnSeconds();       // audit 2026-10-22: the server's value
         List<ZoneMath.Zone> zs = zones(v.dimension);
         double course = RadarMath.compass(svx, svz);
-        for (ZoneMath.Zone c : zs) {
-            if (ZoneMath.corridorPass(c, v.posX, v.posY, v.posZ, course, true)) {
-                LinerEwdSVA.zoneMemo = null;
-                predSounded = 0;
-                return;                                             // in a corridor on its course: quiet
-            }
-        }
         double bs = Double.MAX_VALUE;
         for (ZoneMath.Zone z : zs) {
             if (z.type != ZoneMath.FORBIDDEN && z.type != ZoneMath.RESTRICTED) {
                 continue;
+            }
+            if (ZoneMath.opened(zs, z, v.posX, v.posY, v.posZ, course, true)) {
+                continue;                                           // bug 14: its own post's corridor on its course - quiet for it alone
             }
             double s = ZoneMath.secondsToEntry(z, v.posX, v.posY, v.posZ, svx, svz, true, warn);
             if (s >= 0 && (s < bs || s == bs && z.type == ZoneMath.FORBIDDEN)) {
@@ -251,8 +253,8 @@ public final class AirDefenseClientSVA {
                 NBTTagList a = t.getTagList("A", 8);
                 Object[] args = new Object[a.tagCount()];
                 for (int i = 0; i < args.length; i++) {
-                    String s = a.getStringTagAt(i);
-                    args[i] = s.startsWith("#") && s.length() > 1 ? Lang.tr(s.substring(1)) : s;   // airport wave B2: a key argument
+                    String s = a.getStringTagAt(i), x = com.sva.airdefense.AirDefenseSVA.hudText(s);
+                    args[i] = x == null ? Lang.tr(s.substring(1)) : x;   // airport wave B2: a key argument (audit review: «##» a text)
                 }
                 msg = Lang.tr(t.getString("K"), args);
                 msgColour = t.getInteger("C");
@@ -344,12 +346,20 @@ public final class AirDefenseClientSVA {
 
     /** The strongest threat level now (RadarMath.rwrLevel). */
     public static int rwrLevel(EntityVehicleSVA v) {
-        float[][] th = rwrThreats(v);
+        return RadarMath.rwrLevel(kinds(rwrThreats(v)));
+    }
+
+    /** Audit 2026-10-22: the RWR's lamps now (RadarMath.LAMP_* bits) - ОБЗОР / ЗАХВАТ / ПУСК. */
+    public static int rwrLamps(EntityVehicleSVA v) {
+        return RadarMath.rwrLamps(kinds(rwrThreats(v)));
+    }
+
+    private static int[] kinds(float[][] th) {
         int[] k = new int[th.length];
         for (int i = 0; i < k.length; i++) {
             k[i] = (int) th[i][2];
         }
-        return RadarMath.rwrLevel(k);
+        return k;
     }
 
     // ------------------------------------------------------------------ zones
@@ -372,16 +382,14 @@ public final class AirDefenseClientSVA {
         }
         List<ZoneMath.Zone> zs = zones(v.dimension);
         double course = RadarMath.headingOfYaw(v.rotationYaw);
-        for (ZoneMath.Zone c : zs) {
-            if (ZoneMath.corridorPass(c, v.posX, v.posY, v.posZ, course, true)) {
-                return null;                                        // in a corridor at its height and on its course: quiet
-            }
-        }
         ZoneMath.Zone best = null;
         double bd = Double.MAX_VALUE;
         for (ZoneMath.Zone z : zs) {
             if (z.type != ZoneMath.FORBIDDEN && z.type != ZoneMath.RESTRICTED || !ZoneMath.altIn(z, v.posY, true)) {
                 continue;
+            }
+            if (ZoneMath.opened(zs, z, v.posX, v.posY, v.posZ, course, true)) {
+                continue;                                           // bug 14: in its own post's corridor at its height, on its course
             }
             double d = ZoneMath.ahead(z, v.posX, v.posZ, course, max);
             if (d < 0) {
@@ -424,18 +432,86 @@ public final class AirDefenseClientSVA {
         zoneSounded = Math.max(zoneSounded, level);
     }
 
-    /** The RWR's tones: a soft beep when a search radar paints, a tone every half second while locked, a siren on a missile. */
+    /**
+     * The RWR's sounds (audit 2026-10-22, mock-up veh_ad_2): a short soft ping once when a search radar starts painting
+     * (RadarMath.rwrPing), the lock's continuous tone, the launch's fast warble (RadarMath.rwrTone - one looping sound,
+     * swapped when the level changes). Nothing in an unpowered cockpit (the RWR has no power either) or without the module.
+     */
     private static void rwrTones(Minecraft mc) {
         EntityVehicleSVA v = mc.thePlayer == null ? null : HudVehicleSVA.vehicleOf(mc.thePlayer);
-        int level = v == null ? 0 : rwrLevel(v);
-        if (level == 3 && ticks % 5 == 0) {
-            mc.getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(new ResourceLocation("note.bassattack"), ticks % 10 == 0 ? 1.6F : 1.2F));
-        } else if (level == 2 && ticks % 10 == 0) {
-            mc.getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(new ResourceLocation("note.pling"), 1.9F));
-        } else if (level == 1 && rwrSounded < 1) {
-            mc.getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(new ResourceLocation("note.hat"), 1.5F));
+        int[] k = v == null || !v.powered() ? new int[0] : kinds(rwrThreats(v));
+        int level = RadarMath.rwrLevel(k), search = 0;
+        for (int kind : k) {
+            search += RadarMath.threatLevel(kind) == 1 ? 1 : 0;
         }
-        rwrSounded = level;
+        if (RadarMath.rwrPing(search, rwrSounded, level)) {
+            mc.getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(new ResourceLocation(com.sva.ReferenceSVA.ASSETS, "rwr_search"), 1F));
+        }
+        rwrSounded = search;
+        // the liner's E/WD caution: «ОБЛУЧЕНИЕ» on a lock, «ПУСК РАКЕТЫ» on a launch
+        if (v != null && v.getVehicleType() == com.sva.vehicle.VehicleType.LINER && com.sva.ConfigSVA.rwrCockpit && level >= 2) {
+            LinerEwdSVA.rwrMemo = Lang.tr(level >= 3 ? "sva.ad.ecam.launch" : "sva.ad.ecam.lock");
+            LinerEwdSVA.rwrMemoRed = level >= 3;
+        } else {
+            LinerEwdSVA.rwrMemo = null;
+        }
+        int tone = RadarMath.rwrTone(level);
+        if (tone_ != null && (tone_.kind != tone || tone_.isDonePlaying())) {
+            stopTone();
+        }
+        if (tone != RadarMath.TONE_NONE && tone_ == null) {
+            tone_ = new Tone(tone, mc);
+            mc.getSoundHandler().playSound(tone_);
+        }
+    }
+
+    /** The RWR's looping tone now playing (null none). */
+    private static Tone tone_;
+
+    private static void stopTone() {
+        if (tone_ != null) {
+            tone_.stop();
+            tone_ = null;
+        }
+    }
+
+    /** The lock's / launch's looping tone: no fall-off (a headset tone), it follows the listener. */
+    private static final class Tone extends net.minecraft.client.audio.MovingSound {
+        final int kind;
+        private final Minecraft mc;
+
+        Tone(int kind, Minecraft mc) {
+            super(new ResourceLocation(com.sva.ReferenceSVA.ASSETS, kind == RadarMath.TONE_LAUNCH ? "rwr_launch" : "rwr_lock"));
+            this.kind = kind;
+            this.mc = mc;
+            this.repeat = true;
+            this.field_147665_h = 0;
+            this.field_147666_i = net.minecraft.client.audio.ISound.AttenuationType.NONE;
+            this.volume = kind == RadarMath.TONE_LAUNCH ? 0.7F : 0.5F;
+            this.field_147663_c = 1F;
+            place();
+        }
+
+        private void place() {
+            if (mc.thePlayer != null) {
+                xPosF = (float) mc.thePlayer.posX;
+                yPosF = (float) mc.thePlayer.posY;
+                zPosF = (float) mc.thePlayer.posZ;
+            }
+        }
+
+        void stop() {
+            donePlaying = true;
+        }
+
+        @Override
+        public void update() {
+            if (mc.thePlayer == null || mc.theWorld == null) {
+                donePlaying = true;
+                return;
+            }
+            place();
+        }
     }
 
     /** The HSI (AvionicsSVA): the zone border ahead within 60 blocks - {zone label, distance, type} or null. */
@@ -486,15 +562,15 @@ public final class AirDefenseClientSVA {
         if (com.sva.ConfigSVA.zoneFrames && v.getVehicleType().movement.flies) {
             y = zoneFrame(fr, v, sw, y);
         }
-        // the RWR in words when the cockpit's scope is out of sight (third person) or the vehicle has none
-        if (rwrFitted(v) && (mc.gameSettings.thirdPersonView != 0 || !com.sva.vehicle.GlassMath.hasMfd(v.getVehicleType()))) {
+        // the RWR in words when the cockpit's scope is out of sight (third person) or the vehicle has none - audit 2026-10-22:
+        // not in an unpowered cockpit
+        if (rwrFitted(v) && v.powered() && (mc.gameSettings.thirdPersonView != 0 || !rwrScope(v.getVehicleType()))) {
             float[][] th = rwrThreats(v);
             int level = rwrLevel(v);
             if (level > 0) {
                 float[] worst = null;
                 for (float[] t : th) {
-                    int l = t[2] == RadarMath.T_MISSILE ? 3 : t[2] == RadarMath.T_LOCK ? 2 : 1;
-                    if (worst == null || l > (worst[2] == RadarMath.T_MISSILE ? 3 : worst[2] == RadarMath.T_LOCK ? 2 : 1)) {
+                    if (worst == null || RadarMath.threatLevel((int) t[2]) > RadarMath.threatLevel((int) worst[2])) {
                         worst = t;
                     }
                 }
@@ -504,9 +580,72 @@ public final class AirDefenseClientSVA {
                 int w = fr.getStringWidth(s);
                 Gui.drawRect(sw / 2 - w / 2 - 4, y - 2, sw / 2 + w / 2 + 4, y + 10, 0xA0101418);
                 fr.drawStringWithShadow(s, sw / 2 - w / 2, y, level == 3 && ticks / 4 % 2 == 0 ? 0xFFFFFF : c);
+                y += 14;
             }
         }
+        xpdrHud(mc, fr, v, sw, y);
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /**
+     * Audit 2026-10-22: the vehicle shows the RWR in its cockpit (a scope in view in first person): the light plane's and
+     * the helicopter's scope / MFD page, the jet's and the tiltrotor's glare-shield unit, the liner's ND - with the live
+     * instruments on.
+     */
+    static boolean rwrScope(com.sva.vehicle.VehicleType t) {
+        if (t == com.sva.vehicle.VehicleType.LINER) {
+            return com.sva.ConfigSVA.rwrCockpit;
+        }
+        if (!com.sva.ConfigSVA.liveInstruments) {
+            return false;
+        }
+        return com.sva.vehicle.GlassMath.hasMfd(t) && com.sva.ConfigSVA.glassCockpit || com.sva.vehicle.CockpitLayout.rwrUnit(t) && com.sva.ConfigSVA.rwrCockpit;
+    }
+
+    /**
+     * Audit 2026-10-22 (the transponders of every aircraft): the code / mode line on the HUD when the cockpit has no face
+     * for it in view - third person, the live instruments off - for the jet, the tiltrotor, the shuttle and the Singular
+     * ship (their main screens carry it otherwise; the light plane / helicopter / liner have panels of their own). OFF /
+     * STBY dimmed (not sent), 7700 red.
+     */
+    private static void xpdrHud(Minecraft mc, FontRenderer fr, EntityVehicleSVA v, int sw, int y) {
+        com.sva.vehicle.VehicleType t = v.getVehicleType();
+        if (!XpdrMath.fitted(t) || !xpdrLine(t) || !v.powered()) {
+            return;
+        }
+        if (mc.gameSettings.thirdPersonView == 0 && com.sva.ConfigSVA.liveInstruments) {
+            return;                                                 // the main screen shows it
+        }
+        if (t.bridgeDock) {
+            // audit review 2026-10-22: the shuttle's / ship's space panel holds the top right corner - the line goes under it
+            y = com.sva.airdefense.AdLayoutMath.xpdrLineY(y, com.sva.airdefense.AdLayoutMath.spacePanelBottom(v.isDockNear(), t.singular));
+        }
+        String s = xpdrText(v);
+        int show = XpdrMath.show(true, xpdrMode(v), xpdrCode(v));
+        int c = show == XpdrMath.SHOW_RED ? 0xFF5050 : show == XpdrMath.SHOW_AMBER ? 0xF0B040 : 0x8A8070;
+        int w = fr.getStringWidth(s);
+        int x = sw - w - 8;
+        Gui.drawRect(x - 4, y - 2, x + w + 4, y + 10, 0x80101418);
+        fr.drawStringWithShadow(s, x, y, xpdrIdent(v) && ticks / 5 % 2 == 0 ? 0x5EC8F0 : c);
+    }
+
+    /** The aircraft whose transponder is a line (the main screen / HUD), not a panel: the jet, the tiltrotor, the shuttle, the ship. */
+    public static boolean xpdrLine(com.sva.vehicle.VehicleType t) {
+        return t == com.sva.vehicle.VehicleType.JET || t == com.sva.vehicle.VehicleType.TILT || t == com.sva.vehicle.VehicleType.SHUTTLE
+                || t == com.sva.vehicle.VehicleType.SHIP;
+    }
+
+    /** «ОТВ 2471 C» (+ IDENT; «КЛЮЧ ДНЯ» when the card set it) - the line the main screen and the HUD show. */
+    public static String xpdrText(EntityVehicleSVA v) {
+        int mode = xpdrMode(v);
+        String s = Lang.tr("sva.ad.xpdr.line", XpdrMath.format(xpdrCode(v)), Lang.tr("sva.xpdr.mode." + XpdrMath.MODE_KEYS[Math.max(0,
+                Math.min(XpdrMath.MODES - 1, mode))]));
+        if (xpdrIdent(v)) {
+            s += " IDENT";
+        } else if (xpdrKeyLamp(v)) {
+            s += " " + Lang.tr("sva.ad.xpdr.dayKey");
+        }
+        return s;
     }
 
     /**

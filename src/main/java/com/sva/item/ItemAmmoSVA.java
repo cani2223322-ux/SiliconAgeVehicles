@@ -7,6 +7,8 @@ import com.sc.util.TooltipSC;
 import com.sva.FormatSVA;
 import com.sva.ReferenceSVA;
 import com.sva.airdefense.BallisticsMath;
+import com.sva.block.TileEntityAdPartSVA;
+import com.sva.block.TileEntityLauncherSVA;
 
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -15,13 +17,19 @@ import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.IIcon;
+import net.minecraft.world.World;
 
 /**
  * Air-defence wave: the launchers' ammunition (meta, APPEND-ONLY): SHELLS «Снаряды ПВО» (the AA gun: one item a burst
  * of BallisticsMath.GUN_BURST rounds; crafting table: iron, gunpowder, the core's steel) and MISSILE «Зенитная ракета»
  * (the missile system: one a launch, one a tube; crafting table: the core's steel casings, controller, sensor,
  * gunpowder, blaze powder). Into a launcher: its screen's slots or Shift+RMB on it, hoppers too.
+ * <p>
+ * Audit 2026-10-22 (7.4): Shift+RMB used to be dead code - Forge 1.7.10 calls a block's onBlockActivated for a sneaking
+ * player only when the held item's doesSneakBypassUse says so, and this item did not; now it does, on a launcher's master
+ * and on any of its parts (the part's master link is synced to the client - TileEntityAdPartSVA).
  */
 public class ItemAmmoSVA extends Item {
 
@@ -43,6 +51,24 @@ public class ItemAmmoSVA extends Item {
     @Override
     public int getItemStackLimit(ItemStack s) {
         return s != null && s.getItemDamage() == MISSILE ? 16 : 64;
+    }
+
+    /** Shift+RMB on a launcher (its master or a part) goes to the block - BlockAirDefenseSVA loads the ammunition. */
+    @Override
+    public boolean doesSneakBypassUse(World w, int x, int y, int z, EntityPlayer p) {
+        return launcherAt(w, x, y, z) != null;
+    }
+
+    /** The launcher whose block (the master or a part) is at x, y, z, or null. */
+    public static TileEntityLauncherSVA launcherAt(World w, int x, int y, int z) {
+        if (w == null || y < 0 || y > 255) {
+            return null;
+        }
+        TileEntity te = w.getTileEntity(x, y, z);
+        if (te instanceof TileEntityAdPartSVA) {
+            te = ((TileEntityAdPartSVA) te).master();
+        }
+        return te instanceof TileEntityLauncherSVA ? (TileEntityLauncherSVA) te : null;
     }
 
     @Override

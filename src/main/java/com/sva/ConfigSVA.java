@@ -319,6 +319,11 @@ public final class ConfigSVA {
     public static boolean adAirportFriends = true;
     /** A5: a 7600 track waits for the command post's decision this long (s), «свой» lasts this long (min). */
     public static int adNoRadioDecisionSeconds = 120, adNoRadioFriendMinutes = 10;
+    /**
+     * Audit 2026-10-22 (bug 8): a vehicle's 7600 episodes are remembered this long after its last one (min) - switching the
+     * code away and back within it does not start a fresh decision timer / grace.
+     */
+    public static int adNoRadioMemoryMinutes = 10;
     /** A9: the radar coverage maps; the beams computed a tick (all maps together). */
     public static boolean adCoverage = true;
     public static int adCoverageBudget = 32;
@@ -328,8 +333,26 @@ public final class ConfigSVA {
     public static int adIffResponseSeconds = 30;
     /** A10: no answer - the intruder is handed to the air defence (off, the default: the tower's warnings only). */
     public static boolean adIffHandoff = false;
+    // audit 2026-10-22 (exploits and hardening)
+    /** Bug 1: a zone reaches this far from its command post at most (blocks; 0 - no limit). */
+    public static int adZoneMaxDistance = 1024;
+    /** Bug 1: the zones of one player's command posts together (0 - no limit; each post holds 16 at most anyway). */
+    public static int adMaxZonesPerPlayer = 64;
+    // audit 2026-10-22 (combat effectiveness and terrain)
+    /**
+     * Bug 10: the terrain memory - the chunks near radars and launchers leave their ground's height behind, so an unloaded
+     * ridge still hides a plane (radars, launchers' eyes, missiles, the coverage map); its reach round a radar (blocks; 0 off).
+     */
+    public static boolean adTerrainCache = true;
+    public static int adTerrainRadius = 640;
     /** A2 (client): the zone frames on the HUD / ND / HSI, the entry prediction and its tones. */
     public static boolean zoneFrames = true;
+    /**
+     * Audit 2026-10-22 (client): the RWR in the cockpits - the jet's / tiltrotor's glare-shield unit (scope + ОБЗОР / ЗАХВАТ
+     * / ПУСК lamps), the lamps under the light plane's / helicopter's scope, the threats on the liner's ND and its E/WD
+     * caution (off: the HUD line and the sounds only).
+     */
+    public static boolean rwrCockpit = true;
 
     // ---------------------------------------------------------------- airport wave B1 (category "airport")
     /** The ILS antennas need their shelters' EU (off: they always have power; a shelter still gives the monitor). */
@@ -557,6 +580,10 @@ public final class ConfigSVA {
             zoneFrames = c.getBoolean("zoneFrames", v, true,
                     "Air-defence zones framed on the HUD / ND / HSI with the 'zone entry in N s' warning and its tones (client) / "
                             + "Рамки зон ПВО на HUD / ND / HSI и предупреждение о входе в зону с тоном (клиент)");
+            rwrCockpit = c.getBoolean("rwrCockpit", v, true,
+                    "The radar warning receiver in the cockpits: the jet's / tiltrotor's glare-shield unit, the warning lamps, the liner's ND "
+                            + "threats and E/WD caution (client; off: the HUD line and the sounds only) / "
+                            + "СПО в кабинах: блок на козырьке реактивного и конвертоплана, лампы, угрозы на ND и предупреждение E/WD лайнера (клиент)");
             gearDoors = c.getBoolean("gearDoors", v, true,
                     "Jet / tiltrotor gear doors open before the legs move and shut after them (client) / "
                             + "Створки шасси реактивного и конвертоплана открываются до уборки ног и закрываются после (клиент)");
@@ -774,6 +801,9 @@ public final class ConfigSVA {
                 "7600: the command post's time to decide, s (then the usual rules) / 7600: время на решение КП, с");
         adNoRadioFriendMinutes = c.getInt("noRadioFriendMinutes", a, 10, 1, 120,
                 "7600: 'friend' from the command post lasts this long, min / 7600: 'свой' от КП действует, мин");
+        adNoRadioMemoryMinutes = c.getInt("noRadioMemoryMinutes", a, 10, 1, 240,
+                "7600: a vehicle's 7600 time is remembered this long after it stopped, min (a code change does not restart the timer) / "
+                        + "7600: время 7600 помнится столько минут после снятия (смена кода не сбрасывает таймер)");
         adCoverage = c.getBoolean("coverageMap", a, true,
                 "Radar coverage maps on the command post and the tower (terrain line of sight) / Карта покрытия РЛС на КП и вышке");
         adCoverageBudget = c.getInt("coverageBudget", a, 32, 1, 1024,
@@ -784,6 +814,17 @@ public final class ConfigSVA {
                 "IFF: the pilot's time to answer the tower's call, s / IFF: время пилоту на ответ, с");
         adIffHandoff = c.getBoolean("iffHandoff", a, false,
                 "IFF: an intruder that does not answer is handed to the air defence (off: tower warnings only) / IFF: молчащий нарушитель передаётся ПВО");
+        // audit 2026-10-22: exploits and hardening
+        adZoneMaxDistance = c.getInt("zoneMaxDistance", a, 1024, 0, 30000,
+                "A zone may reach this far from its command post, blocks (0 = no limit) / Зона не дальше стольких блоков от своего КП");
+        adMaxZonesPerPlayer = c.getInt("maxZonesPerPlayer", a, 64, 0, 10000,
+                "Zones of one player's command posts together (0 = no limit) / Зон на игрока (на всех его КП)");
+        // audit 2026-10-22: combat effectiveness and terrain
+        adTerrainCache = c.getBoolean("terrainCache", a, true,
+                "Remember the terrain of unloaded chunks near radars and launchers: an unloaded hill still hides (radars, launchers, missiles, "
+                        + "coverage map) / Помнить рельеф выгруженных чанков у РЛС и ПУ: холм прячет и без игрока рядом");
+        adTerrainRadius = c.getInt("terrainCacheRadius", a, 640, 0, 2048,
+                "Terrain memory: how far round a radar, blocks (a launcher - its missile's reach; 0 = off) / Память рельефа: радиус вокруг РЛС, блоков");
     }
 
     /** Airport wave B1: the "airport" category - every feature switchable. */

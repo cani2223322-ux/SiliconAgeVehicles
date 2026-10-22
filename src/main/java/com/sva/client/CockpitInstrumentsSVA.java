@@ -260,6 +260,7 @@ public final class CockpitInstrumentsSVA {
             rd.roll = s.roll;
             rd.gearDown = s.gearDown;
             GlassCockpitSVA.draw(fr, l, v, t, pt, rd);                 // cockpit wave (C+): PFD, MFD, lamp strip, transponder, heli faces
+            GlassCockpitSVA.rwrUnit(fr, l, v, t);                      // audit 2026-10-22: the jet's / tiltrotor's RWR unit on the glare shield
             if (night > 0F && l.floor != null) {
                 floorStrip(l.floor);
             }
@@ -663,6 +664,14 @@ public final class CockpitInstrumentsSVA {
         }
         String[] mode = mode(v, t, s.speed);
         out.add(new Line(Lang.tr("sva.cockpit.mode", mode[0]), Integer.parseInt(mode[1]), -1F, null));
+        if (AirDefenseClientSVA.xpdrLine(t)) {
+            // audit 2026-10-22: the transponder of the jet / tiltrotor / shuttle / ship (no panel of its own): the code and the
+            // mode - amber sent, dimmed ВЫКЛ / ДЕЖ (not sent), red 7700; IDENT flashes it cyan
+            int show = com.sva.airdefense.XpdrMath.show(true, AirDefenseClientSVA.xpdrMode(v), AirDefenseClientSVA.xpdrCode(v));
+            boolean ident = AirDefenseClientSVA.xpdrIdent(v) && blink;
+            out.add(new Line(AirDefenseClientSVA.xpdrText(v), ident ? BLUE : show == com.sva.airdefense.XpdrMath.SHOW_RED ? WARN
+                    : show == com.sva.airdefense.XpdrMath.SHOW_AMBER ? AMBER : DIM, -1F, null));
+        }
         String trailer = HudVehicleSVA.trailerLine(v);
         if (trailer != null) {
             out.add(new Line(trailer, BLUE, -1F, null));             // ★15: the hitched trailer's key reading

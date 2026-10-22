@@ -16,13 +16,17 @@ import net.minecraft.nbt.NBTTagCompound;
 /**
  * Air-defence wave: channel "SAVehiclesAD" - two messages carrying a small NBT payload each, so the air defence's
  * screens and the pilots' displays need no new message class per field.
- * Cmd (C->S): the transponder panel (XPDR_SET / XPDR_IDENT, the sender must drive the vehicle), the command post's screen
- * (KP_CMD - its owner / access list; KP_CLOSE), the launcher's screen (LAUNCHER_SET). Run on the server thread through
- * ServerQueueSVA (flood-limited per player); airdefense.AirDefenseSVA.command checks everything again.
- * Data (S->C): the command post's picture to its open screens (KP, every 10 ticks while open), a launcher's state to its
- * open screen (LAUNCHER), a vehicle's transponder to its riders (XPDR, on change), the RWR threats to its riders (RWR, on
- * change / every 5 ticks with a missile in the air), the zones pilots see (ZONES, on login and on change), a message to the
- * pilot (MSG). Nothing is sent every tick.
+ * Cmd (C->S): the transponder panel (XPDR_SET, the sender must drive the vehicle - the liner: either pilot; XPDR_IDENT is
+ * still taken, but the client's IDENT key and button go through NetSVA.Action A_IDENT), the command post's screen (KP_CMD -
+ * its owner / access list, CmdRateMath's rate per player; KP_CLOSE), the launcher's screen (LAUNCHER_SET), a radar's /
+ * launcher's link to its post (KP_LINK). Run on the server thread through ServerQueueSVA (flood-limited per player);
+ * airdefense.AirDefenseSVA.command checks everything again.
+ * Data (S->C): the command post's picture to its open screens (KP, every 10 ticks while open - audit 2026-10-22: not on every
+ * command any more), a launcher's state to its open screen (LAUNCHER), a vehicle's transponder to its riders (XPDR, checked
+ * every 10 ticks, sent when it changed), the RWR threats to its riders (RWR, checked every 10 ticks, sent when they changed -
+ * a missile in the air moves, so that is every 10 ticks then; audit 2026-10-22: there never was a 5-tick send), the zones
+ * pilots see (ZONES, on login and on change), a message to the pilot (MSG). Nothing is sent every tick. The payload is
+ * gzipped NBT behind a 16-bit length (ByteBufUtils.writeTag) - the self- and world tests round-trip it.
  */
 public final class NetADSVA {
 
@@ -30,7 +34,9 @@ public final class NetADSVA {
 
     public static final int XPDR_SET = 1, XPDR_IDENT = 2, KP_CMD = 3, KP_CLOSE = 4, LAUNCHER_SET = 5,
             /** Upgrades wave: open a block's equipment screen (the command post's «Оборудование» tab) / back to the post's screen. */
-            AD_EQUIP = 6, KP_OPEN = 7;
+            AD_EQUIP = 6, KP_OPEN = 7,
+            /** Audit 2026-10-22 (bug 19): a radar's / launcher's screen moves its link to the owner's next command post. */
+            KP_LINK = 8;
     public static final int D_KP = 1, D_LAUNCHER = 2, D_XPDR = 3, D_RWR = 4, D_ZONES = 5, D_MSG = 6,
             /** Upgrades wave: an equipment screen's picture (every 10 ticks while open). */
             D_EQUIP = 7,

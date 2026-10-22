@@ -31,6 +31,13 @@ public final class LinerEwdSVA {
      */
     public static String zoneMemo;
     public static boolean zoneMemoRed;
+    /**
+     * Audit 2026-10-22 (the RWR on the liner): the caution at the top of the memo area - «ОБЛУЧЕНИЕ» amber while a radar or a
+     * launcher holds a lock, «ПУСК РАКЕТЫ» red (flashing) while a missile flies at us; null none (AirDefenseClientSVA sets
+     * it each client tick for the liner flown, only with its module and the board powered).
+     */
+    public static String rwrMemo;
+    public static boolean rwrMemoRed;
 
     private LinerEwdSVA() {
     }
@@ -272,6 +279,13 @@ public final class LinerEwdSVA {
     static void right(LinerSystems L, float s, boolean ground, int batMin) {
         LinerEcam ec = L.ecam;
         float y = TOP;
+        if (rwrMemo != null) {
+            // audit 2026-10-22: the RWR's caution first, over the status summary too (a lock / a launch is now)
+            if (!rwrMemoRed || System.currentTimeMillis() / 400 % 2 == 0) {
+                LinerGfxSVA.text(rwrMemo, 180 * s, y * s, 8 * s, rwrMemoRed ? LinerDisplaysSVA.RED : AMB, -1, 96 * s);
+            }
+            y += LH;
+        }
         int lim = ec.limits(), inop = ec.inop();
         if (ec.top() >= 0 && (lim | inop) != 0) {
             for (int i = 0; i < LinerEcam.LIM_KEYS.length && y <= BOTTOM; i++) {

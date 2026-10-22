@@ -107,6 +107,12 @@ public class AirportDataSVA extends WorldSavedData {
         public final Set<String> ilsOff = new HashSet<String>();
         /** The transponder code range of its arrivals / departures (octal). */
         public int codeLo = TowerMath.CODE_LO, codeHi = TowerMath.CODE_HI;
+        /**
+         * Audit 2026-10-22 (bug 5): «коды: доверенные» - the players whose aircraft get its codes on their own besides its
+         * owner and his access list (saved); the block's access list (its copy, refreshed by the block's report - transient).
+         */
+        public final List<String> sqTrust = new ArrayList<String>();
+        public transient List<String> access = new ArrayList<String>();
         /** ATIS: the letter (-1: none yet), the observation it was made of, its text (AtisMath.pack), when. */
         public int letter = -1;
         public AtisMath.Obs atis;
@@ -164,6 +170,11 @@ public class AirportDataSVA extends WorldSavedData {
                 cu.appendTag(new net.minecraft.nbt.NBTTagString(k));
             }
             e.setTag("TaxiCut", cu);
+            NBTTagList sq = new NBTTagList();
+            for (String k : sqTrust) {
+                sq.appendTag(new net.minecraft.nbt.NBTTagString(k));
+            }
+            e.setTag("SqTrust", sq);
         }
 
         static Tower read(NBTTagCompound e) {
@@ -213,6 +224,10 @@ public class AirportDataSVA extends WorldSavedData {
             NBTTagList cu = e.getTagList("TaxiCut", 8);
             for (int i = 0; i < cu.tagCount(); i++) {
                 t.taxiCut.add(cu.getStringTagAt(i));
+            }
+            NBTTagList sq = e.getTagList("SqTrust", 8);
+            for (int i = 0; i < sq.tagCount() && i < TileEntityTowerSVA.MAX_ACCESS; i++) {
+                t.sqTrust.add(sq.getStringTagAt(i));
             }
             return t;
         }

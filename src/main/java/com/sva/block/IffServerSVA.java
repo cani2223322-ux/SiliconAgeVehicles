@@ -28,6 +28,9 @@ import net.minecraft.world.World;
  * pilot (the chat + the HUD line; a liner also the CPDLC uplink «ОТВЕТЧИК НЕ ОТВЕЧАЕТ...» - any answer to it is the pilot's
  * answer), the reminder or (airdefense.iffHandoff) the handoff to the air defence (AirDefenseSVA.handoff: the friendly
  * posts classify it a violator, their rules decide). The transponder switched on - resolved, the handoff taken back.
+ * Audit 2026-10-22: a transponder without the board's power (or a wreck's) does not answer; the tower's owner's and his
+ * access list's aircraft are not interrogated (no alarm on the owner's own); a handoff is kept by the vehicle's persistent
+ * id and this tower (AirDefenseDataSVA - it survives a restart, two towers no longer overwrite each other).
  */
 public final class IffServerSVA {
 
@@ -74,10 +77,10 @@ public final class IffServerSVA {
     }
 
     /** The pilot answered the tower by datalink (any response / downlink). */
-    public void answer(int id, String towerKey) {
+    public void answer(World w, int id, String towerKey) {
         IffMath.Track t = track(towerKey, id);
         if (t != null && IffMath.answer(t)) {
-            AirDefenseSVA.INSTANCE.release(id);
+            AirDefenseSVA.INSTANCE.release(w, t.vid, towerKey);
         }
     }
 
@@ -110,7 +113,7 @@ public final class IffServerSVA {
                 continue;
             }
             if (e.getValue().state == IffMath.HANDED) {
-                AirDefenseSVA.INSTANCE.release(Integer.parseInt(k.substring(k.lastIndexOf('|') + 1)));
+                AirDefenseSVA.INSTANCE.release(w, e.getValue().vid, k.substring(0, k.lastIndexOf('|')));
             }
             it.remove();
         }
@@ -166,8 +169,12 @@ public final class IffServerSVA {
         for (Map.Entry<Integer, EntityVehicleSVA> e : seen(w, t, apt).entrySet()) {
             EntityVehicleSVA v = e.getValue();
             int id = e.getKey().intValue();
+            String vid = AirDefenseSVA.vehKey(v);
+            if (com.sva.airdefense.AirportCodeMath.mayAssign(t.owner, t.access, null, v.getOwnerName())) {
+                continue;                                           // the tower's owner's / his access list's own aircraft
+            }
             XpdrMath.Xpdr x = v.state.xpdr;
-            boolean replied = XpdrMath.fitted(v.getVehicleType()) && x.replying();
+            boolean replied = AirDefenseSVA.xpdrOn(v);
             if (replied) {
                 x.lastInterrogated = now;                           // the ОТВЕТ lamp: the tower's interrogator too
             }
@@ -180,19 +187,22 @@ public final class IffServerSVA {
             IffMath.Track tr = tracks.get(key);
             if (tr == null) {
                 if (reason == IffMath.R_NONE) {
+                    AirDefenseSVA.INSTANCE.release(w, vid, t.key);  // a handoff kept over a restart, the reason gone
                     continue;
                 }
                 tr = new IffMath.Track();
                 tracks.put(key, tr);
             }
+            tr.vid = vid;
             seenKeys.add(key);
             int act = IffMath.step(tr, reason, now, IffMath.CONFIRM, response, ConfigSVA.adIffHandoff);
-            String why = "#sva.iff.reason." + IffMath.REASON_KEYS[reason];
+            AirDefenseSVA.LangKey why = new AirDefenseSVA.LangKey("sva.iff.reason." + IffMath.REASON_KEYS[reason]);   // audit review: an explicit key
             switch (act) {
                 case IffMath.A_WARN:
                     w.playSoundEffect(t.x + 0.5, t.y + 6, t.z + 0.5, "note.bassattack", 2F, 0.6F);
-                    AirDefenseSVA.INSTANCE.tellPilot(v, "iff" + t.key, 0, 0xF05050, "sva.iff.msg.call", t.icao, why,
-                            String.valueOf(ConfigSVA.adIffResponseSeconds));
+                    // audit 2026-10-22 (7.3): «передаём ПВО» only when the handoff is on; the reason as it is (not always «без ответчика»)
+                    AirDefenseSVA.INSTANCE.tellPilot(v, "iff" + t.key, 0, 0xF05050, ConfigSVA.adIffHandoff ? "sva.iff.msg.call" : "sva.iff.msg.callNoHandoff",
+                            t.icao, why, String.valueOf(ConfigSVA.adIffResponseSeconds));
                     datalink(w, t, id, now);
                     System.out.println("[SVA-ATC] IFF " + t.icao + ": intruder " + AtcServerSVA.callsign(v) + " (" + IffMath.REASON_KEYS[reason] + ")");
                     break;
@@ -200,18 +210,18 @@ public final class IffServerSVA {
                     AirDefenseSVA.INSTANCE.tellPilot(v, "iffR" + t.key, 0, 0xF05050, "sva.iff.msg.remind", t.icao, why);
                     break;
                 case IffMath.A_HANDOFF:
-                    AirDefenseSVA.INSTANCE.handoff(id, t.owner, t.icao, now + HANDOFF_HOLD);
+                    AirDefenseSVA.INSTANCE.handoff(w, vid, t.key, t.owner, t.icao, now + HANDOFF_HOLD);
                     AirDefenseSVA.INSTANCE.tellPilot(v, "iffH" + t.key, 0, 0xF05050, "sva.iff.msg.handoff", t.icao);
                     AirDefenseSVA.INSTANCE.launchLog("IFF " + t.icao + ": " + AtcServerSVA.callsign(v) + " (" + v.getOwnerName() + ", "
                             + IffMath.REASON_KEYS[reason] + ") handed to the air defence");
                     break;
                 case IffMath.A_RESOLVED:
-                    AirDefenseSVA.INSTANCE.release(id);
+                    AirDefenseSVA.INSTANCE.release(w, vid, t.key);
                     AirDefenseSVA.INSTANCE.tellPilot(v, "iffOk" + t.key, 0, 0x62E06A, "sva.iff.msg.resolved", t.icao);
                     break;
                 default:
                     if (tr.state == IffMath.HANDED) {
-                        AirDefenseSVA.INSTANCE.handoff(id, t.owner, t.icao, now + HANDOFF_HOLD);      // renewed while it lasts
+                        AirDefenseSVA.INSTANCE.handoff(w, vid, t.key, t.owner, t.icao, now + HANDOFF_HOLD);      // renewed while it lasts
                     }
                     break;
             }
@@ -236,14 +246,15 @@ public final class IffServerSVA {
         return tracks;
     }
 
-    /** A vehicle's entries dropped at once and its handoff taken back (the world test; a round drops them anyway). */
-    public void forget(int id) {
+    /** A vehicle's entries dropped at once and its handoffs taken back (the world test; a round drops them anyway). */
+    public void forget(EntityVehicleSVA v) {
+        int id = v.getEntityId();
         for (Iterator<String> it = tracks.keySet().iterator(); it.hasNext();) {
             if (it.next().endsWith("|" + id)) {
                 it.remove();
             }
         }
-        AirDefenseSVA.INSTANCE.release(id);
+        AirDefenseSVA.INSTANCE.release(v.worldObj, AirDefenseSVA.vehKey(v), null);
     }
 
 

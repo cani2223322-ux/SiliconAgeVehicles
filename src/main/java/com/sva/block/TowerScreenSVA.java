@@ -36,6 +36,9 @@ import net.minecraft.world.World;
  * the flight strips of the aircraft talking to it, its datalink log, the approaches and the taxi graph for the map) and
  * its commands (command(): checked against the block's access; the clearances only from the player in the controller
  * seat; the airport's code, name, codes and access list only from the owner).
+ * Audit 2026-10-22: the traffic shows only transponders with power (a dark board or a wreck answers nothing); the controller's
+ * clearances and his «КОД» give the airport's code to any aircraft (the automatic tower only to the tower's own / trusted -
+ * the settings' «коды: доверенные»).
  */
 public final class TowerScreenSVA {
 
@@ -101,6 +104,11 @@ public final class TowerScreenSVA {
             acc.append(acc.length() > 0 ? "," : "").append(a);
         }
         h.setString("Acc", acc.toString());
+        StringBuilder sq = new StringBuilder();
+        for (String a : t.sqTrust) {
+            sq.append(sq.length() > 0 ? "," : "").append(a);
+        }
+        h.setString("SqTrust", sq.toString());
         h.setLong("Time", w.getWorldTime());
         h.setBoolean("IffAlarm", IffServerSVA.INSTANCE.alarm(t.key));    // wave A: an intruder near the airport
         s.setTag("T", h);
@@ -261,7 +269,7 @@ public final class TowerScreenSVA {
                 continue;
             }
             XpdrMath.Xpdr x = v.state.xpdr;
-            if (!x.replying()) {
+            if (!AirDefenseSVA.xpdrOn(v)) {
                 continue;
             }
             NBTTagCompound e = target(v, now);
@@ -450,13 +458,21 @@ public final class TowerScreenSVA {
                 return;
             }
             int type = c.getInteger("Ty");
+            if (type == Cpdlc.U_SQUAWK) {
+                // audit 2026-10-22 (bug 5): the controller gives the airport's code by hand (the next free one of its range)
+                EntityVehicleSVA v = w.getEntityByID(s.id) instanceof EntityVehicleSVA ? (EntityVehicleSVA) w.getEntityByID(s.id) : null;
+                if (v != null && AtcServerSVA.INSTANCE.offerSquawk(w, d, t, s, v, now, true) < 0) {
+                    p.addChatComponentMessage(new ChatComponentTranslation("sva.tower.msg.noSquawk"));
+                }
+                return;
+            }
             String str = c.getString("S");
             if ((type == Cpdlc.U_TAXI || type == Cpdlc.U_LINEUP || type == Cpdlc.U_TAKEOFF || type == Cpdlc.U_LAND || type == Cpdlc.U_HOLDSHORT)
                     && str.length() == 0) {
                 str = inUseName(t);
             }
             AtcServerSVA.INSTANCE.uplink(w, d, t, s, type, c.getInteger("A"), str, type == Cpdlc.U_STBY || type == Cpdlc.U_UNABLE
-                    ? AtcServerSVA.stbyRef(s) : -2, now);
+                    ? AtcServerSVA.stbyRef(s) : -2, now, true);
         } else if ("print".equals(op)) {
             print(p, te, d, t, c.getString("Ap"));
         } else if ("equip".equals(op)) {
@@ -502,6 +518,17 @@ public final class TowerScreenSVA {
                 l.add(n);
             }
             te.setAccess(l);
+            t.access = new ArrayList<String>(te.getAccess());
+        }
+        if (c.hasKey("SqTrust")) {
+            // audit 2026-10-22 (bug 5): the players whose aircraft get the codes on their own
+            t.sqTrust.clear();
+            for (String n : c.getString("SqTrust").split("[,;]")) {
+                n = n.trim();
+                if (n.length() > 0 && n.length() <= 32 && t.sqTrust.size() < TileEntityTowerSVA.MAX_ACCESS && !t.sqTrust.contains(n)) {
+                    t.sqTrust.add(n);
+                }
+            }
         }
         te.recordChanged(t);
     }

@@ -4,6 +4,9 @@ import com.sc.energy.Tier;
 import com.sc.energy.TileEntityEnergyBase;
 
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.network.NetworkManager;
+import net.minecraft.network.Packet;
+import net.minecraft.network.play.server.S35PacketUpdateTileEntity;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.common.util.ForgeDirection;
 
@@ -12,6 +15,10 @@ import net.minecraftforge.common.util.ForgeDirection;
  * may sit across a chunk border) and passes on what touches it. Energy: it is an energy sink on our net and IC2's like any
  * machine, but its demand, its voltage and every EU it is given are the master's (a cable on any block of the structure
  * feeds it; a too strong line blows up the master - the structure goes with it). No ticking of its own.
+ * <p>
+ * Audit 2026-10-22 (7.3 / 7.4): the link goes to the client too (the description packet, sent with the chunk and when the
+ * part is built) - the client's pick-block, its right-click (no placement against a part) and Shift+RMB with ammunition
+ * (ItemAmmoSVA.doesSneakBypassUse) need the master there; before, master() was always null on the client.
  */
 public class TileEntityAdPartSVA extends TileEntityEnergyBase {
 
@@ -128,6 +135,36 @@ public class TileEntityAdPartSVA extends TileEntityEnergyBase {
     public int getMaxEnergyStored() {
         TileEntityAirDefenseSVA m = master();
         return m != null ? m.getMaxEnergyStored() : super.getMaxEnergyStored();
+    }
+
+    /** Audit 2026-10-22: the link for the client (offset + linked; the energy stays on the server). */
+    public NBTTagCompound linkTag() {
+        NBTTagCompound t = new NBTTagCompound();
+        t.setInteger("AdMx", dx);
+        t.setInteger("AdMy", dy);
+        t.setInteger("AdMz", dz);
+        t.setBoolean("AdLinked", linked);
+        return t;
+    }
+
+    /** The client's end of linkTag (the tests call it too: the packet's own getter is client-only). */
+    public void readLink(NBTTagCompound t) {
+        if (t != null) {
+            dx = t.getInteger("AdMx");
+            dy = t.getInteger("AdMy");
+            dz = t.getInteger("AdMz");
+            linked = t.getBoolean("AdLinked");
+        }
+    }
+
+    @Override
+    public Packet getDescriptionPacket() {
+        return new S35PacketUpdateTileEntity(xCoord, yCoord, zCoord, 0, linkTag());
+    }
+
+    @Override
+    public void onDataPacket(NetworkManager net, S35PacketUpdateTileEntity pkt) {
+        readLink(pkt.func_148857_g());
     }
 
     @Override

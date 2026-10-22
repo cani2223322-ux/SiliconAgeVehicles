@@ -48,6 +48,11 @@ Everything is in config/SiliconAgeVehicles.cfg, categories vehicles, airdefense,
 @kv rcsExtras, coverageMap | detectability, the coverage map
 @kv iff, iffHandoff, iffResponseSeconds | the tower's IFF and the handoff
 @kv autoSquawk, airportFriends | airport codes
+@kv fireInProtectedRegions | fire at targets in others' protected fields
+@kv damageMultiplier | air-defence damage x (none with vehicles.wear = false)
+@kv noRadioDecisionSeconds, noRadioMemoryMinutes | 7600: the post's time to decide, the episodes' memory
+@kv terrainCache, terrainCacheRadius | the terrain memory of unloaded chunks
+@kv zoneMaxDistance, maxZonesPerPlayer | a zone from its post, zones a player
 @kv models | 3D models of the structures (client)
 
 # airport and book

@@ -39,8 +39,12 @@ public class GuiAdEquipSVA extends GuiContainer {
     static final int W = 260, H = 240, BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, PANEL = 0xFF14171D, GOLD = 0xF2A040,
             TEXT = 0xD8DCE4, MUTED = 0x8A93A3, AMBER = 0xF0B040, RED = 0xF06060, GREEN = 0x62E06A, CYAN = 0x5EC8F0;
     /** The scope: its panel's corner and size, the ring's radius. */
-    private static final int PX = 6, PY = 20, PS = 112, PR = 52;
-    private static final int B_BACK = 1;
+    /**
+     * The round screen's panel (x, y, size) and the scope's radius. Audit 2026-10-22 (7.3): 104 (was 112) - the panel ended at
+     * y 133 and the «Модули» label over the module slots (ContainerAdSVA.UPG_Y - 11 = 127) sat on it.
+     */
+    private static final int PX = 6, PY = 20, PS = 104, PR = 48;
+    private static final int B_BACK = 1, B_KP = 2;
     /** The contact's relation: foreign, own, friend (full keys: the lang self-test reads them from the class). */
     static final String[] REL = {"sva.ad.eq.rel0", "sva.ad.eq.rel1", "sva.ad.eq.rel2"};
 
@@ -80,11 +84,18 @@ public class GuiAdEquipSVA extends GuiContainer {
         buttonList.clear();
         if (!radar()) {
             buttonList.add(new GuiCargoSVA.Dark(B_BACK, guiLeft + PX + 4, guiTop + PY + PS - 18, PS - 8, 13, Lang.tr("sva.ad.eq.back"), null));
+        } else {
+            // audit 2026-10-22 (bug 19): the radar answers to one command post - the next one of the owner's in reach
+            buttonList.add(new GuiCargoSVA.Dark(B_KP, guiLeft + W - 20, guiTop + 113, 14, 11, ">", Lang.tr("sva.ad.l.kpNext.tip")));
         }
     }
 
     @Override
     protected void actionPerformed(GuiButton b) {
+        if (b.id == B_KP) {
+            NetADSVA.cmd(NetADSVA.KP_LINK, tile.xCoord, tile.yCoord, tile.zCoord, 0, null);
+            return;
+        }
         if (b.id == B_BACK) {
             int x = tile.xCoord, y = tile.yCoord, z = tile.zCoord;
             mc.thePlayer.closeScreen();                              // the container closes on the server too
@@ -239,7 +250,9 @@ public class GuiAdEquipSVA extends GuiContainer {
                 int n = t.getTagList("Contacts", 10).tagCount();
                 line(on ? Lang.tr("sva.ad.eq.targets", Integer.valueOf(n)) : Lang.tr("sva.ad.eq.noScan"), sx, sy + 84, on && n > 0 ? AMBER : MUTED, lw);
                 String kp = t.getString("Kp");
-                line(kp.length() > 0 ? Lang.tr("sva.ad.l.kp", kp) : Lang.tr("sva.ad.l.noKp"), sx, sy + 95, kp.length() > 0 ? GREEN : AMBER, lw);
+                boolean kpOn = t.getBoolean("KpOn");
+                line(kp.length() == 0 ? Lang.tr("sva.ad.l.noKp") : Lang.tr(kpOn ? "sva.ad.l.kp" : "sva.ad.l.kpOff", kp), sx, sy + 95,
+                        kp.length() > 0 && kpOn ? GREEN : AMBER, lw - 18);
                 TextFitSC.hover(guiLeft + PX, guiTop + PY, PS, 10, Lang.tr("sva.ad.eq.ppi.tip"));
                 fontRendererObj.drawString("N", PX + PS / 2 - 2, PY + 1, 0x3CC86E);
             } else {

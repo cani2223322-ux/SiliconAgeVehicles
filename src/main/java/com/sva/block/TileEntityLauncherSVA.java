@@ -48,6 +48,19 @@ import net.minecraftforge.common.util.ForgeDirection;
  * Upgrades wave: overclockers shorten the gun's burst interval / the missile system's reload (x0.7 each, never under
  * AdUpgradeMath.MIN_BURST / MIN_RELOAD), economizers cheapen the upkeep and every shot, a puller takes rounds from the
  * inventories beside the structure (a chest by any of its blocks) every AdUpgradeMath.PULL_INTERVAL ticks.
+ * Audit 2026-10-22 (the friend / foe trust model): its post is the one it is LINKED to (AirDefenseSVA.linkedPost: chosen on
+ * placement, changed on its screen - bug 19), and only when that post is powered. Without one it no longer shoots at 7700,
+ * today's code or a friend (bug 2): it interrogates what its own eyes see and classes it with the owner's posts' trust data
+ * (AirDefenseSVA.trust: the day code, own codes, the white list, the trusted airports, «свой на 10 минут», «только вести»,
+ * the 7600 decisions) and gives 7600 the documented 2 minutes in all (AirDefenseDataSVA's 7600 memory - a code change does
+ * not restart it). «Только вести» on its post is a hold-fire here: no warnings, no fire.
+ * <p>
+ * Audit 2026-10-22 (combat effectiveness): the gun leads a radar's mark by its age and takes the target's live position
+ * when its own eyes have it (bug 3); a burst needs a clear line from the gun to where it aims, the shells leave through the
+ * launcher's own structure and stop at the first block (bug 4); a target at «Огонь» is fired at between the 5-tick rounds
+ * as soon as the (overclocked) interval allows; warnings given to an empty cockpit start over when somebody boards; each
+ * launcher's warnings reach the pilot on their own (not hushed by another launcher's); the launch log says who ordered the
+ * target and the gun's hits (summed up per target).
  */
 public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements IInventory {
 
@@ -60,6 +73,19 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
     private boolean msg = true, warnShot = true;
     // not saved
     private final Map<Integer, long[]> eng = new LinkedHashMap<Integer, long[]>();
+    /** Audit 2026-10-22, world tests: the last round's picture - id -> {class, held (1 / 0), replied (1 / 0)}. */
+    private final Map<Integer, int[]> lastPic = new LinkedHashMap<Integer, int[]>();
+    /**
+     * Audit 2026-10-22: the targets at «Огонь» with nothing forbidding fire after the last round (fired at between the rounds
+     * too), the last round's post and rule; the gun's hits per target not yet in the log: id -> {shells, hull, first, last}.
+     */
+    private final Map<Integer, AirDefenseSVA.Contact> ready = new LinkedHashMap<Integer, AirDefenseSVA.Contact>();
+    private TileEntityCommandPostSVA kpRound;
+    private int roeRound;
+    private final Map<Integer, double[]> gunHits = new LinkedHashMap<Integer, double[]>();
+    /** World tests: the bursts' aim - {aim x, y, z, flight ticks, live x, y, z, vx, vy, vz, mark age, own sight 1 / 0, tick}. */
+    private final List<double[]> aimLog = new ArrayList<double[]>();
+    private int hitsTotal;
     private long nextShot;
     private int timer;
     private boolean tierSet;
@@ -150,7 +176,7 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         if (ammo() == 0) {
             s |= ST_EMPTY;
         }
-        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.linkedPost(this);
         if (top >= RoeMath.ST_WARN || kp != null && kp.isAlarm()) {
             s |= ST_ALARM;
         }
@@ -185,6 +211,21 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         return eng;
     }
 
+    /** World tests (audit 2026-10-22): the last decision round's classes (id -> {class, held, replied}). */
+    public Map<Integer, int[]> lastPicture() {
+        return lastPic;
+    }
+
+    /** World tests (audit 2026-10-22, bug 3): the bursts' aim records (the newest last, 64 kept). */
+    public List<double[]> aimLog() {
+        return aimLog;
+    }
+
+    /** World tests: the shells / missiles of this launcher that hit since it was loaded. */
+    public int hitsTotal() {
+        return hitsTotal;
+    }
+
     // ------------------------------------------------------------------ the work
 
     @Override
@@ -196,50 +237,56 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         if (worldObj.getTotalWorldTime() % AdUpgradeMath.PULL_INTERVAL == 0 && upgradeCount(UpgradeType.PULLER) > 0) {
             pull();
         }
+        long now = worldObj.getTotalWorldTime();
         if (++timer % 5 != 0) {
+            if (powered) {
+                fireBetween(now);                                   // audit 2026-10-22: the overclockers' interval, not the round's
+            }
             return;
         }
         if (timer % 10 == 0) {
             sendScreens();
         }
+        logHits(now, false);
         if (!powered) {
             eng.clear();
+            ready.clear();
             return;
         }
-        engage(worldObj.getTotalWorldTime());
+        engage(now);
     }
 
     /** One decision round (the world test may call it). */
     public void engage(long now) {
-        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
-        if (kp != null && !kp.isPowered()) {
-            kp = null;
-        }
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.workingPost(this);
         final double ax = xCoord + 0.5, ay = yCoord + 1.5, az = zCoord + 0.5;
         List<AirDefenseSVA.Contact> pic;
         if (kp != null) {
             pic = new ArrayList<AirDefenseSVA.Contact>(kp.tracks().values());
+            for (AirDefenseSVA.Contact c : pic) {
+                c.held = kp.heldFire(c.id);
+            }
         } else {
             pic = AirDefenseSVA.INSTANCE.eyes(worldObj, ax, ay, az, Math.min(range(), BallisticsMath.EYES));
-            List<ZoneMath.Zone> zones = AirDefenseDataSVA.get(worldObj) == null ? new ArrayList<ZoneMath.Zone>()
-                    : AirDefenseDataSVA.get(worldObj).ofOwner(ownerName, worldObj.provider.dimensionId);
-            for (AirDefenseSVA.Contact c : pic) {
-                c.rel = relation(c.owner);
-                boolean ownFriend = c.rel == 1 || c.rel == 2 && !ConfigSVA.adFireOnFriends;
-                c.cls = RoeMath.classify(ownFriend, false, -1, false, false, false, false,
-                        ZoneMath.violated(zones, c.x, c.y, c.z, c.course(), true) != null);
-            }
+            classifyOwn(pic, now);
+        }
+        lastPic.clear();
+        for (AirDefenseSVA.Contact c : pic) {
+            lastPic.put(Integer.valueOf(c.id), new int[] {c.cls, c.held ? 1 : 0, c.replied ? 1 : 0});
         }
         int roeNow = kp != null ? roe : RoeMath.roeWithoutKp(roe);
-        boolean warnOnly = !ConfigSVA.adFires();
+        kpRound = kp;
+        roeRound = roeNow;
+        ready.clear();
+        boolean warnOnly = !ConfigSVA.adFires() && !debugFireMode;
         boolean pvpOff = ConfigSVA.adRequirePvp && !pvp();
         ChunkCoordinates sp = worldObj.getSpawnPoint();
         boolean nearSpawn = sp != null && Math.hypot(xCoord - sp.posX, zCoord - sp.posZ) < ConfigSVA.adMinSpawnDistance;
         final Map<Integer, Integer> want = new LinkedHashMap<Integer, Integer>();
         final Map<Integer, AirDefenseSVA.Contact> byId = new LinkedHashMap<Integer, AirDefenseSVA.Contact>();
         for (AirDefenseSVA.Contact c : pic) {
-            if (c.v == null || c.v.isDead || c.v.isWrecked() || BallisticsMath.dist(ax, ay, az, c.x, c.y, c.z) > range()) {
-                continue;
+            if (c.v == null || c.v.isDead || c.v.isWrecked() || BallisticsMath.dist(ax, ay, az, c.x, c.y, c.z) > range() || c.held) {
+                continue;                                           // audit 2026-10-22: «только вести» - nothing at all
             }
             boolean assigned = kp != null && kp.assignedTo(c.id, this);
             boolean wants = RoeMath.roeWants(roeNow, c.cls, assigned, kp != null && kp.isAuto());
@@ -281,7 +328,8 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         for (int i = 0; i < order.size() && i < channels; i++) {
             Integer id = order.get(i);
             if (!eng.containsKey(id)) {
-                eng.put(id, new long[] {now, RoeMath.ST_NONE, 0});
+                // {began, stage, first fire logged, anyone aboard at a round so far (audit 2026-10-22: who heard the warnings)}
+                eng.put(id, new long[] {now, RoeMath.ST_NONE, 0, byId.get(id).manned ? 1 : 0});
             }
         }
         for (Iterator<Map.Entry<Integer, long[]>> it = eng.entrySet().iterator(); it.hasNext();) {
@@ -294,14 +342,111 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         for (Map.Entry<Integer, long[]> e : eng.entrySet()) {
             AirDefenseSVA.Contact c = byId.get(e.getKey());
             long[] st = e.getValue();
+            if (RoeMath.restartWarnings(st[3] != 0, c.manned, (int) st[1])) {
+                st[0] = now;                                        // the warnings went to an empty cockpit: again, to the pilot
+                st[1] = RoeMath.ST_NONE;
+                st[2] = 0;
+                for (String said : new String[] {"warn|", "lock|", "warnShot|"}) {
+                    AirDefenseSVA.INSTANCE.unsay(c.v, said + key());
+                }
+            }
+            st[3] = RoeMath.heard(st[3] != 0, c.manned) ? 1 : 0;      // audit review: once heard, for the whole engagement
             long elapsed = now - st[0];
             int stage = RoeMath.stage(elapsed, msg, warnShot, wait);
             int toFire = RoeMath.secondsToFire(elapsed, msg, warnShot, wait);
             int block = want.get(e.getKey()).intValue();
             step(c, st, stage, toFire, block, kp, now, ax, ay, az);
+            if (stage == RoeMath.ST_FIRE && block == RoeMath.OK) {
+                ready.put(e.getKey(), c);
+            }
             if (kp != null) {
                 kp.reportEngaged(c.id, this, stage, toFire);
             }
+        }
+    }
+
+    /**
+     * Audit 2026-10-22: between the 5-tick rounds a target already at «Огонь» (nothing forbidding it at the last round) gets
+     * its next burst / launch as soon as the interval allows - before, the round rounded every interval up to 5 ticks and
+     * the overclockers' speed-up below 10 ticks was paid for and lost (the gun's 7 ticks were 10, 3 were 5).
+     */
+    private void fireBetween(long now) {
+        if (ready.isEmpty() || now < nextShot) {
+            return;
+        }
+        double ax = xCoord + 0.5, ay = yCoord + 1.5, az = zCoord + 0.5;
+        for (Map.Entry<Integer, AirDefenseSVA.Contact> e : ready.entrySet()) {
+            AirDefenseSVA.Contact c = e.getValue();
+            if (holdsNow(c)) {
+                continue;                                           // audit review: «только вести» pressed since the round
+            }
+            long[] st = eng.get(e.getKey());
+            if (st == null || c.v == null || c.v.isDead || c.v.isWrecked() || BallisticsMath.dist(ax, ay, az, c.v.posX, c.v.posY, c.v.posZ) > range()) {
+                continue;
+            }
+            if (fire(c, st, kpRound, now, ax, ay, az)) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * Audit review 2026-10-22: a target of the last round held now - «только вести» pressed on the post since (the post's track
+     * object, its own flag set at once), or the post gone off / away. Between the 5-tick rounds an overclocked gun or a
+     * missile launcher fired up to 4 ticks after «Только вести» - a missile once launched is not called back.
+     */
+    private boolean holdsNow(AirDefenseSVA.Contact c) {
+        if (c.held) {
+            return true;
+        }
+        TileEntityCommandPostSVA k = kpRound;
+        return k != null && (k.isInvalid() || !k.isPowered() || k.heldFire(c.id));
+    }
+
+    /**
+     * Audit 2026-10-22 (bug 2): no working post - the targets of its own eyes interrogated and classed with what the owner's
+     * posts trust (the linked post's data, or every post of the owner's): 7700 / today's code / an own code / the white list /
+     * a friendly airport's code its tower gave it / «свой на 10 минут» are never fired at, 7600 gets its 2 minutes in all.
+     */
+    private void classifyOwn(List<AirDefenseSVA.Contact> pic, long now) {
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(worldObj);
+        List<ZoneMath.Zone> zones = d == null ? new ArrayList<ZoneMath.Zone>() : d.ofOwner(ownerName, worldObj.provider.dimensionId);
+        List<ZoneMath.Zone> apts = new ArrayList<ZoneMath.Zone>();
+        if (d != null && ConfigSVA.adAirportFriends) {
+            for (ZoneMath.Zone z : d.all()) {
+                if (z.type == ZoneMath.AERODROME && z.dim == worldObj.provider.dimensionId) {
+                    apts.add(z);
+                }
+            }
+        }
+        AirDefenseSVA.Trust tr = AirDefenseSVA.INSTANCE.trust(worldObj, ownerName, kpLink());
+        for (final AirDefenseSVA.Contact c : pic) {
+            AirDefenseSVA.INSTANCE.interrogate(c, c.v, now);
+            c.rel = relation(c.owner);
+            boolean ownFriend = c.rel == 1 || c.rel == 2 && !ConfigSVA.adFireOnFriends;
+            boolean ownCode = c.replied && (c.code == tr.dayCode && tr.dayCode >= 0 || tr.ownCode(c.code));
+            ZoneMath.Zone viol = ZoneMath.violated(zones, c.x, c.y, c.z, c.course(), true);
+            boolean handed = false;
+            for (AirDefenseDataSVA.Handoff h : AirDefenseSVA.INSTANCE.handoffs(worldObj, c.vid, now)) {
+                handed |= relation(h.owner) != 0 || com.sva.airdefense.AirportCodeMath.trustedTower(tr.trusted, h.icao, h.owner);
+            }
+            // audit review 2026-10-22: the owner's posts' aerodrome ranges are an airport's code (public: no friend over a
+            // violation or a handoff), never his towers' (those only when the tower gave the code - friendOf)
+            boolean apt = c.replied && !ownCode && viol == null && !handed && (com.sva.airdefense.AirportCodeMath.postRange(zones, c.code, c.x, c.y, c.z,
+                    true) != null || com.sva.airdefense.AirportCodeMath.friendOf(apts, c.code, c.x, c.y, c.z,
+                    true, ownerName, access, tr.trusted, new com.sva.airdefense.AirportCodeMath.Issued() {
+                        @Override
+                        public boolean to(ZoneMath.Zone a, int code) {
+                            return AtcServerSVA.INSTANCE.issued(com.sva.airdefense.AirportCodeMath.towerKey(a), code, c.id, c.vid);
+                        }
+                    }) != null);
+            boolean white = c.replied && com.sva.airdefense.XpdrMath.givesBoard(c.mode) && tr.whitelisted(c.board, c.owner);
+            boolean nr = c.replied && c.code == com.sva.airdefense.XpdrMath.NO_RADIO;
+            com.sva.airdefense.NoRadioMath.Entry fe = d == null ? null : d.freeNoRadio(c.vid, nr, now);
+            boolean grace = nr && !tr.hostile(c.vid) && com.sva.airdefense.NoRadioMath.grace(fe, now, com.sva.airdefense.XpdrMath.NO_RADIO_GRACE);
+            c.cls = RoeMath.classify(ownFriend, c.replied, c.code, ownCode, apt, white, tr.granted(c.vid, nr, now), grace, viol != null || handed);
+            c.zone = viol == null ? "" : viol.name;
+            c.held = tr.held(c.vid, nr, now);
         }
     }
 
@@ -325,54 +470,78 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         if (stage > was) {
             st[1] = stage;
             if (stage >= RoeMath.ST_MESSAGE && was < RoeMath.ST_MESSAGE && msg) {
-                if (c.zone.length() > 0 || c.cls == RoeMath.VIOLATOR) {
-                    ZoneMath.Zone z = zoneOf(kp, c);
-                    AirDefenseSVA.INSTANCE.tellPilot(v, "warn", 200, 0xF05050, "sva.ad.msg.warnZone", src, z == null ? c.zone : z.name,
-                            String.format("%03d", Integer.valueOf(z == null ? 0 : ZoneMath.exitCourse(z, c.x, c.z))));
-                } else {
-                    AirDefenseSVA.INSTANCE.tellPilot(v, "warn", 200, 0xF05050, "sva.ad.msg.warnForeign", src);
+                ZoneMath.Zone z = zoneOf(kp, c);
+                // audit 2026-10-22: hushed per launcher - a second launcher's warning and countdown reach the pilot too
+                if (z != null) {
+                    AirDefenseSVA.INSTANCE.tellPilot(v, "warn|" + key(), 200, 0xF05050, "sva.ad.msg.warnZone", src, z.name,
+                            String.format("%03d", Integer.valueOf(ZoneMath.exitCourse(z, c.x, c.z))));
+                } else {                                            // 7.3: no zone (an IFF handoff) - no «покиньте зону ., курс 000»
+                    AirDefenseSVA.INSTANCE.tellPilot(v, "warn|" + key(), 200, 0xF05050, "sva.ad.msg.warnForeign", src);
                 }
             }
             if (stage >= RoeMath.ST_LOCK && was < RoeMath.ST_LOCK) {
-                AirDefenseSVA.INSTANCE.tellPilot(v, "lock", 200, 0xF05050, "sva.ad.msg.lock", src, String.valueOf(toFire));
+                AirDefenseSVA.INSTANCE.tellPilot(v, "lock|" + key(), 200, 0xF05050, "sva.ad.msg.lock", src, String.valueOf(toFire));
                 if (kp != null) {
                     kp.log("sva.ad.log.lock", myName(kp), trk);
                 }
             }
             if (stage == RoeMath.ST_WARN) {
                 warningShot(c, ax, ay, az);
-                AirDefenseSVA.INSTANCE.tellPilot(v, "warnShot", 200, 0xF05050, "sva.ad.msg.warnShot", src);
+                AirDefenseSVA.INSTANCE.tellPilot(v, "warnShot|" + key(), 200, 0xF05050, "sva.ad.msg.warnShot", src);
             }
         }
         if (stage >= RoeMath.ST_LOCK) {
-            AirDefenseSVA.INSTANCE.paint(v, RadarMath.T_LOCK, ax, az, now + 20);
+            // audit 2026-10-22 (the RWR): the launcher's own lock - its own kind, told apart from a tracking radar's on the scope
+            AirDefenseSVA.INSTANCE.paint(v, RadarMath.T_LAUNCHER, ax, az, now + 20);
         }
         if (stage == RoeMath.ST_FIRE && block == RoeMath.OK) {
-            boolean shot = kind() == MISSILE ? launchMissile(c, now, ax, ay, az) : burst(c, now, ax, ay, az);
-            if (shot && st[2] == 0) {
-                st[2] = 1;
-                String line = String.format("%s %s (%d %d %d, %s): %s %s (%s, %s, %s)", kind() == MISSILE ? "SAM" : "AA", myName(kp),
-                        Integer.valueOf(xCoord), Integer.valueOf(yCoord), Integer.valueOf(zCoord), ownerName, kind() == MISSILE ? "launch at" : "fire at",
-                        trk, v.getOwnerName(), v.getVehicleType().key, c.replied ? com.sva.airdefense.XpdrMath.format(c.code) : "----");
-                AirDefenseSVA.INSTANCE.launchLog(line);
-                if (kp != null) {
-                    kp.log(kind() == MISSILE ? "sva.ad.log.launch" : "sva.ad.log.fire", myName(kp), trk);
-                }
-            } else if (shot && kind() == MISSILE) {
-                AirDefenseSVA.INSTANCE.launchLog(String.format("SAM %s (%d %d %d, %s): launch at %s (%s)", myName(kp), Integer.valueOf(xCoord),
-                        Integer.valueOf(yCoord), Integer.valueOf(zCoord), ownerName, trk, v.getOwnerName()));
-                if (kp != null) {
-                    kp.log("sva.ad.log.launch", myName(kp), trk);
-                }
-            }
+            fire(c, st, kp, now, ax, ay, az);
         }
     }
 
-    private static ZoneMath.Zone zoneOf(TileEntityCommandPostSVA kp, AirDefenseSVA.Contact c) {
-        if (kp == null) {
+    /** A burst / a launch at a target at «Огонь» and its lines in the logs. @return it went */
+    private boolean fire(AirDefenseSVA.Contact c, long[] st, TileEntityCommandPostSVA kp, long now, double ax, double ay, double az) {
+        EntityVehicleSVA v = c.v;
+        String trk = kp != null ? String.format("%02d", Integer.valueOf(c.no)) : "-";
+        boolean shot = kind() == MISSILE ? launchMissile(c, now, ax, ay, az) : burst(c, now, ax, ay, az);
+        if (shot && st[2] == 0) {
+            st[2] = 1;
+            String line = String.format("%s %s (%d %d %d, %s): %s %s (%s, %s, %s) - %s", kind() == MISSILE ? "SAM" : "AA", myName(kp),
+                    Integer.valueOf(xCoord), Integer.valueOf(yCoord), Integer.valueOf(zCoord), ownerName, kind() == MISSILE ? "launch at" : "fire at",
+                    trk, v.getOwnerName(), v.getVehicleType().key, c.replied ? com.sva.airdefense.XpdrMath.format(c.code) : "----", order(c, kp));
+            AirDefenseSVA.INSTANCE.launchLog(line);
+            if (kp != null) {
+                kp.log(kind() == MISSILE ? "sva.ad.log.launch" : "sva.ad.log.fire", myName(kp), trk);
+            }
+        } else if (shot && kind() == MISSILE) {
+            AirDefenseSVA.INSTANCE.launchLog(String.format("SAM %s (%d %d %d, %s): launch at %s (%s) - %s", myName(kp), Integer.valueOf(xCoord),
+                    Integer.valueOf(yCoord), Integer.valueOf(zCoord), ownerName, trk, v.getOwnerName(), order(c, kp)));
+            if (kp != null) {
+                kp.log("sva.ad.log.launch", myName(kp), trk);
+            }
+        }
+        return shot;
+    }
+
+    /** Audit 2026-10-22: why this target - who assigned it on the post, the post's «Авто», or the launcher's own rule. */
+    private String order(AirDefenseSVA.Contact c, TileEntityCommandPostSVA kp) {
+        String by = kp == null ? "" : kp.assignedBy(c.id, this);
+        if (by.length() > 0) {
+            return "assigned by " + by;
+        }
+        if (kp != null && roeRound == RoeMath.KP_MARKS && kp.isAuto()) {
+            return "post " + kp.name() + " auto";
+        }
+        return (kp == null ? "own eyes, rule " : "rule ") + RoeMath.ROE_KEYS[Math.max(0, Math.min(RoeMath.ROES - 1, roeRound))];
+    }
+
+    private ZoneMath.Zone zoneOf(TileEntityCommandPostSVA kp, AirDefenseSVA.Contact c) {
+        if (c.zone.length() == 0) {
             return null;
         }
-        for (ZoneMath.Zone z : kp.zones()) {
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(worldObj);
+        List<ZoneMath.Zone> l = kp != null ? kp.zones() : d == null ? new ArrayList<ZoneMath.Zone>() : d.ofOwner(ownerName, worldObj.provider.dimensionId);
+        for (ZoneMath.Zone z : l) {
             if (z.name.equals(c.zone)) {
                 return z;
             }
@@ -380,25 +549,61 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         return null;
     }
 
-    /** The point to shoot at: the contact (with its error) led by the vehicle's velocity; no altitude known - the sight's. */
-    private double[] aim(AirDefenseSVA.Contact c, double ax, double ay, double az, double speed, int maxTicks) {
+    /** Audit 2026-10-22 (bug 3): the launcher's own eyes have the target now - within EYES, seen at all, a clear line. */
+    private boolean ownSight(EntityVehicleSVA v, double ax, double ay, double az) {
+        double[] live = AirDefenseSVA.centre(v);
+        return BallisticsMath.dist(ax, ay, az, live[0], live[1], live[2]) <= BallisticsMath.EYES && AirDefenseSVA.radarVisible(v)
+                && AirDefenseSVA.losClear(worldObj, ax, ay, az, live[0], live[1], live[2]);
+    }
+
+    /**
+     * The point to shoot at, led for the projectile's flight by the vehicle's velocity. Audit 2026-10-22 (bug 3): the
+     * target's live centre when the launcher's own eyes have it; else the mark (its error in) moved on by the velocity over
+     * the mark's age (the position's and the altitude's apart - BallisticsMath.led); no altitude known - the sight's.
+     * @param own the launcher's own eyes have it (ownSight)
+     */
+    private double[] aim(AirDefenseSVA.Contact c, double ax, double ay, double az, double speed, int maxTicks, long now, boolean own) {
         double[] vel = AirDefenseSVA.INSTANCE.velocity(c.v);
-        double y = c.altKnown ? c.y : c.v.posY + c.v.height / 2 + RadarMath.jitter(c.id, worldObj.getTotalWorldTime() / 20, 1, RadarMath.ERROR[RadarMath.SURVEY]);
-        return BallisticsMath.intercept(ax, ay, az, c.x, y, c.z, vel[0], vel[1], vel[2], speed, maxTicks);
+        double tx, ty, tz;
+        if (own) {
+            double[] live = AirDefenseSVA.centre(c.v);
+            tx = live[0];
+            ty = live[1];
+            tz = live[2];
+        } else {
+            long posAge = now - (c.posAt >= 0 ? c.posAt : c.seen);
+            double[] p = BallisticsMath.led(c.x, 0, c.z, vel[0], 0, vel[2], posAge);
+            tx = p[0];
+            tz = p[2];
+            if (c.altKnown) {
+                ty = BallisticsMath.led(0, c.y, 0, 0, vel[1], 0, now - (c.altAt >= 0 ? c.altAt : c.seen))[1];
+            } else {
+                ty = c.v.posY + c.v.height / 2 + RadarMath.jitter(c.id, now / 20, 1, RadarMath.ERROR[RadarMath.SURVEY]);
+            }
+        }
+        return BallisticsMath.gunAim(ax, ay, az, tx, ty, tz, vel[0], vel[1], vel[2], speed, maxTicks);  // the shells' first step this tick
     }
 
     private boolean burst(AirDefenseSVA.Contact c, long now, double ax, double ay, double az) {
         if (now < nextShot || getEnergyStored() < shotCost()) {
             return false;
         }
-        double[] p = aim(c, ax, ay, az, BallisticsMath.GUN_SPEED, BallisticsMath.SHELL_LIFE);
-        if (p == null || !take()) {
+        boolean own = ownSight(c.v, ax, ay, az);
+        double[] p = aim(c, ax, ay, az, BallisticsMath.GUN_SPEED, BallisticsMath.SHELL_LIFE, now, own);
+        // audit 2026-10-22 (bug 4): a clear line from the gun to where it aims (a post's track it cannot see past a wall - no burst)
+        if (p == null || !AirDefenseSVA.losClear(worldObj, ax, ay, az, p[0], p[1], p[2]) || !take()) {
             return false;
         }
         nextShot = now + fireInterval();
         removeEnergy(shotCost());
+        double[] live = AirDefenseSVA.centre(c.v), vel = AirDefenseSVA.INSTANCE.velocity(c.v);
+        aimLog.add(new double[] {p[0], p[1], p[2], p[3], live[0], live[1], live[2], vel[0], vel[1], vel[2],
+            now - (c.posAt >= 0 ? c.posAt : c.seen), own ? 1 : 0, now});
+        while (aimLog.size() > 64) {
+            aimLog.remove(0);
+        }
         double[] d = BallisticsMath.dir(ax, ay, az, p[0], p[1], p[2]);
-        double spread = c.precise() || (c.kinds & 1 << RadarMath.HEIGHT) != 0 ? BallisticsMath.GUN_SPREAD : BallisticsMath.GUN_SPREAD_SURVEY;
+        double spread = own || c.precise() || (c.kinds & 1 << RadarMath.HEIGHT) != 0 ? BallisticsMath.GUN_SPREAD : BallisticsMath.GUN_SPREAD_SURVEY;
         for (int i = 0; i < BallisticsMath.GUN_BURST; i++) {
             double[] s = BallisticsMath.spread(d, spread, rnd);
             AirDefenseSVA.Projectile pr = new AirDefenseSVA.Projectile();
@@ -413,6 +618,7 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
             pr.dim = worldObj.provider.dimensionId;
             pr.damage = BallisticsMath.SHELL_DAMAGE;
             pr.launcher = key();
+            pr.from(this);                                          // audit 2026-10-22: out through its own mount
             AirDefenseSVA.INSTANCE.fire(pr);
         }
         worldObj.playSoundEffect(ax, ay, az, "fireworks.blast_far", 3F, 0.6F);
@@ -451,6 +657,7 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         pr.dim = worldObj.provider.dimensionId;
         pr.damage = BallisticsMath.MISSILE_DAMAGE;
         pr.launcher = key();
+        pr.from(this);
         AirDefenseSVA.INSTANCE.fire(pr);
         worldObj.playSoundEffect(ax, ay, az, "fireworks.launch", 4F, 0.5F);
         shotEvent(EV_LAUNCH, 0);                                    // the model: a tube empties until the reload
@@ -476,18 +683,32 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
             pr.target = -1;
             pr.dim = worldObj.provider.dimensionId;
             pr.launcher = key();
+            pr.from(this);
             AirDefenseSVA.INSTANCE.fire(pr);
         }
         worldObj.playSoundEffect(ax, ay, az, "fireworks.blast_far", 3F, 0.8F);
         shotEvent(EV_BURST, 1);
     }
 
-    /** A hit (AirDefenseSVA): a missile's goes to the log. */
+    /**
+     * A hit (AirDefenseSVA): a missile's goes to the logs at once; audit 2026-10-22 - the gun's are summed up per target and
+     * written when its hits pause for a second or every 5 s (logHits: a burst is three shells every few ticks).
+     */
     public void onHit(EntityVehicleSVA target, boolean missile, float damage) {
+        hitsTotal++;
         if (!missile) {
+            long now = worldObj.getTotalWorldTime();
+            double[] h = gunHits.get(Integer.valueOf(target.getEntityId()));
+            if (h == null) {
+                h = new double[] {0, 0, now, now};
+                gunHits.put(Integer.valueOf(target.getEntityId()), h);
+            }
+            h[0]++;
+            h[1] += damage;
+            h[3] = now;
             return;
         }
-        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.workingPost(this);
         String trk = "-";
         if (kp != null) {
             AirDefenseSVA.Contact c = kp.tracks().get(Integer.valueOf(target.getEntityId()));
@@ -496,6 +717,39 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         }
         AirDefenseSVA.INSTANCE.launchLog(String.format("SAM %s (%d %d %d): hit %s (%s, -%d hull)", myName(kp), Integer.valueOf(xCoord), Integer.valueOf(yCoord),
                 Integer.valueOf(zCoord), trk, target.getOwnerName(), Integer.valueOf(Math.round(damage))));
+    }
+
+    /**
+     * Audit 2026-10-22: the gun's hits into the launch log and the post's log - per target, once its hits paused for 20 ticks
+     * or 5 s after the first (all of them: `all`).
+     */
+    public void logHits(long now, boolean all) {
+        if (gunHits.isEmpty()) {
+            return;
+        }
+        TileEntityCommandPostSVA kp = null;
+        boolean kpLooked = false;
+        for (Iterator<Map.Entry<Integer, double[]>> it = gunHits.entrySet().iterator(); it.hasNext();) {
+            Map.Entry<Integer, double[]> e = it.next();
+            double[] h = e.getValue();
+            if (!all && now - (long) h[3] < 20 && now - (long) h[2] < 100 && now >= (long) h[2]) {
+                continue;
+            }
+            it.remove();
+            if (!kpLooked) {
+                kp = AirDefenseSVA.INSTANCE.workingPost(this);
+                kpLooked = true;
+            }
+            net.minecraft.entity.Entity te = worldObj.getEntityByID(e.getKey().intValue());
+            String who = te instanceof EntityVehicleSVA ? ((EntityVehicleSVA) te).getOwnerName() : "?";
+            AirDefenseSVA.Contact c = kp == null ? null : kp.tracks().get(e.getKey());
+            String trk = c == null ? "-" : String.format("%02d", Integer.valueOf(c.no));
+            AirDefenseSVA.INSTANCE.launchLog(String.format("AA %s (%d %d %d, %s): hits on %s (%s): %d shells, -%d hull", myName(kp), Integer.valueOf(xCoord),
+                    Integer.valueOf(yCoord), Integer.valueOf(zCoord), ownerName, trk, who, Integer.valueOf((int) h[0]), Long.valueOf(Math.round(h[1]))));
+            if (kp != null) {
+                kp.log("sva.ad.log.hit", trk, String.valueOf(Math.round(h[1])));
+            }
+        }
     }
 
     // ------------------------------------------------------------------ ammunition
@@ -627,6 +881,23 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         markDirty();
     }
 
+    /**
+     * World tests (audit review 2026-10-22): this launcher fires whatever airdefense.mode the other world tests running at the
+     * same time leave behind (their snapshots written back) - a test of what stops its fire must not pass on a mode flip.
+     */
+    public boolean debugFireMode;
+
+    /** World tests: the target was at «Огонь» with nothing forbidding the fire at the last round (fireBetween's list). */
+    public boolean debugReady(int id) {
+        return ready.containsKey(Integer.valueOf(id));
+    }
+
+    /** World tests (audit review 2026-10-22): fireBetween would let this ready target go now (held since the round). */
+    public boolean debugHeldBetween(int id) {
+        AirDefenseSVA.Contact c = ready.get(Integer.valueOf(id));
+        return c != null && holdsNow(c);
+    }
+
     /** World tests: the settings without the screen. */
     public void debugSettings(int roe, boolean msg, boolean warnShot, int waitSec) {
         this.roe = roe;
@@ -664,8 +935,10 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         t.setInteger("ShotEu", shotCost());
         t.setBoolean("Puller", upgradeCount(UpgradeType.PULLER) > 0);
         t.setBoolean("Upg", ConfigSVA.adUpgrades);
-        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.linkedPost(this);
         t.setString("Kp", kp == null ? "" : kp.name());
+        t.setBoolean("KpOn", kp != null && kp.isPowered());
+        t.setBoolean("KpLinked", kpLink().length() > 0);
         t.setInteger("No", kp == null ? 0 : kp.launcherNo(this));
         boolean track = false;
         if (kp != null) {

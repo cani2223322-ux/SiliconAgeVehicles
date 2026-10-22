@@ -289,6 +289,11 @@ public final class LinerDisplaysSVA {
             LinerGfxSVA.layer();
             ndZones(v, w, cx, cy, R, range, rot, s);
         }
+        // audit 2026-10-22: the RWR's emitters on the ND (the liner has no scope of its own)
+        if (com.sva.ConfigSVA.rwrCockpit) {
+            LinerGfxSVA.layer();
+            ndRwr(v, cx, cy, R, range, rot, s, plan);
+        }
         // the aircraft (yellow) and the heading pointer
         LinerGfxSVA.layer();
         float ac = plan ? hdg : 0;
@@ -325,18 +330,22 @@ public final class LinerDisplaysSVA {
             double[][] o = com.sva.airdefense.ZoneMath.outline(z, 64);
             double piece = Math.max(2, range / 24);
             float bestR = Float.MAX_VALUE, lx = 0, ly = 0;
-            int dash = 0;
+            long dash = 0;
             for (int k = 0; k < o.length; k++) {
                 double[] a = o[k], b = o[(k + 1) % o.length];
-                int n = Math.max(1, (int) Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / piece));
-                for (int i = 0; i < n; i++, dash++) {
+                long n = Math.max(1L, (long) Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / piece));
+                // audit 2026-10-22 (bug 1): only the pieces inside the ring - the edge clipped to it first (an edge of a
+                // world-wide zone was cut into 1e8..4e9 pieces a frame and the game hung); the dashes keep their places
+                double[] in = com.sva.airdefense.ZoneMath.clipToCircle(a[0], a[1], b[0], b[1], v.posX, v.posZ, range * 1.02);
+                long i0 = in == null ? n : Math.max(0L, (long) Math.floor(in[0] * n)), i1 = in == null ? n : Math.min(n, (long) Math.ceil(in[1] * n));
+                for (long i = i0; i < i1; i++) {
                     double f0 = i / (double) n, f1 = (i + 1) / (double) n;
                     float[] p = ndMap(a[0] + (b[0] - a[0]) * f0, a[1] + (b[1] - a[1]) * f0, v.posX, v.posZ, cx, cy, R, range, rot);
                     float[] q = ndMap(a[0] + (b[0] - a[0]) * f1, a[1] + (b[1] - a[1]) * f1, v.posX, v.posZ, cx, cy, R, range, rot);
                     if (p[2] > R * 1.02F || q[2] > R * 1.02F) {
                         continue;
                     }
-                    if (dash % 2 == 0) {
+                    if ((dash + i) % 2 == 0) {
                         LinerGfxSVA.line(p[0], p[1], q[0], q[1], 1.4F * s, col);
                     }
                     if (p[2] < bestR) {
@@ -345,6 +354,7 @@ public final class LinerDisplaysSVA {
                         ly = p[1];
                     }
                 }
+                dash += n;
             }
             if (bestR < R) {
                 LinerGfxSVA.text(z.name, lx + 4 * s, ly - 6 * s, 7 * s, col, -1);
@@ -356,6 +366,54 @@ public final class LinerDisplaysSVA {
             if (AirDefenseClientSVA.predLevel < 2 || System.currentTimeMillis() / 400 % 2 == 0) {
                 LinerGfxSVA.text(pl, w / 2, 22 * s, 8 * s, c, 0, 128 * s);
             }
+        }
+    }
+
+    /**
+     * Audit 2026-10-22 (the RWR on the liner, plan of the audit's §6): the emitters painting us (the «Приёмник облучения»
+     * module) on the ND at their bearing and distance - a radar a diamond (yellow; a tracking lock amber), a launcher's lock
+     * a square, a missile red, a site that launched a red circle - each with its letter; one beyond the range sits on the
+     * ring; in ARC the ones behind are pulled up under the aircraft. «СПО» with its level top left. Nothing without the
+     * module (the threats come empty).
+     */
+    static void ndRwr(EntityVehicleSVA v, float cx, float cy, float R, float range, float rot, float s, boolean plan) {
+        float[][] th = AirDefenseClientSVA.rwrThreats(v);
+        if (th.length == 0) {
+            return;
+        }
+        double hdgNow = com.sva.airdefense.RadarMath.headingOfYaw(v.rotationYaw);
+        boolean blink = System.currentTimeMillis() / 300 % 2 == 0;
+        for (float[] t : th) {
+            int kind = (int) t[2];
+            float a = (float) ((t[0] + hdgNow - rot) % 360 + 360) % 360;
+            a = a > 180 ? a - 360 : a;
+            float r = Math.min(R * 0.98F, t[1] / range * R);
+            if (!plan && Math.abs(a) > 90) {
+                r = Math.min(r, 26 * s);                            // ARC: behind - just under the aircraft
+            }
+            float x = LinerGfxSVA.px(cx, r, a), y = LinerGfxSVA.py(cy, r, a), q = 5 * s;
+            int col = kind == com.sva.airdefense.RadarMath.T_MISSILE || kind == com.sva.airdefense.RadarMath.T_LAUNCH ? RED
+                    : kind == com.sva.airdefense.RadarMath.T_LOCK || kind == com.sva.airdefense.RadarMath.T_LAUNCHER ? AMB : YEL;
+            if (kind == com.sva.airdefense.RadarMath.T_LAUNCH) {
+                if (blink) {
+                    LinerGfxSVA.arc(x, y, q * 1.8F, 0, 360, 1.2F * s, RED);
+                }
+                continue;
+            }
+            if (kind == com.sva.airdefense.RadarMath.T_LAUNCHER) {
+                LinerGfxSVA.frameRect(x - q * 0.8F, y - q * 0.8F, x + q * 0.8F, y + q * 0.8F, 1.3F * s, col);
+            } else {
+                LinerGfxSVA.line(x, y - q, x + q, y, 1.3F * s, col);
+                LinerGfxSVA.line(x + q, y, x, y + q, 1.3F * s, col);
+                LinerGfxSVA.line(x, y + q, x - q, y, 1.3F * s, col);
+                LinerGfxSVA.line(x - q, y, x, y - q, 1.3F * s, col);
+            }
+            LinerGfxSVA.text(Lang.tr("sva.ad.rwr.letter." + kind), x + q + 2 * s, y - q, 7 * s, col, -1);
+        }
+        int level = AirDefenseClientSVA.rwrLevel(v);
+        if (level > 0) {
+            LinerGfxSVA.text(Lang.tr("sva.ad.rwr.nd." + (level >= 3 ? "launch" : level == 2 ? "lock" : "search")), 6 * s, 34 * s, 8 * s,
+                    level >= 3 ? RED : level == 2 ? AMB : YEL, -1);
         }
     }
 

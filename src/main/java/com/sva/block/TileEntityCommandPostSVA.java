@@ -15,7 +15,9 @@ import com.sc.energy.Tier;
 import com.sva.ConfigSVA;
 import com.sva.airdefense.AirDefenseDataSVA;
 import com.sva.airdefense.AirDefenseSVA;
+import com.sva.airdefense.AirportCodeMath;
 import com.sva.airdefense.BallisticsMath;
+import com.sva.airdefense.NoRadioMath;
 import com.sva.airdefense.RadarMath;
 import com.sva.airdefense.RoeMath;
 import com.sva.airdefense.XpdrMath;
@@ -45,10 +47,31 @@ import net.minecraft.nbt.NBTTagString;
  * The screen (client.GuiCommandPostSVA, no container) gets the picture every 10 ticks while open.
  * Upgrades wave: its «Оборудование» tab opens the equipment screen (a container: the energy, the input tier, the four
  * upgrade slots - transformers, the universal one, storage, economizers; it has no work interval to overclock).
+ * Audit 2026-10-22 (exploits and hardening): the commands come rate-limited per player (AirDefenseSVA.cmdAllowed) and no
+ * longer send the picture themselves - the screens get it with the regular send every 10 ticks, which also drops a viewer
+ * who may no longer use the post (taken off the access list: he stops seeing the day code; his screen is closed). A zone
+ * must lie within airdefense.zoneMaxDistance of the post, and a new one fit airdefense.maxZonesPerPlayer.
+ * Audit 2026-10-22 (the friend / foe trust model):
+ * <ul>
+ * <li>its radars and launchers are those LINKED to it (AirDefenseSVA.linkedPost - one post each, bug 19): only its own
+ * launchers get its assignments, «Авто», holds and grants;</li>
+ * <li>the day code comes from the owner's one secret (AirDefenseDataSVA, bug 18: every post of his gives the same; an older
+ * save's first post hands its own over); its settings are mirrored into its trust data (AirDefenseDataSVA.KpInfo) for its
+ * launchers while it is off or unloaded (bug 2);</li>
+ * <li>the operator's decisions - «свой на 10 минут», «только вести» (now a real hold-fire for its launchers), the
+ * assignments, the 7600 decisions and episodes (with «враждебный», bug 8) - are kept by the vehicle's persistent id with
+ * an absolute expiry in the trust data, saved (bug 20); assignments and holds last while the track does (+ KEEP);</li>
+ * <li>the IFF handoff and the zone violation are worked out before an aerodrome code, which counts only when the tower gave
+ * it to this very aircraft and the tower is trusted by its ICAO code bound to its owner (bugs 6, 7);</li>
+ * <li>a track no surveillance radar has interrogated is UNKNOWN (no fire) for a full surveillance cycle, then the post's own
+ * interrogator asks it (bug 15); 7500 is logged and raises the alarm; the Mode S white list matches only with the owner.</li>
+ * </ul>
  */
 public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
 
     public static final int UPKEEP = 32, MAX_CODES = 8, MAX_WHITE = 16, LOG_LINES = 40, ALARM_HOLD = 1200;
+    /** Audit 2026-10-22: an assignment / «только вести» outlives its track this long (ticks) - a chunk reload or a restart keeps it. */
+    public static final int KEEP = 1200;
     private static final Random RND = new Random();
 
     private String name = "", secret = "";
@@ -60,19 +83,20 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
     private final LinkedList<String[]> log = new LinkedList<String[]>();
     /** Wave A: the airports this post trusts besides its owner's / friends' (ICAO codes or tower names, upper case). */
     private final List<String> trusted = new ArrayList<String>();
-    /** Wave A: the 7600 tracks waiting for (or with) the operator's decision. */
-    private final Map<Integer, com.sva.airdefense.NoRadioMath.Entry> noRadio = new HashMap<Integer, com.sva.airdefense.NoRadioMath.Entry>();
-    // not saved
+    // not saved (audit 2026-10-22: the 7600 entries, «свой на 10 минут», the assignments and holds live in the trust data, info())
     private final Map<Integer, AirDefenseSVA.Contact> tracks = new LinkedHashMap<Integer, AirDefenseSVA.Contact>();
-    private final Map<Integer, Long> grants = new HashMap<Integer, Long>();
-    private final Map<Integer, String> assigned = new HashMap<Integer, String>();
+    private final AirDefenseDataSVA.KpInfo scratch = new AirDefenseDataSVA.KpInfo();
     private final Map<Integer, Object[]> engaged = new HashMap<Integer, Object[]>();
     private final Map<EntityPlayer, Long> viewers = new HashMap<EntityPlayer, Long>();
     private List<TileEntityRadarSVA> radars = new ArrayList<TileEntityRadarSVA>();
     private List<TileEntityLauncherSVA> launchers = new ArrayList<TileEntityLauncherSVA>();
     private int timer, nextNo = 1;
     private long lastDay = -1, lastViolator;
-    private boolean zonesPublished;
+    private boolean zonesPublished, infoPublished;
+    /** Audit review 2026-10-22: loaded from a save older than the owner binding of the trusted / white list (migrate). */
+    private boolean legacy;
+    /** Audit review 2026-10-22: the last 7500 alarm per vehicle (vehId -> tick) - toggling 7500 / 7000 no longer floods. */
+    private final Map<String, Long> hijackSaid = new HashMap<String, Long>();
 
     public TileEntityCommandPostSVA() {
         super(Tier.MV);
@@ -141,20 +165,73 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         if (!ConfigSVA.adDayKey || !dayKey || worldObj == null) {
             return -1;
         }
-        return XpdrMath.dayCode(secret, XpdrMath.day(worldObj.getWorldTime()));
+        return XpdrMath.dayCode(ownerSecret(), XpdrMath.day(worldObj.getWorldTime()));
+    }
+
+    /**
+     * Audit 2026-10-22 (bug 18): the owner's one secret (every post of his gives the same day code - a guest's card from one
+     * post is good at all of them); an older save's post hands its own secret over when the owner has none yet.
+     */
+    public String ownerSecret() {
+        AirDefenseDataSVA d = worldObj == null || worldObj.isRemote ? null : AirDefenseDataSVA.get(worldObj);
+        if (d == null) {
+            return secret;
+        }
+        String s = d.ownerSecret(ownerName, secret, randomSecret());
+        if (!s.equals(secret)) {
+            secret = s;                                             // the block's copy (an older version reads it)
+            markDirty();
+        }
+        return s;
+    }
+
+    /** Audit 2026-10-22: this post's trust data and the operator's decisions (AirDefenseDataSVA - saved; made when missing). */
+    public AirDefenseDataSVA.KpInfo info() {
+        AirDefenseDataSVA d = worldObj == null || worldObj.isRemote ? null : AirDefenseDataSVA.get(worldObj);
+        return d == null ? scratch : d.info(key(), true);
+    }
+
+    private void infoChanged() {
+        AirDefenseDataSVA d = worldObj == null ? null : AirDefenseDataSVA.get(worldObj);
+        if (d != null) {
+            d.markDirty();
+        }
+    }
+
+    /** The settings into the trust data (a launcher reads them while this post is off or unloaded). */
+    private void publishInfo() {
+        AirDefenseDataSVA.KpInfo i = info();
+        i.owner = ownerName;
+        i.name = name();
+        i.dim = worldObj.provider.dimensionId;
+        i.dayKey = dayKey;
+        i.codes = codes.clone();
+        i.whiteBoard.clear();
+        i.whiteBoard.addAll(whiteBoard);
+        i.whiteOwner.clear();
+        i.whiteOwner.addAll(whiteOwner);
+        i.trusted.clear();
+        i.trusted.addAll(trusted);
+        i.access.clear();
+        i.access.addAll(access);
+        infoChanged();
     }
 
     // ------------------------------------------------------------------ the work
 
     @Override
     protected void serverTick() {
-        if (secret.length() == 0) {
-            secret = randomSecret();
-            markDirty();
-        }
         if (!zonesPublished) {
             zonesPublished = true;
             publishZones();
+        }
+        if (!infoPublished || timer % 200 == 0) {
+            infoPublished = true;
+            ownerSecret();                                          // bug 18: an older save's secret becomes the owner's
+            if (legacy) {
+                migrate();                                          // audit review: an older save's trusted / white list
+            }
+            publishInfo();
         }
         if (++timer % 10 != 0) {
             return;
@@ -165,6 +242,18 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         }
         if (!powered) {
             tracks.clear();
+            if (!info().assigned.isEmpty()) {
+                info().assigned.clear();                            // 7.3: an order does not wait for the power to come back
+                infoChanged();
+            }
+            // audit review 2026-10-22: the 7600 episodes pause with the post (they kept running: a track back after the
+            // outage went straight to the default, the operator had no window)
+            for (NoRadioMath.Entry ne : info().noRadio.values()) {
+                if (ne.since >= 0) {
+                    NoRadioMath.off(ne, now);
+                    infoChanged();
+                }
+            }
             setAlarm(false, false);
             sendViewers();
             return;
@@ -177,11 +266,6 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             lastDay = day;
         }
         merge(now);
-        for (Iterator<Map.Entry<Integer, Long>> it = grants.entrySet().iterator(); it.hasNext();) {
-            if (it.next().getValue().longValue() < now) {
-                it.remove();
-            }
-        }
         for (Iterator<Map.Entry<Integer, Object[]>> it = engaged.entrySet().iterator(); it.hasNext();) {
             if (((Long) it.next().getValue()[3]).longValue() < now - 20) {
                 it.remove();
@@ -193,16 +277,19 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         sendViewers();
     }
 
+    /** The radars and launchers LINKED to this post (audit 2026-10-22, bug 19: each answers to one post only). */
     private void relink() {
         radars = new ArrayList<TileEntityRadarSVA>();
         for (TileEntityRadarSVA r : AirDefenseSVA.INSTANCE.loaded(worldObj, TileEntityRadarSVA.class)) {
-            if (r.getOwnerName().equalsIgnoreCase(ownerName) && r.getDistanceFrom(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5) <= BallisticsMath.LINK * BallisticsMath.LINK) {
+            if (r.getOwnerName().equalsIgnoreCase(ownerName) && r.getDistanceFrom(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5) <= BallisticsMath.LINK * BallisticsMath.LINK
+                    && AirDefenseSVA.INSTANCE.linkedPost(r) == this) {
                 radars.add(r);
             }
         }
         launchers = new ArrayList<TileEntityLauncherSVA>();
         for (TileEntityLauncherSVA l : AirDefenseSVA.INSTANCE.loaded(worldObj, TileEntityLauncherSVA.class)) {
-            if (l.getOwnerName().equalsIgnoreCase(ownerName) && l.getDistanceFrom(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5) <= BallisticsMath.LINK * BallisticsMath.LINK) {
+            if (l.getOwnerName().equalsIgnoreCase(ownerName) && l.getDistanceFrom(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5) <= BallisticsMath.LINK * BallisticsMath.LINK
+                    && AirDefenseSVA.INSTANCE.linkedPost(l) == this) {
                 launchers.add(l);
             }
         }
@@ -248,6 +335,7 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                 AirDefenseSVA.Contact t = tracks.get(Integer.valueOf(c.id));
                 if (t == null) {
                     t = new AirDefenseSVA.Contact(c.id);
+                    t.born = now;
                     t.no = nextNo;
                     nextNo = nextNo % 99 + 1;
                     tracks.put(Integer.valueOf(c.id), t);
@@ -261,13 +349,16 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                     rank.put(Integer.valueOf(c.id), Integer.valueOf(rk));
                     t.x = c.x;
                     t.z = c.z;
+                    t.posAt = c.posAt;                              // audit 2026-10-22 (bug 3): the gun leads it by its age
                 }
                 if (c.altKnown && (k != RadarMath.SURVEY || !t.altKnown)) {
                     t.y = c.y;
                     t.altKnown = true;
+                    t.altAt = c.altAt;
                 }
                 t.kinds |= c.kinds;
                 t.v = c.v;
+                t.vid = c.vid;
                 t.seen = Math.max(t.seen, c.seen);
                 t.owner = c.owner;
                 t.type = c.type;
@@ -275,17 +366,27 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                 t.vx = c.vx;
                 t.vy = c.vy;
                 t.vz = c.vz;
-                if (k == RadarMath.SURVEY) {
+                if (k == RadarMath.SURVEY && c.seen >= t.askedAt) {
                     t.replied = c.replied;
                     t.mode = c.mode;
                     t.code = c.code;
                     t.board = c.board;
                     t.ident = c.ident;
+                    t.askedAt = c.seen;                             // audit 2026-10-22 (bug 15): interrogated then
                 }
             }
         }
+        // bug 15: a track no surveillance radar interrogated for a full cycle (none built / powered / seeing it) - the post's
+        // own interrogator asks it through the radar that holds it; until the first answer it is UNKNOWN (classify)
+        int cycle = RadarMath.INTERVAL[RadarMath.SURVEY] + 20;
+        for (AirDefenseSVA.Contact t : tracks.values()) {
+            if (t.kinds != 0 && t.v != null && !t.v.isDead && now - (t.askedAt >= 0 ? t.askedAt : t.born) >= cycle) {
+                AirDefenseSVA.INSTANCE.interrogate(t, t.v, now);
+                t.askedAt = now;
+            }
+        }
         long today = XpdrMath.day(worldObj.getWorldTime());
-        int dc = dayCode(), yc = dc >= 0 ? XpdrMath.dayCode(secret, today - 1) : -1;
+        int dc = dayCode(), yc = dc >= 0 ? XpdrMath.dayCode(ownerSecret(), today - 1) : -1;
         // wave A: the aerodromes of every post and tower in this dimension (the friendly airports' codes)
         List<ZoneMath.Zone> apts = new ArrayList<ZoneMath.Zone>();
         AirDefenseDataSVA dd = AirDefenseDataSVA.get(worldObj);
@@ -296,34 +397,32 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                 }
             }
         }
+        AirDefenseDataSVA.KpInfo info = info();
         for (Iterator<AirDefenseSVA.Contact> it = tracks.values().iterator(); it.hasNext();) {
             AirDefenseSVA.Contact t = it.next();
             if (t.v == null || t.v.isDead || now - t.seen > RadarMath.TRACK_TIMEOUT) {
                 it.remove();
-                assigned.remove(Integer.valueOf(t.id));
-                noRadio.remove(Integer.valueOf(t.id));
+                // audit 2026-10-22: its assignment / hold outlive it by KEEP (a chunk reload); its 7600 episode pauses
+                NoRadioMath.Entry ne = info.noRadio.get(t.vid);
+                if (ne != null && ne.since >= 0) {
+                    NoRadioMath.off(ne, now);
+                    infoChanged();
+                }
                 continue;
             }
-            classify(t, now, dc, yc, apts);
-        }
-        for (Iterator<Integer> it = noRadio.keySet().iterator(); it.hasNext();) {
-            if (!tracks.containsKey(it.next())) {
-                it.remove();
-            }
+            classify(t, now, dc, yc, apts, info);
         }
     }
 
-    /** Wave A: an airport handed this track over is one the post listens to (its owner's / a friend's / trusted). */
+    /**
+     * Wave A: an airport handed this track over is one the post listens to (its owner's / a friend's / trusted - audit
+     * 2026-10-22: by its ICAO code bound to its owner).
+     */
     public boolean friendlyAirport(String aptOwner, String icao) {
         if (aptOwner != null && relation(aptOwner) != 0) {
             return true;
         }
-        for (String s : trusted) {
-            if (s.equalsIgnoreCase(icao)) {
-                return true;
-            }
-        }
-        return false;
+        return AirportCodeMath.trustedTower(trusted, icao, aptOwner);
     }
 
     /** Wave A: the 7600 decision timer and the friend's time (ticks). */
@@ -335,69 +434,98 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         return Math.max(1, ConfigSVA.adNoRadioFriendMinutes) * 1200;
     }
 
-    private void classify(AirDefenseSVA.Contact t, long now, int dc, int yc, List<ZoneMath.Zone> apts) {
+    private void classify(final AirDefenseSVA.Contact t, long now, int dc, int yc, List<ZoneMath.Zone> apts, AirDefenseDataSVA.KpInfo info) {
         EntityVehicleSVA v = t.v;
         t.rel = relation(t.owner);
         boolean ownFriend = t.rel == 1 || t.rel == 2 && !ConfigSVA.adFireOnFriends;
-        boolean ownCode = t.replied && (t.code == dc && dc >= 0 || ownCode(t.code));
-        if (t.replied && !ownCode) {
-            for (ZoneMath.Zone z : zones) {
-                if (ZoneMath.aerodromeCode(z, t.code) && ZoneMath.contains(z, t.x, t.y, t.z, t.altKnown)) {
-                    ownCode = true;
-                }
-            }
-        }
-        // wave A (A4): a friendly airport's code in / near that airport - the post's own
-        t.airport = "";
-        if (t.replied && !ownCode && !apts.isEmpty()) {
-            ZoneMath.Zone apt = com.sva.airdefense.AirportCodeMath.friendOf(apts, t.code, t.x, t.y, t.z, t.altKnown, ownerName, access, trusted);
-            if (apt != null) {
-                ownCode = true;
-                t.airport = apt.name;
-            }
-        }
-        boolean white = t.replied && XpdrMath.givesBoard(t.mode) && whitelisted(t.board, t.owner);
-        Long g = grants.get(Integer.valueOf(t.id));
-        boolean granted = g != null && g.longValue() > now;
         String no2 = String.format("%02d", Integer.valueOf(t.no));
-        // wave A (A5): 7600 - the operator's decision (pending / «проверить»: no fire; «свой»: a friend; none in time: as usual)
-        boolean nr = t.replied && t.code == XpdrMath.NO_RADIO;
-        Integer idk = Integer.valueOf(t.id);
-        com.sva.airdefense.NoRadioMath.Entry ne = noRadio.get(idk);
-        if (nr && ne == null) {
-            ne = new com.sva.airdefense.NoRadioMath.Entry(now);
-            noRadio.put(idk, ne);
-            log("sva.ad.log.noRadio", no2, String.valueOf(nrTimer() / 20));
-            worldObj.playSoundEffect(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5, "note.pling", 1F, 0.8F);
-        } else if (!nr && ne != null) {
-            noRadio.remove(idk);
-            log("sva.ad.log.noRadioOff", no2);
-            ne = null;
-        }
-        int nst = nr ? com.sva.airdefense.NoRadioMath.state(ne, now, nrTimer()) : com.sva.airdefense.NoRadioMath.S_DEFAULT;
-        if (nr && nst == com.sva.airdefense.NoRadioMath.S_DEFAULT && !ne.defaultLogged) {
-            ne.defaultLogged = true;
-            log("sva.ad.log.noRadioDefault", no2);
-        }
-        t.nr = nr ? nst : -1;
-        t.nrLeft = nr ? com.sva.airdefense.NoRadioMath.secondsLeft(ne, now, nrTimer()) : 0;
-        boolean grace = nr && com.sva.airdefense.NoRadioMath.holdFire(nst);
-        granted |= nr && com.sva.airdefense.NoRadioMath.friend(nst);
-        // wave A (A10): a tower's IFF handed it over (a friendly airport) - an intruder, the rules of engagement decide
+        // audit 2026-10-22 (bug 6): the tower's IFF handoff and the zone first - an aerodrome code does not cancel them
         t.iff = IffServerSVA.INSTANCE.stateOf(t.id);
-        AirDefenseSVA.Handoff h = AirDefenseSVA.INSTANCE.handedOff(t.id, now);
-        boolean handed = h != null && friendlyAirport(h.owner, h.icao);
+        String handedBy = null;
+        for (AirDefenseDataSVA.Handoff h : AirDefenseSVA.INSTANCE.handoffs(worldObj, t.vid, now)) {
+            if (friendlyAirport(h.owner, h.icao)) {
+                handedBy = h.icao;
+                break;
+            }
+        }
+        boolean handed = handedBy != null;
         if (handed && !t.saidIff) {
-            log("sva.ad.log.iffHandoff", no2, h.icao);
+            log("sva.ad.log.iffHandoff", no2, handedBy);
         }
         t.saidIff = handed;
         ZoneMath.Zone viol = ZoneMath.violated(zones, t.x, t.y, t.z, t.course(), t.altKnown);
         ZoneMath.Zone restr = ZoneMath.inside(zones, ZoneMath.RESTRICTED, t.x, t.y, t.z, t.altKnown);
-        t.cls = RoeMath.classify(ownFriend, t.replied, t.code, ownCode, white, granted, grace, viol != null || handed);
+        boolean ownCode = t.replied && (t.code == dc && dc >= 0 || ownCode(t.code));
+        // wave A (A4): a friendly airport's code in / near that airport - audit 2026-10-22 (bugs 6, 7): a tower's only when that
+        // tower gave it to THIS aircraft, never over a violation or a handoff
+        t.airport = "";
+        boolean aptCode = false;
+        // audit review 2026-10-22: the post's own aerodrome zone's range is no secret (every client got it with the zones; the
+        // default is easy to guess) - an airport's code, not the post's own: no friend over a violation or a handoff
+        ZoneMath.Zone own = t.replied && !ownCode ? AirportCodeMath.postRange(zones, t.code, t.x, t.y, t.z, t.altKnown) : null;
+        if (own != null && viol == null && !handed) {
+            aptCode = true;
+            t.airport = own.name;
+        }
+        if (t.replied && !ownCode && !aptCode && !apts.isEmpty()) {
+            ZoneMath.Zone apt = AirportCodeMath.friendOf(apts, t.code, t.x, t.y, t.z, t.altKnown, ownerName, access, trusted, new AirportCodeMath.Issued() {
+                @Override
+                public boolean to(ZoneMath.Zone a, int code) {
+                    return AtcServerSVA.INSTANCE.issued(AirportCodeMath.towerKey(a), code, t.id, t.vid);
+                }
+            });
+            if (apt != null && viol == null && !handed) {
+                aptCode = true;
+                t.airport = apt.name;
+            }
+        }
+        boolean white = t.replied && XpdrMath.givesBoard(t.mode) && whitelisted(t.board, t.owner);
+        boolean granted = info.granted(t.vid, now);
+        // wave A (A5): 7600 - the operator's decision (pending / «проверить»: no fire; «свой»: a friend; «враждебный» or none in
+        // time: as usual). Audit 2026-10-22 (bug 8): the vehicle's episodes together - a code changed away and back pauses
+        // the timer, it does not start a new one
+        boolean nr = t.replied && t.code == XpdrMath.NO_RADIO;
+        NoRadioMath.Entry ne = info.noRadio.get(t.vid);
+        if (nr && ne == null) {
+            ne = new NoRadioMath.Entry(now);
+            info.noRadio.put(t.vid, ne);
+            infoChanged();
+            log("sva.ad.log.noRadio", no2, String.valueOf(nrTimer() / 20));
+            worldObj.playSoundEffect(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5, "note.pling", 1F, 0.8F);
+        } else if (nr && (ne.since < 0 || now - ne.lastSeen > NoRadioMath.GAP)) {
+            // audit review 2026-10-22: back after a pause - or after the post's power / chunk was away (the episode ended at
+            // its last sighting, the time unseen does not count)
+            NoRadioMath.seen(ne, now);
+            infoChanged();
+            log("sva.ad.log.noRadioAgain", no2, String.valueOf(NoRadioMath.secondsLeft(ne, now, nrTimer())));
+        } else if (nr) {
+            ne.lastSeen = now;
+        } else if (ne != null && ne.since >= 0) {
+            NoRadioMath.changed(ne, now);                           // audit review: «проверить» goes with the episode
+            infoChanged();
+            log("sva.ad.log.noRadioOff", no2);
+        }
+        int nst = nr ? NoRadioMath.state(ne, now, nrTimer()) : NoRadioMath.S_DEFAULT;
+        if (nr && nst == NoRadioMath.S_DEFAULT && !ne.defaultLogged) {
+            ne.defaultLogged = true;
+            log("sva.ad.log.noRadioDefault", no2);
+        }
+        t.nr = nr ? nst : -1;
+        t.nrLeft = nr ? NoRadioMath.secondsLeft(ne, now, nrTimer()) : 0;
+        boolean grace = nr && NoRadioMath.holdFire(nst);
+        granted |= nr && NoRadioMath.friend(nst);
+        t.cls = RoeMath.classify(ownFriend, t.replied, t.code, ownCode, aptCode, white, granted, grace, viol != null || handed);
+        t.cls = RoeMath.unknownUntilAsked(t.cls, t.askedAt >= 0);         // bug 15: never interrogated - no fire
+        // «только вести» (a real hold-fire for this post's launchers), renewed while the track lasts
+        t.held = info.held(t.vid, now);
+        if (t.held) {
+            info.holds.put(t.vid, Long.valueOf(now + KEEP));
+            infoChanged();
+        }
         String who = t.board > 0 ? "B-" + t.board : String.format("%02d", Integer.valueOf(t.no));
         // events
         String zn = viol == null ? "" : viol.name;
-        if (!zn.equals(t.zone)) {
+        if (!zn.equals(t.zone) && t.cls != RoeMath.UNKNOWN) {
             if (viol != null && t.cls == RoeMath.VIOLATOR) {
                 log("sva.ad.log.zoneIn", String.format("%02d", Integer.valueOf(t.no)), viol.name);
                 AirDefenseSVA.INSTANCE.tellPilot(v, "zone" + viol.name, 600, 0xF05050, "sva.ad.msg.forbidden", name(), viol.name,
@@ -432,16 +560,38 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             worldObj.playSoundEffect(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5, "note.pling", 1F, 0.6F);
         }
         t.said7700 = em;
+        // audit 2026-10-22: 7500 (unlawful interference) - the log, the alarm and its message to the owner's list
+        boolean hj = t.replied && t.code == XpdrMath.HIJACK;
+        if (hj && !t.said7500) {
+            // audit review 2026-10-22: the alarm, the log line, the sound and the message to the whole list once a vehicle
+            // in XpdrMath.HIJACK_REPEAT - 7500 / 7000 toggled on the panel sent them every survey round, without end
+            Long last = hijackSaid.get(t.vid);
+            if (XpdrMath.hijackAlarm(last == null ? -1 : last.longValue(), now)) {
+                if (hijackSaid.size() > 256) {
+                    hijackSaid.clear();
+                }
+                hijackSaid.put(t.vid, Long.valueOf(now));
+                setAlarm(true, false);
+                log("sva.ad.log.hijack", who);
+                worldObj.playSoundEffect(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5, "note.bassattack", 2F, 0.7F);
+                alarmMessage("sva.ad.msg.hijack", who);
+            }
+        }
+        if (hj) {
+            lastViolator = now;                                     // the alarm holds while it squawks 7500
+        }
+        t.said7500 = hj;
         boolean old = t.replied && yc >= 0 && t.code == yc && t.code != dc;
         if (old && !t.saidOld) {
             log("sva.ad.log.oldCode", String.format("%02d", Integer.valueOf(t.no)), XpdrMath.format(t.code));
         }
         t.saidOld = old;
-        String a = assigned.get(Integer.valueOf(t.id));
+        AirDefenseDataSVA.Asg a = info.assigned.get(t.vid);
         t.assigned = "";
         if (a != null) {
+            a.until = Math.max(a.until, now + KEEP);                // lasts while the track does (+ KEEP)
             for (TileEntityLauncherSVA l : launchers) {
-                if (l.key().equals(a)) {
+                if (l.key().equals(a.launcher)) {
                     t.assigned = String.valueOf(launcherNo(l));
                 }
             }
@@ -464,10 +614,14 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         return false;
     }
 
+    /**
+     * Mode S white list: the board and its owner (audit 2026-10-22: an entry without an owner matches nobody - board numbers
+     * repeat; the settings bind a bare number to the owner of the aircraft the post sees with it).
+     */
     public boolean whitelisted(int board, String owner) {
         for (int i = 0; i < whiteBoard.size(); i++) {
-            if (whiteBoard.get(i).intValue() == board && (whiteOwner.get(i).length() == 0 || whiteOwner.get(i).equalsIgnoreCase(owner))) {
-                return true;
+            if (AirportCodeMath.whiteMatch(whiteBoard.get(i).intValue(), whiteOwner.get(i), board, owner)) {
+                return true;                                        // audit review: an older save's entry - any owner till saved
             }
         }
         return false;
@@ -479,9 +633,10 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         for (Integer id : engaged.keySet()) {
             out.add(id);
         }
-        for (Integer id : assigned.keySet()) {
-            if (!out.contains(id)) {
-                out.add(id);
+        AirDefenseDataSVA.KpInfo info = info();
+        for (AirDefenseSVA.Contact t : tracks.values()) {
+            if (info.assigned.containsKey(t.vid) && !out.contains(Integer.valueOf(t.id))) {
+                out.add(Integer.valueOf(t.id));
             }
         }
         for (int pass = 0; pass < 2; pass++) {
@@ -496,8 +651,22 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
 
     /** Was the track assigned to this launcher by the operator? */
     public boolean assignedTo(int id, TileEntityLauncherSVA l) {
-        String a = assigned.get(Integer.valueOf(id));
-        return a != null && a.equals(l.key());
+        AirDefenseSVA.Contact t = tracks.get(Integer.valueOf(id));
+        AirDefenseDataSVA.Asg a = t == null ? null : info().assigned.get(t.vid);
+        return a != null && a.launcher.equals(l.key());
+    }
+
+    /** Audit 2026-10-22: who assigned this track to this launcher ("" not assigned to it; "-" an order without a player). */
+    public String assignedBy(int id, TileEntityLauncherSVA l) {
+        AirDefenseSVA.Contact t = tracks.get(Integer.valueOf(id));
+        AirDefenseDataSVA.Asg a = t == null ? null : info().assigned.get(t.vid);
+        return a == null || !a.launcher.equals(l.key()) ? "" : a.by.length() == 0 ? "-" : a.by;
+    }
+
+    /** Audit 2026-10-22: «только вести» on this track - this post's launchers hold their fire (no warnings either). */
+    public boolean heldFire(int id) {
+        AirDefenseSVA.Contact t = tracks.get(Integer.valueOf(id));
+        return t != null && t.held;
     }
 
     /** A launcher reports its engagement of a track (every 5 ticks while it lasts). */
@@ -584,11 +753,30 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
     }
 
     private void alarmMessage(String zone) {
-        for (Object o : worldObj.playerEntities) {
+        alarmMessage("sva.ad.msg.alarm", zone);
+    }
+
+    /**
+     * The alarm's chat line to the post's owner and everyone on its access list - audit 2026-10-22 (7.3): wherever they are
+     * (every dimension; it went only to the post's own), as sva.ad.kp.alarm.tip promises.
+     */
+    private void alarmMessage(String key, String what) {
+        for (EntityPlayerMP p : alarmAudience()) {
+            AirDefenseSVA.INSTANCE.tell(p, 0xF05050, key, name(), what);
+        }
+    }
+
+    /** Who gets the alarm's chat line: the owner and the access list, online in any dimension. */
+    public List<EntityPlayerMP> alarmAudience() {
+        List<EntityPlayerMP> out = new ArrayList<EntityPlayerMP>();
+        net.minecraft.server.MinecraftServer s = net.minecraft.server.MinecraftServer.getServer();
+        java.util.List<?> all = s != null && s.getConfigurationManager() != null ? s.getConfigurationManager().playerEntityList : worldObj.playerEntities;
+        for (Object o : all) {
             if (o instanceof EntityPlayerMP && relation(((EntityPlayerMP) o).getCommandSenderName()) != 0) {
-                AirDefenseSVA.INSTANCE.tell((EntityPlayerMP) o, 0xF05050, "sva.ad.msg.alarm", name(), zone);
+                out.add((EntityPlayerMP) o);
             }
         }
+        return out;
     }
 
     // ------------------------------------------------------------------ zones
@@ -658,15 +846,26 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                 }
             }
             if (chosen != null) {
-                assigned.put(id, chosen.key());
+                String by = p == null ? "-" : p.getCommandSenderName();
+                info().assigned.put(t.vid, new AirDefenseDataSVA.Asg(chosen.key(), now + KEEP, by));
+                info().holds.remove(t.vid);                         // an order to fire ends «только вести»
+                infoChanged();
                 log("sva.ad.log.assigned", String.format("%02d", Integer.valueOf(t.no)), String.valueOf(launcherNo(chosen)));
+                // audit 2026-10-22: who gave the order goes to the launch log too
+                AirDefenseSVA.INSTANCE.launchLog(String.format("KP %s: track %02d (%s) assigned to L-%d by %s", name(), Integer.valueOf(t.no), t.owner,
+                        Integer.valueOf(launcherNo(chosen)), by));
             }
         } else if ("track".equals(op) && t != null) {
-            assigned.remove(id);
+            // audit 2026-10-22: «только вести» - a real hold-fire on this post's launchers (whatever their rule, «Авто» too)
+            info().assigned.remove(t.vid);
+            info().holds.put(t.vid, Long.valueOf(now + KEEP));
+            infoChanged();
+            t.held = true;
             log("sva.ad.log.trackOnly", String.format("%02d", Integer.valueOf(t.no)));
         } else if ("grant".equals(op) && t != null) {
-            grants.put(id, Long.valueOf(now + RoeMath.GRANT_TICKS));
-            assigned.remove(id);
+            info().grants.put(t.vid, Long.valueOf(now + RoeMath.GRANT_TICKS));
+            info().assigned.remove(t.vid);
+            infoChanged();
             log("sva.ad.log.grant", String.format("%02d", Integer.valueOf(t.no)));
         } else if ("alarm".equals(op)) {
             setAlarm(!alarm, true);
@@ -683,17 +882,21 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                 AirDefenseSVA.INSTANCE.tellPilot(t.v, "op" + now, 0, 0xF0B040, "sva.ad.msg.operator", name(), to, text);
                 log("sva.ad.log.msg", to, text);
             }
-        } else if ("nrFriend".equals(op) || "nrCheck".equals(op)) {
-            // wave A (A5): the operator's decision on a 7600 track
-            com.sva.airdefense.NoRadioMath.Entry ne = noRadio.get(id);
+        } else if ("nrFriend".equals(op) || "nrCheck".equals(op) || "nrHostile".equals(op)) {
+            // wave A (A5): the operator's decision on a 7600 track (audit 2026-10-22, bug 8: «враждебный» too)
+            NoRadioMath.Entry ne = t == null ? null : info().noRadio.get(t.vid);
             if (t != null && ne != null) {
-                boolean fr = "nrFriend".equals(op);
-                com.sva.airdefense.NoRadioMath.decide(ne, fr ? com.sva.airdefense.NoRadioMath.D_FRIEND : com.sva.airdefense.NoRadioMath.D_CHECK, now,
-                        nrFriendTicks());
-                assigned.remove(id);
-                log(fr ? "sva.ad.log.noRadioFriend" : "sva.ad.log.noRadioCheck", String.format("%02d", Integer.valueOf(t.no)),
-                        String.valueOf(ConfigSVA.adNoRadioFriendMinutes));
-                AirDefenseSVA.INSTANCE.launchLog("KP " + name() + ": 7600 track " + t.no + " (" + t.owner + ") - " + (fr ? "friend" : "check"));
+                int dec = "nrFriend".equals(op) ? NoRadioMath.D_FRIEND : "nrCheck".equals(op) ? NoRadioMath.D_CHECK : NoRadioMath.D_HOSTILE;
+                NoRadioMath.decide(ne, dec, now, nrFriendTicks());
+                if (dec != NoRadioMath.D_HOSTILE) {
+                    info().assigned.remove(t.vid);
+                }
+                infoChanged();
+                log(dec == NoRadioMath.D_FRIEND ? "sva.ad.log.noRadioFriend" : dec == NoRadioMath.D_CHECK ? "sva.ad.log.noRadioCheck"
+                        : "sva.ad.log.noRadioHostile", String.format("%02d", Integer.valueOf(t.no)), String.valueOf(ConfigSVA.adNoRadioFriendMinutes));
+                AirDefenseSVA.INSTANCE.launchLog("KP " + name() + ": 7600 track " + t.no + " (" + t.owner + ") - "
+                        + NoRadioMath.STATE_KEYS[dec == NoRadioMath.D_FRIEND ? NoRadioMath.S_FRIEND : dec == NoRadioMath.D_CHECK ? NoRadioMath.S_CHECK
+                                : NoRadioMath.S_HOSTILE]);
             }
         } else if ("cov".equals(op)) {
             // wave A (A9): the coverage maps of the linked radars at a height, to this player
@@ -710,12 +913,24 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             ZoneMath.Zone z = new ZoneMath.Zone();
             z.read(d.getCompoundTag("Z"));
             int i = d.getInteger("Idx");
+            boolean edit = i >= 0 && i < zones.size();
             if (z.name.length() == 0) {
                 z.name = "Z" + (zones.size() + 1);
             }
-            if (i >= 0 && i < zones.size()) {
+            // audit 2026-10-22 (bug 1): not reaching further than the server allows from this post (a modified client's
+            // box over the whole world, or a zone over someone's base far away), not more than the owner may hold
+            if (!ZoneMath.withinReach(z, xCoord, zCoord, ConfigSVA.adZoneMaxDistance)) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.zoneFar", Integer.valueOf(ConfigSVA.adZoneMaxDistance));
+                return;
+            }
+            if (!edit && !zoneRoom()) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.zoneLimit", Integer.valueOf(ZoneMath.MAX_ZONES),
+                        Integer.valueOf(ConfigSVA.adMaxZonesPerPlayer));
+                return;
+            }
+            if (edit) {
                 zones.set(i, z);
-            } else if (zones.size() < ZoneMath.MAX_ZONES) {
+            } else {
                 zones.add(z);
             }
             publishZones();
@@ -730,36 +945,100 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         } else if ("set".equals(op)) {
             settings(p, d);
         } else if ("secret".equals(op) && isOwner(p)) {
+            // audit 2026-10-22 (bug 18): the owner's one secret - every post of his changes its day code with it
             String s = Text.clean(d.getString("S"), 32);
             secret = s.length() == 0 ? randomSecret() : s;
+            AirDefenseDataSVA dd = AirDefenseDataSVA.get(worldObj);
+            if (dd != null) {
+                dd.setSecret(ownerName, secret);
+            }
             log("sva.ad.log.secret", XpdrMath.format(dayCode() < 0 ? 0 : dayCode()));
             markDirty();
         } else if ("open".equals(op)) {
             addViewer(p);
         }
-        sendViewers();
+        // audit 2026-10-22: no picture from here - every command sent it to every viewer (24 a tick from one player);
+        // the screens see the change with the regular send (at most 10 ticks)
+    }
+
+    /**
+     * Bug 1: room for one more zone - under ZoneMath.MAX_ZONES on this post and, with the zones of the owner's other posts
+     * (AirDefenseDataSVA), under airdefense.maxZonesPerPlayer (0 - no limit).
+     */
+    public boolean zoneRoom() {
+        if (zones.size() >= ZoneMath.MAX_ZONES) {
+            return false;
+        }
+        int max = ConfigSVA.adMaxZonesPerPlayer;
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(worldObj);
+        return max <= 0 || d == null || d.countOwnerZones(ownerName, key()) + zones.size() < max;
     }
 
     private void settings(EntityPlayerMP p, NBTTagCompound d) {
         name = Text.clean(d.getString("Name"), 24);
-        dayKey = d.getBoolean("DayKey");
+        if (isOwner(p)) {
+            dayKey = d.getBoolean("DayKey");                        // audit 2026-10-22 (7.3): the access list may not switch it off
+        }
         int[] c = d.getIntArray("Codes");
         for (int i = 0; i < MAX_CODES; i++) {
             codes[i] = i < c.length && XpdrMath.valid(c[i]) ? c[i] : -1;
         }
         int[] wb = d.getIntArray("WB");
         NBTTagList wo = d.getTagList("WO", 8);
-        whiteBoard.clear();
-        whiteOwner.clear();
-        for (int i = 0; i < wb.length && i < MAX_WHITE; i++) {
-            if (wb[i] > 0 && wb[i] < 100) {
-                whiteBoard.add(Integer.valueOf(wb[i]));
-                whiteOwner.add(i < wo.tagCount() ? Text.clean(wo.getStringTagAt(i), 32) : "");
+        // audit review 2026-10-22: a bare number is bound only when it is newly typed (and the chat says to whom) - one kept
+        // bare from an earlier save is not bound by a later save of anything else (to a stranger seen with the number by then)
+        List<String> bareBefore = new ArrayList<String>();
+        for (int i = 0; i < whiteBoard.size(); i++) {
+            String o = whiteOwner.get(i);
+            if (o.length() == 0 || AirportCodeMath.ANY_OWNER.equals(o)) {
+                bareBefore.add(String.valueOf(whiteBoard.get(i)));
             }
         }
+        whiteBoard.clear();
+        whiteOwner.clear();
+        StringBuilder unbound = new StringBuilder(), bound = new StringBuilder();
+        for (int i = 0; i < wb.length && i < MAX_WHITE; i++) {
+            if (wb[i] > 0 && wb[i] < 100) {
+                String o = i < wo.tagCount() ? Text.clean(wo.getStringTagAt(i), 32) : "";
+                if (AirportCodeMath.ANY_OWNER.equals(o)) {
+                    o = "";                                         // an older save's «any owner» is not typed back in
+                }
+                if (o.length() == 0 && AirportCodeMath.mayBind(String.valueOf(wb[i]), bareBefore)) {
+                    o = boardOwner(wb[i]);                          // audit 2026-10-22: a bare number - the owner seen with it
+                    if (o.length() > 0) {
+                        bound.append(bound.length() > 0 ? ", " : "").append(String.format("%02d", Integer.valueOf(wb[i]))).append(':').append(o);
+                    }
+                }
+                if (o.length() == 0) {
+                    unbound.append(unbound.length() > 0 ? ", " : "").append(wb[i]);
+                }
+                whiteBoard.add(Integer.valueOf(wb[i]));
+                whiteOwner.add(o);
+            }
+        }
+        if (bound.length() > 0 && p != null) {
+            AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.whiteBound", bound.toString());
+        }
+        if (unbound.length() > 0 && p != null) {
+            AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.whiteUnbound", unbound.toString());
+        }
         if (d.hasKey("Trust")) {
+            StringBuilder tb = new StringBuilder();
+            List<String> l = bindTrusted(AirportCodeMath.parseTrusted(Text.clean(d.getString("Trust"), 200)), new ArrayList<String>(trusted), tb);
             trusted.clear();
-            trusted.addAll(com.sva.airdefense.AirportCodeMath.parseTrusted(Text.clean(d.getString("Trust"), 200)));
+            trusted.addAll(l);
+            StringBuilder unknown = new StringBuilder();
+            for (String e : l) {
+                if (AirportCodeMath.ownerOf(e).length() == 0) {
+                    unknown.append(unknown.length() > 0 ? ", " : "").append(e);
+                }
+            }
+            if (tb.length() > 0 && p != null) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.trustBound", tb.toString());
+            }
+            if (unknown.length() > 0 && p != null) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.trustUnknown", unknown.toString());
+            }
         }
         if (isOwner(p) && d.hasKey("Access")) {
             NBTTagList al = d.getTagList("Access", 8);
@@ -770,7 +1049,94 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             setAccess(names);
         }
         publishZones();
+        publishInfo();
         markDirty();
+    }
+
+    /** The owner of the aircraft this post sees answering Mode S with that board ("" none, or two owners). */
+    private String boardOwner(int board) {
+        String o = "";
+        for (AirDefenseSVA.Contact t : tracks.values()) {
+            if (t.replied && XpdrMath.givesBoard(t.mode) && t.board == board && t.owner.length() > 0) {
+                if (o.length() > 0 && !o.equalsIgnoreCase(t.owner)) {
+                    return "";
+                }
+                o = t.owner;
+            }
+        }
+        return o;
+    }
+
+    /**
+     * Audit 2026-10-22 (bug 7): the trusted ICAO codes bound to their towers' owners now (unknown ones stay unbound - trust
+     * nobody). Audit review: only the entries AirportCodeMath.mayBind lets (newly typed - `before` the list saved so far,
+     * null: all); each one bound goes into `told` («UBTW:Bob») for the chat.
+     */
+    private List<String> bindTrusted(List<String> l, List<String> before, StringBuilder told) {
+        AirportDataSVA ad = AirportDataSVA.get(worldObj);
+        List<String> out = new ArrayList<String>();
+        for (String e : l) {
+            String owner = "";
+            if (ad != null && AirportCodeMath.mayBind(e, before)) {
+                for (AirportDataSVA.Tower tw : ad.towers()) {
+                    if (tw.icao.equalsIgnoreCase(AirportCodeMath.icaoOf(e))) {
+                        owner = tw.owner;
+                    }
+                }
+            }
+            String b = AirportCodeMath.bind(e, owner);
+            if (!b.equals(e) && told != null) {
+                told.append(told.length() > 0 ? ", " : "").append(b);
+            }
+            out.add(b);
+        }
+        return out;
+    }
+
+    /**
+     * Audit review 2026-10-22: a post saved before the owner binding - its bare trusted ICAO codes (they trusted any zone of
+     * that name) are bound to their towers' owners once, at its first tick; its white list's bare numbers (any owner, as
+     * 0.1.1 did) stay so (AirportCodeMath.ANY_OWNER) until the settings are saved. Both go into the post's log - before,
+     * they silently stopped protecting anyone after the update.
+     */
+    private void migrate() {
+        legacy = false;
+        boolean bare = false;
+        for (String e : trusted) {
+            bare |= AirportCodeMath.ownerOf(e).length() == 0;
+        }
+        if (bare) {
+            List<String> l = bindTrusted(new ArrayList<String>(trusted), null, null);
+            trusted.clear();
+            trusted.addAll(l);
+            log("sva.ad.log.legacyTrust", AirportCodeMath.joinTrusted(trusted));
+        }
+        StringBuilder any = new StringBuilder();
+        for (int i = 0; i < whiteBoard.size(); i++) {
+            if (AirportCodeMath.ANY_OWNER.equals(whiteOwner.get(i))) {
+                any.append(any.length() > 0 ? ", " : "").append(String.format("%02d", whiteBoard.get(i)));
+            }
+        }
+        if (any.length() > 0) {
+            log("sva.ad.log.legacyWhite", any.toString());
+        }
+        if (bare || any.length() > 0) {
+            System.out.println("[SVA-AD] command post " + key() + " (" + ownerName + "): an older save's trust - trusted " + trusted
+                    + ", white list for any owner: " + any);
+            markDirty();
+        }
+    }
+
+    /** World tests (audit review 2026-10-22): an older save's post as it is updated at its first tick. */
+    public void debugMigrate() {
+        if (legacy) {
+            migrate();
+        }
+    }
+
+    /** World tests: the trusted list as saved. */
+    public List<String> debugTrusted() {
+        return new ArrayList<String>(trusted);
     }
 
     /** Right-click with a code card: today's code printed on it (the day key on). @return printed */
@@ -785,7 +1151,7 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
 
     /** World tests: today's code on a card whatever the power. */
     public void printCardForTest(ItemStack card) {
-        ItemCodeCardSVA.print(card, name(), XpdrMath.day(worldObj.getWorldTime()), XpdrMath.dayCode(secret, XpdrMath.day(worldObj.getWorldTime())));
+        ItemCodeCardSVA.print(card, name(), XpdrMath.day(worldObj.getWorldTime()), XpdrMath.dayCode(ownerSecret(), XpdrMath.day(worldObj.getWorldTime())));
     }
 
     /** «Карты кодов: печать»: a sheet of paper from the operator's inventory becomes today's card. */
@@ -820,6 +1186,10 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
     /** World tests: a known secret / own codes / white list / the day key. */
     public void debugSetup(String secret, int[] own, int whiteBoardNo, String whiteOwnerName) {
         this.secret = secret;
+        AirDefenseDataSVA dd = AirDefenseDataSVA.get(worldObj);
+        if (dd != null) {
+            dd.setSecret(ownerName, secret);                        // the owner's one secret (bug 18)
+        }
         dayKey = true;
         for (int i = 0; i < MAX_CODES; i++) {
             codes[i] = own != null && i < own.length ? own[i] : -1;
@@ -830,32 +1200,58 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             whiteBoard.add(Integer.valueOf(whiteBoardNo));
             whiteOwner.add(whiteOwnerName == null ? "" : whiteOwnerName);
         }
+        publishInfo();
+    }
+
+    /** World tests: the persistent id of the vehicle with this entity id ("" none loaded). */
+    private String vidOf(int id) {
+        AirDefenseSVA.Contact t = tracks.get(Integer.valueOf(id));
+        if (t != null && t.vid.length() > 0) {
+            return t.vid;
+        }
+        net.minecraft.entity.Entity e = worldObj.getEntityByID(id);
+        return e instanceof EntityVehicleSVA ? AirDefenseSVA.vehKey((EntityVehicleSVA) e) : "";
     }
 
     /** World tests: «свой на 10 минут» / an assignment / «Авто» without the screen. */
     public void debugGrant(int id) {
-        grants.put(Integer.valueOf(id), Long.valueOf(worldObj.getTotalWorldTime() + RoeMath.GRANT_TICKS));
+        info().grants.put(vidOf(id), Long.valueOf(worldObj.getTotalWorldTime() + RoeMath.GRANT_TICKS));
+        infoChanged();
+    }
+
+    /** World tests (audit 2026-10-22): «только вести» on a vehicle without a track (a post that is off). */
+    public void debugHold(int id) {
+        info().holds.put(vidOf(id), Long.valueOf(worldObj.getTotalWorldTime() + KEEP));
+        infoChanged();
     }
 
     public void debugAssign(int id, TileEntityLauncherSVA l) {
-        assigned.put(Integer.valueOf(id), l.key());
+        info().assigned.put(vidOf(id), new AirDefenseDataSVA.Asg(l.key(), worldObj.getTotalWorldTime() + KEEP));
+        infoChanged();
     }
 
-    /** World tests (wave A): the trusted airports; a 7600 track's entry; the operator's 7600 decision without the screen. */
+    /** World tests (wave A): the trusted airports (bound to their towers' owners as the settings do); a 7600 track's entry. */
     public void debugTrust(List<String> names) {
+        List<String> l = bindTrusted(AirportCodeMath.parseTrusted(AirportCodeMath.joinTrusted(names)), null, null);
         trusted.clear();
-        trusted.addAll(names);
+        trusted.addAll(l);
+        publishInfo();
     }
 
-    public com.sva.airdefense.NoRadioMath.Entry noRadioEntry(int id) {
-        return noRadio.get(Integer.valueOf(id));
+    public NoRadioMath.Entry noRadioEntry(int id) {
+        return info().noRadio.get(vidOf(id));
     }
 
     public void debugNoRadio(int id, boolean friend) {
-        com.sva.airdefense.NoRadioMath.Entry ne = noRadio.get(Integer.valueOf(id));
+        debugNoRadio(id, friend ? NoRadioMath.D_FRIEND : NoRadioMath.D_CHECK);
+    }
+
+    /** World tests (audit 2026-10-22): any 7600 decision (NoRadioMath.D_*) without the screen. */
+    public void debugNoRadio(int id, int decision) {
+        NoRadioMath.Entry ne = info().noRadio.get(vidOf(id));
         if (ne != null) {
-            com.sva.airdefense.NoRadioMath.decide(ne, friend ? com.sva.airdefense.NoRadioMath.D_FRIEND : com.sva.airdefense.NoRadioMath.D_CHECK,
-                    worldObj.getTotalWorldTime(), nrFriendTicks());
+            NoRadioMath.decide(ne, decision, worldObj.getTotalWorldTime(), nrFriendTicks());
+            infoChanged();
         }
     }
 
@@ -869,6 +1265,11 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         viewers.remove(p);
     }
 
+    /** World tests: the player's screen still gets the picture. */
+    public boolean hasViewer(EntityPlayer p) {
+        return viewers.containsKey(p);
+    }
+
     private void sendViewers() {
         if (viewers.isEmpty()) {
             return;
@@ -878,6 +1279,15 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             EntityPlayer p = it.next();
             if (!(p instanceof EntityPlayerMP) || p.isDead || p.worldObj != worldObj || p.getDistanceSq(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5) > 144) {
                 it.remove();
+                continue;
+            }
+            if (!mayUse(p)) {
+                // audit 2026-10-22: taken off the access list - no more pictures (the day code in them); his screen closes
+                it.remove();
+                NBTTagCompound shut = new NBTTagCompound();
+                shut.setIntArray("Pos", new int[] {xCoord, yCoord, zCoord});
+                shut.setBoolean("Shut", true);
+                NetADSVA.send((EntityPlayerMP) p, NetADSVA.D_KP, shut);
                 continue;
             }
             if (snap == null) {
@@ -905,6 +1315,7 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         t.setInteger("Energy", getEnergyStored());
         t.setInteger("EMax", getMaxEnergyStored());
         t.setString("Mode", ConfigSVA.adFires() ? "fire" : ConfigSVA.adEnabled ? "warn" : "off");
+        t.setInteger("ZoneMax", ConfigSVA.adZoneMaxDistance);   // audit 2026-10-22: the zone editor's check before sending
         NBTTagList rl = new NBTTagList();
         for (TileEntityRadarSVA r : radars) {
             NBTTagCompound c = new NBTTagCompound();
@@ -961,8 +1372,9 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             c.setString("Zone", tr.zone.length() > 0 ? tr.zone : tr.restricted);
             c.setByte("Seen", (byte) tr.kinds);
             c.setString("Asg", tr.assigned);
-            Long g = grants.get(Integer.valueOf(tr.id));
+            Long g = info().grants.get(tr.vid);
             c.setInteger("Grant", g == null ? 0 : (int) Math.max(0, (g.longValue() - now) / 20));
+            c.setBoolean("Hold", tr.held);
             c.setBoolean("Ident", tr.ident);
             c.setByte("St", (byte) tr.stage);
             c.setInteger("Tf", tr.toFire);
@@ -1032,9 +1444,11 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         whiteOwner.clear();
         int[] wb = t.getIntArray("KpWB");
         NBTTagList wo = t.getTagList("KpWO", 8);
+        legacy = !t.hasKey("KpTrustV");                             // audit review: saved before the owner binding (migrate)
         for (int i = 0; i < wb.length && i < MAX_WHITE; i++) {
+            String o = i < wo.tagCount() ? wo.getStringTagAt(i) : "";
             whiteBoard.add(Integer.valueOf(wb[i]));
-            whiteOwner.add(i < wo.tagCount() ? wo.getStringTagAt(i) : "");
+            whiteOwner.add(legacy && o.length() == 0 ? AirportCodeMath.ANY_OWNER : o);
         }
         zones.clear();
         NBTTagList zl = t.getTagList("KpZones", 10);
@@ -1082,6 +1496,7 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         }
         t.setIntArray("KpWB", wb);
         t.setTag("KpWO", wo);
+        t.setInteger("KpTrustV", 2);                                // audit review: the owner binding (an older save - migrate)
         NBTTagList zl = new NBTTagList();
         for (ZoneMath.Zone z : zones) {
             NBTTagCompound c = new NBTTagCompound();

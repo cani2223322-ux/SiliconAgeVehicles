@@ -14,6 +14,7 @@ import com.sva.airdefense.AirDefenseDataSVA;
 import com.sva.airdefense.AirDefenseSVA;
 import com.sva.airdefense.BallisticsMath;
 import com.sva.airdefense.RadarMath;
+import com.sva.airdefense.RoeMath;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.vehicle.VehicleType;
 
@@ -97,7 +98,7 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
         if (powered && !contacts.isEmpty()) {
             s |= ST_LOCK;
         }
-        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.linkedPost(this);
         if (kp != null && kp.isAlarm()) {
             s |= ST_ALARM;
         }
@@ -136,12 +137,22 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
         scan(k);
     }
 
+    /**
+     * The weather's range multiplier here (audit 2026-10-22: the biome the radar stands in - the world's rain does not fall
+     * in a desert, RadarMath.weatherAt).
+     */
+    public double weather() {
+        net.minecraft.world.biome.BiomeGenBase b = worldObj.getBiomeGenForCoords(xCoord, zCoord);
+        boolean wet = b == null || b.getEnableSnow() || b.canSpawnLightningBolt();
+        return RadarMath.weatherAt(worldObj.isRaining(), worldObj.isThundering(), wet);
+    }
+
     /** One scan (also the world test's way to run one now). */
     public void scan(int k) {
         long now = worldObj.getTotalWorldTime();
         scanNo++;
         double ax = xCoord + 0.5, ay = yCoord + com.sva.airdefense.AdShapeMath.antennaHeight(shape(), struct == MULTI), az = zCoord + 0.5;
-        double weather = RadarMath.weatherMul(worldObj.isRaining(), worldObj.isThundering()), mul = rangeMul();
+        double weather = weather(), mul = rangeMul();
         List<EntityVehicleSVA> seen = new ArrayList<EntityVehicleSVA>();
         for (Object o : worldObj.loadedEntityList) {
             if (!(o instanceof EntityVehicleSVA)) {
@@ -187,15 +198,16 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
     public NBTTagCompound equipSnapshot() {
         NBTTagCompound t = super.equipSnapshot();
         int k = kind();
-        double weather = RadarMath.weatherMul(worldObj.isRaining(), worldObj.isThundering());
+        double weather = weather();
         t.setByte("RKind", (byte) k);
         t.setInteger("Range", (int) Math.round(RadarMath.RANGE[k] * rangeMul()));
         t.setInteger("PlaneRange", (int) Math.round(RadarMath.detectRange(k, RadarMath.rcs(VehicleType.PLANE), 1, weather) * rangeMul()));
         t.setInteger("Interval", scanInterval());
         t.setInteger("BaseInterval", RadarMath.INTERVAL[k]);
         t.setInteger("Timer", Math.max(0, scanInterval() - timer));
-        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.linkedPost(this);
         t.setString("Kp", kp == null ? "" : kp.name());
+        t.setBoolean("KpOn", kp != null && kp.isPowered());
         NBTTagList l = new NBTTagList();
         double ax = xCoord + 0.5, az = zCoord + 0.5;
         for (AirDefenseSVA.Contact c : contacts.values()) {
@@ -213,15 +225,21 @@ public class TileEntityRadarSVA extends TileEntityAirDefenseSVA {
         return t;
     }
 
-    /** The tracking radar's two: the command post's priority order, then the nearest. */
+    /**
+     * The tracking radar's two: its (linked, powered) command post's priority order, then the nearest. Audit 2026-10-22:
+     * with a post, what it classes friend / 7700 / 7600 grace / unknown is not worth a channel either (only its hostiles
+     * and what it orders).
+     */
     private List<EntityVehicleSVA> choose(List<EntityVehicleSVA> seen, final double ax, final double az) {
-        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.commandPost(worldObj, ownerName, xCoord, yCoord, zCoord, BallisticsMath.LINK);
+        TileEntityCommandPostSVA kp = AirDefenseSVA.INSTANCE.workingPost(this);
         final List<Integer> pri = kp == null ? new ArrayList<Integer>() : kp.lockPriority();
         List<EntityVehicleSVA> l = new ArrayList<EntityVehicleSVA>(seen);
         if (kp != null) {
             // own and friendly vehicles are not worth a channel
             for (int i = l.size() - 1; i >= 0; i--) {
-                if (!pri.contains(Integer.valueOf(l.get(i).getEntityId())) && relation(l.get(i).getOwnerName()) != 0) {
+                AirDefenseSVA.Contact t = kp.tracks().get(Integer.valueOf(l.get(i).getEntityId()));
+                boolean notHostile = relation(l.get(i).getOwnerName()) != 0 || t != null && !RoeMath.hostile(t.cls) && t.cls != RoeMath.UNKNOWN;
+                if (!pri.contains(Integer.valueOf(l.get(i).getEntityId())) && notHostile) {
                     l.remove(i);
                 }
             }

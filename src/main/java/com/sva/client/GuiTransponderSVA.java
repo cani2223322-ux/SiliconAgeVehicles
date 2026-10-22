@@ -18,7 +18,13 @@ import net.minecraft.nbt.NBTTagCompound;
  * Air-defence wave (mock-up veh_ad_1_transponder, «Панель ответчика»): the transponder of the vehicle the player drives -
  * the four octal digits (the buttons under each: +1 / -1, or type 0..7 - the cursor moves on), the mode switch ВЫКЛ /
  * ДЕЖ / A / C / S, «Ключ дня» (the code from the code card in the inventory), IDENT, the quick codes 7000 / 7600 / 7700.
- * Opened from the «Техника» menu's «Ответчик» row; each change goes to the server at once (NetADSVA XPDR_SET).
+ * Opened from the «Техника» menu's «Ответчик» row (the liner: also a click on the pedestal's transponder, either pilot);
+ * each change goes to the server at once (NetADSVA XPDR_SET).
+ * <p>
+ * Audit 2026-10-22 (bug 12): a change sends only the field it touched ("Ch": XpdrMath.CH_*), and the screen keeps its own
+ * value only for the field it just sent - the others follow the server. It used to send all three from a copy up to 19
+ * ticks old: a mode pressed right after «Ключ дня» put the old code back and switched the day key off; a tower's code or
+ * a 7600 set from the command post was reverted the same way.
  */
 public class GuiTransponderSVA extends GuiScreen {
 
@@ -30,7 +36,10 @@ public class GuiTransponderSVA extends GuiScreen {
     private int code, mode, cursor;
     private boolean dayKey;
     private int left, top;
-    private long sentAt;
+    /** When each field (mode, code, day key) was last sent (the player's ticks; it keeps its own value that long). */
+    private final long[] sentAt = {-100, -100, -100};
+    /** Ticks a sent field waits for the server's copy (two of its 10-tick rounds). */
+    private static final int HOLD = 20;
 
     public GuiTransponderSVA(EntityVehicleSVA v) {
         vehicle = v;
@@ -60,34 +69,54 @@ public class GuiTransponderSVA extends GuiScreen {
         buttonList.add(new GuiCargoSVA.Dark(B_EMERG, left + 154, top + 104, 66, 14, "7700", null));
     }
 
+    /** Who may work this vehicle's transponder here: its driver; the liner's - either pilot (the server's xpdrOperator). */
+    static boolean operator(net.minecraft.client.Minecraft mc, EntityVehicleSVA v) {
+        if (mc.thePlayer == null || v == null) {
+            return false;
+        }
+        return mc.thePlayer.ridingEntity == v || v.getVehicleType() == com.sva.vehicle.VehicleType.LINER && LinerClickSVA.pilotSeat(mc.thePlayer, v);
+    }
+
     @Override
     public void updateScreen() {
-        if (vehicle == null || vehicle.isDead || mc.thePlayer == null || mc.thePlayer.ridingEntity != vehicle) {
+        if (vehicle == null || vehicle.isDead || !operator(mc, vehicle)) {
             mc.displayGuiScreen(null);
             return;
         }
-        if (mc.thePlayer.ticksExisted - sentAt > 20) {
-            // the server's copy wins once our last change is through (the code card may have set the code)
-            code = AirDefenseClientSVA.xpdrCode(vehicle);
+        // the server's copy wins for every field not sent just now (the code card, a tower's code, 7600 from the post)
+        long now = mc.thePlayer.ticksExisted;
+        if (now - sentAt[0] > HOLD) {
             mode = AirDefenseClientSVA.xpdrMode(vehicle);
+        }
+        if (now - sentAt[1] > HOLD) {
+            code = AirDefenseClientSVA.xpdrCode(vehicle);
+        }
+        if (now - sentAt[2] > HOLD && now - sentAt[1] > HOLD) {
             dayKey = AirDefenseClientSVA.xpdrDayKey(vehicle);
         }
     }
 
-    private void send() {
+    /** Sends the fields in `changed` (XpdrMath.CH_*) - only those; the server keeps the rest as it has them. */
+    private void send(int changed) {
         NBTTagCompound t = new NBTTagCompound();
+        t.setInteger("Ch", changed);
         t.setInteger("M", mode);
         t.setInteger("C", code);
         t.setBoolean("D", dayKey);
         NetADSVA.cmd(NetADSVA.XPDR_SET, 0, 0, 0, vehicle.getEntityId(), t);
-        sentAt = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+        long now = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+        for (int i = 0; i < 3; i++) {
+            if ((changed & 1 << i) != 0) {
+                sentAt[i] = now;
+            }
+        }
     }
 
-    /** A code typed / stepped by hand: the card no longer sets it. */
+    /** A code typed / stepped by hand: the card no longer sets it (the server switches «Ключ дня» off with it). */
     private void handCode(int c) {
         code = c;
         dayKey = false;
-        send();
+        send(XpdrMath.CH_CODE);
     }
 
     @Override
@@ -100,10 +129,10 @@ public class GuiTransponderSVA extends GuiScreen {
             handCode(XpdrMath.step(code, cursor, -1));
         } else if (b.id >= B_MODE && b.id < B_MODE + XpdrMath.MODES) {
             mode = b.id - B_MODE;
-            send();
+            send(XpdrMath.CH_MODE);
         } else if (b.id == B_KEY) {
             dayKey = !dayKey;
-            send();
+            send(XpdrMath.CH_KEY);
         } else if (b.id == B_IDENT) {
             NetSVA.CHANNEL.sendToServer(new NetSVA.Action(vehicle.getEntityId(), com.sva.entity.EntityVehicleSVA.A_IDENT));
         } else if (b.id == B_VFR) {

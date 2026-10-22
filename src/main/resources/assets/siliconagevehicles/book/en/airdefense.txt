@@ -2,19 +2,19 @@
 @icon siliconagevehicles:radar:0
 # How it works
 Radars see what flies, the command post (KP) keeps the tracks and decides by its rules of engagement, the AA gun and the missile system shoot. By default the server **only warns**: fire takes airdefense.mode = fire.
-@note The air defence never fires at your own vehicles, those on the access list, code 7700 or your own codes.
+@note The air defence never fires at your own vehicles, code 7700, the code of the day, your own codes or the white list - a launcher without its KP neither: it interrogates the transponders itself. The access list's vehicles neither, unless the server turns airdefense.fireOnFriends on. A transponder without the board's power or on a wreck does not answer: such an aircraft is silent to the air defence, its 7700 unheard.
 
 # Transponder
 On everything that flies: OFF / STBY / A (code 0000-7777) / C (+ altitude) / S (+ the board number). Its panel - the vehicle menu, "Transponder" line: digits, mode, 7000 / 7600 / 7700, "Day key". IDENT - the \ key: the blip blinks 18 s on every radar. A new vehicle - mode C, code 7000.
-**Day key**: the post's secret + the game day = the code of the day. The "Code Card" (2 paper + blue dye): right-click a KP - today's code on the card; a transponder with "Day key" takes the code from the card in the pilot's inventory. Yesterday's card gives yesterday's code - a stranger to the air defence.
+**Day key**: the owner's secret (one for all his KPs) + the game day = the code of the day. The "Code Card" (2 paper + blue dye): right-click a KP - today's code on the card; a transponder with "Day key" takes the code from the card in the pilot's inventory. Yesterday's card gives yesterday's code - a stranger to the air defence.
 @recipe craft:siliconagevehicles:codeCard
 
 # Radars
 @kv Surveillance (HV) | 600 blocks on RCS 40, a 6 s sweep, reads transponders
 @kv Tracking (HV) | 360 blocks, twice a second, two targets, missiles need it
 @kv Height finder (MV) | 400 blocks, the altitude of every target
-**RCS** (detectability): ship 40, liner 20, shuttle 12, tiltrotor 8, helicopter 6, plane 4, jet 3 - the surveillance radar sees a plane at 337 blocks. Rain -15 %, a thunderstorm -30 %; terrain casts a shadow; below 4 blocks over the ground and ground vehicles are unseen; the Singular Ship's invisibility hides it completely. Gear down and a drop tank +20 %, the liner's cargo doors open +10 %, reverse and afterburner +15 %. Tuning "Radar-absorbing coating" x0.6, "Smooth hull" x0.9.
-**RWR** - the "Radar warning receiver" tuning: who is painting you (S surveillance, T lock, M missile, H height finder), with sounds.
+**RCS** (detectability): ship 40, liner 20, shuttle 12, tiltrotor 8, helicopter 6, plane 4, jet 3 - the surveillance radar sees a plane at 337 blocks. Rain -15 %, a thunderstorm -30 % (where the radar stands: no rain in a desert); terrain casts a shadow, slabs, stairs and fences too, and in unloaded chunks by the heights the air defence remembered round its radars and launchers (airdefense.terrainCache); below 4 blocks over the ground and ground vehicles are unseen; the Singular Ship's invisibility hides it completely. Gear down and a drop tank +20 %, the liner's cargo doors open +10 %, reverse and afterburner +15 %. Tuning "Radar-absorbing coating" x0.6, "Smooth hull" x0.9.
+**RWR** - the "Radar warning receiver" tuning: who is painting you (S surveillance, H height finder, T a tracking radar's lock, L a launcher's lock - a square, M missile; a red circle - the launcher that fired), nearer the centre - nearer. SEARCH / LOCK / LAUNCH lamps; a scope in the light plane and the helicopter, a unit on the glare shield of the jet and the tiltrotor, the liner - on the ND with an E/WD caution. Sounds: a ping for a new search radar, a steady tone while locked, a warble on a launch. Without power the RWR is silent; like every tuning it works only while the server has tuning on (vehicles.tuning).
 @schem ad_survey
 @recipe wb:radarSurvey
 @schem ad_track
@@ -22,36 +22,37 @@ On everything that flies: OFF / STBY / A (code 0000-7777) / C (+ altitude) / S (
 
 # Zones and rules of engagement
 **Zones** - forbidden, restricted, aerodrome, corridor; a circle or a (turned) rectangle, heights from-to. Pilots see them on the map, the HSI, the liner's ND and as a frame on the HUD; the prediction "ZONE ... ENTRY IN N S" (airdefense.zoneWarnSeconds = 30), within a third of it red with a second tone.
-The post's **rules of engagement**: hold fire / at zone violators / at all strangers / at the post's marks. Before fire - a message to the pilot, a lock in 5 s, a wait (at least airdefense.minWarningSeconds), warning tracers, then fire.
+The **rules of engagement** are set on each launcher (its screen): hold fire / at zone violators / at all strangers / at the post's marks. The KP sets no rules: it assigns targets (a launcher on "the post's marks" takes them), switches "Auto" on (such a launcher takes violators itself) and "Track only" (a hold-fire for all of this KP's launchers). A launcher without a working KP fires only at violators. Before fire - a message to the pilot, a lock in 5 s, a wait (at least airdefense.minWarningSeconds), warning tracers, then fire.
 
 # AA gun and missile system
 @kv AA gun (MV) | 110 blocks, a burst of 3 shells every 0.5 s, 10 a hit
-@kv Missile system (EV) | 280 blocks, 4 tubes, two missiles in the air, only at a tracking radar's target, 110 a hit, 20,000 EU a launch
-A missile flies 3 blocks a tick for up to 8 s, a 3-block fuse, and loses its target behind terrain. Shells and missiles go into the launcher's screen (or the "Puller" module takes them from chests nearby).
+@kv Missile system (EV) | 280 blocks, 4 tubes, two missiles in the air, at a tracking radar's target or its own eyes' (48 blocks), 110 a hit, 20,000 EU a launch
+The gun leads a radar mark by its age, within 48 blocks takes the target with its own eyes and fires only with a clear line of fire; the first block stops a shell. A missile flies 3 blocks a tick for up to 8 s, a 3-block fuse, and loses its target behind terrain. Shells and missiles go into the launcher's screen, by Shift+right-click with them on it, or the "Puller" module takes them from chests nearby. The damage goes to the hull (armour -40 %, airdefense.damageMultiplier); with vehicles.wear = false hulls never wear, and the air defence fires to no effect.
 @schem ad_gun
 @recipe craft:siliconagevehicles:adAmmo:0
 @schem ad_missile
 @recipe craft:siliconagevehicles:adAmmo:1
 
 # Command post
-A map with zones, radars, launchers and tracks (own / stranger / violator / 7700), a data block, a contact list, a log, ALARM (redstone 15), "Auto", code card printing, a message to a pilot. Right-click a track: assign a launcher, auto, track only, "friend for 10 minutes", message.
+A map with zones, radars, launchers and tracks (own / stranger / violator / 7700), a data block, a contact list, a log, ALARM (redstone 15), "Auto", code card printing, a message to a pilot. Right-click a track: assign a launcher, auto, track only (this KP's launchers hold fire), "friend for 10 minutes", message. A track no surveillance radar has interrogated yet is "unknown": no fire. Radars and launchers answer to one KP of theirs (the ">" button on their screen).
 - **"Zones"** tab: drag the corners, sides and centre with the mouse, the ring - turn, "Grid 8", copy / paste / undo.
-- **"Settings"**: name, day key and secret, own codes, a Mode S white list, trusted airports, access.
+- **"Settings"**: name, day key and secret, own codes, a Mode S white list ("23:Name" - board numbers repeat), trusted towers ("ICAO:Owner"), access.
 - **"Equipment"**: energy, input, module slots.
 - The radar **coverage map** ("Cov.: 20 / 60 / 120 bl"): green - seen, red - dead zones behind terrain.
 @schem ad_kp
 @recipe wb:commandPost
 
 # A whole air-defence site
-An example layout: the KP in the middle, the three radars behind it, the gun and the missile system in front. Each structure is placed as one block (cyan) and takes its other cells by itself - they must be free. "Hologram in the world" shows it all at once.
+An example layout: the KP in the middle, the three radars behind it, the gun and the missile system in front. Each structure is placed as one block (cyan) and takes its other cells by itself - they must be free and not under someone else's protection. "Hologram in the world" shows it all at once.
+@note The air defence works only in loaded chunks: a site with no player near (and no other mod's chunk loader) is loaded only by the intruder himself, within his view distance (about 160 blocks), not at the surveillance radar's 600 blocks. The air defence remembers the terrain of unloaded chunks, but radars, KPs and launchers in them stand still.
 @schem ad_complex
 
 # Airport codes, IFF and 7600
-- The tower gives codes 4100-4177: a departure with its take-off clearance, an arrival entering the zone with mode C. The liner gets it by CPDLC (WILCO sets it), the others have it set at once.
-- An aircraft squawking its own airport's code near the airport (160 blocks) is OWN: no alarm, no fire (airdefense.airportFriends).
+- The tower gives codes 4100-4177: a departure with its take-off clearance, an arrival entering the zone with mode C. On its own only to the aircraft of its owner, his access list and its "Codes: trusted" list; to the others - the controller (his clearance or the "SQWK" button). It never replaces 7500 / 7600 / 7700 or a running day key, and a day key comes back on after leaving the airport. The liner gets it by CPDLC (WILCO sets it), the others have it set at once.
+- An aircraft squawking the code its own or a trusted airport's tower gave this very aircraft, near the airport (160 blocks), is OWN: no alarm, no fire (airdefense.airportFriends). A zone violation and an IFF handoff weigh more than the code.
 - **IFF**: the tower owner's radars interrogate aircraft. Silent or a stranger's code - the "INTRUD." alarm, a call to the pilot; he answers by switching the transponder on or replying by CPDLC. No answer within 30 s - handed to the air defence (airdefense.iffHandoff, off by default).
-- **7600** (no radio): the KP shows a "NO RADIO" track with a 120 s timer and the decision "Friendly" (for 10 minutes) or "Check"; without a decision - the usual rules.
+- **7600** (no radio): the KP shows a "NO RADIO" track with a 120 s timer and the decision "Friendly" (for 10 minutes), "Check" or "Hostile"; without a decision - the usual rules. A code change does not reset the timer (airdefense.noRadioMemoryMinutes) but drops "Check"; the time nobody sees the aircraft does not count. A launcher without a KP gives 7600 two minutes. 7500 - the KP's alarm.
 
 # Modules and server rules
-4 slots for core modules on each block: universal transformer, transformer, energy storage, overclocker, economizer, overdrive (radars only), puller (launchers only). A broken structure keeps its modules in its item.
-Server rules (the airdefense category): enabled, mode (warnings / fire), fireInProtectedRegions, fireOnFriends, requirePvp, fireOnUnmanned, maxLaunchersPerPlayer, maxRadarsPerPlayer, minDistanceFromSpawn, minWarningSeconds, launchLog (logs/airdefense.log), damageMultiplier, dayKey.
+4 slots for core modules on each block: universal transformer, transformer, energy storage, economizer - everywhere; overclocker - radars and launchers (a KP has nothing to speed up), overdrive - radars only, puller - launchers only. A broken structure keeps its modules in its item.
+Server rules (the airdefense category): enabled (off - the whole air defence stands unpowered), mode (warnings / fire), fireInProtectedRegions, fireOnFriends, requirePvp, fireOnUnmanned, maxLaunchersPerPlayer, maxRadarsPerPlayer, minDistanceFromSpawn, minWarningSeconds, launchLog (logs/airdefense.log: launches, who assigned the target, hits), damageMultiplier, terrainCache and terrainCacheRadius (the terrain memory, 640 bl), dayKey, zoneMaxDistance (a zone within 1024 blocks of its command post), maxZonesPerPlayer (64 zones a player). Command post orders - at most once a second.

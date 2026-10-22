@@ -1026,7 +1026,8 @@ public final class LinerPaintSVA {
         }
         p.window(660, 1255, "Н 0.0", 80, 22, AMB, 14, 'm');
         p.label(660, 1228, "ТРИММ РН", 10);
-        // radio + transponder (decorative in wave 1)
+        // radio (decorative in wave 1) + transponder (audit 2026-10-22: live - the code, the mode bar, ОПОЗН. and the lamps are
+        // drawn at run time by LinerCockpitSVA.xpdrPanel; the knob has our five modes)
         p.module(15, 1300, 745, 1470);
         p.label(200, 1318, "РАДИО  (RMP 1)", 12);
         p.window(110, 1352, "118.700", 140, 30, AMB, 20, 'm');
@@ -1041,9 +1042,8 @@ public final class LinerPaintSVA {
         }
         p.rect(50, 1430, 90, 1433, GRN, null, 0, 0, null);
         p.label(570, 1318, "ОТВЕТЧИК", 12);
-        p.window(520, 1352, "7000", 100, 30, AMB, 21, 'm');
-        p.rotary(660, 1356, new String[] {"ОЖИД", "АВТО", "ВКЛ"}, null, 15, 100, 9);
-        drawBar(p, 660, 1356, 15, 0);
+        p.window(520, 1352, null, 100, 30, AMB, 21, 'm');
+        p.rotary(660, 1356, new String[] {"ВЫКЛ", "ДЕЖ", "A", "C", "S"}, null, 15, 140, 8);
         for (int i = 0; i < 8; i++) {
             p.key(450 + i * 34, 1394, 478 + i * 34, 1418, String.valueOf(i), 11, rgb(58, 61, 66));
         }

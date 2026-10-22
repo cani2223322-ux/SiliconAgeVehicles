@@ -677,6 +677,45 @@ public final class LinerCockpitSVA {
         return 100;
     }
 
+    /**
+     * Audit 2026-10-22: the pedestal's transponder, live (it was painted «7000» for good): the code in its window (amber
+     * sent; ВЫКЛ / ДЕЖ dimmed - not sent; 7700 red), the mode knob's bar on ВЫКЛ / ДЕЖ / A / C / S (LinerPaintSVA: 140 deg
+     * over five marks), ОПОЗН. lit cyan while IDENT flashes, the ОТВЕТ lamp on each interrogation, КЛЮЧ ДНЯ under the
+     * window, ВЫСОТА lit in C / S. Only with the board powered (windows()).
+     */
+    static void xpdrPanel(EntityVehicleSVA v) {
+        int mode = AirDefenseClientSVA.xpdrMode(v), code = AirDefenseClientSVA.xpdrCode(v);
+        int show = com.sva.airdefense.XpdrMath.show(true, mode, code);
+        int c = show == com.sva.airdefense.XpdrMath.SHOW_RED ? L_RED : show == com.sva.airdefense.XpdrMath.SHOW_AMBER ? L_AMB : scale(L_AMB, 0.3F);
+        LinerGfxSVA.layer();
+        LinerGfxSVA.text(com.sva.airdefense.XpdrMath.format(code), 520, 1352, 21, c, 0, 96);
+        float a = -70 + 35 * Math.max(0, Math.min(com.sva.airdefense.XpdrMath.MODES - 1, mode)), r = 15;
+        float s = (float) Math.sin(Math.toRadians(a)), co = (float) -Math.cos(Math.toRadians(a)), wv = r * 0.32F;
+        float tx = 660 + s * r * 1.05F, ty = 1356 + co * r * 1.05F, bx = 660 - s * r * 0.95F, by = 1356 - co * r * 0.95F;
+        float nx = -co * wv, ny = s * wv;
+        LinerGfxSVA.poly(new float[] {tx + nx, ty + ny, tx - nx, ty - ny, bx - nx, by - ny, bx + nx, by + ny}, 0x121214);
+        LinerGfxSVA.layer();
+        LinerGfxSVA.line(660, 1356, tx - s * r * 0.1F, ty - co * r * 0.1F, Math.max(1.2F, r * 0.1F), 0xF4F4EC);
+        if (AirDefenseClientSVA.xpdrIdent(v)) {
+            LinerGfxSVA.rect(526 + 3, 1428 + 3, 596 - 3, 1452 - 4, scale(L_BLU, (System.currentTimeMillis() / 400) % 2 == 0 ? 0.5F : 0.3F));
+            LinerGfxSVA.layer();
+            LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.ident"), 561, 1440, 9, 0xE8F4FF, 0, 64);
+        }
+        if (AirDefenseClientSVA.xpdrReply(v)) {
+            LinerGfxSVA.disc(586, 1343, 5, L_GRN);
+        }
+        if (AirDefenseClientSVA.xpdrKeyLamp(v)) {
+            LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.dayKey"), 520, 1379, 9.5F, L_AMB, 0, 96);
+        }
+        if (com.sva.airdefense.XpdrMath.givesAltitude(mode)) {
+            // audit review 2026-10-22: a dark lamp window over the painted ВЫСОТА first (the lit word lay on it, the two fonts
+            // apart - a doubled smudge)
+            LinerGfxSVA.rect(668 - 46, 1440 - 8, 668 + 3, 1440 + 8, 0x141517);
+            LinerGfxSVA.layer();
+            LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.xpdrAlt"), 668, 1440, 9, L_GRN, 1, 44);
+        }
+    }
+
     /** The digital windows and the lamps that are no control (ADIRS ВЫСТ. / НА АКБ, the engines' ОТКАЗ, the ECAM key bars). */
     static void windows(int panel, int pass, EntityVehicleSVA v, LinerSystems L, boolean power) {
         if (!power) {
@@ -761,6 +800,9 @@ public final class LinerCockpitSVA {
                 LinerGfxSVA.layer();
                 LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.gear"), 630, 1530, 11, L_RED, 0, 84);
             }
+        }
+        if (panel == LinerControls.PED && pass != 0 && v != null) {
+            xpdrPanel(v);                                           // audit 2026-10-22: the live transponder
         }
         if (panel == LinerControls.PED && pass != 0) {
             // wave 7: the masters' red ПОЖАР lamps (the engines' fire or its test)

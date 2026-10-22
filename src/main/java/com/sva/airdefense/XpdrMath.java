@@ -10,8 +10,11 @@ import net.minecraft.nbt.NBTTagCompound;
  * <p>
  * Modes as in real aviation: ВЫКЛ / ДЕЖ (on, silent) - no reply, the radar sees only a blip; A - the code (4 octal
  * digits 0000..7777: 8 and 9 do not exist); C - the code and the altitude; S - plus the board number (the air defence's
- * Mode S white list). Special codes: 7700 «авария» (never fired at, flashes red on every scope), 7600 «нет связи» (no fire
- * for NO_RADIO_GRACE while the command post decides). IDENT makes the blip flash for IDENT_TICKS on every radar.
+ * Mode S white list). Special codes: 7700 «авария» (never fired at while it is heard - the board's power on, not a wreck:
+ * AirDefenseSVA.xpdrOn; flashes red on every scope), 7600 «нет связи» (no fire while the command post decides - its
+ * airdefense.noRadioDecisionSeconds; a launcher without a working post gives NO_RADIO_GRACE, counted over all of the
+ * vehicle's 7600 episodes - NoRadioMath, AirDefenseDataSVA.freeNoRadio). 7500 - the post's alarm. IDENT makes the blip
+ * flash for IDENT_TICKS on every radar.
  * <p>
  * «Ключ дня»: the air defence owner's secret word and the game day give the day's code (dayCode) - the command post prints
  * it on a «Карта кодов»; a transponder with «Ключ дня» on takes the code from the card in the pilot's inventory by itself
@@ -31,8 +34,18 @@ public final class XpdrMath {
     public static final long DAY_TICKS = 24000L;
     /** 7600: no fire for 2 minutes after it was first seen. */
     public static final int NO_RADIO_GRACE = 2 * 60 * 20;
+    /** Audit review 2026-10-22: a command post's 7500 alarm (the log, the sound, the chat) once a vehicle in this many ticks. */
+    public static final long HIJACK_REPEAT = 5 * 60 * 20;
 
     private XpdrMath() {
+    }
+
+    /**
+     * Audit review 2026-10-22: a 7500 heard again - is the alarm told again (`last`: when it was told for this vehicle, -1
+     * never)? Once in HIJACK_REPEAT; a clock gone back (another world's time) tells it.
+     */
+    public static boolean hijackAlarm(long last, long now) {
+        return last < 0 || now < last || now - last >= HIJACK_REPEAT;
     }
 
     /** A code 0000..7777 (octal). */
@@ -155,6 +168,55 @@ public final class XpdrMath {
         return (Math.max(0, Math.min(MODES - 1, m)) + 1) % MODES;
     }
 
+    // ------------------------------------------------------------------ audit 2026-10-22: the panel's changes, its looks
+
+    /**
+     * Audit 2026-10-22 (bug 12): which of the panel's fields a XPDR_SET carries (its "Ch" bits) - only the ones the pilot
+     * touched. The panel used to send all three from its own copy, 0..19 ticks old: a mode pressed right after «Ключ дня»
+     * sent the old code back, the server took it as a code dialled by hand and switched the day key off; a tower's code and
+     * a 7600 set through the command post were reverted the same way. CH_ALL: an old client's packet (no "Ch").
+     */
+    public static final int CH_MODE = 1, CH_CODE = 2, CH_KEY = 4, CH_ALL = 7;
+
+    /**
+     * The panel's change applied (the server's setXpdr): the mode when CH_MODE; the code when CH_CODE (a code dialled by
+     * hand switches «Ключ дня» off unless the same packet turns it on); «Ключ дня» when CH_KEY. Fields not in `changed` stay
+     * as the server has them (the card's code, the tower's, 7600 from the post).
+     */
+    public static void applyPanel(Xpdr x, int changed, int mode, int code, boolean dayKey, long now) {
+        if ((changed & CH_MODE) != 0) {
+            x.mode = Math.max(0, Math.min(MODES - 1, mode));
+        }
+        boolean key = (changed & CH_KEY) != 0 ? dayKey : x.dayKey;
+        if ((changed & CH_CODE) != 0 && valid(code) && code != x.code) {
+            x.setCode(code, now);
+            if ((changed & CH_KEY) == 0 || dayKey == x.dayKey) {
+                key = false;                                        // a code dialled by hand - the card no longer sets it
+            }
+        }
+        x.dayKey = key;
+        if (!key) {
+            x.cardDay = -1;
+        }
+    }
+
+    /** How a cockpit's code window shows the code: dark (no power), dim (ВЫКЛ / ДЕЖ: set, not sent), amber, red (7700 sent). */
+    public static final int SHOW_DARK = 0, SHOW_DIM = 1, SHOW_AMBER = 2, SHOW_RED = 3;
+
+    /**
+     * Audit 2026-10-22 (the cockpits): a code that is not sent (ВЫКЛ / ДЕЖ) is shown dimmed, never in the active amber
+     * - the pilot sees at a glance that no radar gets it; 7700 being sent is red.
+     */
+    public static int show(boolean powered, int mode, int code) {
+        if (!powered) {
+            return SHOW_DARK;
+        }
+        if (!replies(mode)) {
+            return SHOW_DIM;
+        }
+        return code == EMERGENCY ? SHOW_RED : SHOW_AMBER;
+    }
+
     // ------------------------------------------------------------------ a vehicle's transponder (VehicleState.xpdr)
 
     /** The transponder of one vehicle (server: the vehicle's NBT; client: the copy sent to its riders). */
@@ -200,7 +262,11 @@ public final class XpdrMath {
             code = c;
         }
 
-        /** 7600 is still in its no-fire grace. */
+        /**
+         * The transponder's own 7600 timer (since it was last set). Audit 2026-10-22 (4.1): the air defence does not use it - a
+         * code change restarts it; the launchers count NoRadioMath's episodes by the vehicle's persistent id instead. Kept for
+         * the self-test and old callers.
+         */
         public boolean noRadioGrace(long now) {
             return replying() && code == NO_RADIO && (noRadioSince < 0 || now - noRadioSince < NO_RADIO_GRACE);
         }

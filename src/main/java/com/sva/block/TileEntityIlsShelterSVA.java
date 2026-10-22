@@ -67,7 +67,7 @@ public class TileEntityIlsShelterSVA extends TileEntityEnergyBase {
     }
 
     public int upgradeCount(UpgradeType type) {
-        if (!ConfigSVA.adUpgrades || !AdUpgradeMath.accepts(B_ILS, type)) {
+        if (!com.sva.net.ServerConfigSVA.adUpgrades() || !AdUpgradeMath.accepts(B_ILS, type)) {
             return 0;
         }
         int n = 0;
@@ -80,7 +80,7 @@ public class TileEntityIlsShelterSVA extends TileEntityEnergyBase {
     }
 
     public boolean upgradeAccepted(ItemStack s) {
-        return ConfigSVA.adUpgrades && s != null && s.getItem() instanceof ItemUpgradeSC && AdUpgradeMath.accepts(B_ILS, ItemUpgradeSC.typeOf(s))
+        return com.sva.net.ServerConfigSVA.adUpgrades() && s != null && s.getItem() instanceof ItemUpgradeSC && AdUpgradeMath.accepts(B_ILS, ItemUpgradeSC.typeOf(s))
                 && ItemUpgradeSC.typeOf(s) != UpgradeType.OVERCLOCKER;
     }
 

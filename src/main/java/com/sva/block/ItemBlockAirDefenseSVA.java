@@ -23,6 +23,10 @@ import net.minecraft.world.World;
  * Multiblock wave: placing it puts the whole structure in (BlockAirDefenseSVA.build) facing the player, the clicked block
  * the master in its front row; with a cell taken (a block, a mob or a player in the way, an unloaded chunk, the world's top)
  * nothing is placed and the chat says how much room it needs.
+ * Audit 2026-10-22 (bug 17): the per-player limit and every cell's protections (BlockAirDefenseSVA.overLimit / refusedCell)
+ * are asked here, before anything is built - refused, it returns false: nothing placed, nothing consumed, nothing given
+ * back (the old refusal after building returned the item while Forge, cancelling the placement in a claim, restored the
+ * stack too - one more item a click). The client only guesses (the room); the server builds and its blocks come back.
  */
 public class ItemBlockAirDefenseSVA extends ItemBlock {
 
@@ -44,13 +48,29 @@ public class ItemBlockAirDefenseSVA extends ItemBlock {
         BlockAirDefenseSVA b = (BlockAirDefenseSVA) field_150939_a;
         int facing = AdShapeMath.facingFromYaw(p == null ? 0F : p.rotationYaw);
         int shape = AdShapeMath.shape(b.kind, meta);
+        if (!w.isRemote && BlockAirDefenseSVA.overLimit(w, b.kind, p)) {
+            p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.limit", Integer.valueOf(BlockAirDefenseSVA.limitOf(b.kind))));
+            BlockAirDefenseSVA.resync(p);
+            return false;
+        }
         int[] blocked = BlockAirDefenseSVA.room(w, x, y, z, shape, facing);
         if (blocked != null) {
             if (!w.isRemote && p != null) {
                 p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.noRoom", Integer.valueOf(AdShapeMath.W[shape]),
                         Integer.valueOf(AdShapeMath.D[shape]), Integer.valueOf(AdShapeMath.layers(shape)), Integer.valueOf(blocked[0]),
                         Integer.valueOf(blocked[1]), Integer.valueOf(blocked[2])));
+                BlockAirDefenseSVA.resync(p);
             }
+            return false;
+        }
+        if (w.isRemote) {
+            return true;                                        // no guessed parts here (they stayed as ghosts when the server refused)
+        }
+        int[] refused = BlockAirDefenseSVA.refusedCell(w, x, y, z, shape, facing, p, side);
+        if (refused != null) {
+            p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.protected", Integer.valueOf(refused[0]), Integer.valueOf(refused[1]),
+                    Integer.valueOf(refused[2])));
+            BlockAirDefenseSVA.resync(p);
             return false;
         }
         if (!BlockAirDefenseSVA.build(w, x, y, z, b, meta, facing)) {

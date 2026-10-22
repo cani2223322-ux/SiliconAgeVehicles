@@ -93,6 +93,15 @@ public final class CoverageMath {
         return h;
     }
 
+    /**
+     * Audit 2026-10-22: a kept map still fits the radar - built from the same antenna point and reach (an overdrive taken
+     * in or out changes the reach: the old grid drawn at the new scale was wrong).
+     */
+    public static boolean sameJob(double[] built, double ax, double ay, double az, double range) {
+        return built != null && built.length >= 4 && Math.abs(built[0] - ax) < 1e-6 && Math.abs(built[1] - ay) < 1e-6
+                && Math.abs(built[2] - az) < 1e-6 && Math.abs(built[3] - range) < 1e-6;
+    }
+
     /** A map being computed in slices. */
     public static final class Job {
         public final double ax, ay, az, range;

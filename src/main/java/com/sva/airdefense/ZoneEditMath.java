@@ -32,8 +32,10 @@ public final class ZoneEditMath {
     public static final int MIN_SIDE = 2, MIN_R = 2;
     public static final int UNDO_MAX = 20;
     /** check() results. */
-    public static final int OK = 0, E_TOO_BIG = 1, E_TOO_SMALL = 2, E_BAND = 3, E_NAME = 4, E_CODES = 5;
-    public static final String[] CHECK_KEYS = {"ok", "tooBig", "tooSmall", "band", "name", "codes"};
+    public static final int OK = 0, E_TOO_BIG = 1, E_TOO_SMALL = 2, E_BAND = 3, E_NAME = 4, E_CODES = 5,
+            /** Audit 2026-10-22 (bug 1): reaches further from the command post than the server's airdefense.zoneMaxDistance. */
+            E_TOO_FAR = 6;
+    public static final String[] CHECK_KEYS = {"ok", "tooBig", "tooSmall", "band", "name", "codes", "tooFar"};
 
     private ZoneEditMath() {
     }
@@ -187,10 +189,12 @@ public final class ZoneEditMath {
             return E_NAME;
         }
         if (z.shape == ZoneMath.RECT) {
-            if (z.x1 - z.x0 > 2 * ZoneMath.MAX_HALF || z.z1 - z.z0 > 2 * ZoneMath.MAX_HALF) {
+            // bug 1: the sizes in long, as the server's Zone.read now (an int overflowed for a box of +-2e9)
+            long w = (long) z.x1 - z.x0, d = (long) z.z1 - z.z0;
+            if (w > 2L * ZoneMath.MAX_HALF || d > 2L * ZoneMath.MAX_HALF) {
                 return E_TOO_BIG;
             }
-            if (z.x1 - z.x0 + 1 < MIN_SIDE || z.z1 - z.z0 + 1 < MIN_SIDE) {
+            if (w + 1 < MIN_SIDE || d + 1 < MIN_SIDE) {
                 return E_TOO_SMALL;
             }
         } else {
@@ -210,6 +214,15 @@ public final class ZoneEditMath {
         return OK;
     }
 
+    /**
+     * Bug 1: check() and then the reach - the whole zone within `maxDist` blocks of its command post at (kx, kz) (the
+     * server's airdefense.zoneMaxDistance, sent with the post's picture; 0 - no limit / not known).
+     */
+    public static int check(ZoneMath.Zone z, int kx, int kz, int maxDist) {
+        int c = check(z);
+        return c != OK ? c : ZoneMath.withinReach(z, kx, kz, maxDist) ? OK : E_TOO_FAR;
+    }
+
     /** «Вставить»: the clipboard's zone with its middle at (x, z) (snapped), «-2» after its name (12 characters at most). */
     public static ZoneMath.Zone pasteAt(ZoneMath.Zone clip, double x, double zz, boolean snap) {
         ZoneMath.Zone z = clip.copy();
@@ -220,16 +233,39 @@ public final class ZoneEditMath {
         return z;
     }
 
-    /** The undo stack of one editor: the zone before each finished edit. */
+    /**
+     * The undo stack of one editor: the zone before each finished edit, with the list index of the zone that was being
+     * edited then (-1: a new one). Audit 2026-10-22 (bug 13): the index travels with the entry - an undo puts the editor
+     * back on THAT zone, so «Сохранить» after it writes where the old copy came from; choosing another zone in the list
+     * clears the stack (select). It used to keep the stack over a selection: edit zone A, choose B, «Отменить» put A's
+     * old copy in the fields, «Сохранить» wrote it over B for good.
+     */
     public static final class History {
-        private final List<ZoneMath.Zone> stack = new ArrayList<ZoneMath.Zone>();
+        private final List<Entry> stack = new ArrayList<Entry>();
+        private int zone = -1;
 
-        /** Before an edit: the zone as it is (a copy). */
+        /** One step back: the zone's list index (-1 a new zone) and the zone as it was. */
+        public static final class Entry {
+            public final int zone;
+            public final ZoneMath.Zone before;
+
+            Entry(int zone, ZoneMath.Zone before) {
+                this.zone = zone;
+                this.before = before;
+            }
+        }
+
+        /** Before an edit of the zone being edited now (select()'s): the zone as it is (a copy). */
         public void push(ZoneMath.Zone before) {
+            push(zone, before);
+        }
+
+        /** Before an edit of list zone `index` (-1 a new zone): the zone as it is (a copy). */
+        public void push(int index, ZoneMath.Zone before) {
             if (before == null) {
                 return;
             }
-            stack.add(before.copy());
+            stack.add(new Entry(index, before.copy()));
             while (stack.size() > UNDO_MAX) {
                 stack.remove(0);
             }
@@ -237,7 +273,52 @@ public final class ZoneEditMath {
 
         /** The zone before the last edit (taken off the stack), null when there is none. */
         public ZoneMath.Zone undo() {
-            return stack.isEmpty() ? null : stack.remove(stack.size() - 1);
+            Entry e = undoEntry();
+            return e == null ? null : e.before;
+        }
+
+        /** The last edit's entry (taken off the stack): the editor goes back to its zone (index) and its copy; null none. */
+        public Entry undoEntry() {
+            if (stack.isEmpty()) {
+                return null;
+            }
+            Entry e = stack.remove(stack.size() - 1);
+            zone = e.zone;
+            return e;
+        }
+
+        /** The editor now edits list zone `index` (-1 a new one): another zone than before - the stack is cleared. */
+        public void select(int index) {
+            if (index != zone) {
+                stack.clear();
+            }
+            zone = index;
+        }
+
+        /**
+         * The editor's zone became another one by an edit, not a choice (a paste makes a new zone of it): the stack is kept,
+         * its entries keep the index they were made with.
+         */
+        public void moveTo(int index) {
+            zone = index;
+        }
+
+        /** A new zone was saved as list zone `index`: the entries made while it was new (-1) now belong to it. */
+        public void saved(int index) {
+            for (int i = 0; i < stack.size(); i++) {
+                Entry e = stack.get(i);
+                if (e.zone < 0) {
+                    stack.set(i, new Entry(index, e.before));
+                }
+            }
+            if (zone < 0) {
+                zone = index;
+            }
+        }
+
+        /** The zone the editor edits (as select / undoEntry left it). */
+        public int zone() {
+            return zone;
         }
 
         public int size() {

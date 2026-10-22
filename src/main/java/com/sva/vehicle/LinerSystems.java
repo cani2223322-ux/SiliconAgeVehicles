@@ -1819,7 +1819,10 @@ public final class LinerSystems {
         return essOnly && (du == DU_PFD1 || du == DU_ISIS);
     }
 
-    /** Any electrical power on board (the batteries' bus at least): the overhead's integral lighting, the transponder. */
+    /**
+     * Any electrical power on board (the batteries' bus at least): the overhead's integral lighting, the transponder (audit
+     * 2026-10-22: AirDefenseSVA.xpdrPowered asks it - a dark liner answers no radar, IFF or tower).
+     */
     public boolean powered() {
         return essOnly || ac1Src != S_NONE || ac2Src != S_NONE;
     }

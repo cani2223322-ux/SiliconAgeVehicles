@@ -56,6 +56,8 @@ public final class IffMath {
     public static final class Track {
         public int state = CLEAR, reason = R_NONE;
         public long since = -1, warnedAt = -1;
+        /** Audit 2026-10-22: the aircraft's persistent id (its handoff is kept by it). */
+        public String vid = "";
     }
 
     /**

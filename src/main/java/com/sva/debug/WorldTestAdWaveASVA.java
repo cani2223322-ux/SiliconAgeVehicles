@@ -53,13 +53,19 @@ import net.minecraft.world.World;
  * gun («по всем чужим») and a missile system («по нарушителям»), a control tower (no runways: its «аэродром» zone r 96 round
  * it) of the same owner; aircraft held in the air:
  * <ul>
- * <li>«codes»: a liner L1 entering the airport's zone with mode C gets «КОД ОТВЕТЧИКА 41xx» by CPDLC, its WILCO sets it; a light
- * plane P2 gets its code set at once; another P3 on the ground gets one with its take-off clearance; in «fire» the gun leaves
- * L1 (a friend: the friendly airport's code) and fires at a stranger S squawking 7000;</li>
+ * <li>«codes» (audit 2026-10-22, bugs 5 / 9 - inverted): a stranger's liner L1 entering the airport's zone with mode C gets NO
+ * code (nor does a stranger's plane P2); once its owner is on the tower's «коды: доверенные» list it gets «КОД ОТВЕТЧИКА
+ * 41xx» by CPDLC, its WILCO sets it; the tower owner's plane P4 gets its code set at once; his 7700 (E7) and his running day
+ * key (DK) are never replaced; a day key replaced (DR) comes back on once it leaves the airport; a stranger P3 on the ground
+ * gets no code with the automatic tower's take-off clearance, one with the controller's; in «fire» the gun leaves L1 (a
+ * friend: the code its tower gave it) and fires at a stranger S squawking 7000;</li>
  * <li>«IFF»: a silent plane N near the airport (out of the gun's reach) - the tower's alarm, then the handoff (airdefense.iffHandoff
- * on for the test): the post classes it a violator, the missile system takes it; the transponder switched on - resolved;</li>
+ * on for the test): the post classes it a violator, the missile system takes it; the transponder switched on - resolved.
+ * Audit 2026-10-22 (bug 6): U squawks a code of the range dialled by hand (no friend; R_UNKNOWN), V the code the tower gave
+ * L1 (R_MISMATCH) - both handed over and violators for the post, the aerodrome code no longer cancels it;</li>
  * <li>«7600»: three planes squawking 7600 - pending (no fire), «проверить» (no fire), «свой» (a friend), and the one left to the
- * timer - the usual rules (the gun takes it);</li>
+ * timer - the usual rules (the gun takes it); audit 2026-10-22 (bug 8): R4 switches to 7000 for a surveillance cycle and back -
+ * the same entry, its timer paused not restarted; «враждебный» - a stranger at once;</li>
  * <li>«modules»: a launcher with overclockers broken - the item keeps them, placed again - they are back; a creative break -
  * loose; the missile system's model reload follows its overclockers;</li>
  * <li>«RCS»: a plane 380 blocks off unseen, with a drop tank (stores) seen; the liner's gear / cargo doors;</li>
@@ -84,6 +90,13 @@ final class WorldTestAdWaveASVA {
     private TileEntityLauncherSVA gun, sam;
     private TileEntityTowerSVA tower;
     private EntityVehicleSVA l1, s, n, p2, p3, r1, r2, r3, rcsPlane, m, liner2;
+    // audit 2026-10-22: the tower owner's planes (P4 a code at once, E7 7700, DK a running day key, DR a day key replaced and
+    // restored), U / V the IFF's unknown / mismatch codes, R4 the 7600 pause and «враждебный»
+    private EntityVehicleSVA p4, e7, dk, dr, u, vm, r4;
+    private boolean trustGiven, iffCodes, uChecked, vSet, drAway, drDone, r4Off, r4Back, r4Decided, r4Done;
+    private int vSetAt = -1, drAwayAt = -1;
+    private NoRadioMath.Entry r4Entry;
+    private boolean sForeign, sEngaged;
     private final List<double[]> hold = new ArrayList<double[]>();
     private final List<EntityVehicleSVA> held = new ArrayList<EntityVehicleSVA>();
     // saved config
@@ -183,7 +196,7 @@ final class WorldTestAdWaveASVA {
         if (k >= 500) {
             prediction(w, k);
         }
-        if (codesDone && p3Done && iffResolved && nrDefaultDone && modulesDone && rcsDone && covB && predDone) {
+        if (codesDone && p3Done && iffResolved && nrDefaultDone && modulesDone && rcsDone && covB && predDone && iffCodes && drDone && r4Done) {
             phase = 9;
         }
     }
@@ -192,13 +205,26 @@ final class WorldTestAdWaveASVA {
 
     private void codes(World w, AirportDataSVA d, AirportDataSVA.Tower tw, int k, long now) {
         AtcServerSVA.Session ls = AtcServerSVA.INSTANCE.session(l1.getEntityId());
+        if (!trustGiven && k == 200) {
+            // audit 2026-10-22 (bug 5), inverted: a stranger's aircraft entering the zone gets no code on its own
+            boolean asked = false;
+            for (Cpdlc.Msg msg : ls == null ? new ArrayList<Cpdlc.Msg>() : ls.log.msgs) {
+                asked |= msg.up && msg.type == Cpdlc.U_SQUAWK;
+            }
+            AtcServerSVA.Session ps = AtcServerSVA.INSTANCE.session(p2.getEntityId());
+            check(ls != null && !asked && ls.sqCode < 0 && l1.state.xpdr.code == XpdrMath.VFR && ps != null && ps.sqCode < 0 && p2.state.xpdr.code == XpdrMath.VFR,
+                    "ad trust world «codes» (bug 5): a stranger's liner and plane entering the airport's zone get no code (" + XpdrMath.format(l1.state.xpdr.code)
+                            + ", " + XpdrMath.format(p2.state.xpdr.code) + ")");
+            tw.sqTrust.add("Guest");                               // the tower's «коды: доверенные»: the liner's owner
+            trustGiven = true;
+        }
         if (!wilco && ls != null) {
             for (Cpdlc.Msg msg : ls.log.msgs) {
                 if (msg.up && msg.type == Cpdlc.U_SQUAWK && msg.open()) {
                     int code = msg.arg;
                     boolean ok = AtcServerSVA.INSTANCE.respond(l1, msg.id, Cpdlc.R_WILCO, now);
-                    check(ok && code >= tw.codeLo && code <= tw.codeHi && l1.state.xpdr.code == code && !l1.state.xpdr.dayKey && ls.sqCode == code,
-                            "ad wave A world «codes»: the liner entering the airport zone got КОД ОТВЕТЧИКА " + XpdrMath.format(code)
+                    check(ok && trustGiven && code >= tw.codeLo && code <= tw.codeHi && l1.state.xpdr.code == code && !l1.state.xpdr.dayKey && ls.sqCode == code,
+                            "ad wave A world «codes»: the liner of an owner the tower trusts got КОД ОТВЕТЧИКА " + XpdrMath.format(code)
                                     + " by CPDLC, its WILCO set it (" + XpdrMath.format(l1.state.xpdr.code) + ")");
                     wilco = true;
                     wilcoAt = k;
@@ -207,27 +233,49 @@ final class WorldTestAdWaveASVA {
             }
         }
         if (k == 400) {
-            AtcServerSVA.Session ps = AtcServerSVA.INSTANCE.session(p2.getEntityId());
-            int c = p2.state.xpdr.code;
-            check(ps != null && ps.sqCode == c && c >= tw.codeLo && c <= tw.codeHi && (ls == null || ls.sqCode != c),
-                    "ad wave A world «codes»: a light plane entering the zone has its code set at once (" + XpdrMath.format(c) + ", the liner's "
-                            + (ls == null ? "-" : XpdrMath.format(ls.sqCode)) + ")");
+            AtcServerSVA.Session ps = AtcServerSVA.INSTANCE.session(p4.getEntityId());
+            int c = p4.state.xpdr.code;
+            check(ps != null && ps.sqCode == c && c >= tw.codeLo && c <= tw.codeHi && (ls == null || ls.sqCode != c) && p2.state.xpdr.code == XpdrMath.VFR,
+                    "ad wave A world «codes»: the tower owner's light plane entering the zone has its code set at once (" + XpdrMath.format(c) + ", the liner's "
+                            + (ls == null ? "-" : XpdrMath.format(ls.sqCode)) + "); the stranger's plane still none");
             check(wilco, "ad wave A world «codes»: the liner's squawk uplink came (by tick 400)");
+            // audit 2026-10-22 (bug 9): 7700 and a running day key are never replaced; a day key replaced comes back later
+            AtcServerSVA.Session ds = AtcServerSVA.INSTANCE.session(dr.getEntityId());
+            check(e7.state.xpdr.code == XpdrMath.EMERGENCY && dk.state.xpdr.code == 02345 && dk.state.xpdr.dayKey
+                    && ds != null && dr.state.xpdr.code == ds.sqCode && !dr.state.xpdr.dayKey && ds.sqKeyWas,
+                    "ad trust world «codes» (bug 9): the tower's code never replaces 7700 (" + XpdrMath.format(e7.state.xpdr.code) + ") nor a running day key ("
+                            + XpdrMath.format(dk.state.xpdr.code) + "); a day key without today's card is replaced (" + XpdrMath.format(dr.state.xpdr.code)
+                            + ") and remembered");
+            hold.get(held.indexOf(dr))[0] = tx + 280.5;             // DR leaves the airport (zone 96 + NEAR 160), still loaded
+            drAway = true;
+            drAwayAt = k;
+        }
+        if (drAway && !drDone && k - drAwayAt >= 40) {
+            check(dr.state.xpdr.dayKey, "ad trust world «codes» (bug 9): away from the airport the day key the tower's code replaced is back on");
+            drDone = true;
         }
         if (!p3Done && k >= 420) {
             AtcServerSVA.Session ss = AtcServerSVA.INSTANCE.session(p3.getEntityId());
             if (ss != null) {
                 int before = p3.state.xpdr.code;
                 AtcServerSVA.INSTANCE.uplink(w, d, tw, ss, Cpdlc.U_TAKEOFF, 0, "", -1, now);
+                int auto = p3.state.xpdr.code;
+                AtcServerSVA.INSTANCE.uplink(w, d, tw, ss, Cpdlc.U_TAKEOFF, 0, "", -1, now, true);
                 int c = p3.state.xpdr.code;
-                check(before == XpdrMath.VFR && c >= tw.codeLo && c <= tw.codeHi && ss.sqTower.equals(tw.key),
-                        "ad wave A world «codes»: a departure on the ground gets the airport's code with its take-off clearance (" + XpdrMath.format(before)
-                                + " -> " + XpdrMath.format(c) + ")");
+                check(before == XpdrMath.VFR && auto == XpdrMath.VFR && c >= tw.codeLo && c <= tw.codeHi && ss.sqTower.equals(tw.key),
+                        "ad wave A world «codes» (bug 5): a stranger's departure gets no code with the automatic tower's take-off clearance ("
+                                + XpdrMath.format(auto) + "), the airport's code with the controller's (" + XpdrMath.format(before) + " -> " + XpdrMath.format(c) + ")");
                 p3Done = true;
             } else if (k > 600) {
                 check(false, "ad wave A world «codes»: no session for the plane on the ground");
                 p3Done = true;
             }
+        }
+        if (wilco && !vSet) {
+            vm.state.xpdr.mode = XpdrMath.C;                        // bug 6: V squawks the code the tower gave L1
+            vm.state.xpdr.setCode(l1.state.xpdr.code, now);
+            vSet = true;
+            vSetAt = k;
         }
         if (wilco && !friendSeen) {
             AirDefenseSVA.Contact c = kp.tracks().get(Integer.valueOf(l1.getEntityId()));
@@ -243,12 +291,17 @@ final class WorldTestAdWaveASVA {
                 codesDone = true;
             }
         }
-        if (fireOn && !codesDone && k - fireAt >= 360) {
+        if (fireOn && !codesDone) {
+            // seen over the fire window, not only at its end: the gun may finish the stranger off (its track gone) before then
             AirDefenseSVA.Contact cs = kp.tracks().get(Integer.valueOf(s.getEntityId()));
+            sForeign |= cs != null && cs.cls == RoeMath.FOREIGN;
+            sEngaged |= s.state.hp < sHp0 || gun.engagements().containsKey(Integer.valueOf(s.getEntityId()));
+        }
+        if (fireOn && !codesDone && k - fireAt >= 360) {
             check(l1.state.hp == l1.state.maxHp() && !gun.engagements().containsKey(Integer.valueOf(l1.getEntityId()))
                     && !sam.engagements().containsKey(Integer.valueOf(l1.getEntityId())),
                     "ad wave A world «codes»: in «fire» the air defence leaves the liner with its airport's code alone (hull " + Math.round(l1.state.hp) + ")");
-            check(cs != null && cs.cls == RoeMath.FOREIGN && (s.state.hp < sHp0 || gun.engagements().containsKey(Integer.valueOf(s.getEntityId()))),
+            check(sForeign && sEngaged,
                     "ad wave A world «codes»: a stranger squawking 7000 there is engaged by the gun «по всем чужим» (hull " + Math.round(sHp0) + " -> "
                             + Math.round(s.state.hp) + ")");
             codesDone = true;
@@ -262,7 +315,7 @@ final class WorldTestAdWaveASVA {
         if (!iffWarned && tr != null && tr.state == IffMath.WARNED) {
             iffWarned = true;
             AirDefenseSVA.Contact c = kp.tracks().get(Integer.valueOf(n.getEntityId()));
-            check(IffServerSVA.INSTANCE.alarm(tw.key) && tr.reason == IffMath.R_NO_REPLY && (c == null || c.cls == RoeMath.FOREIGN)
+            check(IffServerSVA.INSTANCE.alarm(tw.key) && tr.reason == IffMath.R_NO_REPLY && (c == null || c.cls == RoeMath.FOREIGN || c.cls == RoeMath.UNKNOWN)
                     && !sam.engagements().containsKey(Integer.valueOf(n.getEntityId())),
                     "ad wave A world «IFF»: a silent aircraft near the airport - the tower's alarm (no reply); not yet a violator for the post");
         }
@@ -276,7 +329,7 @@ final class WorldTestAdWaveASVA {
             for (String[] l : kp.logLines()) {
                 logged |= l.length > 1 && l[1].equals("sva.ad.log.iffHandoff");
             }
-            check(AirDefenseSVA.INSTANCE.handedOff(n.getEntityId(), w.getTotalWorldTime()) != null && c != null && c.cls == RoeMath.VIOLATOR && logged
+            check(AirDefenseSVA.INSTANCE.handedOff(w, AirDefenseSVA.vehKey(n), w.getTotalWorldTime()) != null && c != null && c.cls == RoeMath.VIOLATOR && logged
                     && sam.engagements().containsKey(Integer.valueOf(n.getEntityId())),
                     "ad wave A world «IFF»: no answer - handed to the air defence: the post's violator (logged), the missile system «по нарушителям» takes it");
             iffChecked = true;
@@ -285,9 +338,30 @@ final class WorldTestAdWaveASVA {
         }
         if (iffChecked && !iffResolved && k - resolveAt >= 60) {
             IffMath.Track t2 = IffServerSVA.INSTANCE.track(tw.key, n.getEntityId());
-            check(t2 == null && AirDefenseSVA.INSTANCE.handedOff(n.getEntityId(), w.getTotalWorldTime()) == null,
+            check(t2 == null && AirDefenseSVA.INSTANCE.handedOff(w, AirDefenseSVA.vehKey(n), w.getTotalWorldTime()) == null,
                     "ad wave A world «IFF»: the transponder switched on - resolved, the handoff taken back");
             iffResolved = true;
+        }
+        // audit 2026-10-22 (bug 6): a code of the range dialled by hand is no friend; handed over, U and V are violators
+        AirDefenseSVA.Contact cu = kp.tracks().get(Integer.valueOf(u.getEntityId())), cv = kp.tracks().get(Integer.valueOf(vm.getEntityId()));
+        IffMath.Track tu = IffServerSVA.INSTANCE.track(tw.key, u.getEntityId()), tv = IffServerSVA.INSTANCE.track(tw.key, vm.getEntityId());
+        if (!uChecked && cu != null && cu.askedAt >= 0 && cu.replied && cu.code == 04105 && (tu == null || tu.state != IffMath.HANDED)) {
+            check(cu.cls == RoeMath.FOREIGN && cu.airport.length() == 0,
+                    "ad trust world «IFF» (bug 6): a plane squawking a code of the airport's range the tower never gave it - no friend (class " + cu.cls + ")");
+            uChecked = true;
+        }
+        if (!iffCodes && tu != null && tv != null && tu.state == IffMath.HANDED && tv.state == IffMath.HANDED && cu != null && cv != null
+                && (cu.cls == RoeMath.VIOLATOR || k > 1500) && (cv.cls == RoeMath.VIOLATOR || k > 1500)) {
+            check(tu.reason == IffMath.R_UNKNOWN && tv.reason == IffMath.R_MISMATCH && cu.cls == RoeMath.VIOLATOR && cv.cls == RoeMath.VIOLATOR
+                    && cv.airport.length() == 0 && AirDefenseSVA.INSTANCE.handedOff(w, AirDefenseSVA.vehKey(vm), w.getTotalWorldTime()) != null,
+                    "ad trust world «IFF» (bug 6): handed over with an unknown code (U) and with the code given to another (V) - both violators for the post, "
+                            + "the aerodrome code does not cancel it (" + cu.cls + ", " + cv.cls + ")");
+            iffCodes = true;
+        }
+        if (!iffCodes && k > 1700) {
+            check(false, "ad trust world «IFF» (bug 6): U / V were never handed over (" + (tu == null ? "-" : IffMath.STATE_KEYS[tu.state]) + ", "
+                    + (tv == null ? "-" : IffMath.STATE_KEYS[tv.state]) + ", V set at " + vSetAt + ")");
+            iffCodes = true;
         }
         if (!iffResolved && k > 1600) {
             check(false, "ad wave A world «IFF»: the IFF chain did not finish (warned " + iffWarned + ", handed " + iffHanded + ", state "
@@ -301,7 +375,7 @@ final class WorldTestAdWaveASVA {
     private void noRadio(World w, int k) {
         if (!nrDecided) {
             NoRadioMath.Entry e1 = kp.noRadioEntry(r1.getEntityId()), e3 = kp.noRadioEntry(r3.getEntityId()), e2 = kp.noRadioEntry(r2.getEntityId());
-            if (e1 != null && e3 != null && e2 != null) {
+            if (e1 != null && e3 != null && e2 != null && kp.noRadioEntry(r4.getEntityId()) != null) {
                 AirDefenseSVA.Contact c2 = kp.tracks().get(Integer.valueOf(r2.getEntityId()));
                 check(c2 != null && c2.cls == RoeMath.NO_RADIO && c2.nr == NoRadioMath.S_PENDING && c2.nrLeft > 0,
                         "ad wave A world «7600»: a 7600 track waits for the post's decision - NO RADIO, the timer (" + (c2 == null ? -1 : c2.nrLeft) + " s)");
@@ -312,6 +386,7 @@ final class WorldTestAdWaveASVA {
             } else if (k > 900) {
                 check(false, "ad wave A world «7600»: the post never listed the 7600 tracks");
                 nrDecided = nrChecked = nrDefaultDone = true;
+                r4Off = r4Back = r4Decided = r4Done = true;
             }
         }
         if (nrDecided && !nrChecked && k - nrAt >= 30) {
@@ -321,6 +396,36 @@ final class WorldTestAdWaveASVA {
                     && !gun.engagements().containsKey(Integer.valueOf(r3.getEntityId())),
                     "ad wave A world «7600»: «проверить» - NO RADIO, «свой» - a friend, the pending one - none of them engaged");
             nrChecked = true;
+        }
+        // audit 2026-10-22 (bug 8): R4 off 7600 for a surveillance cycle and back - the same entry, paused not restarted; then
+        // «враждебный»: no grace, a stranger at once
+        if (nrDecided && !r4Off) {
+            r4Entry = kp.noRadioEntry(r4.getEntityId());
+            r4.state.xpdr.setCode(XpdrMath.VFR, w.getTotalWorldTime());
+            r4Off = true;
+        }
+        if (r4Off && !r4Back && k - nrAt >= 160) {
+            NoRadioMath.Entry e = kp.noRadioEntry(r4.getEntityId());
+            check(e != null && e == r4Entry && e.since < 0 && e.used > 0,
+                    "ad trust world «7600» (bug 8): switched to 7000 - the episode paused, the entry kept (" + (e == null ? "none" : e.used + " ticks") + ")");
+            r4.state.xpdr.setCode(XpdrMath.NO_RADIO, w.getTotalWorldTime());
+            r4Back = true;
+        }
+        if (r4Back && !r4Decided && k - nrAt >= 300) {
+            NoRadioMath.Entry e = kp.noRadioEntry(r4.getEntityId());
+            AirDefenseSVA.Contact c4 = kp.tracks().get(Integer.valueOf(r4.getEntityId()));
+            long now4 = w.getTotalWorldTime(), el = e == null ? -1 : NoRadioMath.elapsed(e, now4);
+            check(e != null && e == r4Entry && e.since >= 0 && e.used > 0 && el > now4 - e.since && c4 != null && c4.nr >= 0,
+                    "ad trust world «7600» (bug 8): back on 7600 - the same timer goes on (" + el + " ticks of 7600 in all, "
+                            + (e == null ? 0 : now4 - e.since) + " this time), not a fresh one");
+            kp.debugNoRadio(r4.getEntityId(), NoRadioMath.D_HOSTILE);
+            r4Decided = true;
+        }
+        if (r4Decided && !r4Done && k - nrAt >= 340) {
+            AirDefenseSVA.Contact c4 = kp.tracks().get(Integer.valueOf(r4.getEntityId()));
+            check(c4 != null && c4.cls == RoeMath.FOREIGN && c4.nr == NoRadioMath.S_HOSTILE && RoeMath.roeWants(RoeMath.FOREIGN_ALL, c4.cls, false, false),
+                    "ad trust world «7600» (bug 8): «враждебный» - a stranger at once, the rules of engagement want it");
+            r4Done = true;
         }
         if (nrChecked && !nrDefaultDone && k - nrAt >= ConfigSVA.adNoRadioDecisionSeconds * 20 + 60) {
             AirDefenseSVA.Contact c2 = kp.tracks().get(Integer.valueOf(r2.getEntityId()));
@@ -633,7 +738,7 @@ final class WorldTestAdWaveASVA {
         }
         // the aircraft: the liner and a plane entering the airport (mode C), a stranger with 7000, a silent one out of the gun's reach
         l1 = vehicle(w, VehicleType.LINER, tx + 10.5, FLY, tz + 20.5, STRANGER, "Guest", true);
-        p2 = vehicle(w, VehicleType.PLANE, tx - 30.5, FLY, tz - 10.5, STRANGER, "Visitor", true);
+        p2 = vehicle(w, VehicleType.PLANE, tx + 30.5, FLY, tz + 50.5, STRANGER, "Visitor", true);      // in the zone, out of the gun's reach
         s = vehicle(w, VehicleType.PLANE, x0 + 40.5, FLY, z0 + 60.5, STRANGER, "Stranger", true);
         n = vehicle(w, VehicleType.PLANE, tx + 80.5, FLY, tz + 0.5, STRANGER, "Silent", true);
         p3 = vehicle(w, VehicleType.PLANE, tx + 20.5, Y + 1.1, tz - 20.5, STRANGER, "Departure", true);
@@ -643,7 +748,14 @@ final class WorldTestAdWaveASVA {
         rcsPlane = vehicle(w, VehicleType.PLANE, x0 + 3 + 380.5, Y + 90, z0 + 0.5, STRANGER, "Far", true);
         m = vehicle(w, VehicleType.PLANE, fx - 140.5, FLY, fz + 0.5, STRANGER, "Mover", true);
         liner2 = vehicle(w, VehicleType.LINER, x0 - 20.5, Y + 1.1, z0 - 40.5, STRANGER, "Parked", true);
-        EntityVehicleSVA[] all = {l1, p2, s, n, p3, r1, r2, r3, rcsPlane, m, liner2};
+        p4 = vehicle(w, VehicleType.PLANE, tx - 30.5, FLY, tz + 15.5, OWNER, OWNER_NAME, true);
+        e7 = vehicle(w, VehicleType.PLANE, tx - 10.5, FLY, tz - 30.5, OWNER, OWNER_NAME, true);
+        dk = vehicle(w, VehicleType.PLANE, tx + 30.5, FLY, tz + 30.5, OWNER, OWNER_NAME, true);
+        dr = vehicle(w, VehicleType.PLANE, tx + 40.5, FLY, tz - 30.5, OWNER, OWNER_NAME, true);
+        u = vehicle(w, VehicleType.PLANE, tx + 90.5, FLY, tz + 50.5, STRANGER, "Dialler", true);
+        vm = vehicle(w, VehicleType.PLANE, tx + 95.5, FLY, tz - 45.5, STRANGER, "Copycat", true);
+        r4 = vehicle(w, VehicleType.PLANE, x0 + 20.5, FLY, z0 - 110.5, STRANGER, "NoRadio4", true);
+        EntityVehicleSVA[] all = {l1, p2, s, n, p3, r1, r2, r3, rcsPlane, m, liner2, p4, e7, dk, dr, u, vm, r4};
         for (EntityVehicleSVA v : all) {
             if (v == null) {
                 check(false, "ad wave A world: the test aircraft placed");
@@ -667,6 +779,21 @@ final class WorldTestAdWaveASVA {
         }
         rcsPlane.state.xpdr.mode = XpdrMath.OFF;
         m.state.xpdr.mode = XpdrMath.C;
+        long now = w.getTotalWorldTime();
+        p4.state.xpdr.mode = XpdrMath.C;
+        e7.state.xpdr.mode = XpdrMath.C;
+        e7.state.xpdr.setCode(XpdrMath.EMERGENCY, now);
+        dk.state.xpdr.mode = XpdrMath.C;
+        dk.state.xpdr.setCode(02345, now);                          // the code from today's card, the day key running
+        dk.state.xpdr.dayKey = true;
+        dk.state.xpdr.cardDay = XpdrMath.day(w.getWorldTime());
+        dr.state.xpdr.mode = XpdrMath.C;
+        dr.state.xpdr.dayKey = true;                                // on, but no card today: the tower's code may replace it
+        u.state.xpdr.mode = XpdrMath.C;
+        u.state.xpdr.setCode(04105, now);                           // a code of the airport's range dialled by hand
+        vm.state.xpdr.mode = XpdrMath.A;                            // 7000 until L1 has its code
+        r4.state.xpdr.mode = XpdrMath.A;
+        r4.state.xpdr.setCode(XpdrMath.NO_RADIO, now);
     }
 
     private void area(World w, boolean build) {
@@ -695,9 +822,10 @@ final class WorldTestAdWaveASVA {
     }
 
     private void report() {
-        check(codesDone && p3Done && iffResolved && nrDefaultDone && modulesDone && rcsDone && covB && predDone,
+        check(codesDone && p3Done && iffResolved && nrDefaultDone && modulesDone && rcsDone && covB && predDone && iffCodes && drDone && r4Done,
                 "ad wave A world: every stage finished in time (codes " + codesDone + ", departure " + p3Done + ", IFF " + iffResolved + ", 7600 "
-                        + nrDefaultDone + ", modules " + modulesDone + ", RCS " + rcsDone + ", coverage " + covB + ", prediction " + predDone + ")");
+                        + nrDefaultDone + ", modules " + modulesDone + ", RCS " + rcsDone + ", coverage " + covB + ", prediction " + predDone + ", IFF codes "
+                        + iffCodes + ", day key back " + drDone + ", 7600 pause " + r4Done + ")");
     }
 
     private void finish(World w) {
@@ -710,7 +838,7 @@ final class WorldTestAdWaveASVA {
         ConfigSVA.adNoRadioDecisionSeconds = nrDec0;
         for (EntityVehicleSVA v : held) {
             if (v != null && !v.isDead) {
-                IffServerSVA.INSTANCE.forget(v.getEntityId());
+                IffServerSVA.INSTANCE.forget(v);
                 v.dismountAll();
                 v.setDead();
             }

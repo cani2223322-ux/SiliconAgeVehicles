@@ -147,6 +147,12 @@ public final class SelfTestSVA {
             SelfTestAirportSVA.run();                       // airport wave B1: ILS, CAT, markers, RVR, wind, runway paint / lights, planner
             SelfTestAirportB2SVA.run();                     // airport wave B2: tower, ATIS, CPDLC, auto tower, approaches, charts, follow-me
             SelfTestAdWaveASVA.run();                       // wave A: zone editing, prediction, RCS extras, airport codes, 7600, coverage, IFF
+            SelfTestAdHardenSVA.run();                      // audit 2026-10-22: zone overflow and reach, the ND's clip, the command post's command rate
+            SelfTestAdTrustSVA.run();                       // audit 2026-10-22: the friend / foe trust model (7600 memory, codes, trust data)
+            SelfTestAdCombatSVA.run();                      // audit 2026-10-22: combat and terrain (the gun's lead, shells vs walls, terrain memory, RWR list)
+            SelfTestAdClientSVA.run();                      // audit 2026-10-22: cockpits, RWR, the transponder's screen, the zone editor's undo, corridors
+            SelfTestAdDocsSVA.run();                        // audit 2026-10-22: Shift+RMB with ammunition, the part's link, NetADSVA on the wire, the docs' rules
+            SelfTestAdReviewSVA.run();                      // audit review 2026-10-22: 7600 out of sight, aerodrome ranges, binding, layouts
             SelfTestBookSVA.run();                          // wave C: the handbook - data, glyphs, refs, layout, search, schematics, checklists, tutorial, export
         } catch (Throwable t) {
             failed++;

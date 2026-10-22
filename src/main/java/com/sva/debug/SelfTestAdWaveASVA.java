@@ -267,27 +267,51 @@ final class SelfTestAdWaveASVA {
                 && AirportCodeMath.assign(07500, 07500, null, -1) == -1 && !AirportCodeMath.assignable(07700) && AirportCodeMath.assignable(04123),
                 "wave A codes: a full range - none; the special codes (7500 / 7600 / 7700 / 7000) never given");
         ZoneMath.Zone own = apt("UBTW", "Северный", "Bob");
-        List<String> acc = Arrays.asList("Alice"), trust = AirportCodeMath.parseTrusted("ubtw, Южный;ZZZZ");
+        List<String> acc = Arrays.asList("Alice"), trust = AirportCodeMath.parseTrusted("ubtw:Eve, Южный;ZZZZ");
+        ZoneMath.Zone towerEve = apt("UBTW", "", "Eve"), kpEve = apt("UBTW", "", "Eve"), towerMallory = apt("UBTW", "", "Mallory");
+        towerEve.tower = true;
+        towerMallory.tower = true;
+        // audit 2026-10-22 (bug 7): inverted - a command post's aerodrome zone named «UBTW» by anyone and a tower's free-text
+        // name are no longer trusted; only a tower by its ICAO code bound to its owner
         check(AirportCodeMath.friendly(own, "bob", null, null) && AirportCodeMath.friendly(apt("XXXX", "", "Alice"), "Bob", acc, null)
-                && AirportCodeMath.friendly(apt("UBTW", "", "Eve"), "Bob", acc, trust) && AirportCodeMath.friendly(apt("QQQQ", "ЮЖНЫЙ", "Eve"), "Bob", acc, trust)
+                && AirportCodeMath.friendly(towerEve, "Bob", acc, trust) && !AirportCodeMath.friendly(kpEve, "Bob", acc, trust)
+                && !AirportCodeMath.friendly(towerMallory, "Bob", acc, trust) && !AirportCodeMath.friendly(apt("QQQQ", "ЮЖНЫЙ", "Eve"), "Bob", acc, trust)
                 && !AirportCodeMath.friendly(apt("QQQQ", "Город", "Eve"), "Bob", acc, trust),
-                "wave A codes: a friendly airport - the post's owner's, a friend's, trusted by ICAO or by the tower's name; a stranger's not");
+                "wave A codes (audit bug 7): a friendly airport - the post's owner's, a friend's, a TOWER trusted by its ICAO bound to its owner; "
+                        + "the same name on a command post's zone, another owner's tower of that ICAO, a tower's name - not");
         ZoneMath.Zone forb = apt("UBTW", "", "Bob");
         forb.type = ZoneMath.FORBIDDEN;
         check(!AirportCodeMath.friendly(forb, "Bob", null, null), "wave A codes: only an aerodrome zone is an airport");
         List<ZoneMath.Zone> zs = new ArrayList<ZoneMath.Zone>(Arrays.asList(own));
-        check(AirportCodeMath.friendOf(zs, 04120, 100, 80, 0, true, "Bob", null, null) == own
-                && AirportCodeMath.friendOf(zs, 04120, 200 + AirportCodeMath.NEAR - 5, 80, 0, true, "Bob", null, null) == own
-                && AirportCodeMath.friendOf(zs, 04120, 200 + AirportCodeMath.NEAR + 20, 80, 0, true, "Bob", null, null) == null
-                && AirportCodeMath.friendOf(zs, 02345, 100, 80, 0, true, "Bob", null, null) == null
-                && AirportCodeMath.friendOf(zs, 04120, 100, 80, 0, true, "Eve", null, null) == null,
+        check(AirportCodeMath.friendOf(zs, 04120, 100, 80, 0, true, "Bob", null, null, null) == own
+                && AirportCodeMath.friendOf(zs, 04120, 200 + AirportCodeMath.NEAR - 5, 80, 0, true, "Bob", null, null, null) == own
+                && AirportCodeMath.friendOf(zs, 04120, 200 + AirportCodeMath.NEAR + 20, 80, 0, true, "Bob", null, null, null) == null
+                && AirportCodeMath.friendOf(zs, 02345, 100, 80, 0, true, "Bob", null, null, null) == null
+                && AirportCodeMath.friendOf(zs, 04120, 100, 80, 0, true, "Eve", null, null, null) == null,
                 "wave A codes: the friend - its code in the zone or within " + (int) AirportCodeMath.NEAR + " of it; farther, another code, another owner - not");
-        check(trust.size() == 3 && trust.get(0).equals("UBTW") && trust.get(1).equals("ЮЖНЫЙ") && AirportCodeMath.joinTrusted(trust).equals("UBTW, ЮЖНЫЙ, ZZZZ"),
-                "wave A codes: the trusted list parsed (commas, spaces, semicolons; upper case) and shown back");
-        // the classes: a friendly airport's code makes it a friend (no fire, no warnings)
-        int cls = RoeMath.classify(false, true, 04120, true, false, false, false, true);
-        check(cls == RoeMath.FRIEND && RoeMath.fireBlock(true, false, false, false, false, false, true, false, true) == RoeMath.B_SPECIAL
-                && !RoeMath.warnsAllowed(RoeMath.B_SPECIAL), "wave A codes: the airport's code is FRIEND - no fire, no warnings, even in a forbidden zone");
+        // audit 2026-10-22 (bug 6): a TOWER's code is a friend only when that tower gave it to this very aircraft
+        ZoneMath.Zone tw = apt("UBTW", "Северный", "Bob");
+        tw.tower = true;
+        List<ZoneMath.Zone> zt = new ArrayList<ZoneMath.Zone>(Arrays.asList(tw));
+        AirportCodeMath.Issued gave4120 = new AirportCodeMath.Issued() {
+            @Override
+            public boolean to(ZoneMath.Zone a, int code) {
+                return code == 04120;
+            }
+        };
+        check(AirportCodeMath.friendOf(zt, 04120, 100, 80, 0, true, "Bob", null, null, null) == null
+                && AirportCodeMath.friendOf(zt, 04120, 100, 80, 0, true, "Bob", null, null, gave4120) == tw
+                && AirportCodeMath.friendOf(zt, 04121, 100, 80, 0, true, "Bob", null, null, gave4120) == null,
+                "wave A codes (audit bug 6): a tower's code counts only when that tower gave it to this aircraft (dialled by hand, another's - not)");
+        check(trust.size() == 3 && trust.get(0).equals("UBTW:Eve") && trust.get(1).equals("ЮЖНЫЙ") && AirportCodeMath.joinTrusted(trust).equals("UBTW:Eve, ЮЖНЫЙ, ZZZZ"),
+                "wave A codes: the trusted list parsed (commas, semicolons; the ICAO upper case, the owner as typed) and shown back");
+        // the classes - audit 2026-10-22 (bug 6), inverted: an airport's code is FRIEND only while it is no violator; in a
+        // forbidden zone or handed over by a tower's IFF (both «violator») it is a violator; the own codes still friends
+        int cls = RoeMath.classify(false, true, 04120, false, true, false, false, false, true);
+        check(cls == RoeMath.VIOLATOR && RoeMath.classify(false, true, 04120, false, true, false, false, false, false) == RoeMath.FRIEND
+                && RoeMath.classify(false, true, 04120, true, false, false, false, false, true) == RoeMath.FRIEND
+                && RoeMath.fireBlock(true, false, false, false, false, false, true, false, true) == RoeMath.B_SPECIAL && !RoeMath.warnsAllowed(RoeMath.B_SPECIAL),
+                "wave A codes (audit bug 6): the airport's code is FRIEND outside a zone (no fire, no warnings), a VIOLATOR in a forbidden zone / handed over");
         Cpdlc.Msg m = new Cpdlc.Msg();
         m.up = true;
         m.type = Cpdlc.U_SQUAWK;

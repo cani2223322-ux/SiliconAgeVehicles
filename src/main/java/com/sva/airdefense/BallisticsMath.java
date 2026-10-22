@@ -14,6 +14,9 @@ import java.util.Random;
  * 3 b/t, lives 8 s, turns up to 6 deg a tick, proximity fuse 3 blocks, 110 hull points; a launch costs 20 000 EU and
  * reloads 3 s; two missiles in the air at most (two fire channels). A missile whose target goes behind the terrain loses
  * it and flies straight on until it self-destructs.
+ * <p>
+ * Audit 2026-10-22: a gun leads a radar's mark by its age (led - bug 3) and every step of a shell / missile is walked
+ * block by block before the hit test (firstHit - bug 4: a wall in the middle of a step stops it).
  */
 public final class BallisticsMath {
 
@@ -51,6 +54,80 @@ public final class BallisticsMath {
             t = dist(px, py, pz, ax, ay, az) / speed;
         }
         return t <= maxTicks ? new double[] {ax, ay, az, t} : null;
+    }
+
+    /** A track is never led further than this (ticks): older than that it has left the picture anyway (RadarMath.TRACK_TIMEOUT). */
+    public static final int MAX_LEAD_AGE = RadarMath.TRACK_TIMEOUT;
+
+    /**
+     * Audit 2026-10-22 (bug 3): where a vehicle measured at (x, y, z) `age` ticks ago is now, moving with v (blocks / tick) -
+     * a command post's track is refreshed every 10 ticks and a radar's contact is as old as its scan, so a gun aiming at
+     * the mark itself missed a crossing plane by its speed times that age (up to ~20 blocks). Age clamped to 0..MAX_LEAD_AGE.
+     */
+    public static double[] led(double x, double y, double z, double vx, double vy, double vz, long age) {
+        double a = Math.max(0, Math.min(MAX_LEAD_AGE, age));
+        return new double[] {x + vx * a, y + vy * a, z + vz * a};
+    }
+
+    /**
+     * Audit 2026-10-22 (bug 4): the first block a straight step from (x0, y0, z0) to (x1, y1, z1) enters that `p` says
+     * stops it - the fraction of the step (0..1) where the step enters it, -1 none. Every block the segment touches is asked
+     * once and in order (a voxel walk, the starting block too), so a shell's 4-block step no longer jumps over a wall that
+     * only its middle crosses.
+     */
+    public static double firstHit(double x0, double y0, double z0, double x1, double y1, double z1, RadarMath.Probe p) {
+        int ix = floor(x0), iy = floor(y0), iz = floor(z0);
+        int ex = floor(x1), ey = floor(y1), ez = floor(z1);
+        if (p.blocks(ix, iy, iz)) {
+            return 0;
+        }
+        double dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+        int sx = dx > 0 ? 1 : dx < 0 ? -1 : 0, sy = dy > 0 ? 1 : dy < 0 ? -1 : 0, sz = dz > 0 ? 1 : dz < 0 ? -1 : 0;
+        double inf = Double.POSITIVE_INFINITY;
+        double tx = sx == 0 ? inf : (sx > 0 ? ix + 1 - x0 : x0 - ix) / Math.abs(dx);
+        double ty = sy == 0 ? inf : (sy > 0 ? iy + 1 - y0 : y0 - iy) / Math.abs(dy);
+        double tz = sz == 0 ? inf : (sz > 0 ? iz + 1 - z0 : z0 - iz) / Math.abs(dz);
+        double ddx = sx == 0 ? inf : 1 / Math.abs(dx), ddy = sy == 0 ? inf : 1 / Math.abs(dy), ddz = sz == 0 ? inf : 1 / Math.abs(dz);
+        for (int n = 0; n < 256 && (ix != ex || iy != ey || iz != ez); n++) {
+            double t;
+            if (tx <= ty && tx <= tz) {
+                ix += sx;
+                t = tx;
+                tx += ddx;
+            } else if (ty <= tz) {
+                iy += sy;
+                t = ty;
+                ty += ddy;
+            } else {
+                iz += sz;
+                t = tz;
+                tz += ddz;
+            }
+            if (t > 1) {
+                return -1;
+            }
+            if (p.blocks(ix, iy, iz)) {
+                return Math.max(0, t);
+            }
+        }
+        return -1;
+    }
+
+    private static int floor(double v) {
+        int i = (int) v;
+        return v < i ? i - 1 : i;
+    }
+
+    /**
+     * Audit 2026-10-22: the gun's aim point for a target at t (seen this tick) moving with v. A shell takes its first step at
+     * the end of the tick it is fired in and the target moves only at the start of the next tick, so during a shell's j-th
+     * step the target stands where it is after j - 1 moves - half a tick behind the continuous intercept on average: the
+     * intercept from half a tick back (the miss of a crossing plane at most half its tick's move, not a whole one).
+     * The intercept point {x, y, z, ticks} or null.
+     */
+    public static double[] gunAim(double px, double py, double pz, double tx, double ty, double tz, double vx, double vy, double vz,
+            double speed, int maxTicks) {
+        return intercept(px, py, pz, tx - vx / 2, ty - vy / 2, tz - vz / 2, vx, vy, vz, speed, maxTicks);
     }
 
     public static double dist(double ax, double ay, double az, double bx, double by, double bz) {

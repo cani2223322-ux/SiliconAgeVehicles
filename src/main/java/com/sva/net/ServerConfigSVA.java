@@ -21,6 +21,11 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * one message); the client keeps them apart from its own config and drops them when it leaves the server. Until they
  * arrive (and on the server itself) every getter answers with the local ConfigSVA value.
  * init() goes in preInit on both sides (SVAMod).
+ * <p>
+ * Audit 2026-10-22: the air defence's settings a client acts on go along too (none did): airdefense.enabled, upgrades (the
+ * module slots of radars, launchers, the command post, the ILS shelter and the tower take a module on both sides - the
+ * client's own value let the slots disagree), keepModules, dayKey, zoneWarnSeconds (the pilots' entry prediction),
+ * maxLaunchers / maxRadars and whether the air defence fires.
  */
 public final class ServerConfigSVA {
 
@@ -29,6 +34,9 @@ public final class ServerConfigSVA {
     private static volatile boolean received;
     private static volatile boolean wear, tuning, cruise, autopilot, trailerKinds, locks, hydrogen;
     private static volatile float consumption, chargerRate;
+    /** Audit 2026-10-22: the air defence's (airdefense.*). */
+    private static volatile boolean adEnabled, adUpgrades, adKeepModules, adDayKey, adFires;
+    private static volatile int adZoneWarnSeconds, adMaxLaunchers, adMaxRadars;
 
     private ServerConfigSVA() {
     }
@@ -77,6 +85,81 @@ public final class ServerConfigSVA {
         return received ? hydrogen : ConfigSVA.hydrogen;
     }
 
+    /** Audit 2026-10-22: airdefense.enabled. */
+    public static boolean adEnabled() {
+        return received ? adEnabled : ConfigSVA.adEnabled;
+    }
+
+    /** Audit 2026-10-22: airdefense.upgrades - the module slots take a module (both sides must agree). */
+    public static boolean adUpgrades() {
+        return received ? adUpgrades : ConfigSVA.adUpgrades;
+    }
+
+    /** Audit 2026-10-22: airdefense.keepModules. */
+    public static boolean adKeepModules() {
+        return received ? adKeepModules : ConfigSVA.adKeepModules;
+    }
+
+    /** Audit 2026-10-22: airdefense.dayKey. */
+    public static boolean adDayKey() {
+        return received ? adDayKey : ConfigSVA.adDayKey;
+    }
+
+    /** Audit 2026-10-22: the air defence fires (airdefense.mode fire and enabled). */
+    public static boolean adFires() {
+        return received ? adFires : ConfigSVA.adFires();
+    }
+
+    /** Audit 2026-10-22: airdefense.zoneWarnSeconds - the pilots' «zone entry in N s» looks this far ahead. */
+    public static int adZoneWarnSeconds() {
+        return received ? adZoneWarnSeconds : ConfigSVA.adZoneWarnSeconds;
+    }
+
+    /** Audit 2026-10-22: airdefense.maxLaunchers. */
+    public static int adMaxLaunchers() {
+        return received ? adMaxLaunchers : ConfigSVA.adMaxLaunchers;
+    }
+
+    /** Audit 2026-10-22: airdefense.maxRadars. */
+    public static int adMaxRadars() {
+        return received ? adMaxRadars : ConfigSVA.adMaxRadars;
+    }
+
+    /**
+     * Self-test (audit 2026-10-22): the settings as the server writes them, read back as a client would - "" when the air
+     * defence's part comes through whole, else what differs; an older server's packet (no air-defence part) leaves the
+     * client's own values.
+     */
+    public static String selfTest() {
+        Settings a = Settings.now();
+        a.adZoneWarnSeconds = 17;                                   // not the default: a real round trip
+        a.adMaxRadars = 9;
+        a.adUpgrades = !ConfigSVA.adUpgrades;
+        io.netty.buffer.ByteBuf b = io.netty.buffer.Unpooled.buffer();
+        a.toBytes(b);
+        Settings c = new Settings();
+        c.fromBytes(b);
+        StringBuilder bad = new StringBuilder();
+        if (c.adZoneWarnSeconds != 17 || c.adMaxRadars != 9 || c.adMaxLaunchers != a.adMaxLaunchers || c.adUpgrades != a.adUpgrades
+                || c.adEnabled != a.adEnabled || c.adKeepModules != a.adKeepModules || c.adDayKey != a.adDayKey || c.adFires != a.adFires
+                || c.wear != a.wear || c.consumption != a.consumption || c.chargerRate != a.chargerRate || c.hydrogen != a.hydrogen) {
+            bad.append(" round trip");
+        }
+        if (b.readableBytes() != 0) {
+            bad.append(" left ").append(b.readableBytes());
+        }
+        io.netty.buffer.ByteBuf o = io.netty.buffer.Unpooled.buffer();
+        o.writeByte(1);
+        o.writeFloat(1F);
+        o.writeFloat(1F);
+        Settings d = new Settings();
+        d.fromBytes(o);
+        if (d.adZoneWarnSeconds != ConfigSVA.adZoneWarnSeconds || d.adUpgrades != ConfigSVA.adUpgrades || !d.wear) {
+            bad.append(" old packet");
+        }
+        return bad.toString();
+    }
+
     /** The server's values arrived (tests). */
     public static boolean isReceived() {
         return received;
@@ -92,6 +175,8 @@ public final class ServerConfigSVA {
     public static final class Settings implements IMessage {
         boolean wear, tuning, cruise, autopilot, trailerKinds, locks, hydrogen;
         float consumption, chargerRate;
+        boolean adEnabled, adUpgrades, adKeepModules, adDayKey, adFires;
+        int adZoneWarnSeconds, adMaxLaunchers, adMaxRadars;
 
         public Settings() {
         }
@@ -108,6 +193,14 @@ public final class ServerConfigSVA {
             m.hydrogen = ConfigSVA.hydrogen;
             m.consumption = ConfigSVA.consumption;
             m.chargerRate = ConfigSVA.chargerRate;
+            m.adEnabled = ConfigSVA.adEnabled;
+            m.adUpgrades = ConfigSVA.adUpgrades;
+            m.adKeepModules = ConfigSVA.adKeepModules;
+            m.adDayKey = ConfigSVA.adDayKey;
+            m.adFires = ConfigSVA.adFires();
+            m.adZoneWarnSeconds = ConfigSVA.adZoneWarnSeconds;
+            m.adMaxLaunchers = ConfigSVA.adMaxLaunchers;
+            m.adMaxRadars = ConfigSVA.adMaxRadars;
             return m;
         }
 
@@ -123,6 +216,26 @@ public final class ServerConfigSVA {
             hydrogen = (f & 64) != 0;
             consumption = b.readFloat();
             chargerRate = b.readFloat();
+            if (b.readableBytes() >= 13) {                          // audit 2026-10-22: the air defence's
+                int a = b.readUnsignedByte();
+                adEnabled = (a & 1) != 0;
+                adUpgrades = (a & 2) != 0;
+                adKeepModules = (a & 4) != 0;
+                adDayKey = (a & 8) != 0;
+                adFires = (a & 16) != 0;
+                adZoneWarnSeconds = b.readInt();
+                adMaxLaunchers = b.readInt();
+                adMaxRadars = b.readInt();
+            } else {
+                adEnabled = ConfigSVA.adEnabled;                    // an older server: the client's own
+                adUpgrades = ConfigSVA.adUpgrades;
+                adKeepModules = ConfigSVA.adKeepModules;
+                adDayKey = ConfigSVA.adDayKey;
+                adFires = ConfigSVA.adFires();
+                adZoneWarnSeconds = ConfigSVA.adZoneWarnSeconds;
+                adMaxLaunchers = ConfigSVA.adMaxLaunchers;
+                adMaxRadars = ConfigSVA.adMaxRadars;
+            }
         }
 
         @Override
@@ -130,6 +243,10 @@ public final class ServerConfigSVA {
             b.writeByte((wear ? 1 : 0) | (tuning ? 2 : 0) | (cruise ? 4 : 0) | (autopilot ? 8 : 0) | (trailerKinds ? 16 : 0) | (locks ? 32 : 0) | (hydrogen ? 64 : 0));
             b.writeFloat(consumption);
             b.writeFloat(chargerRate);
+            b.writeByte((adEnabled ? 1 : 0) | (adUpgrades ? 2 : 0) | (adKeepModules ? 4 : 0) | (adDayKey ? 8 : 0) | (adFires ? 16 : 0));
+            b.writeInt(adZoneWarnSeconds);
+            b.writeInt(adMaxLaunchers);
+            b.writeInt(adMaxRadars);
         }
     }
 
@@ -145,6 +262,14 @@ public final class ServerConfigSVA {
             hydrogen = m.hydrogen;
             consumption = ConfigSVA.sanitize(m.consumption, 1F, 0F, 100F);
             chargerRate = ConfigSVA.sanitize(m.chargerRate, 1F, 0F, 100F);
+            adEnabled = m.adEnabled;
+            adUpgrades = m.adUpgrades;
+            adKeepModules = m.adKeepModules;
+            adDayKey = m.adDayKey;
+            adFires = m.adFires;
+            adZoneWarnSeconds = Math.max(5, Math.min(120, m.adZoneWarnSeconds));
+            adMaxLaunchers = Math.max(0, m.adMaxLaunchers);
+            adMaxRadars = Math.max(0, m.adMaxRadars);
             received = true;
             return null;
         }

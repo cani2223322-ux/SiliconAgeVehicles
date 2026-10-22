@@ -5833,6 +5833,15 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
             }
             return;
         }
+        if (a == A_IDENT && state.type == VehicleType.LINER) {
+            // audit 2026-10-22 (7.3): the liner's transponder sits on the pedestal between the pilots - IDENT from either seat
+            if (LinerLogicSVA.pilot(this, p)) {
+                com.sva.airdefense.AirDefenseSVA.INSTANCE.ident(this);
+            } else {
+                lockedMsg(p);
+            }
+            return;
+        }
         if (a == A_LINER_READING && state.type == VehicleType.LINER) {
             if (carries(p)) {
                 LinerLogicSVA.reading(this, p);                     // liner wave 6: any passenger, his own seat's light

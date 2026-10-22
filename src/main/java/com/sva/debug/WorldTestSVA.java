@@ -498,6 +498,76 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // audit 2026-10-22: exploits and hardening (placing through the player's path, the command post's commands) - its own area
+        if (ticks >= WorldTestAdHardenSVA.START && !adHarden.done) {
+            try {
+                adHarden.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad harden exception " + t);
+                t.printStackTrace(System.out);
+                adHarden.abort(w);
+            }
+            if (adHarden.done) {
+                maybeSummary();
+            }
+        }
+        // audit 2026-10-22: the friend / foe trust model (a launcher without its post, the posts' links, unknown tracks, holds) - its own area
+        if (ticks >= WorldTestAdTrustSVA.START && !adTrust.done) {
+            try {
+                adTrust.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad trust exception " + t);
+                t.printStackTrace(System.out);
+                adTrust.abort(w);
+            }
+            if (adTrust.done) {
+                maybeSummary();
+            }
+        }
+        // audit 2026-10-22: combat and terrain (a moving target, overclocked fire, walls, the terrain memory of unloaded chunks) - its own areas
+        if (ticks >= WorldTestAdCombatSVA.START && !adCombat.done) {
+            try {
+                adCombat.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad combat exception " + t);
+                t.printStackTrace(System.out);
+                adCombat.abort(w);
+            }
+            if (adCombat.done) {
+                maybeSummary();
+            }
+        }
+        // audit 2026-10-22: cockpits / RWR / the transponder's screen (the panel's changed fields, the liner's F/O, the launch site)
+        if (ticks >= WorldTestAdClientSVA.START && !adClient.done) {
+            try {
+                adClient.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad client exception " + t);
+                t.printStackTrace(System.out);
+                adClient.abort(w);
+            }
+            if (adClient.done) {
+                maybeSummary();
+            }
+        }
+        // audit 2026-10-22: docs, tests and consistency (the post's commands, NBT / wire round trips, limits, enabled=false, Shift+RMB)
+        if (ticks >= WorldTestAdOpsSVA.START && !adOps.done) {
+            try {
+                adOps.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad ops exception " + t);
+                t.printStackTrace(System.out);
+                adOps.abort(w);
+            }
+            if (adOps.done) {
+                maybeSummary();
+            }
+        }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
         if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
             try {
@@ -2312,6 +2382,11 @@ public class WorldTestSVA {
     private final WorldTestAirportSVA airport = new WorldTestAirportSVA(this);
     private final WorldTestAirportB2SVA airportB2 = new WorldTestAirportB2SVA(this);
     private final WorldTestAdWaveASVA adWaveA = new WorldTestAdWaveASVA(this);
+    private final WorldTestAdHardenSVA adHarden = new WorldTestAdHardenSVA(this);
+    private final WorldTestAdTrustSVA adTrust = new WorldTestAdTrustSVA(this);
+    private final WorldTestAdCombatSVA adCombat = new WorldTestAdCombatSVA(this);
+    private final WorldTestAdClientSVA adClient = new WorldTestAdClientSVA(this);
+    private final WorldTestAdOpsSVA adOps = new WorldTestAdOpsSVA(this);
     private final WorldTestBookSVA book = new WorldTestBookSVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
@@ -2327,7 +2402,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && airD5.done && liner.done && linerAfs.done && linerFms.done && linerW6.done && linerW7.done && fuel.done && airDefense.done && adModels.done && adUpgrades.done && airport.done && airportB2.done && adWaveA.done && book.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && airD5.done && liner.done && linerAfs.done && linerFms.done && linerW6.done && linerW7.done && fuel.done && airDefense.done && adModels.done && adUpgrades.done && airport.done && airportB2.done && adWaveA.done && book.done && adHarden.done && adTrust.done && adCombat.done && adClient.done && adOps.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

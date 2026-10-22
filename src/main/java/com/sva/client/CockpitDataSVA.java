@@ -173,4 +173,19 @@ public final class CockpitDataSVA {
     public static boolean xpdrKeyLamp(EntityVehicleSVA v) {
         return AirDefenseClientSVA.xpdrKeyLamp(v);
     }
+
+    /** Audit 2026-10-22: how the code window shows the code (XpdrMath.SHOW_*: OFF / STBY dimmed, 7700 red). */
+    public static int xpdrShow(EntityVehicleSVA v) {
+        return com.sva.airdefense.XpdrMath.show(v.powered(), AirDefenseClientSVA.xpdrMode(v), AirDefenseClientSVA.xpdrCode(v));
+    }
+
+    /** Audit 2026-10-22: the «Приёмник облучения» module is in (else the scope says «НЕТ МОДУЛЯ СПО», not a clean scope). */
+    public static boolean rwrFitted(EntityVehicleSVA v) {
+        return AirDefenseClientSVA.rwrFitted(v);
+    }
+
+    /** Audit 2026-10-22: the RWR's lamps now (RadarMath.LAMP_*: ОБЗОР / ЗАХВАТ / ПУСК). */
+    public static int rwrLamps(EntityVehicleSVA v) {
+        return AirDefenseClientSVA.rwrLamps(v);
+    }
 }

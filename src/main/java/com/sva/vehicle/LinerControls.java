@@ -444,6 +444,13 @@ public final class LinerControls {
     public static final Ctl DOOR_L1 = doorPb("doorL1Pb", 1470), DOOR_R1 = doorPb("doorR1Pb", 1570), DOOR_CF = doorPb("doorCargoF", 1670),
             DOOR_CA = doorPb("doorCargoA", 1770);
     public static final Ctl PA_CALL = pbm("paCall", MP, 1880, 450, 52, 52);
+    /**
+     * Audit 2026-10-22: the pedestal's transponder (LinerPaintSVA.pedestal: the code window, the mode knob ВЫКЛ / ДЕЖ / A / C
+     * / S, the digit keys, ОПОЗН.) - live now (LinerCockpitSVA.xpdrPanel); a click on it, in the cockpit or on the «Пульты»
+     * screen, opens the transponder panel (client.GuiTransponderSVA) for either pilot. No position of its own (the code is
+     * the vehicle's XpdrMath.Xpdr). Last in the table: the saved positions go by id, the others keep their indices.
+     */
+    public static final Ctl XPDR = add("xpdr", PED, INFO, null, 0, 595, 1385, 300, 160);
 
     static {
         AGENT1_1.top = AGENT1_2.top = AGENT_APU.top = AGENT2_1.top = AGENT2_2.top = "disch";

@@ -42,8 +42,12 @@ public final class RadarMath {
     public static final double RAM_MUL = 0.6, SMOOTH_MUL = 0.9, RAIN_MUL = 0.85, STORM_MUL = 0.7;
     /** A contact nobody has seen for this long leaves the picture (10 s). */
     public static final int TRACK_TIMEOUT = 200;
-    /** RWR threat kinds (CockpitDataSVA.rwrThreat): surveillance, tracking lock, missile, height finder. */
-    public static final int T_SEARCH = 0, T_LOCK = 1, T_MISSILE = 2, T_HEIGHT = 3;
+    /**
+     * RWR threat kinds (CockpitDataSVA.rwrThreat): surveillance, tracking lock, missile, height finder. Audit 2026-10-22
+     * (the RWR's gaps): T_LAUNCHER - a launcher's own lock (its fire-control: drawn as a square «ПУ», not the tracking
+     * radar's diamond «С»); T_LAUNCH - the site a missile in the air at this vehicle came from (the scope's circle round it).
+     */
+    public static final int T_SEARCH = 0, T_LOCK = 1, T_MISSILE = 2, T_HEIGHT = 3, T_LAUNCHER = 4, T_LAUNCH = 5, T_KINDS = 6;
     /** The RWR scope's full scale (blocks). */
     public static final double RWR_RANGE = 600;
 
@@ -133,6 +137,14 @@ public final class RadarMath {
         return thunder ? STORM_MUL : rain ? RAIN_MUL : 1;
     }
 
+    /**
+     * Audit 2026-10-22: the weather where the radar stands - the world's rain / storm counts only in a biome that has
+     * precipitation (rain or snow; a desert or a savanna under the world's storm stays clear).
+     */
+    public static double weatherAt(boolean worldRain, boolean worldThunder, boolean biomeWet) {
+        return biomeWet ? weatherMul(worldRain, worldThunder && worldRain) : 1;
+    }
+
     /** How far a radar of `kind` sees a target of this RCS (0: never). */
     public static double detectRange(int kind, double rcs, double stealthMul, double weatherMul) {
         if (!validKind(kind) || !(rcs > 0)) {
@@ -208,19 +220,103 @@ public final class RadarMath {
         return b < 0 ? b + 360 : b;
     }
 
-    /** The RWR's scope radius fraction for a distance: near the centre = close (strong), the outer ring = far. */
+    /**
+     * The RWR's scope radius fraction for a distance: near the centre = close (strong), the outer ring = far (mock-up
+     * veh_ad_2: «ближе к центру - сильнее»). Audit 2026-10-22 (bug 11): it was turned over (a radar 20 blocks away sat on
+     * the outer ring, one 590 away by the own-ship symbol): 0.33 at 0 blocks, 0.83 at RWR_RANGE and beyond.
+     */
     public static double rwrRadius(double dist) {
-        return 0.33 + 0.5 * Math.max(0, Math.min(1, 1 - dist / RWR_RANGE));
+        return 0.33 + 0.5 * Math.max(0, Math.min(1, dist / RWR_RANGE));
     }
 
-    /** The RWR's threat level for the lamp / sound: 0 none, 1 seen (search / height), 2 locked, 3 missile. */
+    /** One emitter's paint on a vehicle (the RWR): its RadarMath.T_* kind, where it stands, until when (total world ticks). */
+    public static final class Paint {
+        public final int kind;
+        public final double x, z;
+        public final long until;
+
+        public Paint(int kind, double x, double z, long until) {
+            this.kind = kind;
+            this.x = x;
+            this.z = z;
+            this.until = until;
+        }
+    }
+
+    /** Paints kept on one vehicle at most. */
+    public static final int PAINT_CAP = 16;
+
+    /**
+     * A new paint into a vehicle's list. Audit 2026-10-22 (bug 16): the expired ones go first (until < now), then this
+     * emitter's older paint of the same kind; a list still full drops the paint ending soonest - the 17th emitter of a long
+     * flight is no longer left off the RWR while one old emitter keeps painting.
+     */
+    public static void paint(java.util.List<Paint> l, Paint n, long now) {
+        for (java.util.Iterator<Paint> it = l.iterator(); it.hasNext();) {
+            Paint t = it.next();
+            if (t.until < now || t.kind == n.kind && Math.abs(t.x - n.x) < 0.5 && Math.abs(t.z - n.z) < 0.5) {
+                it.remove();
+            }
+        }
+        while (l.size() >= PAINT_CAP) {
+            int soonest = 0;
+            for (int i = 1; i < l.size(); i++) {
+                if (l.get(i).until < l.get(soonest).until) {
+                    soonest = i;
+                }
+            }
+            l.remove(soonest);
+        }
+        l.add(n);
+    }
+
+    /** The RWR's threat level for the HUD line and the sound: 0 none, 1 seen (search / height), 2 locked, 3 missile (the lamps: rwrLamps). */
     public static int rwrLevel(int[] kinds) {
         int l = 0;
         if (kinds != null) {
             for (int k : kinds) {
-                l = Math.max(l, k == T_MISSILE ? 3 : k == T_LOCK ? 2 : k == T_SEARCH || k == T_HEIGHT ? 1 : 0);
+                l = Math.max(l, threatLevel(k));
             }
         }
         return l;
+    }
+
+    /** One threat kind's level: a missile or its launching site 3, a tracking radar's or a launcher's lock 2, a search 1. */
+    public static int threatLevel(int kind) {
+        return kind == T_MISSILE || kind == T_LAUNCH ? 3 : kind == T_LOCK || kind == T_LAUNCHER ? 2 : kind == T_SEARCH || kind == T_HEIGHT ? 1 : 0;
+    }
+
+    /** Audit 2026-10-22 (mock-up veh_ad_2): the RWR's lamps - ОБЗОР (any radar sees us), ЗАХВАТ (a lock), ПУСК (a missile). */
+    public static final int LAMP_SEARCH = 1, LAMP_LOCK = 2, LAMP_LAUNCH = 4;
+
+    /**
+     * The lamps lit by these threats (LAMP_* bits): each lamp for its own kinds - a lock with no search radar left lights
+     * ЗАХВАТ alone (the mock-up's sheet lights ОБЗОР along because a search radar is there too).
+     */
+    public static int rwrLamps(int[] kinds) {
+        int m = 0;
+        if (kinds != null) {
+            for (int k : kinds) {
+                int l = threatLevel(k);
+                m |= l == 1 ? LAMP_SEARCH : l == 2 ? LAMP_LOCK : l == 3 ? LAMP_LAUNCH : 0;
+            }
+        }
+        return m;
+    }
+
+    /** The RWR's sounds (mock-up veh_ad_2): none, the lock's continuous tone, the launch's fast warble. */
+    public static final int TONE_NONE = 0, TONE_LOCK = 1, TONE_LAUNCH = 2;
+
+    /** The continuous sound for a level (a search radar only pings - rwrPing). */
+    public static int rwrTone(int level) {
+        return level >= 3 ? TONE_LAUNCH : level == 2 ? TONE_LOCK : TONE_NONE;
+    }
+
+    /**
+     * The search ping («тихий короткий писк»): once when a search / height radar starts painting - more search emitters
+     * than the last time looked - never while a lock or a launch sounds over it.
+     */
+    public static boolean rwrPing(int searchNow, int searchBefore, int level) {
+        return level == 1 && searchNow > searchBefore;
     }
 }

@@ -169,7 +169,7 @@ public class GuiVehicleSVA extends GuiScreen {
         for (Object o : buttonList) {
             GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
             if (b.id == B_XPDR) {
-                b.enabled = driver;                              // only the pilot sets the transponder
+                b.enabled = GuiTransponderSVA.operator(mc, vehicle);   // only the pilot sets the transponder (the liner: either pilot)
                 continue;
             }
             if (b.id == B_BAT) {
@@ -760,7 +760,7 @@ public class GuiVehicleSVA extends GuiScreen {
             return;
         }
         if (b.id == B_XPDR) {
-            if (vehicle != null && driver) {
+            if (vehicle != null && GuiTransponderSVA.operator(mc, vehicle)) {
                 mc.displayGuiScreen(new GuiTransponderSVA(vehicle));
             }
             return;
