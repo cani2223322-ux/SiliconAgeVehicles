@@ -123,7 +123,7 @@ final class WorldTestAdTrustSVA {
             links(w);
         }
         if (k == 150) {
-            day.state.xpdr.setCode(XpdrMath.dayCode(SECRET, XpdrMath.day(w.getWorldTime())), now);    // a new game day since the setup
+            day.state.xpdr.setCode(AirDefenseDataSVA.keyCodeNow(w, OWNER_NAME), now);    // a new key period since the setup
         }
         if (k == 200) {
             picture(w);
@@ -149,7 +149,8 @@ final class WorldTestAdTrustSVA {
         TileEntityCommandPostSVA back = AirDefenseSVA.INSTANCE.cycleLink(gunF);
         check(ln == kpN && wn == null && back == kpF && gunF.kpLink().equals(kpF.key()),
                 "ad trust world (bug 19): linked to the unpowered post by hand - no picture (own eyes); the screen's next post - the powered one again");
-        int day = XpdrMath.dayCode(SECRET, XpdrMath.day(w.getWorldTime()));
+        AirDefenseDataSVA kd = AirDefenseDataSVA.get(w);
+        int day = kd == null ? -2 : XpdrMath.dayCode(SECRET, kd.pepper(), kd.gen(OWNER_NAME), AirDefenseDataSVA.keyPeriod(w));
         check(kpA.dayCode() == day && kpF.dayCode() == day && kpN.dayCode() == day,
                 "ad trust world (bug 18): the owner's three posts give one day code (" + XpdrMath.format(day) + ")");
         linksDone = true;
@@ -360,7 +361,7 @@ final class WorldTestAdTrustSVA {
         gunF.debugSettings(RoeMath.FOREIGN_ALL, true, false, 2);
         gunF.debugAmmo(ModContentSVA.ammo.stackOf(ItemAmmoSVA.SHELLS, 64));
         long now = w.getTotalWorldTime();
-        int dc = XpdrMath.dayCode(SECRET, XpdrMath.day(w.getWorldTime()));
+        int dc = AirDefenseDataSVA.keyCodeNow(w, OWNER_NAME);
         // round the gun of post A (its eyes: 48 blocks), inside its forbidden zone
         double gx = x0 + 10.5, gz = z0 + 10.5, r = 26;
         String[] names = {"Mayday", "Daycard", "Owncode", "Whitey", "Granted", "Held", "NoRadio", "Silent", "Dark"};

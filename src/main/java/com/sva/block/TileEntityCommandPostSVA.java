@@ -17,6 +17,7 @@ import com.sva.airdefense.AirDefenseDataSVA;
 import com.sva.airdefense.AirDefenseSVA;
 import com.sva.airdefense.AirportCodeMath;
 import com.sva.airdefense.BallisticsMath;
+import com.sva.airdefense.CodeOnlyMath;
 import com.sva.airdefense.NoRadioMath;
 import com.sva.airdefense.RadarMath;
 import com.sva.airdefense.RoeMath;
@@ -66,6 +67,21 @@ import net.minecraft.nbt.NBTTagString;
  * <li>a track no surveillance radar has interrogated is UNKNOWN (no fire) for a full surveillance cycle, then the post's own
  * interrogator asks it (bug 15); 7500 is logged and raises the alarm; the Mode S white list matches only with the owner.</li>
  * </ul>
+ * Code-only wave (docs/proposal-ad-strict-iff.md, «Опознавание: ПО КОДУ»):
+ * <ul>
+ * <li>switched on by the owner (an op counts as one - the log and the owner are told) in two steps («Sure» from the
+ * confirmation window), it takes effect airdefense.codeOnlyArmSeconds later - the countdown on the screen, the owner and the
+ * access list told in the chat; off at once; never with the server's codeOnly=false or without the day key. Once armed
+ * the tracks' miss counts and its launchers' engagements start over (item 16);</li>
+ * <li>while on, classify() takes the strict branch (AirDefenseSVA.classifyByCode): only the key's code makes a friend
+ * (whose vehicle it is no longer matters), a target after two misses a survey round apart; the log says «не опознан» with
+ * the reason (the owner's / his friends' boards - also to the list in the chat, item 33), «верный код у чужого борта» (item
+ * 30), the «ПОДБОР» block, 7700's grace and its end;</li>
+ * <li>the owner's commands codeOnly / codeOpts / rekey («Сменить ключ»: every card printed before is void, the list told to
+ * print new ones) / coAllRoe; the operator's 7700 decisions (emFriend / emCheck / emHostile, kept per owner with the grace -
+ * NoRadioMath) and unlock (the «ПОДБОР» block lifted; «Свой» lifts it too); the picture carries the mode, the arming, the
+ * options, the readiness line and each track's reason.</li>
+ * </ul>
  */
 public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
 
@@ -97,6 +113,8 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
     private boolean legacy;
     /** Audit review 2026-10-22: the last 7500 alarm per vehicle (vehId -> tick) - toggling 7500 / 7000 no longer floods. */
     private final Map<String, Long> hijackSaid = new HashMap<String, Long>();
+    /** Code-only wave: the mode's state at the last round (CodeOnlyMath.CO_*; -1 not looked yet) - the arming's end is told once. */
+    private int coLast = -1;
 
     public TileEntityCommandPostSVA() {
         super(Tier.MV);
@@ -160,12 +178,22 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         return radars;
     }
 
-    /** Today's code (-1: the day key is off here or on the server). */
+    /**
+     * Today's code (-1: the day key is off here or on the server). Code-only wave: the key period on airdefense.keyClock
+     * (AirDefenseDataSVA.keyPeriod - the total world time by default), the server's pepper and the owner's key generation.
+     */
     public int dayCode() {
         if (!ConfigSVA.adDayKey || !dayKey || worldObj == null) {
             return -1;
         }
-        return XpdrMath.dayCode(ownerSecret(), XpdrMath.day(worldObj.getWorldTime()));
+        return keyCode(AirDefenseDataSVA.keyPeriod(worldObj));
+    }
+
+    /** Code-only wave: the owner's key code in a key period (-1: none; whatever the day key - the caller asks). */
+    public int keyCode(long period) {
+        String sec = ownerSecret();                                 // bug 18: made / handed over first
+        AirDefenseDataSVA d = worldObj == null || worldObj.isRemote ? null : AirDefenseDataSVA.get(worldObj);
+        return d == null ? -1 : sec.length() == 0 ? -1 : d.keyCode(ownerName, period);
     }
 
     /**
@@ -196,6 +224,141 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         if (d != null) {
             d.markDirty();
         }
+    }
+
+    // ------------------------------------------------------------------ code-only wave: «Опознавание: ПО КОДУ»
+
+    /** The mode's state on this post now (CodeOnlyMath.CO_*: off, arming, on, forbidden by the server, no day key). */
+    public int codeOnlyState() {
+        AirDefenseDataSVA.KpInfo i = info();
+        return worldObj == null ? CodeOnlyMath.CO_OFF : CodeOnlyMath.state(i.codeOnly, i.armAt, worldObj.getTotalWorldTime(), ConfigSVA.adCodeOnly,
+                dayKey && ConfigSVA.adDayKey);
+    }
+
+    /** The code-only classification applies now (on, armed, allowed, with the day key). */
+    public boolean codeOnly() {
+        return codeOnlyState() == CodeOnlyMath.CO_ON;
+    }
+
+    /**
+     * Item 16: the owner switches the mode on (the countdown starts, the log, the owner and his list in the chat) or off (at
+     * once). Not with the server's codeOnly=false, nor without the day key (the post's or the server's). An op on another's
+     * post (item 34): the log names him, the owner is told. @return switched as asked
+     */
+    public boolean setCodeOnly(EntityPlayerMP p, boolean on) {
+        AirDefenseDataSVA.KpInfo i = info();
+        long now = worldObj.getTotalWorldTime();
+        String who = p == null ? "-" : p.getCommandSenderName();
+        if (on && !CodeOnlyMath.mayEnable(ConfigSVA.adCodeOnly, ConfigSVA.adDayKey, dayKey)) {
+            if (p != null) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, ConfigSVA.adCodeOnly ? "sva.ad.msg.coNoKey" : "sva.ad.msg.coBanned");
+            }
+            return false;
+        }
+        if (on == i.codeOnly) {
+            return true;
+        }
+        i.codeOnly = on;
+        i.armAt = on ? CodeOnlyMath.armAt(now, ConfigSVA.adCodeOnlyArmSeconds) : -1;
+        coLast = on ? CodeOnlyMath.CO_ARMING : CodeOnlyMath.CO_OFF;  // the end of the arming is told by the next round
+        infoChanged();
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(worldObj);
+        if (d != null) {
+            d.touchZones();                                         // the zones' «ПО КОДУ» mark on the pilots' screens
+        }
+        int secs = Math.max(0, ConfigSVA.adCodeOnlyArmSeconds);
+        if (on) {
+            log("sva.ad.log.coArming", who, String.valueOf(secs));
+        } else {
+            log("sva.ad.log.coOff", who);
+        }
+        for (EntityPlayerMP a : alarmAudience()) {
+            if (on) {
+                AirDefenseSVA.INSTANCE.tell(a, 0xF0B040, "sva.ad.msg.coArming", name(), Integer.valueOf(secs), who);
+            } else {
+                AirDefenseSVA.INSTANCE.tell(a, 0xF0B040, "sva.ad.msg.coOff", name(), who);
+            }
+        }
+        if (p != null && !p.getCommandSenderName().equalsIgnoreCase(ownerName)) {
+            log("sva.ad.log.coByOp", who);                          // item 34: an op on another's post
+            for (EntityPlayerMP a : alarmAudience()) {
+                if (a.getCommandSenderName().equalsIgnoreCase(ownerName)) {
+                    AirDefenseSVA.INSTANCE.tell(a, 0xF05050, "sva.ad.msg.coByOp", name(), who);
+                }
+            }
+        }
+        AirDefenseSVA.INSTANCE.launchLog("KP " + name() + " (" + ownerName + "): code-only " + (on ? "armed, on in " + secs + " s" : "off") + " by " + who);
+        return true;
+    }
+
+    /**
+     * Item 16: the arming done - the log, the chat; the tracks' miss counts and the launchers' engagements start over. Review
+     * 2026-10-27: a switched-on mode whose arming was dropped (the day key off, the server's switch off at the last start -
+     * CodeOnlyMath.rearm) arms anew here: the countdown, the log and the chat as for the owner's switch.
+     */
+    private void codeOnlyRound() {
+        int co = codeOnlyState();
+        AirDefenseDataSVA.KpInfo i = info();
+        if (CodeOnlyMath.rearm(i.codeOnly, i.armAt, co)) {
+            int secs = Math.max(0, ConfigSVA.adCodeOnlyArmSeconds);
+            i.armAt = CodeOnlyMath.armAt(worldObj.getTotalWorldTime(), secs);
+            infoChanged();
+            AirDefenseDataSVA dd = AirDefenseDataSVA.get(worldObj);
+            if (dd != null) {
+                dd.touchZones();                                    // the zones' «ПО КОДУ» mark on the pilots' screens
+            }
+            log("sva.ad.log.coRearm", String.valueOf(secs));
+            for (EntityPlayerMP a : alarmAudience()) {
+                AirDefenseSVA.INSTANCE.tell(a, 0xF0B040, "sva.ad.msg.coRearm", name(), Integer.valueOf(secs));
+            }
+            AirDefenseSVA.INSTANCE.launchLog("KP " + name() + " (" + ownerName + "): code-only armed again (the day key / the server's switch back), on in " + secs
+                    + " s");
+            co = codeOnlyState();
+        }
+        if (co == coLast) {
+            return;
+        }
+        if (CodeOnlyMath.armedNow(coLast, co)) {
+            log("sva.ad.log.coOn");
+            for (EntityPlayerMP a : alarmAudience()) {
+                AirDefenseSVA.INSTANCE.tell(a, 0xF05050, "sva.ad.msg.coOn", name());
+            }
+            for (AirDefenseSVA.Contact t : tracks.values()) {
+                CodeOnlyMath.hit(t.confirm);
+                t.saidCo = t.saidStranger = t.saidEmOver = false;
+            }
+            for (TileEntityLauncherSVA l : launchers) {
+                l.restartEngagements();
+            }
+            AirDefenseSVA.INSTANCE.launchLog("KP " + name() + " (" + ownerName + "): code-only ON");
+        }
+        coLast = co;
+    }
+
+    /** Item 32: «Огонь по коду: ГОТОВ» or why not, for this post (its launchers' rule that fires most). */
+    public int coReadiness() {
+        int[] roes = new int[launchers.size()];
+        for (int k = 0; k < roes.length; k++) {
+            roes[k] = launchers.get(k).roe();
+        }
+        return CodeOnlyMath.readiness(ConfigSVA.adEnabled, ConfigSVA.adFires(), !ConfigSVA.adRequirePvp || pvpOn(), true, powered, codeOnly(),
+                CodeOnlyMath.bestRoe(roes));
+    }
+
+    private static boolean pvpOn() {
+        net.minecraft.server.MinecraftServer s = net.minecraft.server.MinecraftServer.getServer();
+        return s != null && s.isPVPEnabled();
+    }
+
+    /** World tests: the arming done now (as if codeOnlyArmSeconds went by). */
+    public void debugArmNow() {
+        info().armAt = worldObj.getTotalWorldTime();
+        infoChanged();
+    }
+
+    /** World tests: one look at the mode's state (the arming's end told) without waiting for the 10-tick round. */
+    public void debugCodeOnlyRound() {
+        codeOnlyRound();
     }
 
     /** The settings into the trust data (a launcher reads them while this post is off or unloaded). */
@@ -258,13 +421,14 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             sendViewers();
             return;
         }
-        long day = XpdrMath.day(worldObj.getWorldTime());
+        long day = AirDefenseDataSVA.keyPeriod(worldObj);           // code-only wave: the key's clock
         if (day != lastDay) {
             if (lastDay >= 0 && dayCode() >= 0) {
                 log("sva.ad.log.newDay", String.valueOf(day), XpdrMath.format(dayCode()));
             }
             lastDay = day;
         }
+        codeOnlyRound();                                            // code-only wave: the arming's end (item 16)
         merge(now);
         for (Iterator<Map.Entry<Integer, Object[]>> it = engaged.entrySet().iterator(); it.hasNext();) {
             if (((Long) it.next().getValue()[3]).longValue() < now - 20) {
@@ -373,6 +537,14 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                     t.board = c.board;
                     t.ident = c.ident;
                     t.askedAt = c.seen;                             // audit 2026-10-22 (bug 15): interrogated then
+                    // code-only wave: the card the code came from (never a code), when it was set, who flies it
+                    t.fromCard = c.fromCard;
+                    t.cardOwner = c.cardOwner;
+                    t.cardGen = c.cardGen;
+                    t.cardFirst = c.cardFirst;
+                    t.cardUntil = c.cardUntil;
+                    t.codeSince = c.codeSince;
+                    t.pilot = c.pilot;
                 }
             }
         }
@@ -385,8 +557,8 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                 t.askedAt = now;
             }
         }
-        long today = XpdrMath.day(worldObj.getWorldTime());
-        int dc = dayCode(), yc = dc >= 0 ? XpdrMath.dayCode(ownerSecret(), today - 1) : -1;
+        long today = AirDefenseDataSVA.keyPeriod(worldObj);
+        int dc = dayCode(), yc = dc >= 0 ? keyCode(today - 1) : -1;
         // wave A: the aerodromes of every post and tower in this dimension (the friendly airports' codes)
         List<ZoneMath.Zone> apts = new ArrayList<ZoneMath.Zone>();
         AirDefenseDataSVA dd = AirDefenseDataSVA.get(worldObj);
@@ -398,6 +570,8 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             }
         }
         AirDefenseDataSVA.KpInfo info = info();
+        // code-only wave: the owner's key for this round (null: the usual classification)
+        AirDefenseSVA.CodeKey ck = codeOnly() ? AirDefenseSVA.codeKey(worldObj, info) : null;
         for (Iterator<AirDefenseSVA.Contact> it = tracks.values().iterator(); it.hasNext();) {
             AirDefenseSVA.Contact t = it.next();
             if (t.v == null || t.v.isDead || now - t.seen > RadarMath.TRACK_TIMEOUT) {
@@ -410,7 +584,7 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                 }
                 continue;
             }
-            classify(t, now, dc, yc, apts, info);
+            classify(t, now, dc, yc, apts, info, ck);
         }
     }
 
@@ -434,7 +608,13 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         return Math.max(1, ConfigSVA.adNoRadioFriendMinutes) * 1200;
     }
 
-    private void classify(final AirDefenseSVA.Contact t, long now, int dc, int yc, List<ZoneMath.Zone> apts, AirDefenseDataSVA.KpInfo info) {
+    /**
+     * One track's class and its log events. Code-only wave: with the owner's key `ck` (the mode on) the strict branch -
+     * AirDefenseSVA.classifyByCode (the own codes and an airport's code only with the post's options 3а / 3в), the log of
+     * «не опознан» / «верный код у чужого борта» / «ПОДБОР» / 7700's grace; null - the usual classification.
+     */
+    private void classify(final AirDefenseSVA.Contact t, long now, int dc, int yc, List<ZoneMath.Zone> apts, AirDefenseDataSVA.KpInfo info,
+            AirDefenseSVA.CodeKey ck) {
         EntityVehicleSVA v = t.v;
         t.rel = relation(t.owner);
         boolean ownFriend = t.rel == 1 || t.rel == 2 && !ConfigSVA.adFireOnFriends;
@@ -514,8 +694,18 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         t.nrLeft = nr ? NoRadioMath.secondsLeft(ne, now, nrTimer()) : 0;
         boolean grace = nr && NoRadioMath.holdFire(nst);
         granted |= nr && NoRadioMath.friend(nst);
-        t.cls = RoeMath.classify(ownFriend, t.replied, t.code, ownCode, aptCode, white, granted, grace, viol != null || handed);
-        t.cls = RoeMath.unknownUntilAsked(t.cls, t.askedAt >= 0);         // bug 15: never interrogated - no fire
+        if (ck != null) {
+            // code-only wave: the key's code alone (no ownership, no white list, no tower trust; own / airport codes as options)
+            int r = AirDefenseSVA.INSTANCE.classifyByCode(worldObj, ck, t, t.askedAt >= 0, t.askedAt, granted, grace, ownCode(t.code), aptCode,
+                    viol != null || handed, now);
+            codeOnlyLog(t, r, no2, now);
+        } else {
+            t.codeOnly = false;
+            t.idr = t.idMiss = RoeMath.ID_NONE;
+            t.em = -1;
+            t.cls = RoeMath.classify(ownFriend, t.replied, t.code, ownCode, aptCode, white, granted, grace, viol != null || handed);
+            t.cls = RoeMath.unknownUntilAsked(t.cls, t.askedAt >= 0);         // bug 15: never interrogated - no fire
+        }
         // «только вести» (a real hold-fire for this post's launchers), renewed while the track lasts
         t.held = info.held(t.vid, now);
         if (t.held) {
@@ -556,7 +746,11 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         t.saidIdent = t.ident;
         boolean em = t.replied && t.code == XpdrMath.EMERGENCY;
         if (em && !t.said7700) {
-            log("sva.ad.log.emergency", who);
+            if (t.codeOnly && t.emLeft >= 0) {
+                log("sva.ad.log.emGrace", who, String.valueOf(t.emLeft));   // code-only wave (item 7): a grace, not for ever
+            } else {
+                log("sva.ad.log.emergency", who);
+            }
             worldObj.playSoundEffect(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5, "note.pling", 1F, 0.6F);
         }
         t.said7700 = em;
@@ -602,8 +796,49 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         t.engagedBy = en == null ? "" : (String) en[0];
     }
 
+    /**
+     * Code-only wave: the strict verdict's log lines - the «ПОДБОР» block began (item 11); a target confirmed: «не опознан» with
+     * the pilot's reason, for a machine of the owner or his list «... - борт ВЛАДЕЛЬЦА» and the list told in the chat (item
+     * 33: information only); the key's card on a stranger's aircraft - «верный код у чужого борта» (item 30); 7700's grace used
+     * up (item 7). Each once a track until it changes.
+     */
+    private void codeOnlyLog(AirDefenseSVA.Contact t, int r, String no2, long now) {
+        if ((r & AirDefenseSVA.PROBE_BEGAN) != 0) {
+            log("sva.ad.log.coProbe", no2, String.valueOf(Math.max(1, ConfigSVA.adCodeOnlyProbeMinutes)));
+            worldObj.playSoundEffect(xCoord + 0.5, yCoord + 0.5, zCoord + 0.5, "note.bassattack", 1.5F, 0.9F);
+            AirDefenseSVA.INSTANCE.launchLog("KP " + name() + ": track " + no2 + " (" + t.owner + ", pilot " + t.pilot + ") - GUESSING block");
+        }
+        boolean target = RoeMath.hostile(t.cls);
+        if (target && !t.saidCo) {
+            String why = CodeOnlyMath.PILOT_KEYS[CodeOnlyMath.pilotReason(t.idMiss)];
+            if (CodeOnlyMath.ownWithoutCode(t.rel, t.cls)) {
+                log("sva.ad.log.coMissOwn." + why, no2, t.owner);
+                for (EntityPlayerMP a : alarmAudience()) {
+                    AirDefenseSVA.INSTANCE.tell(a, 0xF05050, "sva.ad.msg.coOwnNoCode", name(), no2, t.owner);
+                }
+            } else {
+                log("sva.ad.log.coMiss." + why, no2);
+            }
+        }
+        t.saidCo = target;
+        boolean piloted = t.pilot.length() > 0;
+        boolean stranger = CodeOnlyMath.strangerWithKey(t.idr, t.fromCard, piloted, piloted ? relation(t.pilot) : 0, t.rel);
+        if (stranger && !t.saidStranger) {
+            log("sva.ad.log.coStranger", no2, piloted ? t.pilot : t.owner);
+            AirDefenseSVA.INSTANCE.launchLog("KP " + name() + ": track " + no2 + " - the key's code from a card, flown by a stranger (" + (piloted ? t.pilot : t.owner)
+                    + ")");
+        }
+        t.saidStranger = stranger;
+        boolean over = t.em == NoRadioMath.S_DEFAULT;
+        if (over && !t.saidEmOver) {
+            log("sva.ad.log.emOver", no2);
+        }
+        t.saidEmOver = over;
+    }
+
+    /** One of the own codes - never a reserved one (code-only wave, item 35: an older save's 7000 no longer makes everyone a friend). */
     public boolean ownCode(int code) {
-        if (!XpdrMath.valid(code)) {
+        if (!XpdrMath.ownCodeAllowed(code)) {
             return false;
         }
         for (int c : codes) {
@@ -866,7 +1101,46 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             info().grants.put(t.vid, Long.valueOf(now + RoeMath.GRANT_TICKS));
             info().assigned.remove(t.vid);
             infoChanged();
+            AirDefenseDataSVA gd = AirDefenseDataSVA.get(worldObj);
+            if (gd != null) {
+                gd.probeUnblock(ownerName, t.vid, t.pilot);         // code-only wave (item 11): «Свой» lifts the «ПОДБОР» block too
+            }
             log("sva.ad.log.grant", String.format("%02d", Integer.valueOf(t.no)));
+        } else if ("unlock".equals(op) && t != null) {
+            // code-only wave (item 11): the operator lifts the «ПОДБОР» block (the aircraft's and its pilot's)
+            AirDefenseDataSVA gd = AirDefenseDataSVA.get(worldObj);
+            if (gd != null) {
+                gd.probeUnblock(ownerName, t.vid, t.pilot);
+            }
+            log("sva.ad.log.coUnlock", String.format("%02d", Integer.valueOf(t.no)), p == null ? "-" : p.getCommandSenderName());
+        } else if (("emFriend".equals(op) || "emCheck".equals(op) || "emHostile".equals(op)) && t != null) {
+            // code-only wave (item 7): the operator's decision on a 7700 - kept with its grace per owner (all his posts)
+            AirDefenseDataSVA gd = AirDefenseDataSVA.get(worldObj);
+            NoRadioMath.Entry e = gd == null ? null : gd.emergencyEntry(ownerName, t.vid);
+            if (e != null) {
+                int dec = "emFriend".equals(op) ? NoRadioMath.D_FRIEND : "emCheck".equals(op) ? NoRadioMath.D_CHECK : NoRadioMath.D_HOSTILE;
+                NoRadioMath.decide(e, dec, now, nrFriendTicks());
+                if (dec == NoRadioMath.D_FRIEND) {
+                    gd.probeUnblock(ownerName, t.vid, t.pilot);     // review 2026-10-27 (batch 3, item 11): «Свой» lifts «ПОДБОР» too
+                }
+                if (dec != NoRadioMath.D_HOSTILE) {
+                    info().assigned.remove(t.vid);
+                    infoChanged();
+                }
+                gd.markDirty();
+                String who = p == null ? "-" : p.getCommandSenderName();
+                String tn = String.format("%02d", Integer.valueOf(t.no));
+                if (dec == NoRadioMath.D_FRIEND) {
+                    log("sva.ad.log.emFriend", tn, String.valueOf(ConfigSVA.adNoRadioFriendMinutes), who);
+                } else {
+                    log(dec == NoRadioMath.D_CHECK ? "sva.ad.log.emCheck" : "sva.ad.log.emHostile", tn, who);
+                }
+                AirDefenseSVA.INSTANCE.launchLog("KP " + name() + ": 7700 track " + t.no + " (" + t.owner + ") - "
+                        + NoRadioMath.STATE_KEYS[dec == NoRadioMath.D_FRIEND ? NoRadioMath.S_FRIEND : dec == NoRadioMath.D_CHECK ? NoRadioMath.S_CHECK
+                                : NoRadioMath.S_HOSTILE] + " by " + who);
+            }
+        } else if ("codeOnly".equals(op) || "codeOpts".equals(op) || "rekey".equals(op) || "coAllRoe".equals(op)) {
+            codeOnlyCommand(p, op, d);
         } else if ("alarm".equals(op)) {
             setAlarm(!alarm, true);
             if (alarm) {
@@ -962,6 +1236,61 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
     }
 
     /**
+     * Code-only wave: the owner's commands (an op counts as the owner - item 34) - «codeOnly» (On; switching it on needs
+     * «Sure» from the confirmation window: two steps), «codeOpts» (Opts - CodeOnlyMath.OPT_*, Periods - the cards' term),
+     * «rekey» («Сменить ключ», with «Sure»: the generation +1, every card printed before is void, the list told to print new
+     * ones) and «coAllRoe» («Все ПУ: по всем без кода», item 27). Anyone else is refused with a line in the chat.
+     */
+    private void codeOnlyCommand(EntityPlayerMP p, String op, NBTTagCompound d) {
+        if (!isOwner(p)) {
+            if (p != null) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.coOwnerOnly");
+            }
+            return;
+        }
+        String who = p.getCommandSenderName();
+        if ("codeOnly".equals(op)) {
+            boolean on = d.getBoolean("On");
+            if (on && !d.getBoolean("Sure")) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.coConfirm");
+                return;
+            }
+            setCodeOnly(p, on);
+        } else if ("codeOpts".equals(op)) {
+            AirDefenseDataSVA.KpInfo i = info();
+            if (d.hasKey("Opts")) {
+                i.coOpts = CodeOnlyMath.opts(d.getInteger("Opts"));
+            }
+            if (d.hasKey("Periods")) {
+                i.cardPeriods = CodeOnlyMath.cardPeriods(d.getInteger("Periods"), ConfigSVA.adCodeCardMaxPeriods);
+            }
+            infoChanged();
+            log("sva.ad.log.coOpts", who);
+        } else if ("rekey".equals(op)) {
+            AirDefenseDataSVA dd = AirDefenseDataSVA.get(worldObj);
+            if (!d.getBoolean("Sure") || dd == null) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.coConfirm");
+                return;
+            }
+            int gen = dd.rekey(ownerName);
+            log("sva.ad.log.rekey", String.valueOf(gen), who);
+            for (EntityPlayerMP a : alarmAudience()) {
+                AirDefenseSVA.INSTANCE.tell(a, 0xF05050, "sva.ad.msg.rekey", name(), Integer.valueOf(gen));
+            }
+            AirDefenseSVA.INSTANCE.launchLog("KP " + name() + " (" + ownerName + "): the key changed, generation " + gen + ", by " + who);
+        } else {
+            int n = 0;
+            for (TileEntityLauncherSVA l : launchers) {
+                if (!l.isInvalid()) {
+                    l.setRoeByPost(RoeMath.FOREIGN_ALL);
+                    n++;
+                }
+            }
+            log("sva.ad.log.coAllRoe", String.valueOf(n), who);
+        }
+    }
+
+    /**
      * Bug 1: room for one more zone - under ZoneMath.MAX_ZONES on this post and, with the zones of the owner's other posts
      * (AirDefenseDataSVA), under airdefense.maxZonesPerPlayer (0 - no limit).
      */
@@ -977,11 +1306,23 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
     private void settings(EntityPlayerMP p, NBTTagCompound d) {
         name = Text.clean(d.getString("Name"), 24);
         if (isOwner(p)) {
+            boolean keyWas = dayKey;
             dayKey = d.getBoolean("DayKey");                        // audit 2026-10-22 (7.3): the access list may not switch it off
+            AirDefenseDataSVA.KpInfo ci = info();
+            if (CodeOnlyMath.disarmOnKey(ci.codeOnly, keyWas, dayKey)) {
+                ci.armAt = -1;                                      // review 2026-10-27: the key on again arms it anew (codeOnlyRound)
+                infoChanged();
+            }
+            AirDefenseDataSVA zd = keyWas != dayKey ? AirDefenseDataSVA.get(worldObj) : null;
+            if (zd != null) {
+                ci.dayKey = dayKey;
+                zd.touchZones();                                    // review batch 3: the zones' «ПО КОДУ» mark follows the day key
+            }
         }
         int[] c = d.getIntArray("Codes");
         for (int i = 0; i < MAX_CODES; i++) {
-            codes[i] = i < c.length && XpdrMath.valid(c[i]) ? c[i] : -1;
+            // code-only wave (item 35): 0000 / 7000 / 7500 / 7600 / 7700 (and 77xx) are no own codes - dropped
+            codes[i] = i < c.length && XpdrMath.ownCodeAllowed(c[i]) ? c[i] : -1;
         }
         int[] wb = d.getIntArray("WB");
         NBTTagList wo = d.getTagList("WO", 8);
@@ -1139,22 +1480,38 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         return new ArrayList<String>(trusted);
     }
 
-    /** Right-click with a code card: today's code printed on it (the day key on). @return printed */
+    /**
+     * Right-click with code cards: the whole stack printed with the owner's key (the day key on) - code-only wave (item 17):
+     * whose key, its generation, this key period and the post's «Срок карты» (1 / 3 / 7 periods, never over the server's
+     * codeCardMaxPeriods); no code on it. The log says who printed how many. @return printed
+     */
     public boolean printCard(EntityPlayer p, ItemStack card) {
-        int dc = dayCode();
-        if (dc < 0 || !powered) {
+        if (dayCode() < 0 || !powered || card == null) {
             return false;
         }
-        ItemCodeCardSVA.print(card, name(), XpdrMath.day(worldObj.getWorldTime()), dc);
+        printKey(card);
+        log("sva.ad.log.printedN", p == null ? "?" : p.getCommandSenderName(), String.valueOf(card.stackSize));
         return true;
     }
 
-    /** World tests: today's code on a card whatever the power. */
-    public void printCardForTest(ItemStack card) {
-        ItemCodeCardSVA.print(card, name(), XpdrMath.day(worldObj.getWorldTime()), XpdrMath.dayCode(ownerSecret(), XpdrMath.day(worldObj.getWorldTime())));
+    /** The owner's key on a card (a stack: all of them) - this period, the post's periods. */
+    private void printKey(ItemStack card) {
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(worldObj);
+        ItemCodeCardSVA.print(card, name(), ownerName, d == null ? 1 : d.gen(ownerName), AirDefenseDataSVA.keyPeriod(worldObj), cardPeriods());
     }
 
-    /** «Карты кодов: печать»: a sheet of paper from the operator's inventory becomes today's card. */
+    /** The periods this post's cards are good for (its «Срок карты» within the server's codeCardMaxPeriods). */
+    public int cardPeriods() {
+        return CodeOnlyMath.cardPeriods(info().cardPeriods, ConfigSVA.adCodeCardMaxPeriods);
+    }
+
+    /** World tests: the owner's key on a card whatever the power and the day key. */
+    public void printCardForTest(ItemStack card) {
+        ownerSecret();
+        printKey(card);
+    }
+
+    /** «Карты кодов: печать»: a sheet of paper from the operator's inventory becomes a card of the owner's key. */
     private void printFromPaper(EntityPlayerMP p) {
         int dc = dayCode();
         if (dc < 0 || !powered) {
@@ -1166,12 +1523,12 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             return;
         }
         ItemStack s = new ItemStack(com.sva.init.ModContentSVA.codeCard);
-        ItemCodeCardSVA.print(s, name(), XpdrMath.day(worldObj.getWorldTime()), dc);
+        printKey(s);
         if (!p.inventory.addItemStackToInventory(s)) {
             p.dropPlayerItemWithRandomChoice(s, false);
         }
         p.inventoryContainer.detectAndSendChanges();
-        log("sva.ad.log.printed", p.getCommandSenderName());
+        log("sva.ad.log.printedN", p.getCommandSenderName(), "1");
     }
 
     private static String randomSecret() {
@@ -1304,10 +1661,39 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         t.setIntArray("Pos", new int[] {xCoord, yCoord, zCoord});
         t.setString("Name", name);
         t.setString("Own", ownerName);
-        long day = XpdrMath.day(worldObj.getWorldTime());
+        long day = AirDefenseDataSVA.keyPeriod(worldObj);
         t.setLong("Day", day);
         t.setString("Time", clock(worldObj.getWorldTime()));
         t.setInteger("DayCode", dayCode());
+        // code-only wave: «смена ключа через N мин» on the key's clock, the key's generation, the cards' periods
+        t.setInteger("KeyLeft", (int) AirDefenseDataSVA.keyLeft(worldObj));
+        AirDefenseDataSVA kd = AirDefenseDataSVA.get(worldObj);
+        t.setInteger("KeyGen", kd == null ? 1 : kd.gen(ownerName));
+        t.setInteger("CardPeriods", cardPeriods());
+        // code-only wave: the mode (CO_*), the arming's seconds left, the options, the readiness line (items 16, 32, 38) and the
+        // confirmation window's summary (item 27): the launchers by their rule, the tracks without the key's code (the owner's / his list's)
+        AirDefenseDataSVA.KpInfo ci = info();
+        long cnow = worldObj.getTotalWorldTime();
+        t.setByte("Co", (byte) codeOnlyState());
+        t.setInteger("CoArm", CodeOnlyMath.armLeft(ci.codeOnly, ci.armAt, cnow));
+        t.setInteger("CoOpts", CodeOnlyMath.opts(ci.coOpts));
+        t.setByte("CoReady", (byte) coReadiness());
+        t.setBoolean("CoServer", ConfigSVA.adCodeOnly);
+        t.setBoolean("CoSrvKey", ConfigSVA.adDayKey);               // review batch 3: the server's dayKey=false - the switch would be refused
+        t.setBoolean("CoManual", ConfigSVA.adCodeOnlyManual);
+        int[] byRoe = new int[RoeMath.ROES];
+        for (TileEntityLauncherSVA l : launchers) {
+            byRoe[Math.max(0, Math.min(RoeMath.ROES - 1, l.roe()))]++;
+        }
+        int noKey = 0, noKeyOwn = 0;
+        int kn = dayCode(), kp = keyCode(AirDefenseDataSVA.keyPeriod(worldObj) - 1);
+        for (AirDefenseSVA.Contact tr : tracks.values()) {
+            if (tr.manned && !(tr.replied && (tr.code == kn && kn >= 0 || tr.code == kp && kp >= 0))) {
+                noKey++;
+                noKeyOwn += tr.rel != 0 ? 1 : 0;
+            }
+        }
+        t.setIntArray("CoSum", new int[] {byRoe[RoeMath.HOLD], byRoe[RoeMath.VIOLATORS], byRoe[RoeMath.FOREIGN_ALL], byRoe[RoeMath.KP_MARKS], noKey, noKeyOwn});
         t.setBoolean("DayKey", dayKey);
         t.setBoolean("Alarm", alarm);
         t.setBoolean("Auto", auto);
@@ -1385,6 +1771,16 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             c.setByte("Iff", (byte) tr.iff);
             c.setBoolean("Hand", tr.saidIff);
             c.setString("Apt", tr.airport);
+            // code-only wave (item 39): classed by the code, the reason and the miss (RoeMath.ID_*), the misses in a row («ПРОВ
+            // 1/2»), 7700's state and grace left, the relation (the grey ВЛ / ДР), the vehicle's owner (the track form)
+            c.setBoolean("Co", tr.codeOnly);
+            c.setByte("Idr", (byte) tr.idr);
+            c.setByte("IdM", (byte) tr.idMiss);
+            c.setByte("Cnf", (byte) tr.confirm.misses);
+            c.setByte("EM", (byte) tr.em);
+            c.setInteger("EMt", tr.emLeft);
+            c.setByte("Rel", (byte) tr.rel);
+            c.setString("Own", tr.owner);
             tl.appendTag(c);
         }
         t.setTag("Tracks", tl);

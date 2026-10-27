@@ -786,7 +786,7 @@ final class WorldTestAdWaveASVA {
         dk.state.xpdr.mode = XpdrMath.C;
         dk.state.xpdr.setCode(02345, now);                          // the code from today's card, the day key running
         dk.state.xpdr.dayKey = true;
-        dk.state.xpdr.cardDay = XpdrMath.day(w.getWorldTime());
+        dk.state.xpdr.cardDay = com.sva.airdefense.AirDefenseDataSVA.keyPeriod(w);   // the key's clock
         dr.state.xpdr.mode = XpdrMath.C;
         dr.state.xpdr.dayKey = true;                                // on, but no card today: the tower's code may replace it
         u.state.xpdr.mode = XpdrMath.C;

@@ -345,6 +345,32 @@ public final class ConfigSVA {
      */
     public static boolean adTerrainCache = true;
     public static int adTerrainRadius = 640;
+    // code-only wave (docs/proposal-ad-strict-iff.md item 28): «Опознавание: ПО КОДУ»
+    /** The command posts may identify by the transponder's code alone (false: forbidden - saved code-only posts work the usual way). */
+    public static boolean adCodeOnly = true;
+    /** Switched on, the mode takes effect this much later (s; the countdown on the post, the chat to its owner and access list). */
+    public static int adCodeOnlyArmSeconds = 60;
+    /** A target only after two misses in a row at least this far apart (s). */
+    public static int adCodeOnlyConfirmSeconds = 5;
+    /** The launchers' shortest wait to fire in the code-only mode, the same for everybody (s). */
+    public static int adCodeOnlyMinWarningSeconds = 20;
+    /** 7700's grace per aircraft and air defence owner, all episodes together (s; 0 - 7700 is never a target). */
+    public static int adCodeOnlyEmergencySeconds = 180;
+    /** After a key period starts the last period's code still counts this long (s). */
+    public static int adCodeOnlyOverlapSeconds = 60;
+    /** A code card is printed for at most this many key periods (one period - 20 min of real time). */
+    public static int adCodeCardMaxPeriods = 7;
+    /** Guessing: this many different wrong codes within 2 minutes - the block «ПОДБОР» for codeOnlyProbeMinutes. */
+    public static int adCodeOnlyProbeCodes = 4, adCodeOnlyProbeMinutes = 5;
+    /**
+     * The user's decision 1: a code dialled by hand (no card) may count - the posts' option «Ручной набор кода», on by default;
+     * false - only a code card's code ever counts.
+     */
+    public static boolean adCodeOnlyManual = true;
+    /** The «ключ дня»'s clock: "total" (the world's total time - /time set and sleeping change nothing) or "day" (the time of day, as before). */
+    public static String adKeyClock = "total";
+    /** The user's decision 3: every vehicle has a transponder, the ground ones too (false: only what flies). */
+    public static boolean adAllTransponders = true;
     /** A2 (client): the zone frames on the HUD / ND / HSI, the entry prediction and its tones. */
     public static boolean zoneFrames = true;
     /**
@@ -765,7 +791,8 @@ public final class ConfigSVA {
         adFireInProtectedRegions = c.getBoolean("fireInProtectedRegions", a, false,
                 "Fire at targets inside a private field that refuses the launcher's owner / Огонь в защищённых регионах");
         adFireOnFriends = c.getBoolean("fireOnFriends", a, false,
-                "Fire at vehicles of the players on the air defence's access list (own vehicles: never) / Огонь по машинам друзей (по своим - никогда)");
+                "Fire at vehicles of the players on the air defence's access list (own vehicles: never); not in the code-only mode / "
+                        + "Огонь по машинам друзей (по своим - никогда); в режиме ПО КОДУ не действует");
         adRequirePvp = c.getBoolean("requirePvp", a, true, "Fire only with the server's PvP on / Огонь только при включённом PvP");
         adFireOnUnmanned = c.getBoolean("fireOnUnmanned", a, false, "Fire at vehicles with nobody aboard / Огонь по машинам без пилота");
         adMaxLaunchers = c.getInt("maxLaunchersPerPlayer", a, 4, 0, 1000, "Launchers one player may place (0 = unlimited) / ПУ на игрока");
@@ -825,6 +852,37 @@ public final class ConfigSVA {
                         + "coverage map) / Помнить рельеф выгруженных чанков у РЛС и ПУ: холм прячет и без игрока рядом");
         adTerrainRadius = c.getInt("terrainCacheRadius", a, 640, 0, 2048,
                 "Terrain memory: how far round a radar, blocks (a launcher - its missile's reach; 0 = off) / Память рельефа: радиус вокруг РЛС, блоков");
+        // code-only wave: «Опознавание: ПО КОДУ» (identification by the transponder's code alone)
+        adCodeOnly = c.getBoolean("codeOnly", a, true,
+                "Command posts may identify by the transponder's code alone (code-only); false - forbidden, saved code-only posts work the usual way / "
+                        + "КП могут опознавать только по коду ответчика (ПО КОДУ); false - запрещено, такие КП работают как обычно");
+        adCodeOnlyArmSeconds = c.getInt("codeOnlyArmSeconds", a, 60, 0, 600,
+                "Code-only: switched on, it takes effect this much later, s / ПО КОДУ: включается через столько секунд");
+        adCodeOnlyConfirmSeconds = c.getInt("codeOnlyConfirmSeconds", a, 5, 1, 60,
+                "Code-only: a target only after two misses in a row this far apart, s / ПО КОДУ: цель после двух промахов не ближе, с");
+        adCodeOnlyMinWarningSeconds = c.getInt("codeOnlyMinWarningSeconds", a, 20, 0, 60,
+                "Code-only: the launchers' shortest wait to fire, the same for everybody, s / ПО КОДУ: ожидание до огня не меньше, с");
+        adCodeOnlyEmergencySeconds = c.getInt("codeOnlyEmergencySeconds", a, 180, 0, 3600,
+                "Code-only: 7700's grace per aircraft (all episodes, all posts of one owner), s; 0 - 7700 is never a target / "
+                        + "ПО КОДУ: льгота 7700 на борт (все эпизоды, все КП владельца), с; 0 - по 7700 не стрелять никогда");
+        adCodeOnlyOverlapSeconds = c.getInt("codeOnlyOverlapSeconds", a, 60, 0, 600,
+                "Code-only: the last key period's code still counts this long after the change, s / ПО КОДУ: прошлый код действует после смены ключа, с");
+        adCodeCardMaxPeriods = c.getInt("codeCardMaxPeriods", a, 7, 1, 72,
+                "Code cards are printed for at most this many key periods (a period - 20 min) / Карта кодов действует не больше стольких периодов (период - 20 мин)");
+        adCodeOnlyProbeCodes = c.getInt("codeOnlyProbeCodes", a, 4, 2, 32,
+                "Code-only: this many different wrong codes within 2 min from one aircraft or pilot - the GUESSING block / "
+                        + "ПО КОДУ: столько разных неверных кодов за 2 мин от борта или пилота - блок ПОДБОР");
+        adCodeOnlyProbeMinutes = c.getInt("codeOnlyProbeMinutes", a, 5, 1, 120,
+                "Code-only: the GUESSING block lasts, min / ПО КОДУ: блок ПОДБОР действует, мин");
+        adCodeOnlyManual = c.getBoolean("codeOnlyManual", a, true,
+                "Code-only: a code dialled by hand (no card) may count - the posts' option 'Manual code', on by default; false - only a card's code / "
+                        + "ПО КОДУ: код, набранный вручную (без карты), может засчитываться - опция КП 'Ручной набор кода' (вкл. по умолчанию); false - только код с карты");
+        adKeyClock = c.getString("keyClock", a, "total",
+                "The day key's clock: total - the world's total time (/time set and sleeping change nothing), day - the time of day / "
+                        + "Часы ключа дня: total - общее время мира (/time set и сон не влияют), day - время суток",
+                new String[] {"total", "day"});
+        adAllTransponders = c.getBoolean("allTransponders", a, true,
+                "Every vehicle has a transponder, the ground ones too (false - only aircraft) / Ответчик у всей техники, и у наземной (false - только у авиации)");
     }
 
     /** Airport wave B1: the "airport" category - every feature switchable. */

@@ -17,14 +17,20 @@ import net.minecraft.item.ItemStack;
  */
 public class ContainerLauncherSVA extends Container {
 
-    public static final int SLOT_X = 8, SLOT_Y = 134, UPG_X = 176, INV_X = 49, INV_Y = 156;
+    /**
+     * Code-only wave (item 41): the banner «КП ...: ПО КОДУ» and the readiness line take the rows over the slots. Review
+     * 2026-10-27 (batch 3): the ammunition and the upgrade slots stand in a column each beside the player's inventory (SLOT_STEP
+     * apart, from SLOT_Y down) - the window is 240 px high again (262 with them in a row of their own: at 1280x720, auto GUI
+     * scale, 240 scaled px, its title and bottom went off the screen).
+     */
+    public static final int SLOT_X = 8, SLOT_Y = 156, SLOT_STEP = 18, UPG_X = 236, INV_X = 49, INV_Y = 156;
 
     public final TileEntityLauncherSVA tile;
 
     public ContainerLauncherSVA(InventoryPlayer inv, TileEntityLauncherSVA tile) {
         this.tile = tile;
         for (int i = 0; i < TileEntityLauncherSVA.SLOTS; i++) {
-            addSlotToContainer(new Slot(tile, i, SLOT_X + 20 * i, SLOT_Y) {
+            addSlotToContainer(new Slot(tile, i, SLOT_X, SLOT_Y + SLOT_STEP * i) {
                 @Override
                 public boolean isItemValid(ItemStack s) {
                     return ContainerLauncherSVA.this.tile.isAmmo(s);
@@ -37,7 +43,7 @@ public class ContainerLauncherSVA extends Container {
             });
         }
         for (int i = 0; i < com.sva.airdefense.AdUpgradeMath.SLOTS; i++) {
-            addSlotToContainer(new ContainerAdSVA.UpgradeSlot(tile, i, UPG_X + 18 * i, SLOT_Y));
+            addSlotToContainer(new ContainerAdSVA.UpgradeSlot(tile, i, UPG_X, SLOT_Y + SLOT_STEP * i));
         }
         for (int r = 0; r < 3; r++) {
             for (int c = 0; c < 9; c++) {

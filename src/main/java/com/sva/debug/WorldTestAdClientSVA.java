@@ -33,7 +33,8 @@ import net.minecraftforge.common.util.FakePlayerFactory;
  * from tick START in its own area (x spawn + 9800, z spawn - 9800, a stone floor at Y 150), owner «TestADK»:
  * <ul>
  * <li>bug 12: a plane whose day key / card set 2471 - the server's XPDR_SET handler with only the mode changed ("Ch") keeps
- * the code and the key; an old client's full packet (no "Ch") still sets all three;</li>
+ * the code and the key; an old client's full packet (no "Ch") still sets all three; review 2026-10-27: two more codes
+ * within a second - the latest waits for its second (the mode at once) and the server's tick puts it on the air;</li>
  * <li>7.3: the liner's F/O works the transponder - IDENT from his seat (the Action packet's handler) and the panel's
  * XPDR_SET; a passenger in the cabin cannot;</li>
  * <li>the RWR: a missile in the air at the plane - its position (T_MISSILE) and its launcher's site (T_LAUNCH, once for
@@ -77,6 +78,7 @@ final class WorldTestAdClientSVA {
             launch(w);
             phase = 2;
         } else if (phase == 2 && k >= 60) {
+            panelLater(w);
             linerSeats(w);
             phase = 9;
         } else if (phase < 9 && k > MAX_TICKS) {
@@ -107,15 +109,16 @@ final class WorldTestAdClientSVA {
         x.mode = XpdrMath.C;
         x.setCode(02471, now);                                      // the card's code (the day key on)
         x.dayKey = true;
-        x.cardDay = XpdrMath.day(w.getWorldTime());
+        x.cardDay = com.sva.airdefense.AirDefenseDataSVA.keyPeriod(w);
         FakePlayer pilot = player(w, "TestADKpilot");
         ride(pilot, plane);
         // the stale screen: the mode pressed, its copy still 7000 and the key off - only the mode is marked changed
         AirDefenseSVA.INSTANCE.command(pilot, new NetADSVA.Cmd(NetADSVA.XPDR_SET, 0, 0, 0, plane.getEntityId(),
                 set(Integer.valueOf(XpdrMath.CH_MODE), XpdrMath.S, XpdrMath.VFR, false)));
         boolean kept = x.mode == XpdrMath.S && x.code == 02471 && x.dayKey && x.cardDay >= 0;
-        // a tower's code: the key pressed off with a stale code - the code stays
-        x.setCode(04100, now);
+        // a tower's code (as the tower sets it: the key off, the card forgotten - review 2026-10-27: «Ключ дня» off over a card's
+        // own code now puts 7000 back): the key pressed off with a stale code - the tower's code stays
+        com.sva.block.AtcServerSVA.setSquawk(plane, 04100, now);
         AirDefenseSVA.INSTANCE.command(pilot, new NetADSVA.Cmd(NetADSVA.XPDR_SET, 0, 0, 0, plane.getEntityId(),
                 set(Integer.valueOf(XpdrMath.CH_KEY), XpdrMath.S, XpdrMath.VFR, false)));
         boolean tower = x.code == 04100 && !x.dayKey;
@@ -124,9 +127,27 @@ final class WorldTestAdClientSVA {
         boolean old = x.mode == XpdrMath.A && x.code == 01234;
         check(kept && tower && old, "ad client world (bug 12): XPDR_SET with only the mode / the key changed keeps the card's 2471 and the "
                 + "tower's 4100 (" + kept + "/" + tower + "); an old full packet still sets all (" + old + ")");
+        // review 2026-10-27 (the guessing guard): a new code within a second of the last one waits for its second - the latest
+        // wins, the mode goes at once; the server's own tick puts it on the air (checked in phase 2)
+        AirDefenseSVA.INSTANCE.command(pilot, new NetADSVA.Cmd(NetADSVA.XPDR_SET, 0, 0, 0, plane.getEntityId(),
+                set(Integer.valueOf(XpdrMath.CH_CODE), XpdrMath.A, 01111, false)));
+        AirDefenseSVA.INSTANCE.command(pilot, new NetADSVA.Cmd(NetADSVA.XPDR_SET, 0, 0, 0, plane.getEntityId(),
+                set(Integer.valueOf(XpdrMath.CH_CODE), XpdrMath.A, 01112, false)));
+        AirDefenseSVA.INSTANCE.command(pilot, new NetADSVA.Cmd(NetADSVA.XPDR_SET, 0, 0, 0, plane.getEntityId(),
+                set(Integer.valueOf(XpdrMath.CH_MODE), XpdrMath.C, 01112, false)));
+        check(x.code == 01234 && x.heldCode == 01112 && x.mode == XpdrMath.C,
+                "ad client world (review: the panel's rate): two more codes within a second - none on the air yet, the latest waits; the mode at once ("
+                        + XpdrMath.format(x.code) + ", waits " + x.heldCode + ")");
         ride(pilot, null);
+    }
+
+    /** Review 2026-10-27: the code that waited went on the air by the server's tick (phase 2), then the plane back to 7000. */
+    private void panelLater(World w) {
+        XpdrMath.Xpdr x = plane.state.xpdr;
+        check(x.code == 01112 && x.heldCode < 0 && !x.dayKey,
+                "ad client world (review: the panel's rate): the waiting code went on the air by itself within a second (" + XpdrMath.format(x.code) + ")");
         x.mode = XpdrMath.C;
-        x.setCode(XpdrMath.VFR, now);
+        x.setCode(XpdrMath.VFR, w.getTotalWorldTime());
     }
 
     // ---------------------------------------------------------------- the RWR: the launching site

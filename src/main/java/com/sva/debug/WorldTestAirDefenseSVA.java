@@ -267,7 +267,7 @@ final class WorldTestAirDefenseSVA {
         ItemStack card = new ItemStack(ModContentSVA.codeCard);
         kp.printCardForTest(card);
         b.state.xpdr.mode = XpdrMath.C;
-        b.state.xpdr.setCode(ItemCodeCardSVA.code(card), w.getTotalWorldTime());
+        b.state.xpdr.setCode(AirDefenseSVA.cardCodeNow(w, card), w.getTotalWorldTime());   // code-only wave: the card holds no code
         c.state.xpdr.mode = XpdrMath.A;
         c.state.xpdr.setCode(XpdrMath.EMERGENCY, w.getTotalWorldTime());
         h.state.tuning = new int[] {TuningMath.RAM_COAT, -1, -1, -1};

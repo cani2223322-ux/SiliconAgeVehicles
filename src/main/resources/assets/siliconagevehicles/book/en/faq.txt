@@ -33,7 +33,9 @@ No bleed pressure (APU or X BLEED), ENG MODE not START, pumps off or no hydrogen
 
 # Air defence and airport
 ## The air defence won't fire
-By default the server only warns: fire is airdefense.mode = fire. It needs radars (for missiles a tracking one or a target within 48 blocks of the launcher), ammunition, power, a rule of engagement on the launcher itself (on "the post's marks" - an assignment or "Auto" on the KP) and the site's chunks loaded (a player near). With vehicles.wear = false shells hit but do no damage. Never at your own, at 7700, the day code, own codes or the white list; a dark board's transponder does not answer.
+By default the server only warns: fire is airdefense.mode = fire. It needs radars (for missiles a tracking one or a target within 48 blocks of the launcher), ammunition, power, a rule of engagement on the launcher itself (on "the post's marks" - an assignment or "Auto" on the KP) and the site's chunks loaded (a player near). With vehicles.wear = false shells hit but do no damage. In the usual mode never at your own, at 7700, the day code, own codes or the white list; a dark board's transponder does not answer.
+## The air defence fires at my vehicle
+A KP in the CODE-ONLY mode: only the key's code makes an aircraft a friend, not whose vehicle it is. Take a code card at the KP (right-click with a stack) and switch "Day key" on at the transponder's panel - the NO ID lamp goes out at the next interrogation. The card's term over or the owner pressed "Change the key" - a new card is needed. 7700 gives 180 s without fire, the KP's operator may give "Friendly for 10 min".
 ## The ILS doesn't work
 Run the tablet's "ILS check" (Shift + right-click in the air): no shelter or power, a broken antenna element, a frequency conflict, the tower switched it off.
 ## The approach chart reads OUTDATED

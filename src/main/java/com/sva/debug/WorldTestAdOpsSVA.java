@@ -144,7 +144,7 @@ final class WorldTestAdOpsSVA {
             }
         }
         if (secretSet && pDay != null) {
-            pDay.state.xpdr.setCode(XpdrMath.dayCode(SECRET, XpdrMath.day(w.getWorldTime())), now);     // a new game day mid-test too
+            pDay.state.xpdr.setCode(AirDefenseDataSVA.keyCodeNow(w, OWNER_NAME), now);    // a new key period mid-test too
         }
     }
 
@@ -230,7 +230,7 @@ final class WorldTestAdOpsSVA {
     /** The post's track of the day-code plane answers today's code (the radar has interrogated it since the code was set). */
     private boolean dayHeard(World w) {
         AirDefenseSVA.Contact c = track(pDay);
-        return c != null && c.replied && c.code == XpdrMath.dayCode(SECRET, XpdrMath.day(w.getWorldTime()));
+        return c != null && c.replied && c.code == AirDefenseDataSVA.keyCodeNow(w, OWNER_NAME);
     }
 
     private AirDefenseDataSVA.KpInfo info(World w) {
@@ -293,7 +293,8 @@ final class WorldTestAdOpsSVA {
         op = player(w, OWNER_NAME);
         cmd(op, "secret", null, "S", SECRET);
         AirDefenseDataSVA dd = AirDefenseDataSVA.get(w);
-        int dc = XpdrMath.dayCode(SECRET, XpdrMath.day(w.getWorldTime()));
+        // code-only wave: the day code from the secret, the server's pepper and the owner's key generation on the key's clock
+        int dc = dd == null ? -2 : XpdrMath.dayCode(SECRET, dd.pepper(), dd.gen(OWNER_NAME), AirDefenseDataSVA.keyPeriod(w));
         check(dd != null && SECRET.equals(dd.secret(OWNER_NAME)) && kp.dayCode() == dc,
                 "ad ops world (KP «secret»): the owner's secret set from the screen - the post's day code " + XpdrMath.format(dc));
         secretSet = true;

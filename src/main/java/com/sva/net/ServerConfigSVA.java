@@ -26,6 +26,15 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * module slots of radars, launchers, the command post, the ILS shelter and the tower take a module on both sides - the
  * client's own value let the slots disagree), keepModules, dayKey, zoneWarnSeconds (the pilots' entry prediction),
  * maxLaunchers / maxRadars and whether the air defence fires.
+ * <p>
+ * Code-only wave (proposal-ad-strict-iff item 28): codeOnly (the post's switch, «запрещено сервером»), codeOnlyManual (its
+ * option «Ручной набор кода»), allTransponders (the «Ответчик» row, the HUD line and the cockpits of the ground vehicles),
+ * keyClock (the code card's «действует ещё ~N мин»), codeCardMaxPeriods (the post's «Срок карты»), codeOnlyArmSeconds /
+ * codeOnlyMinWarningSeconds / codeOnlyEmergencySeconds (the screens' texts) - in a block of their own after the air
+ * defence's; an older server's packet has none: the mode off, the day clock, aircraft only. Review 2026-10-27 (batch 2):
+ * the texts now read them (AirDefenseClientSVA.emPhrase, the launcher's rules, the post's mode and option tips) - they said
+ * 180 s / 20 s / 60 s whatever the server set; codeOnlyProbeCodes / codeOnlyProbeMinutes joined the block for the
+ * «Ручной набор кода» tip.
  */
 public final class ServerConfigSVA {
 
@@ -37,6 +46,11 @@ public final class ServerConfigSVA {
     /** Audit 2026-10-22: the air defence's (airdefense.*). */
     private static volatile boolean adEnabled, adUpgrades, adKeepModules, adDayKey, adFires;
     private static volatile int adZoneWarnSeconds, adMaxLaunchers, adMaxRadars;
+    /** Code-only wave (airdefense.codeOnly*, keyClock, allTransponders). */
+    private static volatile boolean adCodeOnly, adCodeOnlyManual, adAllTransponders;
+    private static volatile int adKeyClock, adCodeCardMaxPeriods, adCodeOnlyArmSeconds, adCodeOnlyMinWarningSeconds, adCodeOnlyEmergencySeconds;
+    /** Review 2026-10-27 (batch 2): the guessing guard's numbers (airdefense.codeOnlyProbeCodes / codeOnlyProbeMinutes). */
+    private static volatile int adCodeOnlyProbeCodes, adCodeOnlyProbeMinutes;
 
     private ServerConfigSVA() {
     }
@@ -125,6 +139,56 @@ public final class ServerConfigSVA {
         return received ? adMaxRadars : ConfigSVA.adMaxRadars;
     }
 
+    /** Code-only wave: airdefense.codeOnly - the posts may switch to «ПО КОДУ». */
+    public static boolean adCodeOnly() {
+        return received ? adCodeOnly : ConfigSVA.adCodeOnly;
+    }
+
+    /** Code-only wave: airdefense.codeOnlyManual - a code dialled by hand may count (the post's option 3б). */
+    public static boolean adCodeOnlyManual() {
+        return received ? adCodeOnlyManual : ConfigSVA.adCodeOnlyManual;
+    }
+
+    /** Code-only wave (the user's decision 3): airdefense.allTransponders - every vehicle has a transponder. */
+    public static boolean adAllTransponders() {
+        return received ? adAllTransponders : ConfigSVA.adAllTransponders;
+    }
+
+    /** Code-only wave: airdefense.keyClock as XpdrMath.CLOCK_*. */
+    public static int adKeyClock() {
+        return received ? adKeyClock : com.sva.airdefense.XpdrMath.keyClock(ConfigSVA.adKeyClock);
+    }
+
+    /** Code-only wave: airdefense.codeCardMaxPeriods. */
+    public static int adCodeCardMaxPeriods() {
+        return received ? adCodeCardMaxPeriods : ConfigSVA.adCodeCardMaxPeriods;
+    }
+
+    /** Code-only wave: airdefense.codeOnlyArmSeconds. */
+    public static int adCodeOnlyArmSeconds() {
+        return received ? adCodeOnlyArmSeconds : ConfigSVA.adCodeOnlyArmSeconds;
+    }
+
+    /** Code-only wave: airdefense.codeOnlyMinWarningSeconds. */
+    public static int adCodeOnlyMinWarningSeconds() {
+        return received ? adCodeOnlyMinWarningSeconds : ConfigSVA.adCodeOnlyMinWarningSeconds;
+    }
+
+    /** Code-only wave: airdefense.codeOnlyEmergencySeconds. */
+    public static int adCodeOnlyEmergencySeconds() {
+        return received ? adCodeOnlyEmergencySeconds : ConfigSVA.adCodeOnlyEmergencySeconds;
+    }
+
+    /** Review 2026-10-27 (batch 2): airdefense.codeOnlyProbeCodes. */
+    public static int adCodeOnlyProbeCodes() {
+        return received ? adCodeOnlyProbeCodes : ConfigSVA.adCodeOnlyProbeCodes;
+    }
+
+    /** Review 2026-10-27 (batch 2): airdefense.codeOnlyProbeMinutes. */
+    public static int adCodeOnlyProbeMinutes() {
+        return received ? adCodeOnlyProbeMinutes : ConfigSVA.adCodeOnlyProbeMinutes;
+    }
+
     /**
      * Self-test (audit 2026-10-22): the settings as the server writes them, read back as a client would - "" when the air
      * defence's part comes through whole, else what differs; an older server's packet (no air-defence part) leaves the
@@ -135,6 +199,12 @@ public final class ServerConfigSVA {
         a.adZoneWarnSeconds = 17;                                   // not the default: a real round trip
         a.adMaxRadars = 9;
         a.adUpgrades = !ConfigSVA.adUpgrades;
+        a.adCodeOnlyManual = !ConfigSVA.adCodeOnlyManual;           // code-only wave: its block too
+        a.adKeyClock = com.sva.airdefense.XpdrMath.CLOCK_DAY;
+        a.adCodeCardMaxPeriods = 5;
+        a.adCodeOnlyEmergencySeconds = 77;
+        a.adCodeOnlyProbeCodes = 6;                                 // review 2026-10-27 (batch 2): the guessing guard's too
+        a.adCodeOnlyProbeMinutes = 9;
         io.netty.buffer.ByteBuf b = io.netty.buffer.Unpooled.buffer();
         a.toBytes(b);
         Settings c = new Settings();
@@ -144,6 +214,12 @@ public final class ServerConfigSVA {
                 || c.adEnabled != a.adEnabled || c.adKeepModules != a.adKeepModules || c.adDayKey != a.adDayKey || c.adFires != a.adFires
                 || c.wear != a.wear || c.consumption != a.consumption || c.chargerRate != a.chargerRate || c.hydrogen != a.hydrogen) {
             bad.append(" round trip");
+        }
+        if (c.adCodeOnly != a.adCodeOnly || c.adCodeOnlyManual != a.adCodeOnlyManual || c.adAllTransponders != a.adAllTransponders
+                || c.adKeyClock != com.sva.airdefense.XpdrMath.CLOCK_DAY || c.adCodeCardMaxPeriods != 5 || c.adCodeOnlyArmSeconds != a.adCodeOnlyArmSeconds
+                || c.adCodeOnlyMinWarningSeconds != a.adCodeOnlyMinWarningSeconds || c.adCodeOnlyEmergencySeconds != 77 || c.adCodeOnlyProbeCodes != 6
+                || c.adCodeOnlyProbeMinutes != 9) {
+            bad.append(" code-only round trip");
         }
         if (b.readableBytes() != 0) {
             bad.append(" left ").append(b.readableBytes());
@@ -157,8 +233,24 @@ public final class ServerConfigSVA {
         if (d.adZoneWarnSeconds != ConfigSVA.adZoneWarnSeconds || d.adUpgrades != ConfigSVA.adUpgrades || !d.wear) {
             bad.append(" old packet");
         }
+        if (d.adCodeOnly || d.adAllTransponders || d.adKeyClock != com.sva.airdefense.XpdrMath.CLOCK_DAY) {
+            bad.append(" old packet code-only");                    // an older server: no code-only, the day clock, aircraft only
+        }
+        // an air-defence block without the code-only one (the server one version back)
+        io.netty.buffer.ByteBuf o2 = io.netty.buffer.Unpooled.buffer();
+        Settings n = Settings.now();
+        n.toBytes(o2);
+        o2.writerIndex(o2.writerIndex() - CODE_ONLY_BYTES);
+        Settings e = new Settings();
+        e.fromBytes(o2);
+        if (e.adMaxRadars != n.adMaxRadars || e.adCodeOnly || e.adAllTransponders || o2.readableBytes() != 0) {
+            bad.append(" packet before code-only");
+        }
         return bad.toString();
     }
+
+    /** The code-only block's size on the wire (a flags byte, the clock byte, six ints). */
+    static final int CODE_ONLY_BYTES = 2 + 4 * 6;
 
     /** The server's values arrived (tests). */
     public static boolean isReceived() {
@@ -177,6 +269,9 @@ public final class ServerConfigSVA {
         float consumption, chargerRate;
         boolean adEnabled, adUpgrades, adKeepModules, adDayKey, adFires;
         int adZoneWarnSeconds, adMaxLaunchers, adMaxRadars;
+        boolean adCodeOnly, adCodeOnlyManual, adAllTransponders;
+        int adKeyClock, adCodeCardMaxPeriods, adCodeOnlyArmSeconds, adCodeOnlyMinWarningSeconds, adCodeOnlyEmergencySeconds;
+        int adCodeOnlyProbeCodes, adCodeOnlyProbeMinutes;
 
         public Settings() {
         }
@@ -201,6 +296,16 @@ public final class ServerConfigSVA {
             m.adZoneWarnSeconds = ConfigSVA.adZoneWarnSeconds;
             m.adMaxLaunchers = ConfigSVA.adMaxLaunchers;
             m.adMaxRadars = ConfigSVA.adMaxRadars;
+            m.adCodeOnly = ConfigSVA.adCodeOnly;
+            m.adCodeOnlyManual = ConfigSVA.adCodeOnlyManual;
+            m.adAllTransponders = ConfigSVA.adAllTransponders;
+            m.adKeyClock = com.sva.airdefense.XpdrMath.keyClock(ConfigSVA.adKeyClock);
+            m.adCodeCardMaxPeriods = ConfigSVA.adCodeCardMaxPeriods;
+            m.adCodeOnlyArmSeconds = ConfigSVA.adCodeOnlyArmSeconds;
+            m.adCodeOnlyMinWarningSeconds = ConfigSVA.adCodeOnlyMinWarningSeconds;
+            m.adCodeOnlyEmergencySeconds = ConfigSVA.adCodeOnlyEmergencySeconds;
+            m.adCodeOnlyProbeCodes = ConfigSVA.adCodeOnlyProbeCodes;
+            m.adCodeOnlyProbeMinutes = ConfigSVA.adCodeOnlyProbeMinutes;
             return m;
         }
 
@@ -236,6 +341,31 @@ public final class ServerConfigSVA {
                 adMaxLaunchers = ConfigSVA.adMaxLaunchers;
                 adMaxRadars = ConfigSVA.adMaxRadars;
             }
+            if (b.readableBytes() >= CODE_ONLY_BYTES) {             // code-only wave
+                int f2 = b.readUnsignedByte();
+                adCodeOnly = (f2 & 1) != 0;
+                adCodeOnlyManual = (f2 & 2) != 0;
+                adAllTransponders = (f2 & 4) != 0;
+                adKeyClock = b.readUnsignedByte() == com.sva.airdefense.XpdrMath.CLOCK_DAY ? com.sva.airdefense.XpdrMath.CLOCK_DAY
+                        : com.sva.airdefense.XpdrMath.CLOCK_TOTAL;
+                adCodeCardMaxPeriods = b.readInt();
+                adCodeOnlyArmSeconds = b.readInt();
+                adCodeOnlyMinWarningSeconds = b.readInt();
+                adCodeOnlyEmergencySeconds = b.readInt();
+                adCodeOnlyProbeCodes = b.readInt();
+                adCodeOnlyProbeMinutes = b.readInt();
+            } else {
+                adCodeOnly = false;                                 // an older server: no such mode, the day clock, aircraft only
+                adCodeOnlyManual = true;
+                adAllTransponders = false;
+                adKeyClock = com.sva.airdefense.XpdrMath.CLOCK_DAY;
+                adCodeCardMaxPeriods = ConfigSVA.adCodeCardMaxPeriods;
+                adCodeOnlyArmSeconds = ConfigSVA.adCodeOnlyArmSeconds;
+                adCodeOnlyMinWarningSeconds = ConfigSVA.adCodeOnlyMinWarningSeconds;
+                adCodeOnlyEmergencySeconds = ConfigSVA.adCodeOnlyEmergencySeconds;
+                adCodeOnlyProbeCodes = ConfigSVA.adCodeOnlyProbeCodes;
+                adCodeOnlyProbeMinutes = ConfigSVA.adCodeOnlyProbeMinutes;
+            }
         }
 
         @Override
@@ -247,6 +377,14 @@ public final class ServerConfigSVA {
             b.writeInt(adZoneWarnSeconds);
             b.writeInt(adMaxLaunchers);
             b.writeInt(adMaxRadars);
+            b.writeByte((adCodeOnly ? 1 : 0) | (adCodeOnlyManual ? 2 : 0) | (adAllTransponders ? 4 : 0));
+            b.writeByte(adKeyClock);
+            b.writeInt(adCodeCardMaxPeriods);
+            b.writeInt(adCodeOnlyArmSeconds);
+            b.writeInt(adCodeOnlyMinWarningSeconds);
+            b.writeInt(adCodeOnlyEmergencySeconds);
+            b.writeInt(adCodeOnlyProbeCodes);
+            b.writeInt(adCodeOnlyProbeMinutes);
         }
     }
 
@@ -270,6 +408,16 @@ public final class ServerConfigSVA {
             adZoneWarnSeconds = Math.max(5, Math.min(120, m.adZoneWarnSeconds));
             adMaxLaunchers = Math.max(0, m.adMaxLaunchers);
             adMaxRadars = Math.max(0, m.adMaxRadars);
+            adCodeOnly = m.adCodeOnly;
+            adCodeOnlyManual = m.adCodeOnlyManual;
+            adAllTransponders = m.adAllTransponders;
+            adKeyClock = m.adKeyClock;
+            adCodeCardMaxPeriods = Math.max(1, Math.min(72, m.adCodeCardMaxPeriods));
+            adCodeOnlyArmSeconds = Math.max(0, Math.min(600, m.adCodeOnlyArmSeconds));
+            adCodeOnlyMinWarningSeconds = Math.max(0, Math.min(60, m.adCodeOnlyMinWarningSeconds));
+            adCodeOnlyEmergencySeconds = Math.max(0, Math.min(3600, m.adCodeOnlyEmergencySeconds));
+            adCodeOnlyProbeCodes = Math.max(2, Math.min(32, m.adCodeOnlyProbeCodes));
+            adCodeOnlyProbeMinutes = Math.max(1, Math.min(120, m.adCodeOnlyProbeMinutes));
             received = true;
             return null;
         }

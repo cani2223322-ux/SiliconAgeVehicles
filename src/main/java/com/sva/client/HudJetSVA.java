@@ -203,7 +203,9 @@ final class HudJetSVA {
                 if (!Float.isNaN(zx) && dist > 0) {
                     frameBox(zx, hy + a(0.45), a(0.6), a(0.6));
                 }
-                text(fr, Lang.tr(dist > 0 ? "sva.jethud.zone" : "sva.jethud.zoneIn", z.name, Integer.valueOf((int) Math.round(dist))), 0, HudMath.HDG_Y - 3.6,
+                // code-only wave (item 22): a code-only post's zone signed «ПО КОДУ»
+                String zn = z.codeOnly ? z.name + " " + Lang.tr("sva.ad.zone.codeOnly") : z.name;
+                text(fr, Lang.tr(dist > 0 ? "sva.jethud.zone" : "sva.jethud.zoneIn", zn, Integer.valueOf((int) Math.round(dist))), 0, HudMath.HDG_Y - 3.6,
                         TEXT_DEG, rgb);
             }
             String pl = AirDefenseClientSVA.predLine();

@@ -50,6 +50,11 @@ public final class AirDefenseClientSVA {
     private static final class Xpdr {
         int mode = XpdrMath.C, code = XpdrMath.VFR, identLeft;
         boolean dayKey = true, keyLamp, reply;
+        /** Code-only wave (items 22, 42): the ОПОЗН lamp (D_XPDR «O») and the card's minutes left - 5 / 1, 0 none («W»). */
+        boolean caution;
+        int cardWarn;
+        /** Review 2026-10-27: whose key's card sets the code («KO»; "" none) - the panel shows it. */
+        String keyOwner = "";
         long at;
     }
 
@@ -225,8 +230,17 @@ public final class AirDefenseClientSVA {
                 x.identLeft = t.getInteger("I");
                 x.keyLamp = t.getBoolean("K");
                 x.reply = t.getBoolean("R");
+                x.caution = t.getBoolean("O");
+                x.cardWarn = t.getByte("W");
+                x.keyOwner = t.getString("KO");
                 x.at = ticks;
-                XPDR.put(Integer.valueOf(t.getInteger("E")), x);
+                Xpdr was = XPDR.put(Integer.valueOf(t.getInteger("E")), x);
+                // code-only wave (item 22): the ОПОЗН lamp sounds once as it lights (the copy goes to the riders alone)
+                if (com.sva.airdefense.CodeOnlyUiMath.idLampSound(was != null && was.caution, x.caution) && mc.thePlayer != null) {
+                    for (int i = 0; i < 2; i++) {
+                        mc.getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(new ResourceLocation("note.pling"), 0.75F));
+                    }
+                }
                 break;
             }
             case NetADSVA.D_RWR: {
@@ -245,6 +259,7 @@ public final class AirDefenseClientSVA {
                 for (int i = 0; i < zl.tagCount(); i++) {
                     ZoneMath.Zone z = new ZoneMath.Zone();
                     z.read(zl.getCompoundTagAt(i));
+                    z.codeOnly = zl.getCompoundTagAt(i).getBoolean("CO");   // code-only wave (item 22): «ПО КОДУ» on the ND / map
                     ZONES.add(z);
                 }
                 break;
@@ -319,6 +334,36 @@ public final class AirDefenseClientSVA {
     public static boolean xpdrKeyLamp(EntityVehicleSVA v) {
         Xpdr x = x(v);
         return x != null && x.keyLamp;
+    }
+
+    /**
+     * Code-only wave (items 22, 42): the ОПОЗН lamp - a code-only air defence interrogated this transponder within the last
+     * 15 s and found no match (the server's XpdrMath.Xpdr.idCaution; it says when it goes out).
+     */
+    public static boolean xpdrCaution(EntityVehicleSVA v) {
+        Xpdr x = x(v);
+        return x != null && x.caution;
+    }
+
+    /** Code-only wave (item 22): the pilot's code card runs out within 5 / 1 minutes - those minutes; 0 none. */
+    public static int xpdrCardWarn(EntityVehicleSVA v) {
+        Xpdr x = x(v);
+        return x == null ? 0 : com.sva.airdefense.CodeOnlyUiMath.cardLine(x.cardWarn);
+    }
+
+    /** Review 2026-10-27 (cards of two owners): whose key's card sets the code now (D_XPDR «KO»; "" none). */
+    public static String xpdrKeyOwner(EntityVehicleSVA v) {
+        Xpdr x = x(v);
+        return x == null ? "" : x.keyOwner;
+    }
+
+    /**
+     * Review 2026-10-27 (batch 2): the 7700 phrase of a CODE-ONLY air defence with the server's grace (sva.ad.em.* - «льгота
+     * 120 с», with 0 «тоже не стреляет»), for the tips that used to say 180 s whatever the server set.
+     */
+    public static String emPhrase(String base) {
+        int s = com.sva.net.ServerConfigSVA.adCodeOnlyEmergencySeconds();
+        return Lang.tr(com.sva.airdefense.CodeOnlyUiMath.emKey(s, base), Integer.valueOf(s));
     }
 
     /** The RWR module is fitted (and the server's tuning on). */
@@ -422,8 +467,9 @@ public final class AirDefenseClientSVA {
         String type = Lang.tr("sva.ad.zone.type." + ZoneMath.TYPE_KEYS[z.type]);
         int dist = (int) Math.round(((Double) a[1]).doubleValue());
         zoneColour = z.type == ZoneMath.FORBIDDEN ? 0xFF5050 : 0xF0B040;
-        zoneLine = level == ZoneMath.W_INSIDE ? Lang.tr("sva.ad.hud.inside", type, z.label())
-                : level == ZoneMath.W_FAR ? null : Lang.tr("sva.ad.hud.ahead", Integer.valueOf(dist), type, z.label());
+        // code-only wave (item 22): a code-only post's zone says «ПО КОДУ» after its name (mapLabel)
+        zoneLine = level == ZoneMath.W_INSIDE ? Lang.tr("sva.ad.hud.inside", type, mapLabel(z))
+                : level == ZoneMath.W_FAR ? null : Lang.tr("sva.ad.hud.ahead", Integer.valueOf(dist), type, mapLabel(z));
         if (level >= ZoneMath.W_NEAR && level <= ZoneMath.W_CLOSE && level > zoneSounded) {
             for (int i = 0; i < 2; i++) {
                 mc.getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(new ResourceLocation("note.pling"), level == ZoneMath.W_CLOSE ? 1.4F : 1.1F));
@@ -514,10 +560,12 @@ public final class AirDefenseClientSVA {
         }
     }
 
-    /** The HSI (AvionicsSVA): the zone border ahead within 60 blocks - {zone label, distance, type} or null. */
+    /** The HSI (AvionicsSVA): the zone border ahead within 60 blocks - {zone label, distance, type, code-only} or null. */
     public static Object[] hsiZone(EntityVehicleSVA v) {
         Object[] a = zoneAhead(v, 60);
-        return a == null ? null : new Object[] {((ZoneMath.Zone) a[0]).name, a[1], Integer.valueOf(((ZoneMath.Zone) a[0]).type)};
+        // code-only wave (item 22): {.., the «ПО КОДУ» mark} - a code-only post's zone is signed on the HSI too
+        return a == null ? null : new Object[] {((ZoneMath.Zone) a[0]).name, a[1], Integer.valueOf(((ZoneMath.Zone) a[0]).type),
+            Boolean.valueOf(((ZoneMath.Zone) a[0]).codeOnly)};
     }
 
     // ------------------------------------------------------------------ the HUD
@@ -583,8 +631,38 @@ public final class AirDefenseClientSVA {
                 y += 14;
             }
         }
+        y = idLines(fr, v, sw, y);
         xpdrHud(mc, fr, v, sw, y);
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /**
+     * Code-only wave (items 22, 42): the HUD's «ОПОЗН: НЕТ» (amber, flashing - with the cockpit's lamp, first person too: it
+     * comes before any message) and «КАРТА КОДОВ: 5 МИН» / «1 МИН» before the pilot's card runs out; every vehicle with a
+     * transponder (decision 3), a powered one. @return the next line's y
+     */
+    private static int idLines(FontRenderer fr, EntityVehicleSVA v, int sw, int y) {
+        if (!XpdrMath.fitted(v.getVehicleType()) || !v.powered()) {
+            return y;
+        }
+        if (xpdrCaution(v)) {
+            String s = Lang.tr("sva.ad.hud.idCaution");
+            boolean on = com.sva.airdefense.CodeOnlyUiMath.idLampOn(true, System.currentTimeMillis(), false);
+            int w = fr.getStringWidth(s);
+            Gui.drawRect(sw / 2 - w / 2 - 4, y - 2, sw / 2 + w / 2 + 4, y + 10, 0xA0101418);
+            Gui.drawRect(sw / 2 - w / 2 - 4, y - 2, sw / 2 + w / 2 + 4, y - 1, on ? 0xFFF0B040 : 0xFF6A5020);
+            fr.drawStringWithShadow(s, sw / 2 - w / 2, y, on ? 0xF0B040 : 0x8A6A30);
+            y += 14;
+        }
+        int card = xpdrCardWarn(v);
+        if (card > 0) {
+            String s = Lang.tr("sva.ad.hud.card", Integer.valueOf(card));
+            int w = fr.getStringWidth(s);
+            Gui.drawRect(sw / 2 - w / 2 - 4, y - 2, sw / 2 + w / 2 + 4, y + 10, 0xA0101418);
+            fr.drawStringWithShadow(s, sw / 2 - w / 2, y, card <= 1 && ticks / 5 % 2 == 0 ? 0xFFFFFF : 0xF0B040);
+            y += 14;
+        }
+        return y;
     }
 
     /**
@@ -606,11 +684,12 @@ public final class AirDefenseClientSVA {
      * Audit 2026-10-22 (the transponders of every aircraft): the code / mode line on the HUD when the cockpit has no face
      * for it in view - third person, the live instruments off - for the jet, the tiltrotor, the shuttle and the Singular
      * ship (their main screens carry it otherwise; the light plane / helicopter / liner have panels of their own). OFF /
-     * STBY dimmed (not sent), 7700 red.
+     * STBY dimmed (not sent), 7700 red. Code-only wave (decision 3): the ground vehicles' too - the buggy, the hoverbike, the
+     * crawler and the drill vehicle (airdefense.allTransponders).
      */
     private static void xpdrHud(Minecraft mc, FontRenderer fr, EntityVehicleSVA v, int sw, int y) {
         com.sva.vehicle.VehicleType t = v.getVehicleType();
-        if (!XpdrMath.fitted(t) || !xpdrLine(t) || !v.powered()) {
+        if (!xpdrLine(t) || !v.powered()) {
             return;
         }
         if (mc.gameSettings.thirdPersonView == 0 && com.sva.ConfigSVA.liveInstruments) {
@@ -629,10 +708,13 @@ public final class AirDefenseClientSVA {
         fr.drawStringWithShadow(s, x, y, xpdrIdent(v) && ticks / 5 % 2 == 0 ? 0x5EC8F0 : c);
     }
 
-    /** The aircraft whose transponder is a line (the main screen / HUD), not a panel: the jet, the tiltrotor, the shuttle, the ship. */
+    /**
+     * The vehicles whose transponder is a line (the main screen / HUD), not a panel: the jet, the tiltrotor, the shuttle, the
+     * ship - code-only wave (decision 3): and the buggy, the hoverbike, the crawler, the drill vehicle when the server fits them
+     * one (XpdrMath.fitted, XpdrMath.screenLine).
+     */
     public static boolean xpdrLine(com.sva.vehicle.VehicleType t) {
-        return t == com.sva.vehicle.VehicleType.JET || t == com.sva.vehicle.VehicleType.TILT || t == com.sva.vehicle.VehicleType.SHUTTLE
-                || t == com.sva.vehicle.VehicleType.SHIP;
+        return XpdrMath.fitted(t) && XpdrMath.screenLine(t);
     }
 
     /** «ОТВ 2471 C» (+ IDENT; «КЛЮЧ ДНЯ» when the card set it) - the line the main screen and the HUD show. */
@@ -668,8 +750,8 @@ public final class AirDefenseClientSVA {
             int d = (int) Math.round(((Double) nb[1]).doubleValue());
             rel = ((Double) nb[2]).doubleValue();
             col = ZoneMath.COLOURS[z.type];
-            l1 = d <= 0 ? Lang.tr("sva.ad.hud.frameIn", Lang.tr("sva.ad.zone.type." + ZoneMath.TYPE_KEYS[z.type]), z.label())
-                    : Lang.tr("sva.ad.hud.frame", Lang.tr("sva.ad.zone.type." + ZoneMath.TYPE_KEYS[z.type]), z.label(), Integer.valueOf(d));
+            l1 = d <= 0 ? Lang.tr("sva.ad.hud.frameIn", Lang.tr("sva.ad.zone.type." + ZoneMath.TYPE_KEYS[z.type]), mapLabel(z))
+                    : Lang.tr("sva.ad.hud.frame", Lang.tr("sva.ad.zone.type." + ZoneMath.TYPE_KEYS[z.type]), mapLabel(z), Integer.valueOf(d));
         }
         int w = Math.max(l1 == null ? 0 : fr.getStringWidth(l1) + 16, pl == null ? 0 : fr.getStringWidth(pl));
         int h = (l1 == null ? 0 : 11) + (pl == null ? 0 : 11) + 4;
@@ -732,7 +814,7 @@ public final class AirDefenseClientSVA {
                 for (int k = 0; k < 4; k++) {
                     edge(px[k], py[k], px[(k + 1) % 4], py[(k + 1) % 4], w, col, z.type == ZoneMath.CORRIDOR);
                 }
-                fr.drawStringWithShadow(z.label(), (int) Math.min(Math.min(px[0], px[1]), Math.min(px[2], px[3])) + 2,
+                fr.drawStringWithShadow(mapLabel(z), (int) Math.min(Math.min(px[0], px[1]), Math.min(px[2], px[3])) + 2,
                         (int) Math.min(Math.min(py[0], py[1]), Math.min(py[2], py[3])) + 2, col);
             } else {
                 double px = ox + (z.cx + 0.5 - cx) / scale, py = oy + (z.cz + 0.5 - cz) / scale, r = z.r / scale;
@@ -744,11 +826,19 @@ public final class AirDefenseClientSVA {
                         edge(px + Math.cos(a0) * r, py + Math.sin(a0) * r, px + Math.cos(a1) * r, py + Math.sin(a1) * r, w, col, false);
                     }
                 }
-                String l = z.label();
+                String l = mapLabel(z);
                 fr.drawStringWithShadow(l, (int) (px - fr.getStringWidth(l) / 2.0), (int) (py - r) + 2, col);
             }
         }
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /**
+     * Code-only wave (item 22): a zone's label on the maps - «3-1 0-256», a code-only post's zone with «ПО КОДУ» after it (no
+     * circle round the post itself: its place is not given away).
+     */
+    public static String mapLabel(ZoneMath.Zone z) {
+        return z.codeOnly ? z.label() + " " + Lang.tr("sva.ad.zone.codeOnly") : z.label();
     }
 
     /** A filled quad of four points (in order). */

@@ -148,7 +148,10 @@ public class GuiVehicleSVA extends GuiScreen {
         return vehicle != null && vehicle.onHydrogen();
     }
 
-    /** Air-defence wave: the vehicle has a transponder (everything that flies) - the «Ответчик» row. */
+    /**
+     * Air-defence wave: the vehicle has a transponder - the «Ответчик» row (everything that flies; code-only wave, decision 3:
+     * every vehicle with the server's airdefense.allTransponders - XpdrMath.fitted).
+     */
     private boolean xpdrRow() {
         return vehicle != null && com.sva.airdefense.XpdrMath.fitted(type);
     }
@@ -592,7 +595,10 @@ public class GuiVehicleSVA extends GuiScreen {
             drawRect(left + 3, y - 1, left + w - 3, y + rowH - 1, 0x18FFFFFF);
         }
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.vmenu.xpdr"), left + 6, ty, nameW, driver ? TEXT : MUTED, false, 0, 0);
-        TextFitSC.hover(left + 6, y, nameW, rowH - 1, Lang.tr("sva.vmenu.xpdr.tip"));
+        // code-only wave (decision 3): a ground vehicle's tip says when its transponder is asked at all (the radar rules)
+        // review 2026-10-27 (batch 2): 7700's grace in the CODE-ONLY mode as the server set it (AirDefenseClientSVA.emPhrase)
+        TextFitSC.hover(left + 6, y, nameW, rowH - 1, Lang.tr("sva.vmenu.xpdr.tip", AirDefenseClientSVA.emPhrase("sva.ad.em.graceFull"))
+                + (type != null && !type.movement.flies ? " " + Lang.tr("sva.vmenu.xpdr.tipGround") : ""));
         int mode = AirDefenseClientSVA.xpdrMode(vehicle);
         String st = Lang.tr("sva.xpdr.mode." + com.sva.airdefense.XpdrMath.MODE_KEYS[mode]);
         if (com.sva.airdefense.XpdrMath.replies(mode)) {
@@ -604,7 +610,14 @@ public class GuiVehicleSVA extends GuiScreen {
         if (AirDefenseClientSVA.xpdrIdent(vehicle)) {
             st += " IDENT";
         }
+        // code-only wave (items 22, 42; decision 3: every vehicle's row): ОПОЗН while a code-only air defence finds no match -
+        // the row flashes amber
+        boolean caution = AirDefenseClientSVA.xpdrCaution(vehicle);
+        if (caution) {
+            st += " " + Lang.tr("sva.ad.xpdr.idLamp");
+        }
         int c = AirDefenseClientSVA.xpdrCode(vehicle) == com.sva.airdefense.XpdrMath.EMERGENCY && com.sva.airdefense.XpdrMath.replies(mode) ? RED
+                : caution ? (com.sva.airdefense.CodeOnlyUiMath.idLampOn(true, System.currentTimeMillis(), false) ? AMBER : MUTED)
                 : com.sva.airdefense.XpdrMath.replies(mode) ? GREEN : MUTED;
         TextFitSC.draw(fontRendererObj, st, stateX, ty, stateW, c, false, 0, 0);
         String dash = "-";

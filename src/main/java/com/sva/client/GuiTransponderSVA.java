@@ -28,7 +28,8 @@ import net.minecraft.nbt.NBTTagCompound;
  */
 public class GuiTransponderSVA extends GuiScreen {
 
-    private static final int W = 230, H = 172, BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, GOLD = 0xF2A040, TEXT = 0xD8DCE4,
+    /** Review 2026-10-27 (batch 2): one hint line taller (CodeOnlyUiMath.XPDR_HINT_LINES: 5 lines, was 4). */
+    private static final int W = 230, H = 181, BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, GOLD = 0xF2A040, TEXT = 0xD8DCE4,
             MUTED = 0x8A93A3, AMBER = 0xF0B040, RED = 0xF06060, GREEN = 0x62E06A;
     private static final int B_UP = 10, B_DOWN = 20, B_MODE = 30, B_KEY = 40, B_IDENT = 41, B_VFR = 42, B_NORDO = 43, B_EMERG = 44;
 
@@ -38,8 +39,11 @@ public class GuiTransponderSVA extends GuiScreen {
     private int left, top;
     /** When each field (mode, code, day key) was last sent (the player's ticks; it keeps its own value that long). */
     private final long[] sentAt = {-100, -100, -100};
-    /** Ticks a sent field waits for the server's copy (two of its 10-tick rounds). */
-    private static final int HOLD = 20;
+    /**
+     * Ticks a sent field waits for the server's copy (two of its 10-tick rounds). Review 2026-10-27: 40 - the server takes a
+     * new code at most once a second (XpdrMath.CODE_RATE_TICKS), a quick last click arrives up to a second and a half later.
+     */
+    private static final int HOLD = 40;
 
     public GuiTransponderSVA(EntityVehicleSVA v) {
         vehicle = v;
@@ -174,8 +178,15 @@ public class GuiTransponderSVA extends GuiScreen {
         drawRect(left, top, left + W, top + H, BG);
         drawRect(left + 1, top + 1, left + W - 1, top + 2, LINE);
         drawRect(left + 3, top + 15, left + W - 3, top + 16, 0xFFE08A30);
-        TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.xpdr.title", com.sva.vehicle.SkinMath.boardText(vehicle.getBoardNumber())), left + 6, top + 4, W - 12,
-                GOLD, false, 0, 0);
+        // code-only wave (item 22): the code card's last minutes in the title row's right end («КАРТА КОДОВ: 5 МИН»)
+        int card = AirDefenseClientSVA.xpdrCardWarn(vehicle);
+        String cs = card > 0 ? Lang.tr("sva.ad.hud.card", Integer.valueOf(card)) : "";
+        int cw = card > 0 ? Math.min(fontRendererObj.getStringWidth(cs), W / 2) : 0;
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.xpdr.title", com.sva.vehicle.SkinMath.boardText(vehicle.getBoardNumber())), left + 6, top + 4,
+                W - 12 - (cw > 0 ? cw + 6 : 0), GOLD, false, 0, 0);
+        if (card > 0) {
+            TextFitSC.draw(fontRendererObj, cs, left + W - 6 - cw, top + 4, cw, card <= 1 ? RED : AMBER, false, 0, 0);
+        }
         // the code window: four amber digits, the cursor under one
         drawRect(left + 10, top + 22, left + 146, top + 62, 0xFF050607);
         boolean on = XpdrMath.replies(mode);
@@ -192,20 +203,44 @@ public class GuiTransponderSVA extends GuiScreen {
                 drawRect(x + 2, top + 56, x + 29, top + 58, 0xFF5EC8F0);
             }
         }
-        // the lamps: ОТВЕТ (green on an interrogation), КЛЮЧ ДНЯ (amber), IDENT (cyan)
+        // the lamps: ОТВЕТ (green on an interrogation), КЛЮЧ ДНЯ (amber), IDENT (cyan); code-only wave (items 22, 42): ОПОЗН
+        // (amber, flashing - a code-only air defence found no match)
         lamp(left + 10, top + 122, AirDefenseClientSVA.xpdrReply(vehicle), GREEN, Lang.tr("sva.xpdr.reply"));
         lamp(left + 82, top + 122, AirDefenseClientSVA.xpdrKeyLamp(vehicle), AMBER, Lang.tr("sva.ad.xpdr.dayKey"));
+        // review 2026-10-27 (cards of two owners): whose key's card sets the code - under the mode buttons, over «Ключ дня»
+        String ko = AirDefenseClientSVA.xpdrKeyOwner(vehicle);
+        if (ko.length() > 0) {
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.xpdr.keyOwner", ko), left + 154, top + 73, 70, AMBER, false, 0, 0);
+            TextFitSC.hover(left + 154, top + 72, 70, 10, Lang.tr("sva.ad.xpdr.keyOwnerTip", ko));
+        }
+        boolean caution = AirDefenseClientSVA.xpdrCaution(vehicle);
+        lamp(left + 154, top + 122, com.sva.airdefense.CodeOnlyUiMath.idLampOn(caution, System.currentTimeMillis(), false), AMBER,
+                Lang.tr("sva.ad.xpdr.idLamp"));
+        TextFitSC.hover(left + 154, top + 121, 70, 10, Lang.tr("sva.ad.xpdr.idTip"));
+
         for (Object o : buttonList) {
             GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
             b.active = b.id >= B_MODE && b.id < B_MODE + XpdrMath.MODES && b.id - B_MODE == mode || b.id == B_KEY && dayKey
                     || b.id == B_IDENT && AirDefenseClientSVA.xpdrIdent(vehicle) || b.id == B_EMERG && code == XpdrMath.EMERGENCY;
             b.activeColor = b.id == B_EMERG ? RED : 0;
         }
-        String hint = Lang.tr(XpdrMath.replies(mode) ? "sva.ad.xpdr.hint" : "sva.ad.xpdr.hintSilent");
-        java.util.List<String> lines = fontRendererObj.listFormattedStringToWidth(hint, W - 16);
-        for (int i = 0; i < Math.min(3, lines.size()); i++) {
-            fontRendererObj.drawString(lines.get(i), left + 8, top + 136 + i * 10, MUTED);
+        // review 2026-10-27 (batch 2): 7700's grace as the server set it; up to 5 lines (the en text wrapped to 6 and lost the
+        // grace), a text still longer ends in "..." and shows whole on hover
+        String hint = Lang.tr(XpdrMath.replies(mode) ? "sva.ad.xpdr.hint" : "sva.ad.xpdr.hintSilent", AirDefenseClientSVA.emPhrase("sva.ad.em.grace"));
+        java.util.List<String> lines = fontRendererObj.listFormattedStringToWidth(hint, com.sva.airdefense.CodeOnlyUiMath.XPDR_HINT_W);
+        int shown = Math.min(com.sva.airdefense.CodeOnlyUiMath.XPDR_HINT_LINES, lines.size());
+        for (int i = 0; i < shown; i++) {
+            String l = lines.get(i);
+            if (i == shown - 1 && lines.size() > shown) {
+                l = fontRendererObj.trimStringToWidth(l, com.sva.airdefense.CodeOnlyUiMath.XPDR_HINT_W - fontRendererObj.getStringWidth("...")) + "...";
+            }
+            fontRendererObj.drawString(l, left + 8, top + 134 + i * 9, MUTED);
         }
+        if (lines.size() > shown) {
+            TextFitSC.hover(left + 8, top + 134, com.sva.airdefense.CodeOnlyUiMath.XPDR_HINT_W, shown * 9, hint);
+        }
+        // the 7700 button: the board's power and the CODE-ONLY grace (the hint has no room for the power note)
+        TextFitSC.hover(left + 154, top + 104, 66, 14, Lang.tr("sva.ad.xpdr.emTip", AirDefenseClientSVA.emPhrase("sva.ad.em.graceFull")));
         super.drawScreen(mx, my, pt);
         TextFitSC.hover(left + 10, top + 22, 136, 40, Lang.tr("sva.ad.xpdr.codeTip"));
         java.util.List<String> tip = TextFitSC.hoverAt(mx, my);

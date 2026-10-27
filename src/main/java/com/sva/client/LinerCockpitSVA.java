@@ -681,7 +681,9 @@ public final class LinerCockpitSVA {
      * Audit 2026-10-22: the pedestal's transponder, live (it was painted «7000» for good): the code in its window (amber
      * sent; ВЫКЛ / ДЕЖ dimmed - not sent; 7700 red), the mode knob's bar on ВЫКЛ / ДЕЖ / A / C / S (LinerPaintSVA: 140 deg
      * over five marks), ОПОЗН. lit cyan while IDENT flashes, the ОТВЕТ lamp on each interrogation, КЛЮЧ ДНЯ under the
-     * window, ВЫСОТА lit in C / S. Only with the board powered (windows()).
+     * window, ВЫСОТА lit in C / S. Only with the board powered (windows()). Code-only wave (item 42): the caution lamp right
+     * of ВЫСОТА - «НЕ ОПОЗН» flashing amber while a code-only air defence finds no match (the ОПОЗН. key here is IDENT, so the
+     * lamp says НЕ ОПОЗН), dim otherwise.
      */
     static void xpdrPanel(EntityVehicleSVA v) {
         int mode = AirDefenseClientSVA.xpdrMode(v), code = AirDefenseClientSVA.xpdrCode(v);
@@ -714,6 +716,9 @@ public final class LinerCockpitSVA {
             LinerGfxSVA.layer();
             LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.xpdrAlt"), 668, 1440, 9, L_GRN, 1, 44);
         }
+        boolean id = com.sva.airdefense.CodeOnlyUiMath.idLampOn(AirDefenseClientSVA.xpdrCaution(v), System.currentTimeMillis(), false);
+        LinerGfxSVA.layer();
+        LinerGfxSVA.text(LinerSdPagesSVA.lang("sva.liner.du.idCaution"), 708, 1440, 8.5F, id ? L_AMB : scale(L_AMB, 0.22F), 0, 54);
     }
 
     /** The digital windows and the lamps that are no control (ADIRS ВЫСТ. / НА АКБ, the engines' ОТКАЗ, the ECAM key bars). */

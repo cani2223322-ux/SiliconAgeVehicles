@@ -1050,6 +1050,9 @@ public final class LinerPaintSVA {
         p.key(450, 1428, 516, 1452, "СБР", 9.5, rgb(58, 61, 66));
         p.key(526, 1428, 596, 1452, "ОПОЗН.", 9, rgb(58, 61, 66));
         p.label(668, 1440, "ВЫСОТА", 9, "rm");
+        // code-only wave (item 42): the ОПОЗН caution lamp's dark window right of ВЫСОТА (lit at run time: «НЕ ОПОЗН» - the
+        // ОПОЗН. key is IDENT on this panel)
+        p.window(708, 1440, null, 58, 20, AMB, 9, 'm');
         // the gravity gear extension crank (wave 2)
         p.module(15, 1470, 745, 1650);
         p.rect(250, 1500, 510, 1630, rgb(14, 15, 17), 10);

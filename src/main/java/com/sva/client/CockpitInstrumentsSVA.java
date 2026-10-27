@@ -666,11 +666,22 @@ public final class CockpitInstrumentsSVA {
         out.add(new Line(Lang.tr("sva.cockpit.mode", mode[0]), Integer.parseInt(mode[1]), -1F, null));
         if (AirDefenseClientSVA.xpdrLine(t)) {
             // audit 2026-10-22: the transponder of the jet / tiltrotor / shuttle / ship (no panel of its own): the code and the
-            // mode - amber sent, dimmed ВЫКЛ / ДЕЖ (not sent), red 7700; IDENT flashes it cyan
+            // mode - amber sent, dimmed ВЫКЛ / ДЕЖ (not sent), red 7700; IDENT flashes it cyan. Code-only wave (decision 3):
+            // the buggy's, the hoverbike's, the crawler's and the drill vehicle's main screens too (their transponders)
             int show = com.sva.airdefense.XpdrMath.show(true, AirDefenseClientSVA.xpdrMode(v), AirDefenseClientSVA.xpdrCode(v));
             boolean ident = AirDefenseClientSVA.xpdrIdent(v) && blink;
             out.add(new Line(AirDefenseClientSVA.xpdrText(v), ident ? BLUE : show == com.sva.airdefense.XpdrMath.SHOW_RED ? WARN
                     : show == com.sva.airdefense.XpdrMath.SHOW_AMBER ? AMBER : DIM, -1F, null));
+            // code-only wave (item 42): the ОПОЗН caution under it (flashing amber) and the code card's last minutes - these
+            // screens are the cockpit's face of the transponder (no panel with a lamp of its own)
+            if (AirDefenseClientSVA.xpdrCaution(v)) {
+                boolean idOn = com.sva.airdefense.CodeOnlyUiMath.idLampOn(true, System.currentTimeMillis(), false);
+                out.add(new Line(Lang.tr("sva.ad.hud.idCaution"), idOn ? AMBER : 0x806020, -1F, null));
+            }
+            int card = AirDefenseClientSVA.xpdrCardWarn(v);
+            if (card > 0) {
+                out.add(new Line(Lang.tr("sva.ad.hud.card", Integer.valueOf(card)), AMBER, -1F, null));
+            }
         }
         String trailer = HudVehicleSVA.trailerLine(v);
         if (trailer != null) {

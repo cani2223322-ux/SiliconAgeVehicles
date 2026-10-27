@@ -1056,12 +1056,35 @@ public class AirportDataSVA extends WorldSavedData {
         }
     }
 
+    /**
+     * The aircraft (what really flies) - the ATC sessions, the flight inspection. Code-only wave (decision 3): no longer «what
+     * has a transponder» - with airdefense.allTransponders every vehicle has one, and a tower does not clear a buggy to land.
+     */
     static List<com.sva.entity.EntityVehicleSVA> aircraft(World w) {
         List<com.sva.entity.EntityVehicleSVA> l = new ArrayList<com.sva.entity.EntityVehicleSVA>();
         for (Object o : w.loadedEntityList) {
             if (o instanceof com.sva.entity.EntityVehicleSVA) {
                 com.sva.entity.EntityVehicleSVA v = (com.sva.entity.EntityVehicleSVA) o;
-                if (!v.isDead && com.sva.airdefense.XpdrMath.fitted(v.getVehicleType())) {
+                if (!v.isDead && v.getVehicleType().movement.flies && com.sva.airdefense.XpdrMath.fitted(v.getVehicleType())) {
+                    l.add(v);
+                }
+            }
+        }
+        return l;
+    }
+
+    /**
+     * Code-only wave (decision 3): the vehicles whose transponders a tower hears (its traffic list) - every aircraft, and a
+     * ground vehicle / the hoverbike only while a radar could see it (XpdrMath.towerHears; the radar rules stay).
+     */
+    public static List<com.sva.entity.EntityVehicleSVA> heard(World w) {
+        List<com.sva.entity.EntityVehicleSVA> l = new ArrayList<com.sva.entity.EntityVehicleSVA>();
+        boolean all = com.sva.ConfigSVA.adAllTransponders;
+        for (Object o : w.loadedEntityList) {
+            if (o instanceof com.sva.entity.EntityVehicleSVA) {
+                com.sva.entity.EntityVehicleSVA v = (com.sva.entity.EntityVehicleSVA) o;
+                com.sva.vehicle.VehicleType t = v.getVehicleType();
+                if (!v.isDead && com.sva.airdefense.XpdrMath.towerHears(t, all, !t.movement.flies && com.sva.airdefense.AirDefenseSVA.radarVisible(v))) {
                     l.add(v);
                 }
             }

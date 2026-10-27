@@ -69,8 +69,9 @@ public enum VehicleFn {
     MFD_PAGE("mfdPage", "mfdPage", 40, false, false),
     /**
      * Air-defence wave: «IDENT» - the transponder's identification (the blip flashes 18 s on every radar, the command post
-     * sees who is who; airdefense.XpdrMath). Everything that flies (it has a transponder). \ : free in vanilla, the core
-     * and the old letters. The transponder's mode and code: the menu's «Ответчик» row.
+     * sees who is who; airdefense.XpdrMath). Everything that has a transponder (XpdrMath.fitted: what flies; code-only wave,
+     * decision 3 - every vehicle with airdefense.allTransponders). \ : free in vanilla, the core and the old letters. The
+     * transponder's mode and code: the menu's «Ответчик» row.
      */
     IDENT("ident", "ident", 43, false, true),
     /**

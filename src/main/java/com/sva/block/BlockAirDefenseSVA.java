@@ -349,8 +349,11 @@ public class BlockAirDefenseSVA extends BlockContainer {
             TileEntityCommandPostSVA k = (TileEntityCommandPostSVA) te;
             if (held != null && held.getItem() instanceof ItemCodeCardSVA) {
                 if (k.printCard(p, held)) {
-                    p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.printed",
-                            com.sva.airdefense.XpdrMath.format(ItemCodeCardSVA.code(held))));
+                    // code-only wave (item 17): the card carries the key, never the code - the message names neither
+                    p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.printedKey", Integer.valueOf(held.stackSize),
+                            ItemCodeCardSVA.owner(held), Integer.valueOf(ItemCodeCardSVA.gen(held)),
+                            Long.valueOf((com.sva.airdefense.CodeOnlyMath.cardTicksLeft(ItemCodeCardSVA.until(held), com.sva.airdefense.AirDefenseDataSVA.keyClock(),
+                                    w.getWorldTime(), w.getTotalWorldTime()) + 1199) / 1200)));
                     p.inventoryContainer.detectAndSendChanges();
                 } else {
                     p.addChatComponentMessage(new ChatComponentTranslation("sva.ad.msg.noDayKey"));

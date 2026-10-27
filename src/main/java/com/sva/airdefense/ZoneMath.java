@@ -66,6 +66,11 @@ public final class ZoneMath {
          * tower's unique ICAO code) - only these may be trusted by name. Set by AirDefenseDataSVA; not saved, not copied.
          */
         public boolean tower;
+        /**
+         * Code-only wave (item 22): on a pilot's client - the zone's post identifies by the code alone (the server's «CO» mark,
+         * AirDefenseSVA.publicZone): the ND and the zone map sign it «ПО КОДУ». Not saved, not copied (as `tower`).
+         */
+        public boolean codeOnly;
 
         public Zone copy() {
             Zone z = new Zone();

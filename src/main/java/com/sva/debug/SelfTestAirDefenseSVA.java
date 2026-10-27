@@ -65,13 +65,16 @@ final class SelfTestAirDefenseSVA {
         check(XpdrMath.replies(XpdrMath.A) && XpdrMath.replies(XpdrMath.S) && !XpdrMath.replies(XpdrMath.STBY) && !XpdrMath.replies(XpdrMath.OFF)
                 && !XpdrMath.givesAltitude(XpdrMath.A) && XpdrMath.givesAltitude(XpdrMath.C) && XpdrMath.givesBoard(XpdrMath.S) && !XpdrMath.givesBoard(XpdrMath.C)
                 && XpdrMath.nextMode(XpdrMath.S) == XpdrMath.OFF, "ad xpdr: A code, C + altitude, S + board, OFF / STBY silent");
-        int fitted = 0;
+        // code-only wave (decision 3): the 7 flying types with airdefense.allTransponders off; every type with it (the default)
+        int fitted = 0, server = 0;
         for (VehicleType t : VehicleType.values()) {
-            fitted += XpdrMath.fitted(t) ? 1 : 0;
+            fitted += XpdrMath.fitted(t, false) ? 1 : 0;
+            server += XpdrMath.fitted(t) == XpdrMath.fitted(t, ConfigSVA.adAllTransponders) ? 1 : 0;
         }
-        check(fitted == 7 && XpdrMath.fitted(VehicleType.PLANE) && XpdrMath.fitted(VehicleType.SHIP) && XpdrMath.fitted(VehicleType.LINER)
-                && !XpdrMath.fitted(VehicleType.HOVER) && !XpdrMath.fitted(VehicleType.BUGGY),
-                "ad xpdr: a transponder on the 7 flying types (the liner too), none on the ground / hoverbike");
+        check(fitted == 7 && XpdrMath.fitted(VehicleType.PLANE, false) && XpdrMath.fitted(VehicleType.SHIP, false) && XpdrMath.fitted(VehicleType.LINER, false)
+                && !XpdrMath.fitted(VehicleType.HOVER, false) && !XpdrMath.fitted(VehicleType.BUGGY, false) && server == VehicleType.values().length
+                && XpdrMath.fitted(VehicleType.BUGGY) && XpdrMath.fitted(VehicleType.HOVER),
+                "ad xpdr: a transponder on the 7 flying types (the liner too); decision 3 - on every vehicle by default (airdefense.allTransponders)");
         XpdrMath.Xpdr x = new XpdrMath.Xpdr();
         check(x.mode == XpdrMath.C && x.code == XpdrMath.VFR && x.dayKey, "ad xpdr: a new vehicle: mode C, 7000, day key on");
         x.setCode(XpdrMath.NO_RADIO, 1000);
@@ -370,9 +373,11 @@ final class SelfTestAirDefenseSVA {
         fresh.readNBT(old);
         check(back.xpdr.mode == XpdrMath.A && back.xpdr.code == 07700 && fresh.xpdr.mode == XpdrMath.C && fresh.xpdr.code == XpdrMath.VFR,
                 "ad state: the vehicle keeps its transponder; an older save gets mode C, 7000");
-        check(VehicleFn.IDENT.appliesTo(VehicleType.PLANE) && !VehicleFn.IDENT.appliesTo(VehicleType.BUGGY) && VehicleFn.IDENT.action(VehicleType.JET) == EntityVehicleSVA.A_IDENT
+        check(VehicleFn.IDENT.appliesTo(VehicleType.PLANE) && VehicleFn.IDENT.appliesTo(VehicleType.BUGGY) == XpdrMath.fitted(VehicleType.BUGGY)
+                && VehicleFn.IDENT.action(VehicleType.JET) == EntityVehicleSVA.A_IDENT
                 && VehicleFn.IDENT.driverOnly && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_IDENT, true, false) == false
-                && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_IDENT, false, true), "ad keys: IDENT - the pilot's, aircraft only");
+                && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_IDENT, false, true),
+                "ad keys: IDENT - the driver's, every vehicle with a transponder (decision 3: the buggy too)");
         check(ConfigSVA.AD_WARNINGS.equals(ConfigSVA.adMode) && !ConfigSVA.adFires() && ConfigSVA.adEnabled && ConfigSVA.adRequirePvp && !ConfigSVA.adFireOnUnmanned
                 && !ConfigSVA.adFireOnFriends && !ConfigSVA.adFireInProtectedRegions && ConfigSVA.adMinWarningSeconds == 10,
                 "ad config: on by default in \"warnings only\" - nothing is fired until the server allows it");

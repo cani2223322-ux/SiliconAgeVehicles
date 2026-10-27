@@ -174,6 +174,14 @@ public final class CockpitDataSVA {
         return AirDefenseClientSVA.xpdrKeyLamp(v);
     }
 
+    /**
+     * Code-only wave (items 22, 42): the ОПОЗН lamp - a code-only air defence interrogated the transponder and found no match
+     * (lit 15 s after that interrogation; the lamp flashes - CodeOnlyUiMath.idLampOn).
+     */
+    public static boolean xpdrCaution(EntityVehicleSVA v) {
+        return AirDefenseClientSVA.xpdrCaution(v);
+    }
+
     /** Audit 2026-10-22: how the code window shows the code (XpdrMath.SHOW_*: OFF / STBY dimmed, 7700 red). */
     public static int xpdrShow(EntityVehicleSVA v) {
         return com.sva.airdefense.XpdrMath.show(v.powered(), AirDefenseClientSVA.xpdrMode(v), AirDefenseClientSVA.xpdrCode(v));

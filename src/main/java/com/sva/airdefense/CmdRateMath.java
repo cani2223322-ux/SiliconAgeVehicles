@@ -12,6 +12,10 @@ package com.sva.airdefense;
  * second); LIGHT - the orders on a track (assign, «только вести», «свой на 10 минут», the 7600 decisions - «враждебный»
  * too), the coverage request and the way back from the equipment
  * screen (8 at once, then one in 4 ticks). Joining the open screen's viewers costs nothing.
+ * <p>
+ * Code-only wave (docs/proposal-ad-strict-iff.md): the 7700 decisions («emFriend» / «emCheck» / «emHostile») and lifting the
+ * «ПОДБОР» block («unlock») are orders on a track - LIGHT; switching the mode («codeOnly»), its options («codeOpts»), «Сменить
+ * ключ» («rekey») and «Все ПУ: по всем без кода» («coAllRoe») - HEAVY (as every unknown op).
  */
 public final class CmdRateMath {
 
@@ -32,7 +36,7 @@ public final class CmdRateMath {
             return FREE;
         }
         if ("assign".equals(op) || "track".equals(op) || "grant".equals(op) || "nrFriend".equals(op) || "nrCheck".equals(op) || "nrHostile".equals(op)
-                || "cov".equals(op) || OPEN.equals(op)) {
+                || "emFriend".equals(op) || "emCheck".equals(op) || "emHostile".equals(op) || "unlock".equals(op) || "cov".equals(op) || OPEN.equals(op)) {
             return LIGHT;
         }
         return HEAVY;

@@ -457,7 +457,7 @@ final class OverheadPanelSVA {
                 {tog("sva.ovhd.hook", hook, CockpitLamps.GREEN, hook && board), btn("sva.ovhd.release", CockpitLamps.RED, false, false)}};
         row(fr, -w / 2 + m, w / 2 - m, y - rh, y, new String[] {"sva.sys.group.lights", "sva.ovhd.group.cargo"}, r4, dark, test);
         y -= rh + gap;
-        // the transponder strip: its title, the code (amber), the mode
+        // the transponder strip: its title, the code (amber), the mode (code-only wave: and the ОПОЗН lamp)
         float ty0 = -h / 2 + h * 0.045F;
         col(0x1E1F24);
         CockpitInstrumentsSVA.rect(-w / 2 + m, ty0, w / 2 - m, y, Z1 * 0.3F);
@@ -469,8 +469,15 @@ final class OverheadPanelSVA {
             CockpitInstrumentsSVA.text(fr, test ? "8888" : com.sva.vehicle.GlassMath.squawk(CockpitDataSVA.xpdrCode(v)), -w * 0.19F, tm - th * 0.17F, th * 0.3F,
                     w * 0.5F, CockpitLamps.AMBER);
         }
-        CockpitInstrumentsSVA.text(fr, Lang.tr("sva.xpdr.mode") + " " + Lang.tr(CockpitDataSVA.xpdrMode(v)), w * 0.28F, tm, th * 0.22F, w * 0.36F,
-                board ? CockpitLamps.GREEN : CockpitInstrumentsSVA.tint(LABEL));
+        CockpitInstrumentsSVA.text(fr, Lang.tr("sva.xpdr.mode") + " " + Lang.tr(CockpitDataSVA.xpdrMode(v)), w * 0.28F, tm + th * 0.17F, th * 0.22F,
+                w * 0.36F, board ? CockpitLamps.GREEN : CockpitInstrumentsSVA.tint(LABEL));
+        // code-only wave (proposal-ad-strict-iff item 42): the ОПОЗН lamp under the mode - amber, flashing while a code-only
+        // air defence finds no match (CodeOnlyUiMath.idLampOn); the lamp test lights it steady, dark without power
+        boolean id = !dark && (test || board && com.sva.airdefense.CodeOnlyUiMath.idLampOn(CockpitDataSVA.xpdrCaution(v), System.currentTimeMillis(),
+                false));
+        lamp(w * 0.15F, tm - th * 0.2F, th * 0.1F, CockpitLamps.AMBER, id);
+        CockpitInstrumentsSVA.text(fr, Lang.tr("sva.ad.xpdr.idLamp"), w * 0.32F, tm - th * 0.2F, th * 0.18F, w * 0.2F,
+                id ? CockpitLamps.AMBER : CockpitInstrumentsSVA.tint(LABEL));
         CockpitInstrumentsSVA.text(fr, Lang.tr("sva.ovhd.note"), 0F, -h / 2 + h * 0.02F, h * 0.016F, w * 0.9F, CockpitInstrumentsSVA.tint(0x9A9EA8));
         GL11.glPopMatrix();
     }

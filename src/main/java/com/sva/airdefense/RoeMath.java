@@ -23,6 +23,10 @@ package com.sva.airdefense;
  * (the RWR's lock, «N с до огня»), after the launcher's wait 3 «Предупредительный» (tracers across the nose, if on), after
  * WARN_TO_FIRE 4 «Огонь» (a burst / a missile, a line in the launch log). Leaving the zone, an own code, 7700 - it starts
  * over (the caller drops the engagement).
+ * <p>
+ * Code-only wave (docs/proposal-ad-strict-iff.md): a post on «Опознавание: ПО КОДУ» classes by classifyByCode - no
+ * ownership in it (OWN is never given, ownBlocked holds no fire for the owner's machines, fireOnFriends does not apply), the
+ * verdict's reason (ID_*) goes with the class; classify, the classes, roeWants and fireBlock stay as they are.
  */
 public final class RoeMath {
 
@@ -215,5 +219,153 @@ public final class RoeMath {
     public static int secondsToFire(long elapsed, boolean message, boolean warnShot, int waitTicks) {
         int[] t = stageTimes(message, warnShot, waitTicks);
         return (int) Math.max(0, (t[2] - elapsed + 19) / 20);
+    }
+
+    // ------------------------------------------------------------------ code-only wave: «Опознавание: ПО КОДУ»
+
+    /**
+     * Code-only wave (proposal-ad-strict-iff item 4): why a track is what it is - Contact.idr (the verdict) and Contact.idMiss
+     * (the miss behind a target or a «ПРОВ 1/2»); lang sva.ad.idr.*. ID_NONE: the usual mode (no reason kept). Matches: KEY
+     * (the key's code - the card's, or dialled by hand with «Ручной набор кода»), OWN_CODE (option 3а), AIRPORT (3в). Misses:
+     * NO_REPLY (standby, off, dark, a wreck), NO_CARD (no card of this key, the code not the key's), EXPIRED (the card's periods
+     * over), OLD_KEY (a card of an older generation - «Сменить ключ»), WRONG (a good card, another code squawked),
+     * EMERGENCY_OVER / NO_RADIO_OVER (7700 / 7600 past their grace or called hostile), HIJACK (7500).
+     */
+    public static final int ID_NONE = 0, ID_NOT_ASKED = 1, ID_GRANTED = 2, ID_PROBE = 3, ID_EMERGENCY = 4, ID_KEY = 5, ID_OWN_CODE = 6,
+            ID_AIRPORT = 7, ID_NO_RADIO = 8, ID_CHECK = 9, ID_NO_REPLY = 10, ID_NO_CARD = 11, ID_EXPIRED = 12, ID_OLD_KEY = 13,
+            ID_WRONG = 14, ID_EMERGENCY_OVER = 15, ID_NO_RADIO_OVER = 16, ID_HIJACK = 17, IDS = 18;
+    public static final String[] ID_KEYS = {"none", "notAsked", "granted", "probe", "emergency", "key", "ownCode", "airport", "noRadio",
+        "check", "noReply", "noCard", "expired", "oldKey", "wrong", "emergencyOver", "noRadioOver", "hijack"};
+
+    /** A match: the key's code, an own code (3а), an airport's code (3в). */
+    public static boolean idMatch(int id) {
+        return id == ID_KEY || id == ID_OWN_CODE || id == ID_AIRPORT;
+    }
+
+    /** A miss (a target once confirmed). */
+    public static boolean idMiss(int id) {
+        return id >= ID_NO_REPLY && id < IDS;
+    }
+
+    /** classifyByCode's answer: the class, the reason and the miss behind it in one int (idClass / idReason / idMissOf). */
+    static int pack(int cls, int idr, int miss) {
+        return cls & 0xFF | (idr & 0xFF) << 8 | (miss & 0xFF) << 16;
+    }
+
+    public static int idClass(int packed) {
+        return packed & 0xFF;
+    }
+
+    public static int idReason(int packed) {
+        return packed >> 8 & 0xFF;
+    }
+
+    public static int idMissOf(int packed) {
+        return packed >> 16 & 0xFF;
+    }
+
+    /**
+     * Code-only wave (items 2, 4-9): who the contact is when the post identifies by the code alone - no ownership in it: the
+     * owner's own machines, his access list, the Mode S white list, the trusted towers and the codes 7000 / 0000 / 7500 make
+     * nobody a friend, and OWN is never given (fireOnFriends does not apply: ownBlocked). The first that applies:
+     * <ol>
+     * <li>never interrogated - UNKNOWN (as in the usual mode);</li>
+     * <li>«свой на 10 минут» (or 7600 «свой» - the caller folds it in) - FRIEND;</li>
+     * <li>the «ПОДБОР» block (only with the options 3а / 3б: the caller asks CodeOnlyMath.probeGuard) - a target at once;</li>
+     * <li>7700: «свой» - FRIEND; within its grace or «проверить» - EMERGENCY (`emState`: CodeOnlyMath.emergencyState, -1 when
+     * not squawking 7700);</li>
+     * <li>a match (`id`: CodeOnlyMath.identify) - FRIEND, in a forbidden zone and after a tower's handoff too;</li>
+     * <li>7600 within its grace - NO_RADIO (as now);</li>
+     * <li>a miss not yet confirmed (`confirmed`: two in a row, CodeOnlyMath.Confirm) - UNKNOWN «ПРОВ 1/2»;</li>
+     * <li>else VIOLATOR (in a forbidden zone or handed over by a tower) or FOREIGN.</li>
+     * </ol>
+     * @return pack(class, reason, miss)
+     */
+    public static int classifyByCode(boolean asked, boolean granted, boolean probeBlocked, boolean replied, int code, int emState,
+            boolean noRadioGrace, int id, boolean confirmed, boolean violator) {
+        if (!asked) {
+            return pack(UNKNOWN, ID_NOT_ASKED, ID_NONE);
+        }
+        if (granted) {
+            return pack(FRIEND, ID_GRANTED, ID_NONE);
+        }
+        int target = violator ? VIOLATOR : FOREIGN;
+        boolean em = replied && code == XpdrMath.EMERGENCY;
+        // review 2026-10-27 (batch 3, item 11): the operator's «Свой» on a 7700 beats the «ПОДБОР» block as a grant does (and
+        // the post's command lifts it) - the 7700 decision row showed, «Свой» was clicked, the launchers still fired
+        if (em && emState == NoRadioMath.S_FRIEND) {
+            return pack(FRIEND, ID_GRANTED, ID_NONE);
+        }
+        if (probeBlocked) {
+            return pack(target, ID_PROBE, ID_PROBE);
+        }
+        if (em && NoRadioMath.holdFire(emState)) {
+            return pack(EMERGENCY, ID_EMERGENCY, ID_NONE);
+        }
+        if (idMatch(id)) {
+            return pack(FRIEND, id, ID_NONE);
+        }
+        boolean nr = replied && code == XpdrMath.NO_RADIO;
+        if (nr && noRadioGrace) {
+            return pack(NO_RADIO, ID_NO_RADIO, ID_NONE);
+        }
+        int miss = em ? ID_EMERGENCY_OVER : nr ? ID_NO_RADIO_OVER : replied && code == XpdrMath.HIJACK ? ID_HIJACK : idMiss(id) ? id : ID_NO_CARD;
+        if (!confirmed) {
+            return pack(UNKNOWN, ID_CHECK, miss);
+        }
+        return pack(target, miss, miss);
+    }
+
+    /**
+     * Code-only wave (item 2): fire is held for the owner's / his friends' machines only in the usual mode - in the code-only
+     * mode nobody is spared for whose vehicle it is (a hijacker of the owner's own machine gets no head start).
+     * @param rel the relation to the air defence's owner (1 own, 2 on the access list, 0 none)
+     */
+    public static boolean ownBlocked(boolean codeOnly, int rel, boolean fireOnFriends) {
+        return !codeOnly && (rel == 1 || rel == 2 && !fireOnFriends);
+    }
+
+    /**
+     * classifyByCode with the track's miss count (items 5, 6): a miss heard at `at` (the interrogation's tick) counts towards
+     * the two in a row (CodeOnlyMath.miss, `gapTicks` apart at least) and the verdict is a target only once confirmed; a
+     * match or the operator's decision starts the count over. Not interrogated yet and the «ПОДБОР» block leave it as it is -
+     * and (review 2026-10-27) so do 7700 / 7600 in their grace: they hold the fire, they do not wipe the misses (a target that
+     * squawked 7700 for one interrogation came back «ПРОВ 1/2» with a fresh warning sequence, again and again).
+     */
+    public static int classifyByCode(boolean asked, boolean granted, boolean probeBlocked, boolean replied, int code, int emState,
+            boolean noRadioGrace, int id, boolean violator, CodeOnlyMath.Confirm c, long at, int gapTicks) {
+        int r = classifyByCode(asked, granted, probeBlocked, replied, code, emState, noRadioGrace, id, false, violator);
+        int why = idReason(r);
+        if (why == ID_CHECK) {
+            CodeOnlyMath.miss(c, at, gapTicks);
+            return classifyByCode(asked, granted, probeBlocked, replied, code, emState, noRadioGrace, id, CodeOnlyMath.confirmed(c), violator);
+        }
+        if (why != ID_NOT_ASKED && why != ID_PROBE && why != ID_EMERGENCY && why != ID_NO_RADIO) {
+            CodeOnlyMath.hit(c);
+        }
+        return r;
+    }
+
+    /**
+     * Review 2026-10-27 (the 7700 grace multiplied): a code-only track held now only by 7700 / 7600 in its grace - a launcher
+     * engaged on it pauses the engagement (its stage clock stops) instead of dropping it, and goes on where it stopped once
+     * the grace no longer holds it. The usual mode keeps its old rule (7700 there is a friend for good: the engagement goes).
+     */
+    public static boolean graceHold(boolean codeOnly, int cls) {
+        return codeOnly && (cls == EMERGENCY || cls == NO_RADIO);
+    }
+
+    /**
+     * Review 2026-10-27: a paused engagement {began, stage, first fire logged, heard, paused at} taken up again at `now` - the
+     * same stage, its clock moved on by the pause (the time on 7700 is no warning time). @return {began, stage, logged, heard}
+     */
+    public static long[] resume(long[] paused, long now) {
+        long pause = Math.max(0, now - paused[4]);
+        return new long[] {paused[0] + pause, paused[1], paused[2], paused[3]};
+    }
+
+    /** Review 2026-10-27: an engagement {began, stage, logged, heard} paused at `now` (resume takes it up). */
+    public static long[] pause(long[] st, long now) {
+        return new long[] {st[0], st[1], st[2], st[3], now};
     }
 }

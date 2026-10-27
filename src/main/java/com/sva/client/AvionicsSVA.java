@@ -422,7 +422,9 @@ final class AvionicsSVA {
             com.sva.airdefense.ZoneMath.Zone pz = AirDefenseClientSVA.predZone;
             String sec = pz != null && pz.name.equals(zb[0]) && AirDefenseClientSVA.predSec > 0
                     ? "  " + Lang.tr("sva.hsi.zoneSec", Integer.valueOf((int) Math.ceil(AirDefenseClientSVA.predSec))) : "";
-            CockpitInstrumentsSVA.text(fr, zb[0] + "  " + Math.round(zd) + sec, 0F, yy - R * 0.09F, R * 0.08F, R * 0.9F, zc);
+            // code-only wave (item 22): «3-1 ПО КОДУ 40» - a code-only post's zone
+            String zn = zb.length > 3 && ((Boolean) zb[3]).booleanValue() ? zb[0] + " " + Lang.tr("sva.ad.zone.codeOnly") : String.valueOf(zb[0]);
+            CockpitInstrumentsSVA.text(fr, zn + "  " + Math.round(zd) + sec, 0F, yy - R * 0.09F, R * 0.08F, R * 0.9F, zc);
         }
         // the aircraft symbol (yellow) and the lubber line (amber)
         CockpitInstrumentsSVA.glColor(YEL);

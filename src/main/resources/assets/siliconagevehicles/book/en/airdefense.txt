@@ -2,11 +2,12 @@
 @icon siliconagevehicles:radar:0
 # How it works
 Radars see what flies, the command post (KP) keeps the tracks and decides by its rules of engagement, the AA gun and the missile system shoot. By default the server **only warns**: fire takes airdefense.mode = fire.
-@note The air defence never fires at your own vehicles, code 7700, the code of the day, your own codes or the white list - a launcher without its KP neither: it interrogates the transponders itself. The access list's vehicles neither, unless the server turns airdefense.fireOnFriends on. A transponder without the board's power or on a wreck does not answer: such an aircraft is silent to the air defence, its 7700 unheard.
+@note In the usual mode the air defence never fires at your own vehicles, code 7700, the code of the day, your own codes or the white list - a launcher without its KP neither: it interrogates the transponders itself; the access list's vehicles neither, unless the server turns airdefense.fireOnFriends on. In the CODE-ONLY mode nobody's vehicles are spared: without the key's code the air defence fires at yours too, 7700 has a 180 s grace (page "CODE-ONLY mode"). A transponder without the board's power or on a wreck does not answer: such an aircraft is silent to the air defence, its 7700 unheard.
 
 # Transponder
-On everything that flies: OFF / STBY / A (code 0000-7777) / C (+ altitude) / S (+ the board number). Its panel - the vehicle menu, "Transponder" line: digits, mode, 7000 / 7600 / 7700, "Day key". IDENT - the \ key: the blip blinks 18 s on every radar. A new vehicle - mode C, code 7000.
-**Day key**: the owner's secret (one for all his KPs) + the game day = the code of the day. The "Code Card" (2 paper + blue dye): right-click a KP - today's code on the card; a transponder with "Day key" takes the code from the card in the pilot's inventory. Yesterday's card gives yesterday's code - a stranger to the air defence.
+On every vehicle, the ground ones too (airdefense.allTransponders): OFF / STBY / A (code 0000-7777) / C (+ altitude) / S (+ the board number). Its panel - the vehicle menu, "Transponder" line: digits, mode, 7000 / 7600 / 7700, "Day key", the DAY KEY and NO ID lamps. IDENT - the \ key: the blip blinks 18 s on every radar. A new vehicle - mode C, code 7000. Radars see no ground vehicle and nothing lower than 4 blocks over the ground: such a transponder is asked only while the vehicle is seen.
+**Day key**: the owner's secret (one for all his KPs), the server's pepper and the key's generation give a code for each period - 20 min of the world's total time (airdefense.keyClock = total: /time set and sleeping do not change the code). For the first 60 s of a period the last one's code counts too.
+**Code Card** (2 paper + blue dye): right-click a KP with a stack - the whole stack is printed (the owner and the access list). The card carries whose key, the generation and the term (1, 3 or 7 periods), never the code: the server works it out. A transponder with "Day key" sets the card's code from the pilot's inventory by itself (in the liner either pilot's, never a passenger's) and moves to the next period's code by itself; the card taken away - the card's code goes back to 7000. A card past its term or of an older key gives no code.
 @recipe craft:siliconagevehicles:codeCard
 
 # Radars
@@ -38,9 +39,36 @@ A map with zones, radars, launchers and tracks (own / stranger / violator / 7700
 - **"Zones"** tab: drag the corners, sides and centre with the mouse, the ring - turn, "Grid 8", copy / paste / undo.
 - **"Settings"**: name, day key and secret, own codes, a Mode S white list ("23:Name" - board numbers repeat), trusted towers ("ICAO:Owner"), access.
 - **"Equipment"**: energy, input, module slots.
+- **"Identification"**: USUAL / CODE-ONLY, the cards' term, the options, "Change the key", the readiness line (the "CODE-ONLY mode" pages).
 - The radar **coverage map** ("Cov.: 20 / 60 / 120 bl"): green - seen, red - dead zones behind terrain.
 @schem ad_kp
 @recipe wb:commandPost
+
+# CODE-ONLY mode
+@note Without a code card a CODE-ONLY air defence fires at your vehicles too: only the key's code makes an aircraft a friend, not whose vehicle it is.
+The KP's **"Identification"** tab: USUAL / CODE-ONLY. In CODE-ONLY a friend is only an aircraft whose transponder (A, C or S, the board powered) answers with the code of this air defence owner's key: set by a code card in the pilot's inventory or dialled by hand (the option "Code dialled by hand", on by default). The owner's and the access list's vehicles, the Mode S white list, trusted towers and the codes 7000 / 0000 / 7500 make nobody a friend, airdefense.fireOnFriends does not apply.
+No match or no reply (STBY, OFF, a dark board) - a target, but only after two misses in a row at least 5 s apart (the "CHECK 1/2" tag). Then the launcher's stages: a message, a lock, a wait of at least 20 s for everybody, tracers, fire. Before each burst and launch the launcher silently looks at the transponder again: a match - the target is let go ("code accepted before fire").
+## The KP's mode and the launcher's rule
+@kv USUAL, any rule | as before: own, friends, own codes and the white list never fired at
+@kv CODE-ONLY, all without code | a target - any aircraft without the key's code, yours too
+@kv CODE-ONLY, violators | without the code - only in forbidden zones
+@kv CODE-ONLY, the KP's marks | assigned targets, with "Auto" violators too
+@kv CODE-ONLY, weapons hold | tracking only
+@kv A launcher with no KP link | the usual mode
+
+# CODE-ONLY: switching on and the key
+Only the owner switches it on (a server operator too - the KP's log says so, the owner is told), in two steps: a confirmation window with a summary ("Launchers: 2 - violators, 1 - all; airborne without the code: 3, yours: 1") and the button "All launchers: all without code", then arming in 60 s - a countdown on the KP's map, a chat line to the owner and the access list. While it counts down the identification is the usual one; switching off is immediate. The KP's day key switched off (or the server forbidding the mode until a restart) - once it is back, the mode arms anew, with the countdown and the chat line. Never without the day key (the KP's or airdefense.dayKey) nor with airdefense.codeOnly = false.
+- **Card term**: 1, 3 or 7 periods (20 min, 1 h, 2 h 20 min).
+- **"Change the key"** (two presses): the generation +1, every card given out is void, the access list is told to print new ones.
+- **Options**: "Own codes count", "Code dialled by hand" (on), "Airport codes are friends" (a public aerodrome is no trap for guests), "Launchers to the access list" - without it only the owner changes the launchers' rule and link.
+- **7700**: a 180 s grace per aircraft in all over a day, shared by all the owner's KPs (7700 - 7000 - 7700 does not reset it, the launchers' warning countdown only stops on 7700); the KP decides "Friendly / Check / Hostile", then a miss. **7600** - as in the usual mode, **7500** - a target and the KP's alarm.
+- **Guessing**: with codes by hand or own codes, 4 different wrong codes within 2 min (each stood 3 s) from one aircraft or pilot - the GUESSING block for 5 min on all the owner's KPs. The operator lifts it: "Friendly for 10 min" or "Lift GUESSING".
+- **Tracks**: CODE OK, NO CARD, NO REPLY, CHECK 1/2, 7700 1:20, GUESSING; a grey OWN / FRD - the owner's and his list's machines (information only, no effect on fire).
+
+# CODE-ONLY: for the pilot
+The owner or the access list of a code-only KP boarding without a good card is told in the chat "No code card: post ... (CODE-ONLY) will take this aircraft for a stranger". At the first interrogation without a match the amber flashing NO ID lamp lights - on the transponder's panel and the RWR panel, "NOT IDENTIFIED" on the HUD; 5 min before the card runs out - "CODE CARD: 5 MIN" (then the minutes left), in the chat at 5 and 1 min. A code-only KP's zones are signed "CODE-ONLY". The air defence never names the code itself. The KP's and the launcher's screens show "Fire by code: READY" or why not.
+**Forgot the card.** Take a card at the KP (right-click with a stack) and switch "Day key" on - the aircraft is a friend at the next interrogation, and the launcher checks it once more before the shot; or dial the key's code by hand if the KP allows it: a dialled code counts once it stood 3 s, and the panel sends a new code at most once a second. With two owners' cards the code comes from the card of the owner whose CODE-ONLY KP is near (within 664 blocks), then of the nearest such KP's owner, then of a KP that lists you; of equal cards - the first in the inventory (the hotbar first): put the card you need first. Whose card works, the transponder panel shows ("Key: ..."). Old cards (with the code on the card itself) no longer work - print new ones. Or leave the area, land (radars see nothing below 4 blocks), squawk 7700 (180 s without fire) or ask the KP's operator for "Friendly for 10 min".
+**A broken KP.** A broken KP deletes its data and zones: its launchers lose the link and work the usual way - in doubt, less fire. An unpowered or unloaded KP keeps the mode: the launcher takes it from the KP's data. Without a working KP the rule "all" comes down to "violators", as in the usual mode.
 
 # A whole air-defence site
 An example layout: the KP in the middle, the three radars behind it, the gun and the missile system in front. Each structure is placed as one block (cyan) and takes its other cells by itself - they must be free and not under someone else's protection. "Hologram in the world" shows it all at once.
@@ -55,4 +83,4 @@ An example layout: the KP in the middle, the three radars behind it, the gun and
 
 # Modules and server rules
 4 slots for core modules on each block: universal transformer, transformer, energy storage, economizer - everywhere; overclocker - radars and launchers (a KP has nothing to speed up), overdrive - radars only, puller - launchers only. A broken structure keeps its modules in its item.
-Server rules (the airdefense category): enabled (off - the whole air defence stands unpowered), mode (warnings / fire), fireInProtectedRegions, fireOnFriends, requirePvp, fireOnUnmanned, maxLaunchersPerPlayer, maxRadarsPerPlayer, minDistanceFromSpawn, minWarningSeconds, launchLog (logs/airdefense.log: launches, who assigned the target, hits), damageMultiplier, terrainCache and terrainCacheRadius (the terrain memory, 640 bl), dayKey, zoneMaxDistance (a zone within 1024 blocks of its command post), maxZonesPerPlayer (64 zones a player). Command post orders - at most once a second.
+Server rules (the airdefense category): enabled (off - the whole air defence stands unpowered), mode (warnings / fire), fireInProtectedRegions, fireOnFriends, requirePvp, fireOnUnmanned, maxLaunchersPerPlayer, maxRadarsPerPlayer, minDistanceFromSpawn, minWarningSeconds, launchLog (logs/airdefense.log: launches, who assigned the target, hits), damageMultiplier, terrainCache and terrainCacheRadius (the terrain memory, 640 bl), dayKey, keyClock (the day key's clock: total - the world's total time), zoneMaxDistance (a zone within 1024 blocks of its command post), maxZonesPerPlayer (64 zones a player), allTransponders (a transponder on every vehicle). The CODE-ONLY mode: codeOnly (false - forbidden, such KPs work the usual way), codeOnlyManual, codeOnlyArmSeconds, codeOnlyConfirmSeconds, codeOnlyMinWarningSeconds, codeOnlyEmergencySeconds (0 - 7700 is never a target), codeOnlyOverlapSeconds, codeCardMaxPeriods, codeOnlyProbeCodes, codeOnlyProbeMinutes. Command post orders - at most once a second.

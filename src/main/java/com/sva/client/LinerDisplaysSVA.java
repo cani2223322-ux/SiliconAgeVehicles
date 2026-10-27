@@ -357,7 +357,8 @@ public final class LinerDisplaysSVA {
                 dash += n;
             }
             if (bestR < R) {
-                LinerGfxSVA.text(z.name, lx + 4 * s, ly - 6 * s, 7 * s, col, -1);
+                // code-only wave (item 22): a code-only post's zone is signed «ПО КОДУ» (no mark on the post itself)
+                LinerGfxSVA.text(z.codeOnly ? z.name + " " + Lang.tr("sva.ad.zone.codeOnly") : z.name, lx + 4 * s, ly - 6 * s, 7 * s, col, -1);
             }
         }
         String pl = AirDefenseClientSVA.predLine();

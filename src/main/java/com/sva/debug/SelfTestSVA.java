@@ -153,6 +153,13 @@ public final class SelfTestSVA {
             SelfTestAdClientSVA.run();                      // audit 2026-10-22: cockpits, RWR, the transponder's screen, the zone editor's undo, corridors
             SelfTestAdDocsSVA.run();                        // audit 2026-10-22: Shift+RMB with ammunition, the part's link, NetADSVA on the wire, the docs' rules
             SelfTestAdReviewSVA.run();                      // audit review 2026-10-22: 7600 out of sight, aerodrome ranges, binding, layouts
+            SelfTestAdCodeOnlySVA.run();                    // code-only wave: the key's clock, pepper, cards, verdicts, 7700, guessing, arming, data
+            SelfTestAdCodeKpSVA.run();                      // code-only wave: the post, the launchers, the interrogation, the lang
+            SelfTestAdXpdrAllSVA.run();                     // code-only wave (decision 3): a transponder on every vehicle, the radar rules kept
+            SelfTestAdCodeUiSVA.run();                      // code-only wave: the screens - tags, plate, tabs, confirmation, banner, lamps, lang
+            SelfTestAdCodeReviewSVA.run();                  // code-only review 2026-10-27: hand-dialled codes, the panel's rate, 7700 pause, cards, arming
+            SelfTestAdCodeReview2SVA.run();                 // code-only review 2026-10-27, batch 2: stale 7700 answers, cards' order, texts, old cards, hint
+            SelfTestAdCodeReview3SVA.run();                 // code-only review 2026-10-27, batch 3: relink, riders' code, 7700 and ПОДБОР, marks, minutes, screens
             SelfTestBookSVA.run();                          // wave C: the handbook - data, glyphs, refs, layout, search, schematics, checklists, tutorial, export
         } catch (Throwable t) {
             failed++;

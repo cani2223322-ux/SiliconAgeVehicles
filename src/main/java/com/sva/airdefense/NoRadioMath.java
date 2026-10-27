@@ -41,6 +41,12 @@ public final class NoRadioMath {
         public int decision = D_NONE;
         /** The default already logged. */
         public boolean defaultLogged;
+        /**
+         * Review 2026-10-27 (code-only 7700, shared by all of an owner's posts): the interrogation tick of the newest answer
+         * heard squawking it / squawking another code (Long.MIN_VALUE: none yet - not saved, the tracks that carry the
+         * answers do not outlive the server either). An answer older than the newest opposite one is stale (fresh()).
+         */
+        public long heardAt = Long.MIN_VALUE, quietAt = Long.MIN_VALUE;
 
         public Entry(long since) {
             this.since = since;
@@ -109,6 +115,29 @@ public final class NoRadioMath {
         off(e, now);
         if (e.decision == D_CHECK) {
             e.decision = D_NONE;
+        }
+    }
+
+    /**
+     * Review 2026-10-27: an answer interrogated at `at` is newer than the newest opposite one this memory heard - only such an
+     * answer may run the episode on (squawking) or pause it and drop a «проверить» (another code). Every classifier of an
+     * owner feeds one memory: a post whose track still holds the code of its last survey (up to ~6 s old, a lost track up to
+     * TRACK_TIMEOUT) must not undo what a fresher answer of another post - or a launcher's own look - said, nor chop the
+     * grace into fragments while the two disagree.
+     */
+    public static boolean fresh(Entry e, boolean squawking, long at) {
+        return e == null || (squawking ? at > e.quietAt : at > e.heardAt);
+    }
+
+    /** Remembers an answer's interrogation tick (the newest of each kind). */
+    public static void heard(Entry e, boolean squawking, long at) {
+        if (e == null) {
+            return;
+        }
+        if (squawking) {
+            e.heardAt = Math.max(e.heardAt, at);
+        } else {
+            e.quietAt = Math.max(e.quietAt, at);
         }
     }
 

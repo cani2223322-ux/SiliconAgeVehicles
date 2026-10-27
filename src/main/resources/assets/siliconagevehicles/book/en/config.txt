@@ -41,13 +41,21 @@ Everything is in config/SiliconAgeVehicles.cfg, categories vehicles, airdefense,
 # airdefense: air defence
 @kv enabled, mode | air defence on, warnings (default) or fire
 @kv minWarningSeconds | the wait after the warning
-@kv fireOnFriends, requirePvp | fire at friends, only with PvP
+@kv fireOnFriends, requirePvp | fire at friends (not in the CODE-ONLY mode), only with PvP
 @kv maxRadarsPerPlayer, maxLaunchersPerPlayer | limits
 @kv minDistanceFromSpawn | not nearer the spawn
 @kv upgrades, keepModules | core modules, modules kept in the item
 @kv rcsExtras, coverageMap | detectability, the coverage map
 @kv iff, iffHandoff, iffResponseSeconds | the tower's IFF and the handoff
 @kv autoSquawk, airportFriends | airport codes
+@kv allTransponders | a transponder on every vehicle, the ground ones too (on)
+@kv keyClock | the day key's clock: total (the world's total time) or day
+@kv codeOnly, codeOnlyManual | the CODE-ONLY mode allowed, a code dialled by hand (both on)
+@kv codeOnlyArmSeconds, codeOnlyConfirmSeconds | CODE-ONLY: arming (60 s), between two misses (5 s)
+@kv codeOnlyMinWarningSeconds | CODE-ONLY: the wait to fire for everybody (20 s)
+@kv codeOnlyEmergencySeconds | CODE-ONLY: 7700's grace per aircraft (180 s; 0 - never a target)
+@kv codeOnlyOverlapSeconds, codeCardMaxPeriods | the last code after a period change (60 s), the longest card term (7)
+@kv codeOnlyProbeCodes, codeOnlyProbeMinutes | guessing: wrong codes within 2 min (4), the GUESSING block (5 min)
 @kv fireInProtectedRegions | fire at targets in others' protected fields
 @kv damageMultiplier | air-defence damage x (none with vehicles.wear = false)
 @kv noRadioDecisionSeconds, noRadioMemoryMinutes | 7600: the post's time to decide, the episodes' memory

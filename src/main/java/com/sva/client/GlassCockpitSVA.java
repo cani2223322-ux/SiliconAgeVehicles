@@ -857,7 +857,13 @@ final class GlassCockpitSVA {
         boolean reply = CockpitDataSVA.xpdrReply(v);
         col(reply ? GRN : 0x1E2A22);
         CockpitInstrumentsSVA.disc(x + fs * 0.5F, top - fs * 10.2F, fs * 0.5F, Z1);
-        textL(fr, Lang.tr("sva.xpdr.reply"), x + fs * 1.4F, top - fs * 10.2F, fs, bw, DIMT);
+        textL(fr, Lang.tr("sva.xpdr.reply"), x + fs * 1.4F, top - fs * 10.2F, fs, fs * 4.6F, DIMT);
+        // code-only wave (item 42): the ОПОЗН lamp on the same row (amber, flashing) - the pilot reads this page for the threats
+        boolean id = com.sva.airdefense.CodeOnlyUiMath.idLampOn(CockpitDataSVA.xpdrCaution(v), System.currentTimeMillis(), false);
+        col(id ? AMB : 0x2A2418);
+        CockpitInstrumentsSVA.disc(x + fs * 6.3F, top - fs * 10.2F, fs * 0.5F, Z1);
+        textL(fr, Lang.tr("sva.ad.xpdr.idLamp"), x + fs * 7.2F, top - fs * 10.2F, fs, Math.max(fs, bw - fs * 7.2F), CockpitDataSVA.xpdrCaution(v) ? AMB
+                : DIMT);
         textL(fr, Lang.tr("sva.mfd.rwr.note"), -w * 0.44F, cy - R * 1.25F, fs * 0.85F, w * 0.88F, DIMT);
     }
 
@@ -921,24 +927,31 @@ final class GlassCockpitSVA {
         textC(fr, Lang.tr("sva.mfd.rwr.short"), 0F, -R * 0.5F, R * 0.13F, R * 0.8F, 0x6EE68C);
     }
 
-    /** Audit 2026-10-22: the lamps' colours lit - ОБЗОР yellow, ЗАХВАТ orange, ПУСК red (mock-up veh_ad_2). */
-    private static final int[] LAMP_RGB = {0xE8C030, 0xF07028, 0xF03028};
-    private static final String[] LAMP_KEYS = {"search", "lock", "launch"};
+    /**
+     * Audit 2026-10-22: the lamps' colours lit - ОБЗОР yellow, ЗАХВАТ orange, ПУСК red (mock-up veh_ad_2); code-only wave (item
+     * 42): ОПОЗН amber - the transponder's lamp doubled here, the players look at this panel.
+     */
+    private static final int[] LAMP_RGB = {0xE8C030, 0xF07028, 0xF03028, 0xF0B040};
+    private static final String[] LAMP_KEYS = {"search", "lock", "launch", "id"};
 
     /**
      * Audit 2026-10-22 (mock-up veh_ad_2): the RWR's three lamps ОБЗОР / ЗАХВАТ / ПУСК in a row centred at (x, y), `w` wide
-     * and `h` tall; ПУСК flashes. All lit in the startup's lamp test, all dark without power / module.
+     * and `h` tall; ПУСК flashes. All lit in the startup's lamp test, all dark without power / module. Code-only wave (item
+     * 42): a fourth, the transponder's ОПОЗН (flashing amber) - lit without the RWR module too (CodeOnlyUiMath.rwrPanelLamps).
      */
     private static void rwrLamps(FontRenderer fr, EntityVehicleSVA v, float x, float y, float w, float h) {
         int ph = phase();
         boolean test = ph == CockpitLamps.PH_TEST;
         boolean live = ph == CockpitLamps.PH_NORMAL && CockpitDataSVA.rwrFitted(v);
-        int lit = test ? 7 : live ? CockpitDataSVA.rwrLamps(v) : 0;
-        boolean blink = System.currentTimeMillis() / 250 % 2 == 0;
-        float lw = w / 3F;
-        for (int i = 0; i < 3; i++) {
+        long ms = System.currentTimeMillis();
+        int lit = com.sva.airdefense.CodeOnlyUiMath.rwrPanelLamps(live ? CockpitDataSVA.rwrLamps(v) : 0, live, ph == CockpitLamps.PH_NORMAL,
+                CockpitDataSVA.xpdrCaution(v), test);
+        boolean blink = ms / 250 % 2 == 0;
+        int n = com.sva.airdefense.CodeOnlyUiMath.RWR_PANEL_LAMPS;
+        float lw = w / n;
+        for (int i = 0; i < n; i++) {
             float x0 = x - w / 2 + i * lw + lw * 0.06F, x1 = x0 + lw * 0.88F;
-            boolean on = (lit & 1 << i) != 0 && (i < 2 || test || blink);
+            boolean on = (lit & 1 << i) != 0 && (i < 2 || test || (i == 3 ? com.sva.airdefense.CodeOnlyUiMath.idLampOn(true, ms, false) : blink));
             col(on ? LAMP_RGB[i] : CockpitLamps.mix(LAMP_RGB[i], 0x101012, 0.82F));
             rect(x0, y - h / 2, x1, y + h / 2, Z1);
             if (ph != CockpitLamps.PH_DARK) {
@@ -1103,6 +1116,9 @@ final class GlassCockpitSVA {
         if (ph == CockpitLamps.PH_NORMAL || ph == CockpitLamps.PH_TEST) {
             boolean key = ph == CockpitLamps.PH_TEST || CockpitDataSVA.xpdrKeyLamp(v);
             textC(fr, Lang.tr("sva.ad.xpdr.dayKey"), w * 0.34F, h * 0.04F, h * 0.045F, w * 0.28F, key ? AMB : 0x3A3020);
+            // code-only wave (item 42): the ОПОЗН lamp mirrored on the left - flashing amber, steady in the lamp test
+            boolean id = com.sva.airdefense.CodeOnlyUiMath.idLampOn(CockpitDataSVA.xpdrCaution(v), System.currentTimeMillis(), ph == CockpitLamps.PH_TEST);
+            textC(fr, Lang.tr("sva.ad.xpdr.idLamp"), -w * 0.34F, h * 0.04F, h * 0.045F, w * 0.28F, id ? AMB : 0x3A3020);
         }
         GL11.glPopMatrix();
     }

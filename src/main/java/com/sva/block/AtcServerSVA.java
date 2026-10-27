@@ -157,6 +157,15 @@ public final class AtcServerSVA {
         return s != null && s.sqCode >= 0 && s.sqCode == code && s.sqTower.equals(towerKey) && (vid == null || vid.length() == 0 || s.vid.equals(vid));
     }
 
+    /**
+     * Code-only wave (proposal-ad-strict-iff item 11): did any tower give `code` to this very aircraft? A tower's 41xx is no
+     * guess at a code-only post's key (CodeOnlyMath.probeCounts).
+     */
+    public boolean issuedAny(int code, int entityId, String vid) {
+        Session s = sessions.get(Integer.valueOf(entityId));
+        return s != null && s.sqCode >= 0 && s.sqCode == code && (vid == null || vid.length() == 0 || s.vid.equals(vid));
+    }
+
     /** Every session (the IFF's view of the codes given). */
     public java.util.Collection<Session> allSessions() {
         return sessions.values();
@@ -714,7 +723,8 @@ public final class AtcServerSVA {
             return -1;
         }
         XpdrMath.Xpdr x0 = v.state.xpdr;
-        if (!com.sva.airdefense.AirportCodeMath.mayReplace(x0.code, x0.keyLamp(XpdrMath.day(w.getWorldTime())))) {
+        // code-only wave (item 19): the КЛЮЧ ДНЯ lamp on the key's clock (AirDefenseDataSVA.keyPeriod), as everywhere
+        if (!com.sva.airdefense.AirportCodeMath.mayReplace(x0.code, x0.keyLamp(com.sva.airdefense.AirDefenseDataSVA.keyPeriod(w)))) {
             return -1;
         }
         if (!explicit && !com.sva.airdefense.AirportCodeMath.mayAssign(t.owner, t.access, t.sqTrust, v.getOwnerName())) {
@@ -784,8 +794,9 @@ public final class AtcServerSVA {
     public static void setSquawk(EntityVehicleSVA v, int code, long now) {
         XpdrMath.Xpdr x = v.state.xpdr;
         x.setCode(code, now);
+        x.heldCode = -1;                                            // review 2026-10-27: newer than a panel's code still waiting
         x.dayKey = false;
-        x.cardDay = -1;
+        x.dropCard(false, now);                                     // code-only wave: the card it came from forgotten too
     }
 
     /** The tower's copy of an aircraft's message (null none). */

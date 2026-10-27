@@ -59,6 +59,13 @@ import net.minecraftforge.common.DimensionManager;
  * (trust(): the day code, own codes, white list, trusted airports, the operator's decisions) and interrogates what it sees
  * itself; the towers' IFF handoffs are kept by the vehicle's persistent id in AirDefenseDataSVA.
  * <p>
+ * Code-only wave (docs/proposal-ad-strict-iff.md): the interrogation carries the card the code came from (never a code);
+ * classifyByCode classes a contact by the key's code alone for a code-only post and for a launcher linked to one
+ * (codeOnlyPost - only the LINKED post's data, item 15), with the 7700 grace and the «ПОДБОР» memory per air defence owner,
+ * and lights the transponder's ОПОЗН lamp (sent to the riders with the card's «5 / 1 МИН»); acceptedBeforeFire is a
+ * launcher's silent look before each shot (item 14); a pilot boarding without a card of a code-only post he belongs to is
+ * told (item 22); a code-only post's zones go to the clients marked «CO».
+ * <p>
  * Audit 2026-10-22 (combat effectiveness and terrain): a beam (radar, a launcher's eyes, a missile's seeker, the coverage
  * map) is stopped by slabs, stairs and fences too and, in an unloaded chunk, by the terrain memory's last known ground
  * (BeamProbe, AdTerrainSVA - bug 10); a shell's / missile's step is walked block by block before the hit test, leaving
@@ -111,6 +118,36 @@ public final class AirDefenseSVA {
          * a gun leads the mark by its age (BallisticsMath.led).
          */
         public long posAt = -1, altAt = -1;
+        /**
+         * Code-only wave (proposal-ad-strict-iff items 4, 5, 39): classed the code-only way (a code-only post's track, or a
+         * launcher linked to one); the verdict's reason and the miss behind it (RoeMath.ID_*: classifyByCode's idReason /
+         * idMissOf); the misses in a row (two at least confirmSeconds apart make a target - «ПРОВ 1/2» until then).
+         */
+        public boolean codeOnly;
+        public int idr, idMiss;
+        public final CodeOnlyMath.Confirm confirm = new CodeOnlyMath.Confirm();
+        /**
+         * Code-only wave, from the interrogation (interrogate): the code came from a card (XpdrMath.Xpdr.fromCard) and that
+         * card - whose key, its generation, its periods [cardFirst, cardUntil) - never a code (the post works the key's code
+         * out itself); when the code now squawked was set (the guessing guard: it stood 3 s); who flies it (the guesses are
+         * counted by the aircraft and by the pilot, «верный код у чужого борта» names him).
+         */
+        public boolean fromCard;
+        public String cardOwner = "", pilot = "";
+        public int cardGen;
+        public long cardFirst = -1, cardUntil = -1, codeSince = -1;
+        /**
+         * Code-only wave (the command post's): the 7700 state for this air defence's owner (NoRadioMath.S_*, -1 not squawking
+         * it; CodeOnlyMath.emergencyState) and its grace left in seconds (-1 no limit); said in the log: the target confirmed
+         * («не опознан»), the key's code from a stranger («верный код у чужого борта»), the 7700 grace used up.
+         */
+        public int em = -1, emLeft;
+        public boolean saidCo, saidStranger, saidEmOver;
+        /**
+         * Review 2026-10-27: the interrogation whose code was last weighed as a guess (-1 none) - the post goes over one survey
+         * answer for up to 6 s, and each answer counts once.
+         */
+        public long probeAt = -1;
 
         public Contact(int id) {
             this.id = id;
@@ -170,6 +207,8 @@ public final class AirDefenseSVA {
     private final List<Projectile> shots = new ArrayList<Projectile>();
     private final Map<Integer, List<RadarMath.Paint>> paint = new HashMap<Integer, List<RadarMath.Paint>>();
     private final Map<Integer, String> xpdrSent = new HashMap<Integer, String>(), rwrSent = new HashMap<Integer, String>();
+    /** Review 2026-10-27 (batch 3): each vehicle's card holders at its last card round (entity ids) - a change runs one at once. */
+    private final Map<Integer, String> cardWho = new HashMap<Integer, String>();
     private final Map<Integer, double[]> motion = new HashMap<Integer, double[]>();
     private final Map<String, Long> said = new HashMap<String, Long>();
     /** Wave A: the reverser / afterburner last seen per vehicle (the RCS bump). The IFF handoffs: AirDefenseDataSVA (audit 2026-10-22). */
@@ -280,6 +319,16 @@ public final class AirDefenseSVA {
      * one linked now; past the last - the first). @return the post linked now (null none in reach)
      */
     public TileEntityCommandPostSVA cycleLink(TileEntityAirDefenseSVA t) {
+        TileEntityCommandPostSVA next = nextLink(t);
+        t.setKpLink(next == null ? "" : next.key());
+        return next;
+    }
+
+    /**
+     * The post cycleLink would link to now (the owner's next loaded post within LINK, nearest first, after the one linked now;
+     * past the last - the first), nothing changed. @return null - none in reach
+     */
+    public TileEntityCommandPostSVA nextLink(TileEntityAirDefenseSVA t) {
         World w = t.getWorldObj();
         final double cx = t.xCoord + 0.5, cy = t.yCoord + 0.5, cz = t.zCoord + 0.5;
         List<TileEntityCommandPostSVA> l = new ArrayList<TileEntityCommandPostSVA>();
@@ -295,7 +344,6 @@ public final class AirDefenseSVA {
             }
         });
         if (l.isEmpty()) {
-            t.setKpLink("");
             return null;
         }
         int i = 0;
@@ -304,8 +352,29 @@ public final class AirDefenseSVA {
                 i = (k + 1) % l.size();
             }
         }
-        t.setKpLink(l.get(i).key());
         return l.get(i);
+    }
+
+    /**
+     * The radar's / launcher's link button (NetADSVA.KP_LINK): the link moves on (cycleLink). Code-only wave (item 25): a
+     * launcher's link is its owner's alone while it is linked to a code-only post - review 2026-10-27 (batch 3): and when the
+     * next post in the cycle is one (an access-list member set «По всем чужим» under a usual post and moved the launcher to
+     * the owner's code-only one: it fired «по всем без кода (и ваши)» on the owner's behalf, a rule he never set).
+     * @return relinked (false: refused, the player told)
+     */
+    public boolean relink(EntityPlayer p, TileEntityAirDefenseSVA te) {
+        if (te instanceof TileEntityLauncherSVA) {
+            TileEntityLauncherSVA l = (TileEntityLauncherSVA) te;
+            TileEntityCommandPostSVA next = nextLink(l);
+            if (CodeOnlyMath.relinkRefused(l.ownerOnly(p), next != null && l.ownerOnlyAt(p, next.key()))) {
+                if (p instanceof EntityPlayerMP) {
+                    tell((EntityPlayerMP) p, 0xF0B040, "sva.ad.msg.coOwnerOnly");
+                }
+                return false;
+            }
+        }
+        cycleLink(te);                                              // audit 2026-10-22 (bug 19): the next post in reach
+        return true;
     }
 
     public TileEntityLauncherSVA launcher(World w, String key) {
@@ -657,7 +726,11 @@ public final class AirDefenseSVA {
         return v.getEnergy() > 0;
     }
 
-    /** The transponder answers now: fitted, in A / C / S, powered (no answer from a dark board or a wreck). */
+    /**
+     * The transponder answers now: fitted, in A / C / S, powered (no answer from a dark board or a wreck). Code-only wave
+     * (decision 3): fitted on every vehicle with airdefense.allTransponders - a ground vehicle's answers too, but only a radar's
+     * contact is ever interrogated (radarVisible: the buggy, the crawler and the drill never; the hoverbike 4+ blocks up).
+     */
     public static boolean xpdrOn(EntityVehicleSVA v) {
         return v != null && XpdrMath.fitted(v.getVehicleType()) && v.state.xpdr.replying() && xpdrPowered(v);
     }
@@ -716,17 +789,41 @@ public final class AirDefenseSVA {
 
     /** The surveillance radar's interrogation: the transponder's answer into the contact (and the ОТВЕТ lamp). */
     public void interrogate(Contact k, EntityVehicleSVA v, long now) {
+        interrogate(k, v, now, false);
+    }
+
+    /**
+     * The interrogation; `silent` (code-only wave, item 14: a launcher's look at its target's transponder before each burst /
+     * launch) leaves the ОТВЕТ lamp alone. Code-only wave: the card the code came from (never a code - whose key, generation,
+     * periods), when the code was set and who flies it go with the answer.
+     */
+    public void interrogate(Contact k, EntityVehicleSVA v, long now, boolean silent) {
         XpdrMath.Xpdr x = v.state.xpdr;
+        XpdrMath.releaseHeld(x, now);                               // review 2026-10-27: a panel's code that waited its second
+        List<EntityPlayer> pilots = cardHolders(v);
+        k.pilot = pilots.isEmpty() ? "" : pilots.get(0).getCommandSenderName();
         if (!xpdrOn(v)) {                                           // audit 2026-10-22: no power, a wreck - no answer
             k.replied = false;
             k.mode = XpdrMath.fitted(v.getVehicleType()) ? x.mode : XpdrMath.OFF;
             k.code = -1;
+            k.fromCard = false;
+            k.cardOwner = "";
+            k.cardGen = 0;
+            k.cardFirst = k.cardUntil = -1;
             return;
         }
-        x.lastInterrogated = now;
+        if (!silent) {
+            x.lastInterrogated = now;
+        }
         k.replied = true;
         k.mode = x.mode;
         k.code = x.code;
+        k.fromCard = x.fromCard();
+        k.cardOwner = x.cardOwner;
+        k.cardGen = x.cardGen;
+        k.cardFirst = x.cardFirst;
+        k.cardUntil = x.cardUntil;
+        k.codeSince = x.codeSince;
         k.ident = x.identOn(now);
         k.board = XpdrMath.givesBoard(x.mode) ? v.getBoardNumber() : 0;
         // liner wave 7: the liner's mode C altitude from its selected ADR - none, no altitude (the track form shows none);
@@ -749,6 +846,11 @@ public final class AirDefenseSVA {
         public int dayCode = -1;
         public final List<AirDefenseDataSVA.KpInfo> infos = new ArrayList<AirDefenseDataSVA.KpInfo>();
         public final List<String> trusted = new ArrayList<String>();
+        /**
+         * Code-only wave (item 15): the LINKED post's trust data when it identifies by the code now (codeOnlyPost) - never
+         * the owner's other posts: an unlinked launcher works the usual way; null: the usual mode.
+         */
+        public AirDefenseDataSVA.KpInfo codeOnly;
 
         public boolean ownCode(int code) {
             for (AirDefenseDataSVA.KpInfo i : infos) {
@@ -828,9 +930,238 @@ public final class AirDefenseSVA {
         }
         String sec = d.secret(owner);
         if (key && ConfigSVA.adDayKey && sec.length() > 0) {
-            t.dayCode = XpdrMath.dayCode(sec, XpdrMath.day(w.getWorldTime()));
+            t.dayCode = d.keyCode(owner, AirDefenseDataSVA.keyPeriod(w));      // code-only wave: the key's clock, pepper, generation
         }
+        t.codeOnly = codeOnlyPost(w, owner, link, w.getTotalWorldTime());
         return t;
+    }
+
+    // ------------------------------------------------------------------ code-only wave: «Опознавание: ПО КОДУ»
+
+    /**
+     * Code-only wave (item 15): the trust data of the post a launcher / radar is LINKED to when that post identifies by the
+     * code now - working, unpowered or unloaded (its KpInfo); null: the usual mode (no link, another owner's post, a broken
+     * one - its data went with it, the mode off / arming / forbidden by the server / no day key). In doubt - less fire.
+     */
+    public static AirDefenseDataSVA.KpInfo codeOnlyPost(World w, String owner, String link, long now) {
+        AirDefenseDataSVA d = link == null || link.length() == 0 ? null : AirDefenseDataSVA.get(w);
+        AirDefenseDataSVA.KpInfo i = d == null ? null : d.info(link, false);
+        return i != null && i.owner.equalsIgnoreCase(owner == null ? "" : owner) && i.codeOnlyActive(now, ConfigSVA.adCodeOnly, ConfigSVA.adDayKey) ? i : null;
+    }
+
+    /**
+     * Code-only wave: one air defence owner's key as a post (or a launcher linked to it) classes a round by it - the key's
+     * code of this period and of the last one (the overlap window, item 18), the generation the cards must carry, the post's
+     * options (a code dialled by hand - 3б, on by default; the guessing guard with 3а / 3б).
+     */
+    public static final class CodeKey {
+        public String owner = "";
+        public int opts = CodeOnlyMath.DEFAULT_OPTS, gen = 1, keyNow = -1, keyPrev = -1;
+        public long period;
+        public boolean overlap, manual, guard;
+    }
+
+    /** The key of a post's trust data now (its owner's secret, the server's pepper, his generation; the post's options). */
+    public static CodeKey codeKey(World w, AirDefenseDataSVA.KpInfo i) {
+        CodeKey k = new CodeKey();
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(w);
+        if (i == null || d == null) {
+            return k;
+        }
+        k.owner = i.owner;
+        k.opts = CodeOnlyMath.opts(i.coOpts);
+        k.gen = d.gen(i.owner);
+        k.period = AirDefenseDataSVA.keyPeriod(w);
+        k.overlap = AirDefenseDataSVA.keyOverlap(w);
+        if (i.dayKey && ConfigSVA.adDayKey) {
+            k.keyNow = d.keyCode(i.owner, k.period);
+            k.keyPrev = k.period > 0 ? d.keyCode(i.owner, k.period - 1) : -1;
+        }
+        k.manual = CodeOnlyMath.manualCounts(k.opts, ConfigSVA.adCodeOnlyManual);
+        k.guard = CodeOnlyMath.probeGuard(k.opts);
+        return k;
+    }
+
+    /** classifyByCode's answer with this bit: the «ПОДБОР» block began with this round (the post's log). */
+    public static final int PROBE_BEGAN = 1 << 24;
+
+    /**
+     * Code-only wave (items 1-11, 22, 31): one contact classed by the transponder's code alone (RoeMath.classifyByCode) - the
+     * command post's tracks and a linked launcher's own eyes alike. Sets the contact's class, reason and miss, its 7700 state
+     * (the grace per vehicle shared by all the owner's posts - AirDefenseDataSVA.emergency), counts a wrong code that stood 3 s
+     * towards the «ПОДБОР» block (shared per owner, by the aircraft and by the pilot; never 7000 / special / the last
+     * period's / a tower's code) and lights the transponder's ОПОЗН lamp (CodeOnlyMath.caution).
+     * @param asked interrogated at all (a post's track: bug 15 - UNKNOWN until then)
+     * @param at the interrogation's tick (the post: the track's askedAt - the same answer counted twice is one miss; a
+     * launcher's eyes: now, the second miss by the clock)
+     * @param granted «свой на 10 минут» or 7600 «свой» (the caller's trust data)
+     * @param noRadioGrace 7600 in its grace (the post's episodes / the launchers' 2 minutes)
+     * @param ownCode one of the post's own codes (counts only with option 3а)
+     * @param airportCode a friendly airport's code as the usual check allows it (no violation, no handoff; counts only with 3в)
+     * @param violator in a forbidden zone or handed over by a tower
+     * @return RoeMath's packed verdict (| PROBE_BEGAN)
+     */
+    public int classifyByCode(World w, CodeKey k, Contact c, boolean asked, long at, boolean granted, boolean noRadioGrace, boolean ownCode,
+            boolean airportCode, boolean violator, long now) {
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(w);
+        boolean em = c.replied && c.code == XpdrMath.EMERGENCY;
+        int grace = Math.max(0, ConfigSVA.adCodeOnlyEmergencySeconds) * 20;
+        NoRadioMath.Entry e = d == null || !asked ? null : d.emergency(k.owner, c.vid, em, at, now);  // the answer's tick: a stale one changes nothing
+        c.em = em ? e == null ? NoRadioMath.S_PENDING : CodeOnlyMath.emergencyState(e, now, grace) : -1;
+        c.emLeft = em ? e == null ? -1 : CodeOnlyMath.emergencyLeft(e, now, grace) : 0;
+        boolean blocked = k.guard && d != null && d.probeBlocked(k.owner, c.vid, c.pilot, now);
+        int card = CodeOnlyMath.cardState(c.cardOwner, c.cardGen, c.cardFirst, c.cardUntil, k.owner, k.gen, k.period, k.overlap);
+        // review 2026-10-27: a code dialled by hand (the key's, an own one) counts once it stood 3 s at THIS interrogation
+        boolean stood = CodeOnlyMath.stood(c.codeSince, at);
+        int id = CodeOnlyMath.identify(c.replied, c.code, k.keyNow, k.keyPrev, k.overlap, card, c.fromCard, k.manual, stood,
+                (k.opts & CodeOnlyMath.OPT_OWN_CODES) != 0 && ownCode, (k.opts & CodeOnlyMath.OPT_AIRPORT) != 0 && airportCode);
+        int gap = Math.max(0, ConfigSVA.adCodeOnlyConfirmSeconds) * 20;
+        boolean began = false;
+        // item 11: a wrong code that stood 3 s counts towards the block (by the aircraft and by its pilot, per owner); review
+        // 2026-10-27: 3 s at the interrogation (`at`), not at the post's round, and each interrogation's code once
+        if (asked && k.guard && !blocked && d != null && c.replied && CodeOnlyMath.guessed(id) && c.code != k.keyNow && at != c.probeAt
+                && CodeOnlyMath.probeCounts(c.code, c.codeSince, at, k.keyPrev, com.sva.block.AtcServerSVA.INSTANCE.issuedAny(c.code, c.id, c.vid))) {
+            c.probeAt = at;
+            began = d.probeWrong(k.owner, c.vid, c.pilot, c.code, now, ConfigSVA.adCodeOnlyProbeCodes, Math.max(1, ConfigSVA.adCodeOnlyProbeMinutes) * 1200L);
+            blocked = began;
+        }
+        int r = RoeMath.classifyByCode(asked, granted, blocked, c.replied, c.code, c.em, noRadioGrace, id, violator, c.confirm, at, gap);
+        c.codeOnly = true;
+        c.cls = RoeMath.idClass(r);
+        c.idr = RoeMath.idReason(r);
+        c.idMiss = RoeMath.idMissOf(r);
+        if (c.v != null && CodeOnlyMath.caution(asked, c.cls, id)) {
+            c.v.state.xpdr.caution(at);                             // item 22: the ОПОЗН lamp (lit from that interrogation) before any message
+        } else if (c.v != null && asked) {
+            c.v.state.xpdr.identified(at);                          // a newer match puts out a lamp an older answer lit
+        }
+        return began ? r | PROBE_BEGAN : r;
+    }
+
+    /** acceptedBeforeFire's answer: fire; a match (the engagement goes); 7700 in its grace (the engagement pauses - review 2026-10-27). */
+    public static final int ACC_FIRE = 0, ACC_MATCH = 1, ACC_HOLD = 2;
+
+    /**
+     * Code-only wave (item 14): a launcher's silent look at its target's transponder right before a burst / launch (the ОТВЕТ
+     * lamp stays dark) - the key's code matches now (a card taken, the key's code dialled with «Ручной набор» that stood 3 s,
+     * an own code with 3а) or it squawks 7700 within its grace: no fire, the track takes the fresh answer (the post's next
+     * round sees a friend). Never past the «ПОДБОР» block. A missile already in the air is not called back.
+     * <p>
+     * Review 2026-10-27: the 7700 seen here is charged to the vehicle's grace (the episode opened or run on - it was only read,
+     * and a missing memory let it go free), the misses stay and the launcher pauses the engagement instead of dropping it
+     * (ACC_HOLD): a client showing 7700 only to this look gained a fresh warning sequence for nothing. A code dialled by hand
+     * matches here only once it stood 3 s, and a wrong one that stood counts as a guess here too.
+     */
+    public int acceptedBeforeFire(World w, CodeKey k, Contact c, AirDefenseDataSVA.KpInfo i, long now) {
+        if (c.v == null || c.v.isDead) {
+            return ACC_FIRE;
+        }
+        interrogate(c, c.v, now, true);
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(w);
+        if (!c.replied || d == null || k.guard && d.probeBlocked(k.owner, c.vid, c.pilot, now)) {
+            return ACC_FIRE;
+        }
+        int card = CodeOnlyMath.cardState(c.cardOwner, c.cardGen, c.cardFirst, c.cardUntil, k.owner, k.gen, k.period, k.overlap);
+        int id = CodeOnlyMath.identify(true, c.code, k.keyNow, k.keyPrev, k.overlap, card, c.fromCard, k.manual, CodeOnlyMath.stood(c.codeSince, now),
+                (k.opts & CodeOnlyMath.OPT_OWN_CODES) != 0 && i != null && i.ownCode(c.code), false);
+        // review 2026-10-27: this look is an interrogation too - a wrong code that stood 3 s counts as a guess here as well (the
+        // post's survey hears one code in 6 s: codes held a few seconds each were tried at the shot and never counted)
+        if (k.guard && CodeOnlyMath.guessed(id) && c.code != k.keyNow && now != c.probeAt
+                && CodeOnlyMath.probeCounts(c.code, c.codeSince, now, k.keyPrev, com.sva.block.AtcServerSVA.INSTANCE.issuedAny(c.code, c.id, c.vid))) {
+            c.probeAt = now;
+            if (d.probeWrong(k.owner, c.vid, c.pilot, c.code, now, ConfigSVA.adCodeOnlyProbeCodes, Math.max(1, ConfigSVA.adCodeOnlyProbeMinutes) * 1200L)) {
+                return ACC_FIRE;                                    // the «ПОДБОР» block began with this look
+            }
+        }
+        int st = -1;
+        if (c.code == XpdrMath.EMERGENCY) {
+            NoRadioMath.Entry e = d.emergency(k.owner, c.vid, true, now);
+            st = CodeOnlyMath.emergencyState(e, now, Math.max(0, ConfigSVA.adCodeOnlyEmergencySeconds) * 20);
+        }
+        if (RoeMath.idMatch(id) || NoRadioMath.friend(st)) {
+            c.askedAt = Math.max(c.askedAt, now);                   // the post's merge keeps this answer over the radar's older one
+            CodeOnlyMath.hit(c.confirm);
+            c.cls = RoeMath.FRIEND;                                 // till the post's next round: not taken again meanwhile
+            c.idr = RoeMath.idMatch(id) ? id : RoeMath.ID_GRANTED;
+            c.idMiss = RoeMath.ID_NONE;
+            return ACC_MATCH;
+        }
+        if (st >= 0 && NoRadioMath.holdFire(st)) {
+            c.askedAt = Math.max(c.askedAt, now);
+            c.cls = RoeMath.EMERGENCY;                              // the misses stay: the grace holds the fire, it clears nothing
+            c.idr = RoeMath.ID_EMERGENCY;
+            c.idMiss = RoeMath.ID_NONE;
+            return ACC_HOLD;
+        }
+        return ACC_FIRE;
+    }
+
+    /** Code-only wave (item 22): the card holders seen aboard each vehicle (entity id -> «name,name,»): a new one is checked once. */
+    private final Map<Integer, String> boarded = new HashMap<Integer, String>();
+
+    /** Every card holder who was not aboard at the last look is checked (noCardPost) and told. */
+    private void boarding(EntityVehicleSVA v, List<EntityPlayer> holders) {
+        StringBuilder sig = new StringBuilder(",");
+        for (EntityPlayer p : holders) {
+            sig.append(p.getCommandSenderName()).append(',');
+        }
+        String was = boarded.put(Integer.valueOf(v.getEntityId()), sig.toString());
+        for (EntityPlayer p : holders) {
+            if (p instanceof EntityPlayerMP && (was == null || !was.contains("," + p.getCommandSenderName() + ","))) {
+                String[] n = boardingNote(v.worldObj, p, v.state.xpdr);
+                if (n != null) {
+                    tell((EntityPlayerMP) p, 0xF0B040, n[0], (Object[]) java.util.Arrays.copyOfRange(n, 1, n.length));
+                }
+            }
+        }
+    }
+
+    /** Review 2026-10-27: the boarding notes' lang keys by CodeOnlyMath.B_* (B_NONE: none). */
+    private static final String[] BOARDING_KEYS = {null, "sva.ad.msg.noCard", "sva.ad.msg.coKeyOff", "sva.ad.msg.coOtherCard"};
+
+    /**
+     * Code-only wave (item 22): the player boarding is the owner of a code-only post in this dimension (switched on - arming
+     * too, the server allowing it; review 2026-10-27, batch 3: with the day key) or on its access list, and he carries no card of that owner's key good now - the post's
+     * name («Нет карты кодов: КП ... примет борт за чужого»); null - nothing to say. The rider himself is checked, not the
+     * vehicle's owner.
+     */
+    public String noCardPost(World w, EntityPlayer p) {
+        String[] n = boardingNote(w, p, null);
+        return n != null && BOARDING_KEYS[CodeOnlyMath.B_NO_CARD].equals(n[0]) ? n[1] : null;
+    }
+
+    /**
+     * Review 2026-10-27 (cards of two owners): what the boarding pilot is told for the first listed code-only post that will
+     * take him for a stranger (CodeOnlyMath.boardingNote) - {lang key, post's name[, the card's owner]}; null nothing. `x`
+     * the transponder after this second's card round (null: only «Нет карты кодов»).
+     */
+    public String[] boardingNote(World w, EntityPlayer p, XpdrMath.Xpdr x) {
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(w);
+        if (d == null || p == null || !ConfigSVA.adCodeOnly) {
+            return null;
+        }
+        long period = AirDefenseDataSVA.keyPeriod(w), today = XpdrMath.day(w.getWorldTime());
+        boolean overlap = AirDefenseDataSVA.keyOverlap(w);
+        String name = p.getCommandSenderName();
+        int keyed = 0;
+        java.util.Set<String> owners = new java.util.HashSet<String>();
+        for (ItemStack st : p.inventory.mainInventory) {
+            if (ItemCodeCardSVA.keyed(st) && cardOffer(d, st, period, today, overlap)[0] >= 2 && owners.add(ItemCodeCardSVA.owner(st).toLowerCase())) {
+                keyed++;                                            // good keyed cards of different owners
+            }
+        }
+        String keyOwner = x != null && x.fromCard() ? x.cardOwner : "";
+        for (AirDefenseDataSVA.KpInfo i : d.infosIn(w.provider.dimensionId)) {
+            boolean card = owners.contains(i.owner.toLowerCase());
+            // review 2026-10-27 (batch 3): a post without the day key (or the server's) classes the usual way - nothing to say
+            int b = CodeOnlyMath.boardingNote(listed(i, name), i.codeOnlyMarked(true, ConfigSVA.adDayKey), card, x == null || x.dayKey, x == null ? 0 : keyed,
+                    i.owner, keyOwner);
+            if (b != CodeOnlyMath.B_NONE) {
+                return b == CodeOnlyMath.B_OTHER_CARD ? new String[] {BOARDING_KEYS[b], i.name, keyOwner.length() > 0 ? keyOwner : "-"}
+                        : new String[] {BOARDING_KEYS[b], i.name};
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------ shells and missiles
@@ -1216,29 +1547,203 @@ public final class AirDefenseSVA {
         return v.getVehicleType() == com.sva.vehicle.VehicleType.LINER && com.sva.entity.LinerLogicSVA.pilot(v, p);
     }
 
-    /** «Ключ дня»: the pilot's code card sets the code (every second; today's card preferred). */
-    private void cardCode(EntityVehicleSVA v, EntityPlayer pilot, long now) {
-        XpdrMath.Xpdr x = v.state.xpdr;
-        if (!x.dayKey || !ConfigSVA.adDayKey || pilot == null || pilot.inventory == null) {
-            return;
+    /**
+     * Who may hold the code card that works a vehicle's transponder: its driver; the liner's - either pilot (code-only wave,
+     * item 20: the F/O flying alone had a card that did nothing). Passengers and the cargo never count.
+     */
+    public static List<EntityPlayer> cardHolders(EntityVehicleSVA v) {
+        List<EntityPlayer> out = new ArrayList<EntityPlayer>();
+        if (v.riddenByEntity instanceof EntityPlayer) {
+            out.add((EntityPlayer) v.riddenByEntity);
         }
-        long today = XpdrMath.day(v.worldObj.getWorldTime());
-        ItemStack best = null;
-        for (ItemStack s : pilot.inventory.mainInventory) {
-            if (ItemCodeCardSVA.printed(s) && (best == null || ItemCodeCardSVA.day(s) == today && ItemCodeCardSVA.day(best) != today
-                    || ItemCodeCardSVA.day(s) > ItemCodeCardSVA.day(best) && ItemCodeCardSVA.day(best) != today)) {
-                best = s;
+        if (v.getVehicleType() == com.sva.vehicle.VehicleType.LINER) {
+            for (Entity e : v.riders()) {
+                if (e instanceof EntityPlayer && !out.contains(e) && xpdrOperator(v, (EntityPlayer) e)) {
+                    out.add((EntityPlayer) e);
+                }
             }
         }
-        if (best == null) {
-            x.cardDay = -1;
+        return out;
+    }
+
+    /**
+     * Code-only wave: what one card gives now - {rank, code}: rank 3 a card of a key good this period, 2 one good only for the
+     * last period's code (the overlap window), 0 nothing (blank, another generation - «Сменить ключ», past its periods, its
+     * owner without a secret, an older card).
+     * <p>
+     * Review 2026-10-27 (batch 2): an older card (it carries its code) gives nothing any more - every post's day code is the
+     * key's now (the server's pepper, the generation: keyCode), so its code never matched any post, yet it lit КЛЮЧ ДНЯ (a
+     * tower refused the aircraft an airport code for it) and its tooltip said «Код на сегодня»; on a doDaylightCycle=false
+     * server for ever. `today` is no longer read (kept for the callers).
+     */
+    public static int[] cardOffer(AirDefenseDataSVA d, ItemStack s, long period, long today, boolean overlap) {
+        if (ItemCodeCardSVA.keyed(s) && d != null) {
+            String own = ItemCodeCardSVA.owner(s);
+            int st = CodeOnlyMath.cardState(own, ItemCodeCardSVA.gen(s), ItemCodeCardSVA.first(s), ItemCodeCardSVA.until(s), own, d.gen(own), period,
+                    overlap);
+            int code = CodeOnlyMath.cardGood(st) ? d.keyCode(own, st == CodeOnlyMath.CARD_OK ? period : period - 1) : -1;
+            return code < 0 ? new int[] {0, -1} : new int[] {st == CodeOnlyMath.CARD_OK ? 3 : 2, code};
+        }
+        return new int[] {0, -1};
+    }
+
+    /** World tests / the screens: the code a card gives on this world now (-1 none). */
+    public static int cardCodeNow(World w, ItemStack s) {
+        return cardOffer(AirDefenseDataSVA.get(w), s, AirDefenseDataSVA.keyPeriod(w), XpdrMath.day(w.getWorldTime()), AirDefenseDataSVA.keyOverlap(w))[1];
+    }
+
+    /**
+     * «Ключ дня»: the pilots' code cards set the code (every second). Code-only wave (items 17-21, 30): a card of a key gives
+     * the code the server works out for this key period (the next period's by itself; the last period's within the overlap
+     * window) - the best of all the pilots' cards. No good card any more - the card's code goes back to 7000 (a hijacker
+     * without the card loses the key within a second; a code the card left behind is no code dialled by hand); a code the
+     * pilot dialled himself (the day key off) is never touched. An older card (its own code) gives nothing (review batch 2).
+     * <p>
+     * Review 2026-10-27 (cards of two owners): the card whose key matters here wins first - its owner's switched-on code-only
+     * post nearest to the vehicle, else one of his whose list has a holder (CodeOnlyMath.cardRelevance / betterCard); the
+     * longest-running card used to win wherever the aircraft was, and the owner's own launchers fired on him for the ally's
+     * card he also carried. Batch 2: an owner with such a post within CodeOnlyMath.CARD_REACH comes before the nearest one's
+     * (a guest handed Bob's card to cross Bob's zone kept squawking his own key's wherever a third owner's post was nearer,
+     * and Bob's posts made him a target), and between equal cards the first in the pilot's inventory wins (the hotbar first)
+     * - the pilot chooses by where he keeps it.
+     */
+    private void cardCode(EntityVehicleSVA v, List<EntityPlayer> pilots, long now) {
+        XpdrMath.Xpdr x = v.state.xpdr;
+        if (!x.dayKey || !ConfigSVA.adDayKey) {
             return;
         }
-        int code = ItemCodeCardSVA.code(best);
-        if (XpdrMath.valid(code) && code != x.code) {
-            x.setCode(code, now);
+        World w = v.worldObj;
+        AirDefenseDataSVA d = AirDefenseDataSVA.get(w);
+        long period = AirDefenseDataSVA.keyPeriod(w), today = XpdrMath.day(w.getWorldTime());
+        boolean overlap = AirDefenseDataSVA.keyOverlap(w);
+        String near = nearestCodeOnlyOwner(d, w.provider.dimensionId, v.posX, v.posZ);
+        java.util.Set<String> reach = codeOnlyOwnersInReach(d, w.provider.dimensionId, v.posX, v.posZ);
+        ItemStack best = null;
+        int bestRank = 0, bestCode = -1, bestRel = 0;
+        for (EntityPlayer pilot : pilots) {
+            if (pilot == null || pilot.inventory == null) {
+                continue;
+            }
+            for (ItemStack s : pilot.inventory.mainInventory) {
+                int[] o = cardOffer(d, s, period, today, overlap);
+                if (o[0] <= 0) {
+                    continue;
+                }
+                String own = ItemCodeCardSVA.owner(s);
+                int rel = own.length() == 0 ? 0 : CodeOnlyMath.cardRelevance(reach.contains(own.toLowerCase()), own.equalsIgnoreCase(near),
+                        listedOnCodeOnly(d, w.provider.dimensionId, own, pilots));
+                if (best == null || CodeOnlyMath.betterCard(rel, o[0], bestRel, bestRank)) {   // of equals the first stays: inventory order
+                    best = s;
+                    bestRank = o[0];
+                    bestCode = o[1];
+                    bestRel = rel;
+                }
+            }
         }
-        x.cardDay = ItemCodeCardSVA.day(best);
+        if (bestRank == 0) {
+            x.dropCard(true, now);
+            return;
+        }
+        x.takeCard(bestCode, ItemCodeCardSVA.owner(best), ItemCodeCardSVA.gen(best), ItemCodeCardSVA.first(best), ItemCodeCardSVA.until(best),
+                period, now);                                       // only a key's card ranks (an older card gives nothing)
+        // item 22: 5 and 1 minutes before the card runs out - «КАРТА КОДОВ: 5 МИН» to the pilots (once each)
+        int m = CodeOnlyMath.cardWarnMinutes(CodeOnlyMath.cardTicksLeft(x.cardUntil, AirDefenseDataSVA.keyClock(), w.getWorldTime(), w.getTotalWorldTime()));
+        if (m > 0) {
+            for (EntityPlayer p : pilots) {
+                String k = v.getEntityId() + "|card" + m + "|" + p.getCommandSenderName();
+                Long last = said.get(k);
+                if (p instanceof EntityPlayerMP && (last == null || now - last.longValue() >= 6000 || now < last.longValue())) {
+                    said.put(k, Long.valueOf(now));
+                    tell((EntityPlayerMP) p, 0xF0B040, "sva.ad.msg.cardExpires", Integer.valueOf(m));
+                }
+            }
+        }
+    }
+
+    /**
+     * Review 2026-10-27 (cards of two owners): the owner of the switched-on code-only post nearest to (x, z) in a dimension
+     * ("" none) - his card is the one that matters there.
+     */
+    public static String nearestCodeOnlyOwner(AirDefenseDataSVA d, int dim, double x, double z) {
+        String best = "";
+        double bd = Double.MAX_VALUE;
+        if (d == null) {
+            return best;
+        }
+        for (Map.Entry<String, AirDefenseDataSVA.KpInfo> e : d.codeOnlyPostsIn(dim).entrySet()) {
+            int[] p = AirDefenseDataSVA.keyXZ(e.getKey());
+            double dd = p == null ? Double.MAX_VALUE / 2 : (p[0] + 0.5 - x) * (p[0] + 0.5 - x) + (p[1] + 0.5 - z) * (p[1] + 0.5 - z);
+            if (dd < bd) {
+                bd = dd;
+                best = e.getValue().owner;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Review 2026-10-27, batch 2: the owners (lower case) of the switched-on code-only posts in a dimension within
+     * CodeOnlyMath.CARD_REACH of (x, z) - their posts see an aircraft there, so their cards come first.
+     */
+    public static java.util.Set<String> codeOnlyOwnersInReach(AirDefenseDataSVA d, int dim, double x, double z) {
+        java.util.Set<String> out = new java.util.HashSet<String>();
+        if (d == null) {
+            return out;
+        }
+        double r2 = CodeOnlyMath.CARD_REACH * CodeOnlyMath.CARD_REACH;
+        for (Map.Entry<String, AirDefenseDataSVA.KpInfo> e : d.codeOnlyPostsIn(dim).entrySet()) {
+            int[] p = AirDefenseDataSVA.keyXZ(e.getKey());
+            if (p != null && (p[0] + 0.5 - x) * (p[0] + 0.5 - x) + (p[1] + 0.5 - z) * (p[1] + 0.5 - z) <= r2) {
+                out.add(e.getValue().owner.toLowerCase());
+            }
+        }
+        return out;
+    }
+
+    /** Review 2026-10-27: one of the holders is the owner or on the access list of a switched-on code-only post of `owner` here. */
+    private static boolean listedOnCodeOnly(AirDefenseDataSVA d, int dim, String owner, List<EntityPlayer> holders) {
+        if (d == null) {
+            return false;
+        }
+        for (AirDefenseDataSVA.KpInfo i : d.codeOnlyPostsIn(dim).values()) {
+            if (!i.owner.equalsIgnoreCase(owner)) {
+                continue;
+            }
+            for (EntityPlayer p : holders) {
+                if (p != null && listed(i, p.getCommandSenderName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** The player owns this post or is on its access list. */
+    private static boolean listed(AirDefenseDataSVA.KpInfo i, String name) {
+        if (i.owner.equalsIgnoreCase(name)) {
+            return true;
+        }
+        for (String a : i.access) {
+            if (a.equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** World tests: one round of the code cards for a vehicle (its pilots' inventories) as the tick does it. */
+    public void debugCardCode(EntityVehicleSVA v) {
+        cardCode(v, cardHolders(v), v.worldObj.getTotalWorldTime());
+    }
+
+    /** World tests (decision 3): the tick has checked this vehicle's boarding (item 22) - never a buggy / crawler / drill. */
+    public boolean debugBoarded(EntityVehicleSVA v) {
+        return boarded.containsKey(Integer.valueOf(v.getEntityId()));
+    }
+
+    /** World tests (decision 3): the tick has sent this vehicle's riders the transponder's copy (D_XPDR) - its signature, null none. */
+    public String debugXpdrSent(EntityVehicleSVA v) {
+        return xpdrSent.get(Integer.valueOf(v.getEntityId()));
     }
 
     // ------------------------------------------------------------------ the tick
@@ -1269,7 +1774,10 @@ public final class AirDefenseSVA {
         }
     }
 
-    /** Every 5 ticks: the vehicles' motion; every 10 their riders' transponder / RWR copies; every 20 the code cards. */
+    /**
+     * Every 5 ticks: the vehicles' motion; every 10 their riders' transponder / RWR copies; every 20 the code cards.
+     * Code-only wave (decision 3): the ground vehicles' riders too when they have transponders (airdefense.allTransponders).
+     */
     private void vehicles(boolean sync, boolean cards) {
         MinecraftServer s = MinecraftServer.getServer();
         if (s == null || s.worldServers == null) {
@@ -1285,33 +1793,77 @@ public final class AirDefenseSVA {
                     continue;
                 }
                 EntityVehicleSVA v = (EntityVehicleSVA) o;
-                if (!v.getVehicleType().movement.flies && !v.getVehicleType().movement.lifts) {
+                com.sva.vehicle.VehicleType vt = v.getVehicleType();
+                boolean air = vt.movement.flies || vt.movement.lifts;
+                // code-only wave (decision 3): a ground vehicle with its transponder - its driver's card and the panel's copy
+                // too (the motion only for what a radar may see in the air, as before)
+                boolean xp = XpdrMath.fitted(vt);
+                if (!air && !xp) {
                     continue;
                 }
-                sampleMotion(v, now);
-                if (bumping(v)) {
-                    bumpSeen.put(Integer.valueOf(v.getEntityId()), Long.valueOf(now));
+                if (xp) {
+                    XpdrMath.releaseHeld(v.state.xpdr, now);           // review 2026-10-27: the panel's code that waited its second
                 }
-                if (!sync && !cards) {
-                    continue;
-                }
-                List<EntityPlayerMP> riders = new ArrayList<EntityPlayerMP>();
-                for (Entity r : v.riders()) {
-                    if (r instanceof EntityPlayerMP) {
-                        riders.add((EntityPlayerMP) r);
+                if (air) {
+                    sampleMotion(v, now);
+                    if (bumping(v)) {
+                        bumpSeen.put(Integer.valueOf(v.getEntityId()), Long.valueOf(now));
                     }
                 }
-                if (riders.isEmpty()) {
-                    continue;
-                }
-                if (cards && v.riddenByEntity instanceof EntityPlayer && XpdrMath.fitted(v.getVehicleType())) {
-                    cardCode(v, (EntityPlayer) v.riddenByEntity, now);
-                }
-                if (sync) {
-                    syncRiders(v, riders, w, now);
+                if (sync || cards) {
+                    riderRound(v, w, now, sync, cards);
                 }
             }
         }
+    }
+
+    /**
+     * One vehicle's riders: every 20 ticks the code cards (and the boarding check), every 10 the transponder / RWR copies.
+     * Review 2026-10-27 (batch 3): a new driver / pilot (the card holders changed - a thief boarding a keyed aircraft) gets the
+     * card round at once, before the panel's copy goes - the 10-tick copy between two card rounds handed him the key's code.
+     */
+    private void riderRound(EntityVehicleSVA v, World w, long now, boolean sync, boolean cards) {
+        Integer id = Integer.valueOf(v.getEntityId());
+        com.sva.vehicle.VehicleType vt = v.getVehicleType();
+        boolean xp = XpdrMath.fitted(vt);
+        List<EntityPlayerMP> riders = new ArrayList<EntityPlayerMP>();
+        for (Entity r : v.riders()) {
+            if (r instanceof EntityPlayerMP) {
+                riders.add((EntityPlayerMP) r);
+            }
+        }
+        if (riders.isEmpty()) {
+            if (cards) {
+                boarded.remove(id);                                 // code-only wave: the next boarding is checked again
+            }
+            cardWho.remove(id);
+            return;
+        }
+        if (xp) {
+            List<EntityPlayer> holders = cardHolders(v);            // code-only wave: the liner's either pilot (item 20)
+            StringBuilder hs = new StringBuilder();
+            for (EntityPlayer h : holders) {
+                hs.append(h.getEntityId()).append(',');
+            }
+            String sig = hs.toString();
+            if (cards || !sig.equals(cardWho.get(id))) {
+                cardWho.put(id, sig);
+                if (!holders.isEmpty()) {
+                    cardCode(v, holders, now);
+                }
+            }
+            if (cards && XpdrMath.seenByRadars(vt)) {
+                boarding(v, holders);                               // code-only wave (item 22): «Нет карты кодов» on boarding -
+            }                                                       // not in a buggy / crawler / drill: no radar ever sees them
+        }
+        if (sync) {
+            syncRiders(v, riders, w, now);
+        }
+    }
+
+    /** World tests (review batch 3): one round of a vehicle's riders as the tick does it (sync - the 10-tick copies, cards - the 20-tick cards). */
+    public void debugRiderRound(EntityVehicleSVA v, boolean sync, boolean cards) {
+        riderRound(v, v.worldObj, v.worldObj.getTotalWorldTime(), sync, cards);
     }
 
     private void syncRiders(EntityVehicleSVA v, List<EntityPlayerMP> riders, World w, long now) {
@@ -1322,8 +1874,16 @@ public final class AirDefenseSVA {
         }
         if (XpdrMath.fitted(v.getVehicleType())) {
             XpdrMath.Xpdr x = v.state.xpdr;
-            long today = XpdrMath.day(w.getWorldTime());
-            String sig = x.mode + ":" + x.code + ":" + x.dayKey + ":" + x.identOn(now) + ":" + x.keyLamp(today) + ":" + x.replyLamp(now) + ":" + who;
+            long today = AirDefenseDataSVA.keyPeriod(w);             // code-only wave: the key's clock (the КЛЮЧ ДНЯ lamp)
+            // code-only wave (items 22, 42): the ОПОЗН lamp and the card's minutes left go with the panel's copy (review batch 3:
+            // the real minutes while 5 or less - the HUD read «5 МИН» with 1:40 left)
+            boolean caution = x.idCaution(now);
+            int cardWarn = x.fromCard() && x.cardOwner.length() > 0 ? CodeOnlyMath.cardMinutesLeft(CodeOnlyMath.cardTicksLeft(x.cardUntil,
+                    AirDefenseDataSVA.keyClock(), w.getWorldTime(), w.getTotalWorldTime())) : 0;
+            // review 2026-10-27 (cards of two owners): whose key's card sets the code now ("" none) - the panel shows it
+            String keyOwner = x.fromCard() ? x.cardOwner : "";
+            String sig = x.mode + ":" + x.code + ":" + x.dayKey + ":" + x.identOn(now) + ":" + x.keyLamp(today) + ":" + x.replyLamp(now) + ":" + caution
+                    + ":" + cardWarn + ":" + keyOwner + ":" + who;
             if (!sig.equals(xpdrSent.get(id))) {
                 xpdrSent.put(id, sig);
                 NBTTagCompound t = new NBTTagCompound();
@@ -1334,8 +1894,20 @@ public final class AirDefenseSVA {
                 t.setInteger("I", x.identOn(now) ? (int) (x.identUntil - now) : 0);
                 t.setBoolean("K", x.keyLamp(today));
                 t.setBoolean("R", x.replyLamp(now));
+                t.setBoolean("O", caution);
+                t.setByte("W", (byte) cardWarn);
+                t.setString("KO", keyOwner);
+                // review 2026-10-27 (batch 3): the code itself only to who works the transponder - a passenger (an airline's,
+                // a lift's) left knowing the key's code, and a code dialled by hand counts by default; the public ones
+                // (7000 / 7500 / 7600 / 7700) go to all (XpdrMath.riderCode; the screens show «----»)
+                NBTTagCompound hidden = null;
                 for (EntityPlayerMP p : riders) {
-                    NetADSVA.send(p, NetADSVA.D_XPDR, t);
+                    boolean op = xpdrOperator(v, p);
+                    if (!op && hidden == null) {
+                        hidden = (NBTTagCompound) t.copy();
+                        hidden.setInteger("C", XpdrMath.riderCode(false, x.code));
+                    }
+                    NetADSVA.send(p, NetADSVA.D_XPDR, op ? t : hidden);
                 }
             }
         }
@@ -1396,6 +1968,12 @@ public final class AirDefenseSVA {
         if (bumpSeen.size() > 256) {
             bumpSeen.clear();
         }
+        if (boarded.size() > 256) {
+            boarded.clear();                                        // code-only wave: at worst a pilot is told once more
+        }
+        if (cardWho.size() > 256) {
+            cardWho.clear();                                        // review batch 3: at worst one card round more
+        }
         // audit 2026-10-22: the trust data's expired decisions, handoffs and 7600 memories
         if (s0 != null && s0.worldServers != null && s0.worldServers.length > 0 && s0.worldServers[0] != null) {
             AirDefenseDataSVA d = AirDefenseDataSVA.get(s0.worldServers[0]);
@@ -1426,13 +2004,24 @@ public final class AirDefenseSVA {
         NetADSVA.sendToAll(NetADSVA.D_ZONES, zonesTag(d));
     }
 
+    /** World tests: the zones every client gets (the code-only mark included). */
+    public static NBTTagCompound debugZonesTag(AirDefenseDataSVA d) {
+        return zonesTag(d);
+    }
+
     private static NBTTagCompound zonesTag(AirDefenseDataSVA d) {
         NBTTagCompound t = new NBTTagCompound();
         NBTTagList l = new NBTTagList();
         if (ConfigSVA.adEnabled) {
-            for (ZoneMath.Zone z : d.all()) {
-                if (z.show) {
-                    l.appendTag(publicZone(z));
+            for (Map.Entry<String, List<ZoneMath.Zone>> e : d.zonesByPost().entrySet()) {
+                AirDefenseDataSVA.KpInfo i = d.info(e.getKey(), false);
+                // code-only wave (item 22): «ПО КОДУ»; review 2026-10-27 (batch 3): not while the post classes the usual way
+                // (forbidden by the server, no day key - the post's or the server's)
+                boolean co = i != null && i.codeOnlyMarked(ConfigSVA.adCodeOnly, ConfigSVA.adDayKey);
+                for (ZoneMath.Zone z : e.getValue()) {
+                    if (z.show) {
+                        l.appendTag(publicZone(z, co));
+                    }
                 }
             }
         }
@@ -1446,10 +2035,21 @@ public final class AirDefenseSVA {
      * screens never used it (the post's own screen gets its zones whole).
      */
     public static NBTTagCompound publicZone(ZoneMath.Zone z) {
+        return publicZone(z, false);
+    }
+
+    /**
+     * Code-only wave (item 22): a code-only post's zone carries «CO» - the ND and the zone map sign it «ПО КОДУ» (no circle
+     * round the post itself: its place is not given away by this).
+     */
+    public static NBTTagCompound publicZone(ZoneMath.Zone z, boolean codeOnly) {
         NBTTagCompound c = new NBTTagCompound();
         z.write(c);
         c.removeTag("CodeLo");
         c.removeTag("CodeHi");
+        if (codeOnly) {
+            c.setBoolean("CO", true);
+        }
         return c;
     }
 
@@ -1491,6 +2091,8 @@ public final class AirDefenseSVA {
         said.clear();
         bumpSeen.clear();
         cmdRate.clear();
+        boarded.clear();
+        cardWho.clear();
         CoverageSVA.INSTANCE.clear();
         AdTerrainSVA.INSTANCE.clear();
         zonesSent = -1;
@@ -1556,7 +2158,8 @@ public final class AirDefenseSVA {
             if (m.op == NetADSVA.XPDR_IDENT) {
                 ident(v);
             } else {
-                // audit 2026-10-22 (bug 12): the changed fields only ("Ch"; none - an old client: all three)
+                // audit 2026-10-22 (bug 12): the changed fields only ("Ch"; none - an old client: all three); review 2026-10-27: a
+                // new code at most once a second (XpdrMath.CODE_RATE_TICKS - a quicker one waits for its second, the latest wins)
                 int ch = m.data.hasKey("Ch") ? m.data.getInteger("Ch") & XpdrMath.CH_ALL : XpdrMath.CH_ALL;
                 setXpdr(v, ch, m.data.getInteger("M"), m.data.getInteger("C"), m.data.getBoolean("D"));
             }
@@ -1580,10 +2183,10 @@ public final class AirDefenseSVA {
                 ((TileEntityCommandPostSVA) te).command(p, m.data);
             }
         } else if (m.op == NetADSVA.LAUNCHER_SET && te instanceof TileEntityLauncherSVA) {
-            ((TileEntityLauncherSVA) te).applySettings(m.data);
+            ((TileEntityLauncherSVA) te).applySettings(p, m.data);  // code-only wave (item 25): the rule - the owner's
         } else if (m.op == NetADSVA.KP_LINK && (te instanceof TileEntityLauncherSVA || te instanceof com.sva.block.TileEntityRadarSVA)
                 && cmdAllowed(p, CmdRateMath.LINK, w.getTotalWorldTime())) {
-            cycleLink((TileEntityAirDefenseSVA) te);                // audit 2026-10-22 (bug 19): the next post in reach
+            relink(p, (TileEntityAirDefenseSVA) te);                // code-only wave (item 25): to or from a code-only post - its owner
         } else if (m.op == NetADSVA.AD_EQUIP && com.sva.block.BlockAirDefenseSVA.realPlayer(p)) {
             if (te instanceof TileEntityCommandPostSVA) {
                 ((TileEntityCommandPostSVA) te).removeViewer(p);

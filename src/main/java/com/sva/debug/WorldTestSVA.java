@@ -568,6 +568,63 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // code-only wave: the key (pepper, the key's clock, generations), the cards (printing a stack, the cockpit, the liner's F/O, the reset)
+        if (ticks >= WorldTestAdCodeOnlySVA.START && !adCodeOnly.done) {
+            try {
+                adCodeOnly.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad code-only exception " + t);
+                t.printStackTrace(System.out);
+                adCodeOnly.abort(w);
+            }
+            if (adCodeOnly.done) {
+                maybeSummary();
+            }
+        }
+        // code-only wave: the command post, the launchers, the interrogation (arming, the strict verdicts, 7700, guessing, the look before the shot)
+        if (ticks >= WorldTestAdCodeKpSVA.START && !adCodeKp.done) {
+            try {
+                adCodeKp.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad code-only kp exception " + t);
+                t.printStackTrace(System.out);
+                adCodeKp.abort(w);
+            }
+            if (adCodeKp.done) {
+                maybeSummary();
+            }
+        }
+        // code-only wave (decision 3): a transponder on every vehicle (the panel, IDENT, the card by the tick, the radar rules kept, the tower)
+        if (ticks >= WorldTestAdXpdrAllSVA.START && !adXpdrAll.done) {
+            try {
+                adXpdrAll.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad xpdr all exception " + t);
+                t.printStackTrace(System.out);
+                adXpdrAll.abort(w);
+            }
+            if (adXpdrAll.done) {
+                maybeSummary();
+            }
+        }
+        // code-only wave, the docs group: the gaps - day key / op switching, Mode S and the white list, 7500 / 7600, «Сменить ключ» and the
+        // other commands, a launcher of an unloaded post
+        if (ticks >= WorldTestAdCodeMoreSVA.START && !adCodeMore.done) {
+            try {
+                adCodeMore.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad code-only more exception " + t);
+                t.printStackTrace(System.out);
+                adCodeMore.abort(w);
+            }
+            if (adCodeMore.done) {
+                maybeSummary();
+            }
+        }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
         if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
             try {
@@ -2387,6 +2444,10 @@ public class WorldTestSVA {
     private final WorldTestAdCombatSVA adCombat = new WorldTestAdCombatSVA(this);
     private final WorldTestAdClientSVA adClient = new WorldTestAdClientSVA(this);
     private final WorldTestAdOpsSVA adOps = new WorldTestAdOpsSVA(this);
+    private final WorldTestAdCodeOnlySVA adCodeOnly = new WorldTestAdCodeOnlySVA(this);
+    private final WorldTestAdCodeKpSVA adCodeKp = new WorldTestAdCodeKpSVA(this);
+    private final WorldTestAdXpdrAllSVA adXpdrAll = new WorldTestAdXpdrAllSVA(this);
+    private final WorldTestAdCodeMoreSVA adCodeMore = new WorldTestAdCodeMoreSVA(this);
     private final WorldTestBookSVA book = new WorldTestBookSVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
@@ -2402,7 +2463,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && airD5.done && liner.done && linerAfs.done && linerFms.done && linerW6.done && linerW7.done && fuel.done && airDefense.done && adModels.done && adUpgrades.done && airport.done && airportB2.done && adWaveA.done && book.done && adHarden.done && adTrust.done && adCombat.done && adClient.done && adOps.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && airD5.done && liner.done && linerAfs.done && linerFms.done && linerW6.done && linerW7.done && fuel.done && airDefense.done && adModels.done && adUpgrades.done && airport.done && airportB2.done && adWaveA.done && book.done && adHarden.done && adTrust.done && adCombat.done && adClient.done && adOps.done && adCodeOnly.done && adCodeKp.done && adXpdrAll.done && adCodeMore.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

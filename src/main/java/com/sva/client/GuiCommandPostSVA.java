@@ -9,6 +9,8 @@ import org.lwjgl.opengl.GL11;
 
 import com.sc.inventory.TextFitSC;
 import com.sc.manual.Lang;
+import com.sva.airdefense.CodeOnlyMath;
+import com.sva.airdefense.CodeOnlyUiMath;
 import com.sva.airdefense.RadarMath;
 import com.sva.airdefense.RoeMath;
 import com.sva.airdefense.XpdrMath;
@@ -47,20 +49,34 @@ import net.minecraft.world.chunk.Chunk;
  * rectangle's first corner, RMB - its second corner.</li>
  * <li>«Настройки» - the post's name, the day key and its secret (the owner), the own codes (up to 8), the Mode S white list
  * («23:Имя, 07»), the access list (the owner).</li>
+ * <li>«Опознавание» (code-only wave, proposal-ad-strict-iff items 24, 27, 32): ОБЫЧНОЕ / ПО КОДУ (switching on opens the
+ * confirmation window - the summary «ПУ: 2 - по нарушителям, 1 - по всем; в воздухе без кода: 3, из них ваших: 1», «Все ПУ:
+ * по всем без кода», «Включить» - the second step), the cards' term 1 / 3 / 7 periods, the options «Свои коды действуют» /
+ * «Ручной набор кода» / «Коды аэродрома - свои» / «Доверить ПУ списку доступа», «Сменить ключ» in two presses, the readiness
+ * line; the owner's alone.</li>
  * <li>«Оборудование» (upgrades wave) - not a page here: it asks the server to open the post's equipment screen
  * (GuiAdEquipSVA - a container: energy, tier, the upgrade slots, the inventory), whose «К экрану КП» comes back.</li>
  * </ul>
+ * Code-only wave on the map (items 38-40): the header plate «ПО КОДУ - смена ключа через 12 мин» / «ВКЛЮЧЕНИЕ ЧЕРЕЗ 45 с» /
+ * forbidden, the readiness line under the map, each track's tag («КОД ОК», «НЕТ КАРТЫ», «НЕТ ОТВ», «ПРОВ 1/2», «7700 1:20»,
+ * «ПОДБОР» - words: the font has no tick or cross) with the grey ВЛ / ДР, the form's «Опознав.» row (status - reason; whose
+ * board), the 7700 decision rows beside the 7600 ones (AdLayoutMath.nrButtons), «7700: свой / проверить / враждебный» and
+ * «Снять ПОДБОР» in the track's menu, the new log lines coloured (CodeOnlyUiMath - pure, self-tested).
  */
 public class GuiCommandPostSVA extends GuiScreen {
 
     private static final int W = 420, H = 266, MAP_X = 6, MAP_Y = 32, MAP = 204, RX = 216, RW = 198;
+    /** Review 2026-10-27 (batch 3): the readiness line's row under the map - below the zoom buttons (MAP + 3, 12 high). */
+    static final int READY_DY = 17;
     private static final int BG = 0xFF1B1F27, EDGE = 0xFF0B0D11, LINE = 0xFF3A4150, PANEL = 0xFF14171D, GOLD = 0xF2A040, TEXT = 0xD8DCE4,
             MUTED = 0x8A93A3, AMBER = 0xF0B040, RED = 0xF06060, GREEN = 0x62E06A, CYAN = 0x5EC8F0, UNKNOWN = 0xFF101318;
     private static final int B_TAB = 1, B_ALARM = 10, B_AUTO = 11, B_PRINT = 12, B_SEND = 13, B_ZOOM_OUT = 14, B_ZOOM_IN = 15,
             B_Z_SAVE = 20, B_Z_NEW = 21, B_Z_DEL = 22, B_Z_SHAPE = 23, B_Z_TYPE = 24, B_Z_SHOW = 28, B_Z_ALARM = 29, B_Z_HERE = 30,
             B_S_SAVE = 40, B_S_KEY = 41, B_S_SECRET = 42, B_S_NEWSECRET = 43,
             /** Wave A: the coverage map's height, the zone editor's snap / copy / paste / undo. */
-            B_COV = 50, B_Z_SNAP = 51, B_Z_COPY = 52, B_Z_PASTE = 53, B_Z_UNDO = 54;
+            B_COV = 50, B_Z_SNAP = 51, B_Z_COPY = 52, B_Z_PASTE = 53, B_Z_UNDO = 54,
+            /** Code-only wave: the «Опознавание» tab - the mode (ОБЫЧНОЕ / ПО КОДУ), the cards' term (3), the options (4), the key, all launchers. */
+            B_CO_NORMAL = 60, B_CO_CODE = 61, B_CO_PER = 62, B_CO_OPT = 65, B_CO_REKEY = 69, B_CO_ALLROE = 70;
     /** Wave A: the zone the editor copied (kept while the game runs - pasted into another post's screen too). */
     private static ZoneMath.Zone clipboard;
     /** Wave A: the coverage map's height on the screens (-1 off; kept between openings). */
@@ -104,6 +120,13 @@ public class GuiCommandPostSVA extends GuiScreen {
     private final GuiTextField[] sCodes = new GuiTextField[8];
     private boolean settingsLoaded, dayKey;
     private final List<GuiTextField> fields = new ArrayList<GuiTextField>();
+    /**
+     * Code-only wave: the confirmation window is open (item 27 - the second step of switching on); «Сменить ключ» pressed once
+     * at (the player's ticks; -1 not); the options / the cards' term sent last and when (shown until the server's copy follows).
+     */
+    private boolean dialog;
+    private long rekeyAt = -1, optsAt = -1000, perAt = -1000;
+    private int optsSent, perSent;
 
     private GuiCommandPostSVA(int x, int y, int z) {
         kx = x;
@@ -183,14 +206,16 @@ public class GuiCommandPostSVA extends GuiScreen {
         top = Math.max(1, (height - H) / 2);
         buttonList.clear();
         fields.clear();
-        String[] tabs = {"map", "zones", "settings", "equip"};
-        for (int i = 0; i < tabs.length; i++) {
-            GuiCargoSVA.Dark b = new GuiCargoSVA.Dark(B_TAB + i, left + 6 + i * 64, top + 18, 62, 12, Lang.tr("sva.ad.kp.tab." + tabs[i]), null);
+        // code-only wave: five tabs (+ «Опознавание»), their widths by their words (CodeOnlyUiMath.tabs)
+        int[][] tx = CodeOnlyUiMath.tabs();
+        for (int i = 0; i < CodeOnlyUiMath.TABS; i++) {
+            GuiCargoSVA.Dark b = new GuiCargoSVA.Dark(B_TAB + i, left + tx[i][0], top + 18, tx[i][1], 12, Lang.tr("sva.ad.kp.tab." + CodeOnlyUiMath.TAB_KEYS[i]),
+                    null);
             b.tab = true;
             buttonList.add(b);
         }
         int rx = left + RX;
-        if (tab != 2) {
+        if (CodeOnlyUiMath.mapTab(tab)) {
             // wave A: the coverage map's height (off / 20 / 60 / 120), in the map's top right corner
             buttonList.add(new GuiCargoSVA.Dark(B_COV, left + MAP_X + MAP - 66, top + MAP_Y + 2, 64, 11, "", Lang.tr("sva.ad.cov.tip")));
         }
@@ -229,7 +254,7 @@ public class GuiCommandPostSVA extends GuiScreen {
             buttonList.add(new GuiCargoSVA.Dark(B_Z_PASTE, rx + 100, top + 246, 48, 13, Lang.tr("sva.ad.zone.paste"), Lang.tr("sva.ad.zone.paste.tip")));
             buttonList.add(new GuiCargoSVA.Dark(B_Z_UNDO, rx + 150, top + 246, 48, 13, Lang.tr("sva.ad.zone.undo"), Lang.tr("sva.ad.zone.undo.tip")));
             loadZone(zoneSel);
-        } else {
+        } else if (tab == CodeOnlyUiMath.TAB_SETTINGS) {
             sName = field(left + 66, top + 40, 120, 24);
             buttonList.add(new GuiCargoSVA.Dark(B_S_KEY, left + 66, top + 56, 120, 13, "", Lang.tr("sva.ad.set.dayKey.tip")));
             sSecret = field(left + 66, top + 76, 120, 32);
@@ -243,12 +268,38 @@ public class GuiCommandPostSVA extends GuiScreen {
             sTrust = field(left + 66, top + 230, W - 76, 200);
             buttonList.add(new GuiCargoSVA.Dark(B_S_SAVE, left + W - 106, top + 210, 100, 14, Lang.tr("sva.ad.set.save"), null));
             settingsLoaded = false;
+        } else if (tab == CodeOnlyUiMath.TAB_IDENT) {
+            initIdent();
         }
+    }
+
+    /** Code-only wave (item 24): the «Опознавание» tab's buttons. */
+    private void initIdent() {
+        int x = left + 74;
+        // review 2026-10-27 (batch 2): the arming time and the guessing guard's numbers as the server set them (synced)
+        String modeTip = Lang.tr("sva.ad.co.set.mode.tip", Integer.valueOf(com.sva.net.ServerConfigSVA.adCodeOnlyArmSeconds()));
+        buttonList.add(new GuiCargoSVA.Dark(B_CO_NORMAL, x, top + 50, 80, 13, Lang.tr("sva.ad.co.set.modeNormal"), modeTip));
+        buttonList.add(new GuiCargoSVA.Dark(B_CO_CODE, x + 84, top + 50, 80, 13, Lang.tr("sva.ad.co.set.modeCode"), modeTip));
+        String perTip = Lang.tr("sva.ad.co.set.periods.tip", Integer.valueOf(com.sva.net.ServerConfigSVA.adCodeCardMaxPeriods()));
+        for (int i = 0; i < CodeOnlyMath.CARD_PERIODS.length; i++) {
+            buttonList.add(new GuiCargoSVA.Dark(B_CO_PER + i, x + i * 84, top + 70, 80, 13, Lang.tr("sva.ad.co.set.period." + CodeOnlyMath.CARD_PERIODS[i]),
+                    perTip));
+        }
+        for (int i = 0; i < CodeOnlyMath.OPT_KEYS.length; i++) {
+            String k = "sva.ad.co.set.opt." + CodeOnlyMath.OPT_KEYS[i];
+            buttonList.add(new GuiCargoSVA.Dark(B_CO_OPT + i, x + i % 2 * 168, top + 90 + i / 2 * 16, 164, 13, Lang.tr(k),
+                    Lang.tr(k + ".tip", Integer.valueOf(com.sva.net.ServerConfigSVA.adCodeOnlyProbeCodes()),
+                            Integer.valueOf(com.sva.net.ServerConfigSVA.adCodeOnlyProbeMinutes()))));
+        }
+        buttonList.add(new GuiCargoSVA.Dark(B_CO_REKEY, left + W - 8 - 124, top + 128, 124, 13, "", Lang.tr("sva.ad.co.set.rekey.tip")));
+        buttonList.add(new GuiCargoSVA.Dark(B_CO_ALLROE, x, top + 146, 164, 13, Lang.tr("sva.ad.co.set.allRoe"), Lang.tr("sva.ad.co.set.allRoe.tip")));
     }
 
     private void setTab(int t) {
         tab = t;
         menuX = -1;
+        dialog = false;
+        rekeyAt = -1;
         initGui();
     }
 
@@ -305,11 +356,11 @@ public class GuiCommandPostSVA extends GuiScreen {
 
     @Override
     protected void actionPerformed(GuiButton b) {
-        if (b.id >= B_TAB && b.id < B_TAB + 3) {
+        if (b.id >= B_TAB && b.id < B_TAB + CodeOnlyUiMath.TAB_EQUIP) {
             setTab(b.id - B_TAB);
             return;
         }
-        if (b.id == B_TAB + 3) {
+        if (b.id == B_TAB + CodeOnlyUiMath.TAB_EQUIP) {
             NetADSVA.cmd(NetADSVA.AD_EQUIP, kx, ky, kz, 0, null);     // the server opens the equipment screen (a container)
             return;
         }
@@ -450,13 +501,81 @@ public class GuiCommandPostSVA extends GuiScreen {
             case B_S_SAVE:
                 saveSettings();
                 return;
+            case B_CO_NORMAL:
+            case B_CO_CODE:
+                modeButton(b.id == B_CO_CODE);
+                return;
+            case B_CO_REKEY: {
+                // item 24: two presses within CONFIRM_TICKS - the second sends it («Sure»)
+                long now = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+                if (CodeOnlyUiMath.confirmed(rekeyAt, now)) {
+                    NBTTagCompound d = new NBTTagCompound();
+                    d.setString("Op", "rekey");
+                    d.setBoolean("Sure", true);
+                    cmd(d);
+                    rekeyAt = -1;
+                } else {
+                    rekeyAt = now;
+                }
+                return;
+            }
+            case B_CO_ALLROE:
+                cmd("coAllRoe", 0);
+                return;
             default:
+                if (b.id >= B_CO_PER && b.id < B_CO_PER + CodeOnlyMath.CARD_PERIODS.length) {
+                    NBTTagCompound d = new NBTTagCompound();
+                    d.setString("Op", "codeOpts");
+                    perSent = CodeOnlyMath.CARD_PERIODS[b.id - B_CO_PER];
+                    d.setInteger("Periods", perSent);
+                    perAt = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+                    cmd(d);
+                    return;
+                }
+                if (b.id >= B_CO_OPT && b.id < B_CO_OPT + CodeOnlyMath.OPT_KEYS.length) {
+                    NBTTagCompound d = new NBTTagCompound();
+                    d.setString("Op", "codeOpts");
+                    optsSent = coOpts() ^ 1 << b.id - B_CO_OPT;
+                    d.setInteger("Opts", optsSent);
+                    optsAt = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+                    cmd(d);
+                    return;
+                }
                 if (b.id >= B_Z_TYPE && b.id < B_Z_TYPE + ZoneMath.TYPES && edit.type != b.id - B_Z_TYPE) {
                     readZoneFields();
                     pushEdit();                                     // bug 13: a type change can be taken back
                     edit.type = b.id - B_Z_TYPE;
                 }
         }
+    }
+
+    /**
+     * Code-only wave (items 16, 27): «ПО КОДУ» while off opens the confirmation window (the server wants «Sure» - the second
+     * step is its «Включить»); «ОБЫЧНОЕ» while on / arming switches it off at once.
+     */
+    private void modeButton(boolean code) {
+        int co = last == null ? CodeOnlyMath.CO_OFF : last.getByte("Co");
+        if (code && co == CodeOnlyMath.CO_OFF) {
+            dialog = true;
+            menuX = -1;
+        } else if (!code && co != CodeOnlyMath.CO_OFF) {
+            NBTTagCompound d = new NBTTagCompound();
+            d.setString("Op", "codeOnly");
+            d.setBoolean("On", false);
+            cmd(d);
+        }
+    }
+
+    /** Code-only wave: the post's options as shown - the ones just sent until the server's picture has them (30 ticks). */
+    private int coOpts() {
+        long now = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+        return now - optsAt <= 30 ? optsSent : last == null ? CodeOnlyMath.DEFAULT_OPTS : last.getInteger("CoOpts");
+    }
+
+    /** Code-only wave: the cards' term as shown (the one just sent for 30 ticks, then the server's). */
+    private int coPeriods() {
+        long now = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+        return now - perAt <= 30 ? perSent : last == null ? CodeOnlyMath.DEFAULT_CARD_PERIODS : last.getInteger("CardPeriods");
     }
 
     /** Bug 13: an undo entry of the zone as it is now, for the zone being edited (its list index; -1 a new one). */
@@ -604,6 +723,12 @@ public class GuiCommandPostSVA extends GuiScreen {
 
     @Override
     protected void keyTyped(char c, int key) {
+        if (dialog) {
+            if (key == Keyboard.KEY_ESCAPE) {
+                dialog = false;                                     // code-only wave: Esc closes the confirmation window first
+            }
+            return;
+        }
         for (GuiTextField f : fields) {
             if (f.isFocused()) {
                 if (key == Keyboard.KEY_ESCAPE) {
@@ -642,7 +767,7 @@ public class GuiCommandPostSVA extends GuiScreen {
     }
 
     private boolean overMap(int mx, int my) {
-        return tab != 2 && mx >= left + MAP_X && mx < left + MAP_X + MAP && my >= top + MAP_Y && my < top + MAP_Y + MAP;
+        return CodeOnlyUiMath.mapTab(tab) && mx >= left + MAP_X && mx < left + MAP_X + MAP && my >= top + MAP_Y && my < top + MAP_Y + MAP;
     }
 
     @Override
@@ -674,10 +799,15 @@ public class GuiCommandPostSVA extends GuiScreen {
 
     @Override
     protected void mouseClicked(int mx, int my, int button) {
+        if (dialog) {
+            dialogClick(mx, my, button);                            // code-only wave: the confirmation window takes every click
+            return;
+        }
         if (tab == 0 && button == 0) {
             for (int[] b : nrBtns) {
                 if (mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3]) {
-                    cmd(b[5] == 1 ? "nrFriend" : b[5] == 2 ? "nrCheck" : "nrHostile", b[4]);   // wave A: the 7600 decision (+ «враждебный»)
+                    // wave A: the 7600 decision (+ «враждебный»); code-only wave: the 7700 one (op = row kind x 10 + button)
+                    cmd(CodeOnlyUiMath.DEC_OPS[b[5] / 10][b[5] % 10], b[4]);
                     return;
                 }
             }
@@ -803,6 +933,15 @@ public class GuiCommandPostSVA extends GuiScreen {
             menu.add(new String[] {Lang.tr("sva.ad.kp.menu.nrCheck"), "nrCheck", ""});
             menu.add(new String[] {Lang.tr("sva.ad.kp.menu.nrHostile"), "nrHostile", ""});   // audit 2026-10-22 (bug 8)
         }
+        if (tr != null && tr.getBoolean("Co") && tr.getByte("EM") >= 0) {
+            // code-only wave (item 7): 7700 decisions - kept with its grace for all the owner's posts
+            menu.add(new String[] {Lang.tr("sva.ad.kp.menu.emFriend"), "emFriend", ""});
+            menu.add(new String[] {Lang.tr("sva.ad.kp.menu.emCheck"), "emCheck", ""});
+            menu.add(new String[] {Lang.tr("sva.ad.kp.menu.emHostile"), "emHostile", ""});
+        }
+        if (tr != null && tr.getBoolean("Co") && tr.getByte("Idr") == RoeMath.ID_PROBE) {
+            menu.add(new String[] {Lang.tr("sva.ad.kp.menu.unlock"), "unlock", ""});   // code-only wave (item 11): lift the block
+        }
         menu.add(new String[] {Lang.tr("sva.ad.kp.menu.msg"), "msg", ""});
         menuX = Math.min(mx, left + W - 132);
         menuY = Math.min(my, top + H - menu.size() * 11 - 16);
@@ -894,7 +1033,7 @@ public class GuiCommandPostSVA extends GuiScreen {
         }
         // wave A: the coverage maps asked for (again every 5 s - the server answers from its cache, recomputes when stale)
         int now = mc.thePlayer.ticksExisted;
-        if (cov > 0 && tab != 2 && now - covAsked >= 100) {
+        if (cov > 0 && CodeOnlyUiMath.mapTab(tab) && now - covAsked >= 100) {
             covAsked = now;
             NBTTagCompound d = new NBTTagCompound();
             d.setString("Op", "cov");
@@ -924,7 +1063,9 @@ public class GuiCommandPostSVA extends GuiScreen {
             int hw = fontRendererObj.getStringWidth(head);
             fontRendererObj.drawString(head, left + W - 6 - Math.min(hw, 236), top + 4, s.getBoolean("Powered") ? MUTED : RED);
             String mode = Lang.tr("sva.ad.l.mode." + s.getString("Mode"));
-            fontRendererObj.drawString(mode, left + W - 6 - fontRendererObj.getStringWidth(mode), top + 20, "fire".equals(s.getString("Mode")) ? RED : AMBER);
+            // code-only wave: five tabs - the server's mode takes the room right of them (squeezed, cut with a hover if need be)
+            int room = W - 6 - CodeOnlyUiMath.tabsRight() - 4, mw = Math.min(room, fontRendererObj.getStringWidth(mode));
+            TextFitSC.draw(fontRendererObj, mode, left + W - 6 - mw, top + 20, room, "fire".equals(s.getString("Mode")) ? RED : AMBER, false, 0, 0);
         }
         for (Object o : buttonList) {
             GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
@@ -949,12 +1090,16 @@ public class GuiCommandPostSVA extends GuiScreen {
                 b.enabled = clipboard != null;
             } else if (b.id == B_Z_UNDO) {
                 b.enabled = hist.size() > 0;
+            } else if (b.id >= B_CO_NORMAL && b.id <= B_CO_ALLROE) {
+                identButton(b, s);
             }
         }
         if (s == null) {
             fontRendererObj.drawString(Lang.tr("sva.ad.l.wait"), left + 10, top + 40, MUTED);
         } else if (tab == 2) {
             drawSettings(s);
+        } else if (tab == CodeOnlyUiMath.TAB_IDENT) {
+            drawIdent(s);
         } else {
             drawMap(s, tick);
             if (tab == 0) {
@@ -975,6 +1120,11 @@ public class GuiCommandPostSVA extends GuiScreen {
             if (b.tip != null && b.visible) {
                 TextFitSC.hover(b.xPosition, b.yPosition, b.width, b.height, b.tip);
             }
+        }
+        if (dialog) {
+            drawDialog(s, mx, my);                                  // code-only wave (item 27): over everything, no hover under it
+            GL11.glColor4f(1F, 1F, 1F, 1F);
+            return;
         }
         List<String> tip = TextFitSC.hoverAt(mx, my);
         if (tip != null && !tip.isEmpty() && menuX < 0) {
@@ -998,7 +1148,8 @@ public class GuiCommandPostSVA extends GuiScreen {
                 drawRect(menuX + 1, y, menuX + 129, y + 11, 0xFF2E3542);
             }
             String[] r = menu.get(i);
-            int c = "grant".equals(r[1]) ? GREEN : "msg".equals(r[1]) ? CYAN : TEXT;
+            int c = "grant".equals(r[1]) || "emFriend".equals(r[1]) ? GREEN : "msg".equals(r[1]) || "unlock".equals(r[1]) ? CYAN
+                    : "emHostile".equals(r[1]) || "nrHostile".equals(r[1]) ? RED : TEXT;
             TextFitSC.draw(fontRendererObj, r[0], menuX + 4, y + 2, 122, hov ? 0xFFFFA0 : c, false, 0, 0);
         }
     }
@@ -1107,6 +1258,15 @@ public class GuiCommandPostSVA extends GuiScreen {
             if (l3 != null) {
                 fontRendererObj.drawStringWithShadow(l3, 0, 20, t.getByte("NR") >= 0 ? 0xF09040 : 0xF05050);
             }
+            // code-only wave (item 39): the tag («НЕТ КАРТЫ», «ПРОВ 1/2», ...) in its colour, the grey ВЛ / ДР after it
+            String tg = coTag(t), rel = relTag(t);
+            int ty = l3 != null ? 30 : 20;
+            if (tg != null) {
+                fontRendererObj.drawStringWithShadow(tg, 0, ty, tagColour(t, tick));
+            }
+            if (rel != null) {
+                fontRendererObj.drawStringWithShadow(rel, tg == null ? 0 : fontRendererObj.getStringWidth(tg) + 4, ty, 0x9AA0AA);
+            }
             GL11.glPopMatrix();
         }
         if (cov > 0) {
@@ -1116,11 +1276,20 @@ public class GuiCommandPostSVA extends GuiScreen {
         nrBtns.clear();
         if (tab == 0) {
             drawNoRadio(mapL, mapT, tick);
+            drawPlate(s, mapL, mapT, tick);
         }
         GL11.glColor4f(1F, 1F, 1F, 1F);
         fontRendererObj.drawString(Lang.tr("sva.ad.kp.scale", Integer.valueOf((int) sc)), mapL + 30, mapT + MAP + 5, MUTED);
         if (tab == 0) {
             TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.kp.mapHint"), mapL + 96, mapT + MAP + 5, MAP - 96, MUTED, false, 0, 0);
+            if (s.getByte("Co") != CodeOnlyMath.CO_OFF) {
+                // code-only wave (item 32): the readiness line while the mode is on (or arming) - review 2026-10-27 (batch 3): on
+                // its own row under the zoom buttons, the map's whole width (in the hint's 108 px the reason was cut off: «НЕТ -
+                // сервер: только...»); a text still too long shows whole on hover (TextFitSC)
+                int r = ready(s);
+                TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.co.ready." + CodeOnlyMath.READY_KEYS[r]), mapL, mapT + MAP + READY_DY, MAP,
+                        r == CodeOnlyMath.R_READY ? GREEN : AMBER, false, 0, 0);
+            }
         } else {
             // audit 2026-10-22 (bug 1): the server's limit on the zone's distance from this post comes with the picture
             int far = last == null ? 0 : last.getInteger("ZoneMax");
@@ -1160,11 +1329,18 @@ public class GuiCommandPostSVA extends GuiScreen {
      * time: the usual rules).
      */
     private void drawNoRadio(int mapL, int mapT, long tick) {
+        // code-only wave (items 7, 39): the 7700 tracks in their grace on a code-only post join the 7600 ones - the same rows
         List<NBTTagCompound> l = new ArrayList<NBTTagCompound>();
+        List<Integer> kinds = new ArrayList<Integer>();
         NBTTagList tl = tracks();
-        for (int i = 0; i < tl.tagCount() && l.size() < 3; i++) {
-            if (tl.getCompoundTagAt(i).getByte("NR") == com.sva.airdefense.NoRadioMath.S_PENDING) {
-                l.add(tl.getCompoundTagAt(i));
+        boolean em = false;
+        for (int i = 0; i < tl.tagCount() && l.size() < CodeOnlyUiMath.DEC_ROWS; i++) {
+            NBTTagCompound c = tl.getCompoundTagAt(i);
+            int k = CodeOnlyUiMath.decision(c.getByte("NR"), c.getBoolean("Co"), c.getByte("EM"));
+            if (k != CodeOnlyUiMath.DEC_NONE) {
+                l.add(c);
+                kinds.add(Integer.valueOf(k));
+                em |= k == CodeOnlyUiMath.DEC_EMERGENCY;
             }
         }
         if (l.isEmpty()) {
@@ -1173,19 +1349,115 @@ public class GuiCommandPostSVA extends GuiScreen {
         int h = 12 + l.size() * 13, y0 = mapT + MAP - h - 2, x0 = mapL + 2, x1 = mapL + MAP - 2;
         drawRect(x0 - 1, y0 - 1, x1 + 1, y0 + h + 1, tick / 10 % 2 == 0 ? 0xFFF09040 : 0xFF7A4A20);
         drawRect(x0, y0, x1, y0 + h, 0xF0101418);
-        fontRendererObj.drawString(Lang.tr("sva.ad.nr.title"), x0 + 3, y0 + 2, 0xF09040);
+        fontRendererObj.drawString(Lang.tr(em ? "sva.ad.co.decTitle" : "sva.ad.nr.title"), x0 + 3, y0 + 2, 0xF09040);
         for (int i = 0; i < l.size(); i++) {
             NBTTagCompound t = l.get(i);
-            int y = y0 + 12 + i * 13, sec = t.getInteger("NRt");
-            String line = String.format("%02d", Integer.valueOf(t.getInteger("No"))) + " " + code(t.getInteger("Code")) + " "
-                    + String.format("%d:%02d", Integer.valueOf(sec / 60), Integer.valueOf(sec % 60));
-            fontRendererObj.drawString(line, x0 + 3, y + 2, TEXT);
+            int kind = kinds.get(i).intValue();
+            int y = y0 + 12 + i * 13, sec = kind == CodeOnlyUiMath.DEC_EMERGENCY ? t.getInteger("EMt") : t.getInteger("NRt");
+            String line = String.format("%02d", Integer.valueOf(t.getInteger("No"))) + " " + code(t.getInteger("Code"))
+                    + (sec >= 0 ? " " + CodeOnlyUiMath.clock(sec) : "");
+            fontRendererObj.drawString(line, x0 + 3, y + 2, kind == CodeOnlyUiMath.DEC_EMERGENCY ? 0xF07050 : TEXT);
             // audit review 2026-10-22: the buttons right of the text - x1 - 150 put «Свой» over the countdown
             int[][] b = com.sva.airdefense.AdLayoutMath.nrButtons(x0 + 3 + fontRendererObj.getStringWidth(line), x1);
-            nrButton(b[0][0], y, b[0][1], Lang.tr("sva.ad.nr.friend"), GREEN, t.getInteger("Id"), 1);
-            nrButton(b[1][0], y, b[1][1], Lang.tr("sva.ad.nr.check"), AMBER, t.getInteger("Id"), 2);
-            nrButton(b[2][0], y, b[2][1], Lang.tr("sva.ad.nr.hostile"), RED, t.getInteger("Id"), 3);
+            nrButton(b[0][0], y, b[0][1], Lang.tr("sva.ad.nr.friend"), GREEN, t.getInteger("Id"), kind * 10);
+            nrButton(b[1][0], y, b[1][1], Lang.tr("sva.ad.nr.check"), AMBER, t.getInteger("Id"), kind * 10 + 1);
+            nrButton(b[2][0], y, b[2][1], Lang.tr("sva.ad.nr.hostile"), RED, t.getInteger("Id"), kind * 10 + 2);
         }
+    }
+
+    /**
+     * Code-only wave (item 38): the map's header plate in its top left corner - «ПО КОДУ - смена ключа через 12 мин» on red,
+     * «ВКЛЮЧЕНИЕ ЧЕРЕЗ 45 с» flashing amber, «ПО КОДУ: запрещено сервером» / «нет ключа дня» grey; its hover says what it means.
+     */
+    private void drawPlate(NBTTagCompound s, int mapL, int mapT, long tick) {
+        int pl = CodeOnlyUiMath.plate(s.getByte("Co"));
+        if (pl == CodeOnlyUiMath.PL_NONE) {
+            return;
+        }
+        String text = pl == CodeOnlyUiMath.PL_ON ? Lang.tr("sva.ad.co.plate.on", Integer.valueOf(CodeOnlyUiMath.minutes(s.getInteger("KeyLeft"))))
+                : pl == CodeOnlyUiMath.PL_ARMING ? Lang.tr("sva.ad.co.plate.arming", Integer.valueOf(s.getInteger("CoArm")))
+                        : Lang.tr("sva.ad.co.plate." + CodeOnlyUiMath.PL_KEYS[pl]);
+        int x0 = mapL + 2, x1 = mapL + MAP - 70, y0 = mapT + 2;
+        boolean blink = tick / 10 % 2 == 0;
+        int bg = pl == CodeOnlyUiMath.PL_ON ? 0xF0902020 : pl == CodeOnlyUiMath.PL_ARMING ? (blink ? 0xF08A6018 : 0xF05A4010) : 0xF0303640;
+        int fg = pl == CodeOnlyUiMath.PL_ON ? 0xFFE8E0 : pl == CodeOnlyUiMath.PL_ARMING ? 0xFFF0C0 : 0xC0C4CC;
+        drawRect(x0, y0, x1, y0 + 11, bg);
+        drawRect(x0, y0 + 11, x1, y0 + 12, 0xFF000000);
+        TextFitSC.draw(fontRendererObj, text, x0 + 3, y0 + 2, x1 - x0 - 6, fg, false, 0, 0);
+        // review 2026-10-27 (batch 3): the plate's own text first in its hover - registered last, the hover hid the full text
+        // TextFitSC keeps for a cut one, so «...key change in 12 ...» could not be read anywhere
+        List<String> tip = new ArrayList<String>();
+        tip.add(text);
+        tip.add(Lang.tr("sva.ad.co.plate.tip"));
+        TextFitSC.hover(x0, y0, x1 - x0, 12, tip);
+    }
+
+    /**
+     * Review 2026-10-27 (batch 3): why the switch to «ПО КОДУ» would be refused (CodeOnlyUiMath.EL_*) - the server's dayKey too
+     * (it was offered, then refused with «coNoKey» in the chat); an older server without «CoSrvKey» - allowed.
+     */
+    private static int enableLimit(NBTTagCompound s) {
+        return CodeOnlyUiMath.enableLimit(s.getBoolean("CoServer"), !s.hasKey("CoSrvKey") || s.getBoolean("CoSrvKey"), s.getBoolean("DayKey"));
+    }
+
+    /** The picture's readiness line (CodeOnlyMath.R_*), kept in range. */
+    private static int ready(NBTTagCompound s) {
+        return Math.max(0, Math.min(CodeOnlyMath.READY_KEYS.length - 1, s.getByte("CoReady")));
+    }
+
+    /** Code-only wave (item 39): a track's tag («НЕТ КАРТЫ», «ПРОВ 1/2», «7700 1:20», ...), null - none. */
+    private static String coTag(NBTTagCompound t) {
+        int tag = CodeOnlyUiMath.tag(t.getBoolean("Co"), t.getByte("Idr"));
+        if (tag == CodeOnlyUiMath.TAG_NONE) {
+            return null;
+        }
+        if (tag == CodeOnlyUiMath.TAG_CHECK) {
+            return Lang.tr("sva.ad.co.tag.check", Integer.valueOf(CodeOnlyUiMath.checkCount(t.getByte("Cnf"))));
+        }
+        if (tag == CodeOnlyUiMath.TAG_EMERGENCY) {
+            int sec = t.getInteger("EMt");
+            return sec >= 0 ? Lang.tr("sva.ad.co.tag.emergency", CodeOnlyUiMath.clock(sec)) : Lang.tr("sva.ad.co.tag.emergencyFree");
+        }
+        return Lang.tr("sva.ad.co.tag." + CodeOnlyUiMath.TAG_KEYS[tag]);
+    }
+
+    /** Code-only wave (item 33): the grey ВЛ / ДР of the owner's / his list's machines, null - none. */
+    private static String relTag(NBTTagCompound t) {
+        int r = CodeOnlyUiMath.relTag(t.getBoolean("Co"), t.getByte("Rel"));
+        return r == CodeOnlyUiMath.REL_NONE ? null : Lang.tr("sva.ad.co.rel." + CodeOnlyUiMath.REL_KEYS[r]);
+    }
+
+    /** A tag's colour: a match green, «ПРОВ» / 7700 in its grace amber (7700 flashing), a miss red. */
+    private static int tagColour(NBTTagCompound t, long tick) {
+        int tag = CodeOnlyUiMath.tag(t.getBoolean("Co"), t.getByte("Idr"));
+        if (tag == CodeOnlyUiMath.TAG_EMERGENCY && tick / 5 % 2 == 0) {
+            return 0xFFFFFF;
+        }
+        return kindColour(CodeOnlyUiMath.tagColour(tag));
+    }
+
+    private static int kindColour(int kind) {
+        return kind == CodeOnlyUiMath.TC_OK ? GREEN : kind == CodeOnlyUiMath.TC_WAIT ? AMBER : kind == CodeOnlyUiMath.TC_MISS ? RED : TEXT;
+    }
+
+    /**
+     * Code-only wave (item 39): the form's «Опознав.» row - «не опознан - нет карты; борт: Bob (ваш)», «проверка 1/2 - нет
+     * ответа; ...», «опознан - код ключа; ...», «авария 7700 1:20; ...».
+     */
+    private static String identText(NBTTagCompound t) {
+        int st = CodeOnlyUiMath.formStatus(t.getBoolean("Co"), t.getByte("Cls"), t.getByte("Idr"));
+        String s = st == CodeOnlyUiMath.FS_CHECK ? Lang.tr("sva.ad.co.fs.check", Integer.valueOf(CodeOnlyUiMath.checkCount(t.getByte("Cnf"))))
+                : Lang.tr("sva.ad.co.fs." + CodeOnlyUiMath.FS_KEYS[st]);
+        int why = CodeOnlyUiMath.formReason(st, t.getByte("Idr"), t.getByte("IdM"));
+        if (why > RoeMath.ID_NONE && why < RoeMath.IDS) {
+            s = Lang.tr("sva.ad.co.formReason", s, Lang.tr("sva.ad.idr." + RoeMath.ID_KEYS[why]));
+        }
+        if (st == CodeOnlyUiMath.FS_EMERGENCY && t.getInteger("EMt") >= 0) {
+            s += " " + CodeOnlyUiMath.clock(t.getInteger("EMt"));
+        }
+        String own = t.getString("Own");
+        int rel = Math.max(0, Math.min(2, t.getByte("Rel")));
+        return own.length() == 0 ? Lang.tr("sva.ad.co.formNoOwner", s) : Lang.tr("sva.ad.co.form", s, own, Lang.tr("sva.ad.co.relWord." + CodeOnlyUiMath.REL_KEYS[rel]));
     }
 
     private void nrButton(int x, int y, int w, String label, int c, int id, int op) {
@@ -1266,7 +1538,8 @@ public class GuiCommandPostSVA extends GuiScreen {
             TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.kp.trackTitle", String.format("%02d", Integer.valueOf(t.getInteger("No"))), cls), rx + 4, y + 3,
                     RW - 8, c, false, 0, 0);
             int mode = t.getByte("Mode");
-            String[][] rows = {
+            boolean co = t.getBoolean("Co");
+            String[][] rows0 = {
                     {Lang.tr("sva.ad.f.code"), t.getInteger("Code") < 0 ? Lang.tr("sva.ad.f.noReply") : code(t.getInteger("Code")) + " ("
                             + Lang.tr("sva.xpdr.mode." + XpdrMath.MODE_KEYS[Math.max(0, Math.min(4, mode))]) + ")"},
                     {Lang.tr("sva.ad.f.alt"), t.getBoolean("Alt") ? alt(t) : Lang.tr("sva.ad.f.unknown")},
@@ -1276,19 +1549,37 @@ public class GuiCommandPostSVA extends GuiScreen {
                     {Lang.tr("sva.ad.f.zone"), t.getString("Zone").length() > 0 ? t.getString("Zone") : "-"},
                     {Lang.tr("sva.ad.f.seen"), seen(t.getByte("Seen"))},
                     {Lang.tr("sva.ad.f.assigned"), assignedText(t)}};
-            for (int i = 0; i < rows.length; i++) {
-                fontRendererObj.drawString(rows[i][0], rx + 4, y + 14 + i * 9, MUTED);
-                TextFitSC.draw(fontRendererObj, rows[i][1], rx + 70, y + 14 + i * 9, RW - 74, i == 6 && t.getByte("St") >= RoeMath.ST_LOCK ? RED : TEXT,
-                        false, 0, 0);
+            // code-only wave (item 39): the «Опознав.» row after the code (8 rows 8 px apart - the form keeps its size)
+            List<String[]> rows = new ArrayList<String[]>();
+            for (int i = 0; i < rows0.length; i++) {
+                rows.add(rows0[i]);
+                if (i == 0 && co) {
+                    rows.add(new String[] {Lang.tr("sva.ad.f.ident"), identText(t), "ident"});
+                }
+            }
+            int step = co ? 8 : 9;
+            for (int i = 0; i < rows.size(); i++) {
+                String[] r = rows.get(i);
+                int ry = y + (co ? 13 : 14) + i * step;
+                fontRendererObj.drawString(r[0], rx + 4, ry, MUTED);
+                int rc = r == rows0[6] && t.getByte("St") >= RoeMath.ST_LOCK ? RED : TEXT;
+                if (r.length > 2) {
+                    rc = kindColour(CodeOnlyUiMath.statusColour(CodeOnlyUiMath.formStatus(true, t.getByte("Cls"), t.getByte("Idr"))));
+                    TextFitSC.hover(rx + 70, ry, RW - 74, 8, r[1]);
+                }
+                TextFitSC.draw(fontRendererObj, r[1], rx + 70, ry, RW - 74, rc, false, 0, 0);
             }
         }
         // the launchers' line
         NBTTagList ll = s.getTagList("Launchers", 10);
         StringBuilder lb = new StringBuilder();
+        // review 2026-10-27 (batch 3, item 12): in the mode (and arming) the rules' short labels say «без кода», not «чужие» -
+        // the owner's own machines without the code are no safer
+        boolean strict = CodeOnlyUiMath.strictLabels(s.getByte("Co"));
         for (int i = 0; i < ll.tagCount(); i++) {
             NBTTagCompound l = ll.getCompoundTagAt(i);
             lb.append(i > 0 ? "  " : "").append(Lang.tr("sva.ad.kp.launcherShort", Integer.valueOf(i + 1))).append(' ')
-                    .append(Lang.tr("sva.ad.roe.short." + RoeMath.ROE_KEYS[Math.max(0, Math.min(3, l.getByte("Roe")))])).append(' ').append(l.getInteger("Ammo"));
+                    .append(Lang.tr("sva.ad.roe.short." + CodeOnlyUiMath.roeKey(l.getByte("Roe"), strict))).append(' ').append(l.getInteger("Ammo"));
         }
         TextFitSC.draw(fontRendererObj, ll.tagCount() == 0 ? Lang.tr("sva.ad.kp.noLaunchers") : lb.toString(), rx, y + 84, RW, AMBER, false, 0, 0);
         // the track list
@@ -1309,7 +1600,19 @@ public class GuiCommandPostSVA extends GuiScreen {
                     + (r.getInteger("Board") > 0 ? String.format("B-%02d", Integer.valueOf(r.getInteger("Board"))) : "  -  ") + " " + alt(r) + " " + cls
                     + (r.getInteger("Grant") > 0 ? " " + Lang.tr("sva.ad.kp.grantLeft", Integer.valueOf(r.getInteger("Grant") / 60 + 1)) : "")
                     + (mk != null ? " " + mk : "");
-            TextFitSC.draw(fontRendererObj, line, rx + 2, ry + 1, RW - 4, clsColour(r, tick), false, 0, 0);
+            // code-only wave (item 39): the tag right-aligned in its colour, the grey ВЛ / ДР before it; the line takes the rest
+            String tg = coTag(r), rl = relTag(r);
+            int tw = tg == null ? 0 : Math.min(fontRendererObj.getStringWidth(tg), 70), rw = rl == null ? 0 : fontRendererObj.getStringWidth(rl);
+            int right = rx + RW - 2;
+            if (tg != null) {
+                TextFitSC.draw(fontRendererObj, tg, right - tw, ry + 1, tw, tagColour(r, tick), false, 0, 0);
+                right -= tw + 3;
+            }
+            if (rl != null) {
+                fontRendererObj.drawString(rl, right - rw, ry + 1, 0x9AA0AA);
+                right -= rw + 3;
+            }
+            TextFitSC.draw(fontRendererObj, line, rx + 2, ry + 1, right - rx - 2, clsColour(r, tick), false, 0, 0);
         }
         // the log
         int gy = top + 190;
@@ -1326,8 +1629,7 @@ public class GuiCommandPostSVA extends GuiScreen {
                 args[k] = e.getStringTagAt(k + 2);
             }
             String key = e.getStringTagAt(1);
-            int c = key.contains("alarm") || key.contains("emergency") || key.contains("launch") || key.contains("fire") || key.contains("zoneIn") || key.contains("hit")
-                    ? RED : key.contains("ident") || key.contains("grant") ? GREEN : TEXT;
+            int c = kindColour(CodeOnlyUiMath.logKind(key));       // code-only wave (item 40): the new lines too
             TextFitSC.draw(fontRendererObj, e.getStringTagAt(0) + " " + Lang.tr(key, args), rx + 2, gy + 8 + i * 9, RW - 4, c, false, 0, 0);
         }
         if (selected >= 0 && t != null) {
@@ -1412,6 +1714,171 @@ public class GuiCommandPostSVA extends GuiScreen {
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.set.owner", s.getString("Own")), x, top + 214, 200, MUTED, false, 0, 0);
         fontRendererObj.drawString(Lang.tr("sva.ad.set.trust"), x, top + 232, MUTED);
         TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.set.trustHint"), left + 66, top + 244, W - 76, MUTED, false, 0, 0);
+    }
+
+    // ------------------------------------------------------------------ code-only wave: the «Опознавание» tab and the confirmation window
+
+    /** The «Опознавание» tab's buttons: lit / enabled by the picture (the owner's alone; the server's limits). */
+    private void identButton(GuiCargoSVA.Dark b, NBTTagCompound s) {
+        boolean owner = s != null && s.getBoolean("Owner");
+        int co = s == null ? CodeOnlyMath.CO_OFF : s.getByte("Co");
+        boolean manual = s == null || s.getBoolean("CoManual");
+        long now = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+        if (b.id == B_CO_NORMAL) {
+            b.active = co == CodeOnlyMath.CO_OFF;
+            b.enabled = owner;
+        } else if (b.id == B_CO_CODE) {
+            b.active = co != CodeOnlyMath.CO_OFF;
+            b.activeColor = RED;
+            b.enabled = owner && (co != CodeOnlyMath.CO_OFF || enableLimit(s) == CodeOnlyUiMath.EL_NONE);
+        } else if (b.id >= B_CO_PER && b.id < B_CO_PER + CodeOnlyMath.CARD_PERIODS.length) {
+            int p = CodeOnlyMath.CARD_PERIODS[b.id - B_CO_PER];
+            b.active = coPeriods() == p;
+            b.enabled = owner && CodeOnlyUiMath.periodAllowed(p, com.sva.net.ServerConfigSVA.adCodeCardMaxPeriods());
+        } else if (b.id >= B_CO_OPT && b.id < B_CO_OPT + CodeOnlyMath.OPT_KEYS.length) {
+            int bit = 1 << b.id - B_CO_OPT;
+            b.active = CodeOnlyUiMath.optOn(coOpts(), bit, manual);
+            b.enabled = CodeOnlyUiMath.optEnabled(bit, owner, manual);
+        } else if (b.id == B_CO_REKEY) {
+            boolean armed = CodeOnlyUiMath.confirmed(rekeyAt, now);
+            b.displayString = Lang.tr(armed ? "sva.ad.co.set.rekeySure" : "sva.ad.co.set.rekey");
+            b.active = armed;
+            b.activeColor = RED;
+            b.enabled = owner;
+        } else if (b.id == B_CO_ALLROE) {
+            b.enabled = owner && s != null && s.getTagList("Launchers", 10).tagCount() > 0;
+        }
+    }
+
+    /**
+     * Item 24: the «Опознавание» tab - the mode and what it is now (the arming's seconds, forbidden by the server, no day key),
+     * the cards' term, the options, the key's generation and the next code's minutes, «Все ПУ», the launchers by their rule,
+     * the readiness line, the aircraft without the key's code and the warning: without a card it fires at your machines too.
+     */
+    private void drawIdent(NBTTagCompound s) {
+        int x = left + 8, co = s.getByte("Co");
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.co.set.title"), x, top + 36, 150, CYAN, false, 0, 0);
+        String st = co == CodeOnlyMath.CO_ARMING ? Lang.tr("sva.ad.co.state.arming", Integer.valueOf(s.getInteger("CoArm")))
+                : Lang.tr("sva.ad.co.state." + CodeOnlyMath.CO_KEYS[Math.max(0, Math.min(CodeOnlyMath.CO_KEYS.length - 1, co))]);
+        String now = Lang.tr("sva.ad.co.set.state", st);
+        int nw = Math.min(fontRendererObj.getStringWidth(now), W - 170);
+        TextFitSC.draw(fontRendererObj, now, left + W - 8 - nw, top + 36, nw, co == CodeOnlyMath.CO_ON ? RED : co == CodeOnlyMath.CO_OFF ? MUTED : AMBER,
+                false, 0, 0);
+        fontRendererObj.drawString(Lang.tr("sva.ad.co.set.mode"), x, top + 53, MUTED);
+        int el = enableLimit(s);
+        String lim = el == CodeOnlyUiMath.EL_NONE ? null : Lang.tr("sva.ad.co.set." + CodeOnlyUiMath.EL_KEYS[el]);
+        if (lim != null) {
+            TextFitSC.draw(fontRendererObj, lim, left + 74 + 168, top + 53, W - 74 - 168 - 8, AMBER, false, 0, 0);
+        }
+        fontRendererObj.drawString(Lang.tr("sva.ad.co.set.periods"), x, top + 73, MUTED);
+        fontRendererObj.drawString(Lang.tr("sva.ad.co.set.opts"), x, top + 93, MUTED);
+        if (!s.getBoolean("CoManual")) {
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.co.set.manualServer"), left + 74, top + 120, W - 74 - 136, AMBER, false, 0, 0);
+        }
+        String key = Lang.tr("sva.ad.co.set.key", Integer.valueOf(s.getInteger("KeyGen")), Integer.valueOf(CodeOnlyUiMath.minutes(s.getInteger("KeyLeft"))));
+        TextFitSC.draw(fontRendererObj, key, x, top + 131, W - 8 - 124 - 12 - 8, MUTED, false, 0, 0);
+        // the launchers by their rule (the summary's first line) right of «Все ПУ»
+        TextFitSC.draw(fontRendererObj, roesLine(s), left + 74 + 170, top + 149, W - 74 - 170 - 8, TEXT, false, 0, 0);
+        int r = ready(s);
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.co.ready." + CodeOnlyMath.READY_KEYS[r]), x, top + 166, W - 16, r == CodeOnlyMath.R_READY ? GREEN
+                : AMBER, false, 0, 0);
+        int[] nk = CodeOnlyUiMath.withoutCode(s.getIntArray("CoSum"));
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.co.dlg.air", Integer.valueOf(nk[0]), Integer.valueOf(nk[1])), x, top + 178, W - 16, nk[1] > 0 ? AMBER
+                : TEXT, false, 0, 0);
+        List<String> note = fontRendererObj.listFormattedStringToWidth(Lang.tr("sva.ad.co.set.note"), W - 16);
+        for (int i = 0; i < note.size() && i < 4; i++) {
+            fontRendererObj.drawString(note.get(i), x, top + 194 + i * 10, i == 0 ? RED : MUTED);
+        }
+        if (!s.getBoolean("Owner")) {
+            TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.co.set.ownerOnly"), x, top + H - 14, W - 16, RED, false, 0, 0);
+        }
+    }
+
+    /** Item 27: «ПУ: 2 - по нарушителям, 1 - по всем» (the picture's CoSum) or «ПУ: нет привязанных». */
+    private static String roesLine(NBTTagCompound s) {
+        List<int[]> l = CodeOnlyUiMath.summaryRoes(s.getIntArray("CoSum"));
+        if (l.isEmpty()) {
+            return Lang.tr("sva.ad.co.dlg.noLaunchers");
+        }
+        StringBuilder b = new StringBuilder();
+        for (int[] e : l) {
+            b.append(b.length() > 0 ? ", " : "").append(Lang.tr("sva.ad.co.dlg.item", Integer.valueOf(e[1]), Lang.tr("sva.ad.co.dlg.roe." + RoeMath.ROE_KEYS[e[0]])));
+        }
+        return Lang.tr("sva.ad.co.dlg.roes", b.toString());
+    }
+
+    /**
+     * Item 27: the confirmation window - the summary (the launchers by their rule, the aircraft without the key's code and of
+     * them the owner's / his list's), the warning, the arming, the server's mode; «Включить» (the second step: «Sure»), «Все ПУ:
+     * по всем без кода», «Отмена».
+     */
+    private void drawDialog(NBTTagCompound s, int mx, int my) {
+        int[][] d = CodeOnlyUiMath.dialog(left, top, W, H);
+        drawRect(0, 0, width, height, 0x90000000);
+        drawRect(d[0][0] - 1, d[0][1] - 1, d[0][2] + 1, d[0][3] + 1, 0xFFF06060);
+        drawRect(d[0][0], d[0][1], d[0][2], d[0][3], 0xF8141820);
+        int x = d[0][0] + 6, y = d[0][1] + 5, w = CodeOnlyUiMath.DLG_W - 12;
+        fontRendererObj.drawString(Lang.tr("sva.ad.co.dlg.title"), x, y, GOLD);
+        y += 13;
+        List<Object[]> lines = new ArrayList<Object[]>();
+        if (s != null) {
+            int[] nk = CodeOnlyUiMath.withoutCode(s.getIntArray("CoSum"));
+            lines.add(new Object[] {roesLine(s), Integer.valueOf(TEXT)});
+            lines.add(new Object[] {Lang.tr("sva.ad.co.dlg.air", Integer.valueOf(nk[0]), Integer.valueOf(nk[1])), Integer.valueOf(nk[1] > 0 ? AMBER : TEXT)});
+            lines.add(new Object[] {Lang.tr("sva.ad.co.dlg.warn"), Integer.valueOf(RED)});
+            lines.add(new Object[] {Lang.tr("sva.ad.co.dlg.arm", Integer.valueOf(com.sva.net.ServerConfigSVA.adCodeOnlyArmSeconds())), Integer.valueOf(MUTED)});
+            lines.add(new Object[] {Lang.tr("sva.ad.l.mode." + s.getString("Mode")), Integer.valueOf("fire".equals(s.getString("Mode")) ? MUTED : AMBER)});
+        }
+        int bottom = d[1][1] - 3;
+        for (Object[] l : lines) {
+            for (Object o : fontRendererObj.listFormattedStringToWidth((String) l[0], w)) {
+                if (y + 9 <= bottom) {
+                    fontRendererObj.drawString((String) o, x, y, ((Integer) l[1]).intValue());
+                }
+                y += 10;
+            }
+        }
+        String[] labels = {Lang.tr("sva.ad.co.dlg.ok"), Lang.tr("sva.ad.co.set.allRoe"), Lang.tr("sva.ad.co.dlg.cancel")};
+        int[] colours = {RED, AMBER, TEXT};
+        boolean owner = s != null && s.getBoolean("Owner");
+        for (int i = 0; i < labels.length; i++) {
+            int[] b = d[1 + i];
+            boolean on = owner || i == 2;
+            boolean hov = on && mx >= b[0] && my >= b[1] && mx < b[0] + b[2] && my < b[1] + b[3];
+            drawRect(b[0], b[1], b[0] + b[2], b[1] + b[3], hov ? 0xFF7A8496 : 0xFF3A4150);
+            drawRect(b[0] + 1, b[1] + 1, b[0] + b[2] - 1, b[1] + b[3] - 1, hov ? 0xFF3A4252 : 0xFF2E3542);
+            TextFitSC.drawCentered(fontRendererObj, labels[i], b[0] + 2, b[1] + (b[3] - 8) / 2, b[2] - 4, on ? colours[i] : 0x6A7282, false, 0, 0);
+        }
+    }
+
+    /** The confirmation window's buttons: «Включить» sends the mode with «Sure», «Все ПУ» their rule (stays open), «Отмена» shuts it. */
+    private void dialogClick(int mx, int my, int button) {
+        if (button != 0) {
+            return;
+        }
+        int[][] d = CodeOnlyUiMath.dialog(left, top, W, H);
+        boolean owner = last != null && last.getBoolean("Owner");
+        for (int i = 0; i < 3; i++) {
+            int[] b = d[1 + i];
+            if (mx < b[0] || my < b[1] || mx >= b[0] + b[2] || my >= b[1] + b[3]) {
+                continue;
+            }
+            if (i == 0 && owner) {
+                NBTTagCompound c = new NBTTagCompound();
+                c.setString("Op", "codeOnly");
+                c.setBoolean("On", true);
+                c.setBoolean("Sure", true);
+                cmd(c);
+                dialog = false;
+            } else if (i == 1 && owner) {
+                cmd("coAllRoe", 0);
+            } else if (i == 2) {
+                dialog = false;
+            }
+            mc.getSoundHandler().playSound(net.minecraft.client.audio.PositionedSoundRecord.func_147674_a(new net.minecraft.util.ResourceLocation("gui.button.press"),
+                    1F));
+            return;
+        }
     }
 
     // ------------------------------------------------------------------ the map's terrain (as GuiMapSVA's, MAP x MAP)

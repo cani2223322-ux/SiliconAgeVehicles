@@ -41,13 +41,21 @@
 # airdefense: ПВО
 @kv enabled, mode | ПВО вкл., warnings (по умолчанию) или fire
 @kv minWarningSeconds | ожидание после предупреждения
-@kv fireOnFriends, requirePvp | огонь по друзьям, только при PvP
+@kv fireOnFriends, requirePvp | огонь по друзьям (в режиме ПО КОДУ не действует), только при PvP
 @kv maxRadarsPerPlayer, maxLaunchersPerPlayer | лимиты
 @kv minDistanceFromSpawn | не ближе к точке появления
 @kv upgrades, keepModules | модули ядра, модули в предмете
 @kv rcsExtras, coverageMap | заметность, карта покрытия
 @kv iff, iffHandoff, iffResponseSeconds | опрос вышкой и передача ПВО
 @kv autoSquawk, airportFriends | коды аэродрома
+@kv allTransponders | ответчик у всей техники, и у наземной (вкл.)
+@kv keyClock | часы ключа дня: total (общее время мира) или day
+@kv codeOnly, codeOnlyManual | режим ПО КОДУ разрешён, ручной набор кода (оба вкл.)
+@kv codeOnlyArmSeconds, codeOnlyConfirmSeconds | ПО КОДУ: взведение (60 с), между двумя промахами (5 с)
+@kv codeOnlyMinWarningSeconds | ПО КОДУ: ожидание до огня для всех (20 с)
+@kv codeOnlyEmergencySeconds | ПО КОДУ: льгота 7700 на борт (180 с; 0 - по 7700 не стрелять)
+@kv codeOnlyOverlapSeconds, codeCardMaxPeriods | прошлый код после смены периода (60 с), срок карты не больше (7)
+@kv codeOnlyProbeCodes, codeOnlyProbeMinutes | подбор кода: неверных кодов за 2 мин (4), блок ПОДБОР (5 мин)
 @kv fireInProtectedRegions | огонь по целям в чужих приватах
 @kv damageMultiplier | урон ПВО x (при vehicles.wear = false урона нет)
 @kv noRadioDecisionSeconds, noRadioMemoryMinutes | 7600: время решения КП, память эпизодов

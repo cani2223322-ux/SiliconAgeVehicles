@@ -259,11 +259,14 @@ public final class TowerScreenSVA {
         return l;
     }
 
-    /** The traffic: transponders within TRAFFIC_RANGE, the owner's radars' contacts (primary returns too). */
+    /**
+     * The traffic: transponders within TRAFFIC_RANGE, the owner's radars' contacts (primary returns too). Code-only wave
+     * (decision 3): the transponders a tower hears (AirportDataSVA.heard) - a ground vehicle's only while a radar sees it.
+     */
     static NBTTagList traffic(World w, AirportDataSVA d, TileEntityTowerSVA te, AirportDataSVA.Tower t, long now) {
         Map<Integer, NBTTagCompound> out = new HashMap<Integer, NBTTagCompound>();
         double r2 = TowerMath.TRAFFIC_RANGE * TowerMath.TRAFFIC_RANGE;
-        for (EntityVehicleSVA v : AirportDataSVA.aircraft(w)) {
+        for (EntityVehicleSVA v : AirportDataSVA.heard(w)) {
             double dx = v.posX - t.x, dz = v.posZ - t.z;
             if (dx * dx + dz * dz > r2) {
                 continue;

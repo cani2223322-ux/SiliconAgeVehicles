@@ -8,6 +8,8 @@ import org.lwjgl.opengl.GL11;
 import com.sc.inventory.TextFitSC;
 import com.sc.manual.Lang;
 import com.sva.FormatSVA;
+import com.sva.airdefense.CodeOnlyMath;
+import com.sva.airdefense.CodeOnlyUiMath;
 import com.sva.airdefense.RoeMath;
 import com.sva.block.TileEntityLauncherSVA;
 import com.sva.inventory.ContainerLauncherSVA;
@@ -28,6 +30,13 @@ import net.minecraft.nbt.NBTTagList;
  * command post's (its screen). Settings go at once (NetADSVA LAUNCHER_SET); the state comes every 10 ticks.
  * Upgrades wave: a row with the burst interval / the reload and the input tier with EU/t (the upgrades in), and the four
  * upgrade slots beside the ammunition (hover: the modules that fit, GuiAdEquipSVA.fitsTip).
+ * <p>
+ * Code-only wave (proposal-ad-strict-iff item 41): the banner «КП Север: ПО КОДУ» / «обычное (нет привязки)» over the slots
+ * (its hover: the mode comes from the linked post alone, a broken post's launcher is back to the usual mode), the readiness
+ * line «Огонь по коду: ГОТОВ» / why not, the rules' labels in the mode («По всем без кода (и ваши)» - CodeOnlyUiMath.roeKey),
+ * each target's reason («07 захват - нет карты»), the rule and the link greyed out for anyone but the owner (item 25), the
+ * code-only floor of the wait (20 s) and the title's «never fired at» hover for the mode. Review 2026-10-27 (batch 3): the
+ * ammunition and the upgrade slots in columns beside the inventory (ContainerLauncherSVA) - the window 240 px high again.
  */
 public class GuiLauncherSVA extends GuiContainer {
 
@@ -141,12 +150,23 @@ public class GuiLauncherSVA extends GuiContainer {
                     s instanceof com.sva.inventory.ContainerAdSVA.UpgradeSlot ? 0xFF2A5068 : 0xFF0E1014);
             drawRect(x + s.xDisplayPosition, y + s.yDisplayPosition, x + s.xDisplayPosition + 16, y + s.yDisplayPosition + 16, 0xFF2A2F3A);
         }
+        boolean strict = strict(), lock = last != null && last.getBoolean("RoeLock");
         for (Object o : buttonList) {
             GuiCargoSVA.Dark b = (GuiCargoSVA.Dark) o;
-            b.enabled = loaded;
+            boolean roeBtn = b.id >= B_ROE && b.id < B_ROE + RoeMath.ROES;
+            // code-only wave (item 25): the rule and the link are the owner's alone - greyed out for the rest
+            b.enabled = loaded && !(lock && (roeBtn || b.id == B_KP));
             b.active = b.id == B_ROE + roe || b.id == B_MSG && msg || b.id == B_WARN && warn;
-            b.activeColor = b.id == B_ROE + RoeMath.HOLD && roe == RoeMath.HOLD ? GREEN : 0;
+            b.activeColor = b.id == B_ROE + RoeMath.HOLD && roe == RoeMath.HOLD ? GREEN : roeBtn && strict && b.id != B_ROE + RoeMath.HOLD ? RED : 0;
+            if (roeBtn) {
+                b.displayString = Lang.tr("sva.ad.roe." + CodeOnlyUiMath.roeKey(b.id - B_ROE, strict));   // item 12: «По всем без кода (и ваши)»
+            }
         }
+    }
+
+    /** Code-only wave: the linked post identifies by the code now or is arming (the rules' labels, the targets' reasons). */
+    private static boolean strict() {
+        return last != null && CodeOnlyUiMath.strictLabels(last.getByte("Co")) && last.getString("CoKp").length() > 0;
     }
 
     @Override
@@ -161,12 +181,16 @@ public class GuiLauncherSVA extends GuiContainer {
         int ly = ContainerLauncherSVA.SLOT_Y - 11;
         fontRendererObj.drawString(Lang.tr("sva.ad.l.ammo"), ContainerLauncherSVA.SLOT_X, ly, MUTED);
         boolean upgOn = t == null || !t.hasKey("Upg") || t.getBoolean("Upg");
-        fontRendererObj.drawString(Lang.tr("sva.ad.eq.modules"), ContainerLauncherSVA.UPG_X, ly, upgOn ? CYAN : RED);
+        // review batch 3: the modules' column at the right edge - its label right-aligned over it
+        String mods = Lang.tr("sva.ad.eq.modules");
+        int mw = fontRendererObj.getStringWidth(mods), mx0 = W - 8 - mw;
+        fontRendererObj.drawString(mods, mx0, ly, upgOn ? CYAN : RED);
         List<String> fits = GuiAdEquipSVA.fitsTip(tile, upgOn);
-        TextFitSC.hover(guiLeft + ContainerLauncherSVA.UPG_X, guiTop + ly - 1, 76, 10, fits);
+        TextFitSC.hover(guiLeft + mx0, guiTop + ly - 1, mw, 10, fits);
         for (int i = 0; i < com.sva.airdefense.AdUpgradeMath.SLOTS; i++) {
             if (tile.upgrades.getStackInSlot(i) == null) {
-                TextFitSC.hover(guiLeft + ContainerLauncherSVA.UPG_X + 18 * i - 1, guiTop + ContainerLauncherSVA.SLOT_Y - 1, 18, 18, fits);
+                TextFitSC.hover(guiLeft + ContainerLauncherSVA.UPG_X - 1, guiTop + ContainerLauncherSVA.SLOT_Y + ContainerLauncherSVA.SLOT_STEP * i - 1, 18, 18,
+                        fits);
             }
         }
         if (t != null && t.hasKey("Interval")) {
@@ -204,28 +228,49 @@ public class GuiLauncherSVA extends GuiContainer {
         line(Lang.tr("sva.ad.l.mode." + mode), sx, sy + 44, "fire".equals(mode) ? RED : AMBER);
         NBTTagList tl = t.getTagList("Targets", 10);
         StringBuilder b = new StringBuilder();
+        List<String> why = new ArrayList<String>();
         for (int i = 0; i < tl.tagCount(); i++) {
             NBTTagCompound c = tl.getCompoundTagAt(i);
-            b.append(b.length() > 0 ? ", " : "").append(c.getInteger("No") > 0 ? String.format("%02d", Integer.valueOf(c.getInteger("No"))) : "-").append(' ')
-                    .append(Lang.tr("sva.ad.stage." + RoeMath.STAGE_KEYS[Math.max(0, Math.min(4, c.getByte("St")))]));
+            String tno = c.getInteger("No") > 0 ? String.format("%02d", Integer.valueOf(c.getInteger("No"))) : "-";
+            String st = Lang.tr("sva.ad.stage." + RoeMath.STAGE_KEYS[Math.max(0, Math.min(4, c.getByte("St")))]);
+            int r = c.getByte("Why");
+            // code-only wave (item 41): each target's reason (the miss behind it: «нет карты», «нет ответа», ...)
+            String item = r > RoeMath.ID_NONE && r < RoeMath.IDS ? Lang.tr("sva.ad.l.targetWhy", tno, st, Lang.tr("sva.ad.idr." + RoeMath.ID_KEYS[r]))
+                    : tno + " " + st;
+            b.append(b.length() > 0 ? ", " : "").append(item);
+            why.add(item);
         }
         line(tl.tagCount() == 0 ? Lang.tr("sva.ad.l.noTargets") : Lang.tr("sva.ad.l.targets", b.toString()), sx, sy + 55, tl.tagCount() > 0 ? RED : MUTED);
+        if (!why.isEmpty()) {
+            TextFitSC.hover(guiLeft + sx, guiTop + sy + 54, W - sx - 6, 10, why);
+        }
+        codeOnlyLines(t);
         // the radius and the wait
         int maxR = t.getInteger("MaxR");
         fontRendererObj.drawString(Lang.tr("sva.ad.l.radius"), 136 - fontRendererObj.getStringWidth(Lang.tr("sva.ad.l.radius")) + 36, 82, MUTED);
         String rs = (radius <= 0 ? maxR : radius) + "";
         fontRendererObj.drawString(rs, 214 - fontRendererObj.getStringWidth(rs) / 2, 82, TEXT);
         fontRendererObj.drawString(Lang.tr("sva.ad.l.waitS"), 136 - fontRendererObj.getStringWidth(Lang.tr("sva.ad.l.waitS")) + 36, 96, MUTED);
-        int minW = t.getInteger("MinWait");
+        int minW = Math.max(t.getInteger("MinWait"), t.getInteger("CoMinWait"));   // code-only wave (item 13): never under 20 s
         String ws = Math.max(wait, minW) + " " + Lang.tr("sva.ad.l.sec");
         fontRendererObj.drawString(ws, 214 - fontRendererObj.getStringWidth(ws) / 2, 96, wait < minW ? AMBER : TEXT);
-        TextFitSC.hover(guiLeft + 6, guiTop + 2, W - 60, 12, Lang.tr("sva.ad.l.always"));
+        // review 2026-10-27 (batch 2): the CODE-ONLY hover with the server's 7700 grace (it said 180 s whatever the server set)
+        TextFitSC.hover(guiLeft + 6, guiTop + 2, W - 60, 12, strict() ? Lang.tr("sva.ad.l.alwaysCo", AirDefenseClientSVA.emPhrase("sva.ad.em.hold"))
+                : Lang.tr("sva.ad.l.always"));
         List<String> tip = TextFitSC.hoverAt(mx, my);
+        boolean lock = t.getBoolean("RoeLock");
         for (Object o : buttonList) {
             GuiCargoSVA.Dark bt = (GuiCargoSVA.Dark) o;
             if (bt.tip != null && mx >= bt.xPosition && my >= bt.yPosition && mx < bt.xPosition + bt.width && my < bt.yPosition + bt.height) {
                 tip = new ArrayList<String>();
-                tip.add(bt.tip);
+                boolean roeBtn = bt.id >= B_ROE && bt.id < B_ROE + RoeMath.ROES;
+                // code-only wave: the rule's meaning in the mode; the owner's-only note when locked
+                // review 2026-10-27 (batch 2): the mode's shortest wait is the server's codeOnlyMinWarningSeconds (synced)
+                tip.add(roeBtn ? Lang.tr("sva.ad.roe." + CodeOnlyUiMath.roeKey(bt.id - B_ROE, strict()) + ".tip",
+                        Integer.valueOf(com.sva.net.ServerConfigSVA.adCodeOnlyMinWarningSeconds())) : bt.tip);
+                if (lock && (roeBtn || bt.id == B_KP)) {
+                    tip.add(Lang.tr("sva.ad.co.lock"));
+                }
             }
         }
         if (tip != null && !tip.isEmpty()) {
@@ -236,6 +281,33 @@ public class GuiLauncherSVA extends GuiContainer {
             drawHoveringText(wrapped, mx - guiLeft, my - guiTop, fontRendererObj);
         }
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    /**
+     * Code-only wave (item 41): the banner over the slots - «КП Север: ПО КОДУ» on red, the arming's countdown on amber, the
+     * usual mode / no link grey (its hover: the mode is the linked post's alone; a broken post's launcher goes back to the
+     * usual mode - item 15 wants it said here) - and the readiness line under it (item 32).
+     */
+    private void codeOnlyLines(NBTTagCompound t) {
+        String kp = t.getString("CoKp");
+        int co = t.getByte("Co"), bn = CodeOnlyUiMath.banner(kp, co);
+        String text = bn == CodeOnlyUiMath.BN_NO_LINK ? Lang.tr("sva.ad.co.banner.noLink")
+                : bn == CodeOnlyUiMath.BN_ARMING ? Lang.tr("sva.ad.co.banner.arming", kp, Integer.valueOf(t.getInteger("CoArm")))
+                        : Lang.tr("sva.ad.co.banner." + CodeOnlyUiMath.BN_KEYS[bn], kp);
+        int y = 120;
+        int bg = bn == CodeOnlyUiMath.BN_ON ? 0xFF5A1C1C : bn == CodeOnlyUiMath.BN_ARMING ? 0xFF5A4318 : 0xFF262B34;
+        int fg = bn == CodeOnlyUiMath.BN_ON ? 0xFFB0A0 : bn == CodeOnlyUiMath.BN_ARMING || bn == CodeOnlyUiMath.BN_BANNED || bn == CodeOnlyUiMath.BN_NO_KEY
+                ? AMBER : MUTED;
+        drawRect(6, y, W - 6, y + 11, bg);
+        if (bn == CodeOnlyUiMath.BN_ON) {
+            drawRect(6, y, 8, y + 11, 0xFFF06060);
+        }
+        TextFitSC.drawCentered(fontRendererObj, text, 8, y + 2, W - 16, fg, false, guiLeft, guiTop);
+        TextFitSC.hover(guiLeft + 6, guiTop + y, W - 12, 11, Lang.tr("sva.ad.co.banner.tip"));
+        int ready = Math.max(0, Math.min(CodeOnlyMath.READY_KEYS.length - 1, t.getByte("CoReady")));
+        TextFitSC.draw(fontRendererObj, Lang.tr("sva.ad.co.ready." + CodeOnlyMath.READY_KEYS[ready]), 8, y + 13, W - 16,
+                ready == CodeOnlyMath.R_READY ? GREEN : bn == CodeOnlyUiMath.BN_NO_LINK || bn == CodeOnlyUiMath.BN_NORMAL ? MUTED : AMBER, false, guiLeft,
+                guiTop);
     }
 
     private void line(String s, int x, int y, int c) {
