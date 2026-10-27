@@ -160,6 +160,7 @@ public final class SelfTestSVA {
             SelfTestAdCodeReviewSVA.run();                  // code-only review 2026-10-27: hand-dialled codes, the panel's rate, 7700 pause, cards, arming
             SelfTestAdCodeReview2SVA.run();                 // code-only review 2026-10-27, batch 2: stale 7700 answers, cards' order, texts, old cards, hint
             SelfTestAdCodeReview3SVA.run();                 // code-only review 2026-10-27, batch 3: relink, riders' code, 7700 and ПОДБОР, marks, minutes, screens
+            SelfTestAdCoFireSVA.run();                      // the user's request 2026-10-27: a code-only post's launchers fire with mode=warnings (codeOnlyFire)
             SelfTestBookSVA.run();                          // wave C: the handbook - data, glyphs, refs, layout, search, schematics, checklists, tutorial, export
             SelfTestEmbassySVA.run();                       // embassy airfield: runway surface, compat, embassy AD matrix, airport, ATC, services, lights
         } catch (Throwable t) {

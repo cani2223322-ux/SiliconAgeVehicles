@@ -53,6 +53,7 @@ Everything is in config/SiliconAgeVehicles.cfg, categories vehicles, airdefense,
 @kv codeOnly, codeOnlyManual | the CODE-ONLY mode allowed, a code dialled by hand (both on)
 @kv codeOnlyArmSeconds, codeOnlyConfirmSeconds | CODE-ONLY: arming (60 s), between two misses (5 s)
 @kv codeOnlyMinWarningSeconds | CODE-ONLY: the wait to fire for everybody (20 s)
+@kv codeOnlyFire | CODE-ONLY: fire at a board without the right code with mode = warnings too (on; false - as mode)
 @kv codeOnlyEmergencySeconds | CODE-ONLY: 7700's grace per aircraft (180 s; 0 - never a target)
 @kv codeOnlyOverlapSeconds, codeCardMaxPeriods | the last code after a period change (60 s), the longest card term (7)
 @kv codeOnlyProbeCodes, codeOnlyProbeMinutes | guessing: wrong codes within 2 min (4), the GUESSING block (5 min)

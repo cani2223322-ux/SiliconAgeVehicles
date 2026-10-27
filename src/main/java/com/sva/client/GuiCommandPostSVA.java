@@ -1827,7 +1827,9 @@ public class GuiCommandPostSVA extends GuiScreen {
             lines.add(new Object[] {Lang.tr("sva.ad.co.dlg.air", Integer.valueOf(nk[0]), Integer.valueOf(nk[1])), Integer.valueOf(nk[1] > 0 ? AMBER : TEXT)});
             lines.add(new Object[] {Lang.tr("sva.ad.co.dlg.warn"), Integer.valueOf(RED)});
             lines.add(new Object[] {Lang.tr("sva.ad.co.dlg.arm", Integer.valueOf(com.sva.net.ServerConfigSVA.adCodeOnlyArmSeconds())), Integer.valueOf(MUTED)});
-            lines.add(new Object[] {Lang.tr("sva.ad.l.mode." + s.getString("Mode")), Integer.valueOf("fire".equals(s.getString("Mode")) ? MUTED : AMBER)});
+            // the user's request 2026-10-27: the server's line as it will be with the mode on (codeOnlyFire: fire in "warnings" too)
+            String cm = s.hasKey("CoMode") ? s.getString("CoMode") : s.getString("Mode");
+            lines.add(new Object[] {Lang.tr("sva.ad.l.mode." + cm), Integer.valueOf(CodeOnlyMath.M_FIRE.equals(cm) ? MUTED : AMBER)});
         }
         int bottom = d[1][1] - 3;
         for (Object[] l : lines) {

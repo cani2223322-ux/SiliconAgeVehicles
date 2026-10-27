@@ -88,6 +88,12 @@ public final class CodeOnlyMath {
             R_HOLD = 7, R_VIOLATORS = 8;
     public static final String[] READY_KEYS = {"ready", "disabled", "warnOnly", "pvp", "noKp", "kpOff", "notCodeOnly", "hold", "violators"};
 
+    /**
+     * The screens' server line (lang sva.ad.l.mode.*, the launcher's and the post's "Mode"): fire allowed, fire only in the
+     * code-only mode (airdefense.mode warnings with codeOnlyFire), warnings only, the air defence off.
+     */
+    public static final String M_FIRE = "fire", M_CODE = "code", M_WARN = "warn", M_OFF = "off";
+
     /** What the pilot is told (item 22): the same for every wrong code - nothing to learn from it for guessing. */
     public static final int P_NO_CARD = 0, P_EXPIRED = 1, P_NO_REPLY = 2;
     public static final String[] PILOT_KEYS = {"noCard", "expired", "noReply"};
@@ -525,7 +531,8 @@ public final class CodeOnlyMath {
     /**
      * Item 32: «Огонь по коду: ГОТОВ» or why not - the server's air defence off / warnings only / PvP off; no post linked (the
      * launcher works the usual way) / its post unpowered; the post not code-only; the launcher's rule holds fire / takes only
-     * violators. The first that applies.
+     * violators. The first that applies. `fires`: fire allowed for a code-only post's launcher (fires(..., true): the "fire"
+     * mode or airdefense.codeOnlyFire) - "warnings only" only when neither.
      */
     public static int readiness(boolean enabled, boolean fires, boolean pvpOk, boolean linked, boolean kpPowered, boolean codeOnly, int roe) {
         if (!enabled) {
@@ -550,6 +557,32 @@ public final class CodeOnlyMath {
             return R_HOLD;
         }
         return roe == RoeMath.VIOLATORS ? R_VIOLATORS : R_READY;
+    }
+
+    /**
+     * The user's request 2026-10-27 (airdefense.codeOnlyFire): may a launcher fire at all - the server's "fire" mode, or its
+     * linked post identifying by the code NOW (armed: not while arming) with codeOnlyFire on, in the "warnings" mode too. The
+     * usual mode obeys airdefense.mode alone; every other gate (PvP, the spawn, unmanned, the waits...) stays as it is.
+     * @param fireMode airdefense.mode = fire
+     */
+    public static boolean fires(boolean enabled, boolean fireMode, boolean codeOnlyFire, boolean codeOnlyOn) {
+        return enabled && (fireMode || codeOnlyFire && codeOnlyOn);
+    }
+
+    /**
+     * The screens' server line (M_*) for a launcher / post in the code-only mode now or not: «огонь разрешён» where it fires,
+     * else «огонь только ПО КОДУ» while a code-only post would (codeOnlyFire, the mode allowed with the day key), else
+     * «только предупреждения»; the air defence off - off.
+     * @param codeOnlyAllowed airdefense.codeOnly and airdefense.dayKey (the mode may be switched on at all)
+     */
+    public static String modeKey(boolean enabled, boolean fireMode, boolean codeOnlyFire, boolean codeOnlyAllowed, boolean codeOnlyOn) {
+        if (!enabled) {
+            return M_OFF;
+        }
+        if (fires(enabled, fireMode, codeOnlyFire, codeOnlyOn)) {
+            return M_FIRE;
+        }
+        return codeOnlyFire && codeOnlyAllowed ? M_CODE : M_WARN;
     }
 
     // ------------------------------------------------------------------ the post and the launchers (the integration)

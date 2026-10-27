@@ -275,7 +275,10 @@ public final class ConfigSVA {
 
     /** The air defence works at all (radars, launchers, the command post); off - the blocks stand idle, nobody is fired at. */
     public static boolean adEnabled = true;
-    /** "warnings" (default): the launchers only track and warn - nothing is ever fired; "fire": they fire after the warnings. */
+    /**
+     * "warnings" (default): the launchers only track and warn - nothing is fired (but a code-only post's, see adCodeOnlyFire);
+     * "fire": they fire after the warnings.
+     */
     public static final String AD_WARNINGS = "warnings", AD_FIRE = "fire";
     public static String adMode = AD_WARNINGS;
     /** Fire at a target inside a protected region (a private field that refuses the launcher's owner). */
@@ -367,6 +370,11 @@ public final class ConfigSVA {
      * false - only a code card's code ever counts.
      */
     public static boolean adCodeOnlyManual = true;
+    /**
+     * The user's request 2026-10-27: a launcher whose linked post identifies by the code (armed, not arming) fires at a board
+     * without the key's code after the warnings in the "warnings" mode too (false: it obeys airdefense.mode like the rest).
+     */
+    public static boolean adCodeOnlyFire = true;
     /** The «ключ дня»'s clock: "total" (the world's total time - /time set and sleeping change nothing) or "day" (the time of day, as before). */
     public static String adKeyClock = "total";
     /** The user's decision 3: every vehicle has a transponder, the ground ones too (false: only what flies). */
@@ -485,6 +493,19 @@ public final class ConfigSVA {
     /** Fire is allowed at all (the air defence on and in the "fire" mode). */
     public static boolean adFires() {
         return adEnabled && AD_FIRE.equalsIgnoreCase(adMode);
+    }
+
+    /**
+     * Fire is allowed for a launcher whose linked post identifies by the code now (codeOnlyOn: armed, not arming) or not: the
+     * "fire" mode, or a code-only one with airdefense.codeOnlyFire in the "warnings" mode too (CodeOnlyMath.fires).
+     */
+    public static boolean adFiresFor(boolean codeOnlyOn) {
+        return com.sva.airdefense.CodeOnlyMath.fires(adEnabled, adFires(), adCodeOnlyFire, codeOnlyOn);
+    }
+
+    /** The screens' server line for a launcher / post in the code-only mode now or not (CodeOnlyMath.M_*: fire, code, warn, off). */
+    public static String adModeKey(boolean codeOnlyOn) {
+        return com.sva.airdefense.CodeOnlyMath.modeKey(adEnabled, adFires(), adCodeOnlyFire, adCodeOnly && adDayKey, codeOnlyOn);
     }
 
     public static void load(File file) {
@@ -820,8 +841,8 @@ public final class ConfigSVA {
         adEnabled = c.getBoolean("enabled", a, true,
                 "Air defence: radars, launchers, the command post, zones; off - everything stands idle / ПВО включено (РЛС, ПУ, КП, зоны)");
         adMode = c.getString("mode", a, AD_WARNINGS,
-                "warnings - the launchers only track and warn the pilot, never fire; fire - they fire after the warnings / "
-                        + "warnings - только сопровождение и предупреждения; fire - огонь после предупреждений",
+                "warnings - the launchers only track and warn the pilot (a CODE-ONLY post's launchers fire anyway, see codeOnlyFire); fire - they fire after the warnings / "
+                        + "warnings - только сопровождение и предупреждения (ПУ КП в режиме ПО КОДУ стреляют, см. codeOnlyFire); fire - огонь после предупреждений",
                 new String[] {AD_WARNINGS, AD_FIRE});
         adFireInProtectedRegions = c.getBoolean("fireInProtectedRegions", a, false,
                 "Fire at targets inside a private field that refuses the launcher's owner / Огонь в защищённых регионах");
@@ -912,6 +933,9 @@ public final class ConfigSVA {
         adCodeOnlyManual = c.getBoolean("codeOnlyManual", a, true,
                 "Code-only: a code dialled by hand (no card) may count - the posts' option 'Manual code', on by default; false - only a card's code / "
                         + "ПО КОДУ: код, набранный вручную (без карты), может засчитываться - опция КП 'Ручной набор кода' (вкл. по умолчанию); false - только код с карты");
+        adCodeOnlyFire = c.getBoolean("codeOnlyFire", a, true,
+                "Code-only: fire at a board without the right code after the warnings even with mode=warnings; false - as mode / "
+                        + "ПО КОДУ: огонь по борту без верного кода после предупреждений даже при mode=warnings; false - как mode");
         adKeyClock = c.getString("keyClock", a, "total",
                 "The day key's clock: total - the world's total time (/time set and sleeping change nothing), day - the time of day / "
                         + "Часы ключа дня: total - общее время мира (/time set и сон не влияют), day - время суток",

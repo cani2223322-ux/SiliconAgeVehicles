@@ -379,8 +379,8 @@ final class SelfTestAirDefenseSVA {
                 && EntityVehicleSVA.actionAllowed(EntityVehicleSVA.A_IDENT, false, true),
                 "ad keys: IDENT - the driver's, every vehicle with a transponder (decision 3: the buggy too)");
         check(ConfigSVA.AD_WARNINGS.equals(ConfigSVA.adMode) && !ConfigSVA.adFires() && ConfigSVA.adEnabled && ConfigSVA.adRequirePvp && !ConfigSVA.adFireOnUnmanned
-                && !ConfigSVA.adFireOnFriends && !ConfigSVA.adFireInProtectedRegions && ConfigSVA.adMinWarningSeconds == 10,
-                "ad config: on by default in \"warnings only\" - nothing is fired until the server allows it");
+                && !ConfigSVA.adFireOnFriends && !ConfigSVA.adFireInProtectedRegions && ConfigSVA.adMinWarningSeconds == 10 && ConfigSVA.adCodeOnlyFire,
+                "ad config: on by default in \"warnings only\" - the usual mode fires nothing until the server allows it (a code-only post's launchers do: codeOnlyFire)");
     }
 
     private static void content() throws Exception {

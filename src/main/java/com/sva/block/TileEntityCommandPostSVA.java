@@ -259,10 +259,14 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         if (on == i.codeOnly) {
             return true;
         }
+        boolean wasOn = codeOnly();
         i.codeOnly = on;
         i.armAt = on ? CodeOnlyMath.armAt(now, ConfigSVA.adCodeOnlyArmSeconds) : -1;
         coLast = on ? CodeOnlyMath.CO_ARMING : CodeOnlyMath.CO_OFF;  // the end of the arming is told by the next round
         infoChanged();
+        if (wasOn && !on) {
+            restartLaunchers();                                     // «Выключение - сразу»: no fire from the last round's list
+        }
         AirDefenseDataSVA d = AirDefenseDataSVA.get(worldObj);
         if (d != null) {
             d.touchZones();                                         // the zones' «ПО КОДУ» mark on the pilots' screens
@@ -328,21 +332,33 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
                 CodeOnlyMath.hit(t.confirm);
                 t.saidCo = t.saidStranger = t.saidEmOver = false;
             }
-            for (TileEntityLauncherSVA l : launchers) {
-                l.restartEngagements();
-            }
+            restartLaunchers();
             AirDefenseSVA.INSTANCE.launchLog("KP " + name() + " (" + ownerName + "): code-only ON");
         }
         coLast = co;
     }
 
-    /** Item 32: «Огонь по коду: ГОТОВ» or why not, for this post (its launchers' rule that fires most). */
+    /**
+     * Item 16: every engagement of this post's launchers starts over - the mode armed; the user's request 2026-10-27
+     * (codeOnlyFire): the armed mode switched off or its day key off - at once, not at the launchers' next round (in
+     * "warnings" the last round's list fired up to 4 ticks on; the launcher's holdsNow checks it too).
+     */
+    private void restartLaunchers() {
+        for (TileEntityLauncherSVA l : launchers) {
+            l.restartEngagements();
+        }
+    }
+
+    /**
+     * Item 32: «Огонь по коду: ГОТОВ» or why not, for this post (its launchers' rule that fires most); the user's request
+     * 2026-10-27: «только предупреждения» only with mode=warnings and airdefense.codeOnlyFire off.
+     */
     public int coReadiness() {
         int[] roes = new int[launchers.size()];
         for (int k = 0; k < roes.length; k++) {
             roes[k] = launchers.get(k).roe();
         }
-        return CodeOnlyMath.readiness(ConfigSVA.adEnabled, ConfigSVA.adFires(), !ConfigSVA.adRequirePvp || pvpOn(), true, powered, codeOnly(),
+        return CodeOnlyMath.readiness(ConfigSVA.adEnabled, ConfigSVA.adFiresFor(true), !ConfigSVA.adRequirePvp || pvpOn(), true, powered, codeOnly(),
                 CodeOnlyMath.bestRoe(roes));
     }
 
@@ -1312,7 +1328,7 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
     private void settings(EntityPlayerMP p, NBTTagCompound d) {
         name = Text.clean(d.getString("Name"), 24);
         if (isOwner(p)) {
-            boolean keyWas = dayKey;
+            boolean keyWas = dayKey, coWas = codeOnly();
             dayKey = d.getBoolean("DayKey");                        // audit 2026-10-22 (7.3): the access list may not switch it off
             AirDefenseDataSVA.KpInfo ci = info();
             if (CodeOnlyMath.disarmOnKey(ci.codeOnly, keyWas, dayKey)) {
@@ -1323,6 +1339,9 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             if (zd != null) {
                 ci.dayKey = dayKey;
                 zd.touchZones();                                    // review batch 3: the zones' «ПО КОДУ» mark follows the day key
+            }
+            if (coWas && !codeOnly()) {
+                restartLaunchers();                                 // the user's request 2026-10-27: ПО КОДУ off with the key - at once
             }
         }
         int[] c = d.getIntArray("Codes");
@@ -1706,7 +1725,10 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
         t.setBoolean("Powered", powered);
         t.setInteger("Energy", getEnergyStored());
         t.setInteger("EMax", getMaxEnergyStored());
-        t.setString("Mode", ConfigSVA.adFires() ? "fire" : ConfigSVA.adEnabled ? "warn" : "off");
+        // the user's request 2026-10-27: the server's line for this post's mode now («огонь только ПО КОДУ» while usual with
+        // codeOnlyFire) and for the mode switched on - the confirmation window's last line
+        t.setString("Mode", ConfigSVA.adModeKey(codeOnly()));
+        t.setString("CoMode", ConfigSVA.adModeKey(true));
         t.setInteger("ZoneMax", ConfigSVA.adZoneMaxDistance);   // audit 2026-10-22: the zone editor's check before sending
         NBTTagList rl = new NBTTagList();
         for (TileEntityRadarSVA r : radars) {

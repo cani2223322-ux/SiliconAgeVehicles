@@ -639,6 +639,20 @@ public class WorldTestSVA {
                 maybeSummary();
             }
         }
+        // the user's request 2026-10-27 (airdefense.codeOnlyFire): with mode=warnings an armed code-only post's gun fires, a usual / arming one does not
+        if (ticks >= WorldTestAdCoFireSVA.START && !adCoFire.done) {
+            try {
+                adCoFire.tick(w, ticks);
+            } catch (Throwable t) {
+                failed++;
+                System.out.println("[SVA-WORLDTEST] FAIL ad code-only fire exception " + t);
+                t.printStackTrace(System.out);
+                adCoFire.abort(w);
+            }
+            if (adCoFire.done) {
+                maybeSummary();
+            }
+        }
         // stage E runs alongside the other phases (its own area and test owner); an exception ends only its own branch
         if (seAt > 0 && ticks >= seAt && sePhase < SE_DONE) {
             try {
@@ -2463,6 +2477,7 @@ public class WorldTestSVA {
     private final WorldTestAdXpdrAllSVA adXpdrAll = new WorldTestAdXpdrAllSVA(this);
     private final WorldTestAdCodeMoreSVA adCodeMore = new WorldTestAdCodeMoreSVA(this);
     private final WorldTestEmbassySVA embassy = new WorldTestEmbassySVA(this);
+    private final WorldTestAdCoFireSVA adCoFire = new WorldTestAdCoFireSVA(this);
     private final WorldTestBookSVA book = new WorldTestBookSVA(this);
     private int ex0, ez, shipX, destX, bX, bY, bZ, tX, tY, tZ;
     private EntityVehicleSVA shuttle, ship;
@@ -2478,7 +2493,7 @@ public class WorldTestSVA {
 
     /** Prints the SUMMARY once stage D, stage E and waves 1 - 3 are all done. */
     private void maybeSummary() {
-        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && airD5.done && liner.done && linerAfs.done && linerFms.done && linerW6.done && linerW7.done && fuel.done && airDefense.done && adModels.done && adUpgrades.done && airport.done && airportB2.done && adWaveA.done && book.done && adHarden.done && adTrust.done && adCombat.done && adClient.done && adOps.done && adCodeOnly.done && adCodeKp.done && adXpdrAll.done && adCodeMore.done && embassy.done) {
+        if (dDone && eDone && wave1.done && wave2.done && wave3.done && fastCharge.done && regen.done && drive.done && air.done && airC.done && airD1.done && airD2.done && airD3.done && airD4.done && airD5.done && liner.done && linerAfs.done && linerFms.done && linerW6.done && linerW7.done && fuel.done && airDefense.done && adModels.done && adUpgrades.done && airport.done && airportB2.done && adWaveA.done && book.done && adHarden.done && adTrust.done && adCombat.done && adClient.done && adOps.done && adCodeOnly.done && adCodeKp.done && adXpdrAll.done && adCodeMore.done && embassy.done && adCoFire.done) {
             System.out.println("[SVA-WORLDTEST] SUMMARY passed=" + passed + " failed=" + failed);
             System.out.println("[SVA-WORLDTEST] DONE");
         }

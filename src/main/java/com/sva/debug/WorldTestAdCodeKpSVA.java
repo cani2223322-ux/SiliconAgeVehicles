@@ -269,7 +269,8 @@ final class WorldTestAdCodeKpSVA {
         check(kept && trusted && listOpts && gun.ownerOnly(friend),
                 "ad code-only kp world (item 25): the list's rule refused (the rule stays), the owner's option «Доверить ПУ списку доступа» gives it back; options the owner's");
         NBTTagCompound snap = gun.snapshot();
-        int want = ConfigSVA.adFires() ? CodeOnlyMath.R_KP_OFF : CodeOnlyMath.R_WARN_ONLY;
+        // the user's request 2026-10-27: «только предупреждения» only with mode=warnings and codeOnlyFire off
+        int want = ConfigSVA.adFiresFor(true) ? CodeOnlyMath.R_KP_OFF : CodeOnlyMath.R_WARN_ONLY;
         check(snap.getByte("Co") == CodeOnlyMath.CO_ON && "KA".equals(snap.getString("CoKp")) && snap.getBoolean("CoLock") && snap.getByte("CoReady") == want
                 && snap.getInteger("CoMinWait") == Math.max(ConfigSVA.adMinWarningSeconds, ConfigSVA.adCodeOnlyMinWarningSeconds),
                 "ad code-only kp world (items 15, 32, 41): the launcher of an unpowered post - ПО КОДУ from its data, the readiness line (" + snap.getByte("CoReady")

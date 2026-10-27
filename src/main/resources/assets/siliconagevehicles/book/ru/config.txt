@@ -53,6 +53,7 @@
 @kv codeOnly, codeOnlyManual | режим ПО КОДУ разрешён, ручной набор кода (оба вкл.)
 @kv codeOnlyArmSeconds, codeOnlyConfirmSeconds | ПО КОДУ: взведение (60 с), между двумя промахами (5 с)
 @kv codeOnlyMinWarningSeconds | ПО КОДУ: ожидание до огня для всех (20 с)
+@kv codeOnlyFire | ПО КОДУ: огонь по борту без верного кода и при mode = warnings (вкл.; false - как mode)
 @kv codeOnlyEmergencySeconds | ПО КОДУ: льгота 7700 на борт (180 с; 0 - по 7700 не стрелять)
 @kv codeOnlyOverlapSeconds, codeCardMaxPeriods | прошлый код после смены периода (60 с), срок карты не больше (7)
 @kv codeOnlyProbeCodes, codeOnlyProbeMinutes | подбор кода: неверных кодов за 2 мин (4), блок ПОДБОР (5 мин)

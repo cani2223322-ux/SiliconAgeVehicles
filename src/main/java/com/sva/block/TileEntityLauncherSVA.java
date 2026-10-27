@@ -325,7 +325,8 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         kpRound = kp;
         roeRound = roeNow;
         ready.clear();
-        boolean warnOnly = !ConfigSVA.adFires() && !debugFireMode;
+        // the user's request 2026-10-27 (airdefense.codeOnlyFire): linked to a code-only post (armed) - fire in "warnings" too
+        boolean warnOnly = !ConfigSVA.adFiresFor(coRound) && !debugFireMode;
         boolean pvpOff = ConfigSVA.adRequirePvp && !pvp();
         ChunkCoordinates sp = worldObj.getSpawnPoint();
         boolean nearSpawn = sp != null && Math.hypot(xCoord - sp.posX, zCoord - sp.posZ) < ConfigSVA.adMinSpawnDistance;
@@ -505,10 +506,16 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
     /**
      * Audit review 2026-10-22: a target of the last round held now - «только вести» pressed on the post since (the post's track
      * object, its own flag set at once), or the post gone off / away. Between the 5-tick rounds an overclocked gun or a
-     * missile launcher fired up to 4 ticks after «Только вести» - a missile once launched is not called back.
+     * missile launcher fired up to 4 ticks after «Только вести» - a missile once launched is not called back. The user's
+     * request 2026-10-27 (airdefense.codeOnlyFire): the fire no longer allowed - the linked post's ПО КОДУ or its day key
+     * switched off since the round (its trust data, changed at once), the post's data gone, the config reloaded; in "warnings"
+     * a code-only round's ready list fired up to 4 ticks after «Выключить».
      */
     private boolean holdsNow(AirDefenseSVA.Contact c) {
         if (c.held) {
+            return true;
+        }
+        if (!debugFireMode && !ConfigSVA.adFiresFor(AirDefenseSVA.codeOnlyPost(worldObj, ownerName, kpLink(), worldObj.getTotalWorldTime()) != null)) {
             return true;
         }
         TileEntityCommandPostSVA k = kpRound;
@@ -1189,7 +1196,6 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         t.setInteger("Ammo", ammo());
         t.setInteger("AmmoMax", ammoMax());
         t.setString("Own", ownerName);
-        t.setString("Mode", ConfigSVA.adFires() ? "fire" : ConfigSVA.adEnabled ? "warn" : "off");
         // upgrades wave: the input, the upkeep, the burst / reload interval, a shot's EU
         t.setByte("Tier", (byte) getTier().ordinal());
         t.setByte("In", (byte) inputTier().ordinal());
@@ -1220,8 +1226,10 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         int co = li == null ? CodeOnlyMath.CO_OFF : CodeOnlyMath.state(li.codeOnly, li.armAt, now, ConfigSVA.adCodeOnly, li.dayKey && ConfigSVA.adDayKey);
         t.setString("CoKp", li == null ? "" : li.name);
         t.setByte("Co", (byte) co);
+        // the server's line: «огонь разрешён» for a code-only post's launcher with codeOnlyFire, «огонь только ПО КОДУ» for the rest
+        t.setString("Mode", ConfigSVA.adModeKey(co == CodeOnlyMath.CO_ON));
         t.setInteger("CoArm", li == null ? 0 : CodeOnlyMath.armLeft(li.codeOnly, li.armAt, now));
-        t.setByte("CoReady", (byte) CodeOnlyMath.readiness(ConfigSVA.adEnabled, ConfigSVA.adFires(), !ConfigSVA.adRequirePvp || pvp(), li != null,
+        t.setByte("CoReady", (byte) CodeOnlyMath.readiness(ConfigSVA.adEnabled, ConfigSVA.adFiresFor(true), !ConfigSVA.adRequirePvp || pvp(), li != null,
                 kp != null && kp.isPowered(), co == CodeOnlyMath.CO_ON, roe));
         t.setBoolean("CoLock", li != null && CodeOnlyMath.ownerOnly(li.codeOnly && ConfigSVA.adCodeOnly, li.coOpts));
         t.setInteger("CoMinWait", CodeOnlyMath.minWarning(ConfigSVA.adMinWarningSeconds, co == CodeOnlyMath.CO_ON, ConfigSVA.adCodeOnlyMinWarningSeconds));
