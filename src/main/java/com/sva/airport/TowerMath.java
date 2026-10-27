@@ -107,15 +107,20 @@ public final class TowerMath {
 
     // ---------------------------------------------------------------- the runways
 
-    /** A tower's place for the assignment: dimension, x, z. */
+    /** A tower's place for the assignment: dimension, x, z; embassy airfield: the embassy's id of its virtual tower (-1 a player's). */
     public static final class Site {
-        public final int dim;
+        public final int dim, emb;
         public final double x, z;
 
         public Site(int dim, double x, double z) {
+            this(dim, x, z, -1);
+        }
+
+        public Site(int dim, double x, double z, int emb) {
             this.dim = dim;
             this.x = x;
             this.z = z;
+            this.emb = emb < 0 ? -1 : emb;
         }
     }
 
@@ -126,15 +131,24 @@ public final class TowerMath {
 
     /** Per runway: the index of the tower it belongs to (the nearest within RANGE of its middle), -1 none. */
     public static int[] assign(List<Site> towers, List<IlsPairing.Rwy> rws) {
+        return assign(towers, rws, null);
+    }
+
+    /**
+     * Embassy airfield (docs/plan-embassy-airfield-addon.md §3.3): as assign(), both ways - an embassy's runway (rwyEmb[i] its id) goes
+     * only to that embassy's tower (Site.emb), a player's runway (-1) never to an embassy's tower. `rwyEmb` null: every runway a player's.
+     */
+    public static int[] assign(List<Site> towers, List<IlsPairing.Rwy> rws, int[] rwyEmb) {
         int[] out = new int[rws.size()];
         for (int i = 0; i < rws.size(); i++) {
             IlsPairing.Rwy r = rws.get(i);
+            int emb = rwyEmb == null || i >= rwyEmb.length || rwyEmb[i] < 0 ? -1 : rwyEmb[i];
             double[] m = middle(r);
             int best = -1;
             double bd = RANGE * RANGE;
             for (int k = 0; k < towers.size(); k++) {
                 Site t = towers.get(k);
-                if (t.dim != r.a.dim) {
+                if (t.dim != r.a.dim || t.emb != emb) {
                     continue;
                 }
                 double d = (t.x - m[0]) * (t.x - m[0]) + (t.z - m[1]) * (t.z - m[1]);

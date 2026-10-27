@@ -21,6 +21,10 @@ import java.util.List;
  * <li><b>Go-around</b>: an arrival on the final (in the approach's corridor) below GA_HEIGHT (airport.goAroundHeight)
  * over the threshold while the runway is occupied by another - УХОДИТЕ НА ВТОРОЙ КРУГ, once; its landing clearance is gone.</li>
  * </ul>
+ * Embassy airfield (docs/plan-embassy-airfield-addon.md §3.2): the server tells the rules what only it sees - players on foot, hostile
+ * mobs or a ground vehicle on the embassy's PHYSICAL runway (Params.blocked: the runway is occupied), the paving past the virtual ends
+ * (Rwy.ext: FULL 20 - the displaced thresholds), the runway in use landing over the high end (Params.taxiHold: taxiway «А» waits while
+ * such a landing is near - EmbassyAtcMath.holdTaxi, risk 2 of the core's plan).
  */
 public final class AutoTower {
 
@@ -59,10 +63,17 @@ public final class AutoTower {
     public static final class Rwy {
         public final IlsPairing.Rwy r;
         public final int dir;
+        /** Embassy airfield: blocks of paving past each end of `r` that count as the runway too (0: a player's runway). */
+        public final double ext;
 
         public Rwy(IlsPairing.Rwy r, int dir) {
+            this(r, dir, 0);
+        }
+
+        public Rwy(IlsPairing.Rwy r, int dir, double ext) {
             this.r = r;
             this.dir = dir;
+            this.ext = Math.max(0, ext);
         }
 
         public String name() {
@@ -79,6 +90,11 @@ public final class AutoTower {
     public static final class Params {
         public int interval = 400;
         public double gaHeight = 25;
+        /** Embassy airfield: somebody not in the traffic is on the physical runway (a player on foot, a hostile mob, a ground vehicle). */
+        public boolean blocked;
+        /** Embassy airfield: the runway in use lands over the high end - taxiway «А» under its approach (EmbassyAtcMath.holdTaxi). */
+        public boolean taxiHold;
+        public double taxiHoldWindow = EmbassyAtcMath.TAXI_HOLD_WINDOW;
     }
 
     /** One uplink to send. */
@@ -93,9 +109,11 @@ public final class AutoTower {
         }
     }
 
-    /** The aircraft is on the runway: within its width + margin, between its ends + margin, low over it. */
+    /** The aircraft is on the runway: within its width + margin, between its ends + margin (+ the paving past them: ext), low over it. */
     public static boolean onRunway(Rwy w, Ac a) {
-        return w.r.onRunway(a.x, a.z, RWY_MARGIN) && a.y - w.r.elev < ON_RWY_H;
+        double[] l = w.r.local(1, a.x, a.z);
+        double m = RWY_MARGIN + w.ext;
+        return l[0] >= -m && l[0] <= w.r.len + m && Math.abs(l[1]) <= w.r.width / 2.0 + RWY_MARGIN && a.y - w.r.elev < ON_RWY_H;
     }
 
     /** Distance along the final to the threshold (blocks, + before it) and off the centre line. */
@@ -131,6 +149,25 @@ public final class AutoTower {
         return null;
     }
 
+    /** The runway is occupied for `a`: another aircraft keeps it (occupant) or the server saw somebody on it (Params.blocked). */
+    static boolean busy(Rwy w, List<Ac> t, Ac a, long now, Params p) {
+        return p.blocked || occupant(w, t, a, now) != null;
+    }
+
+    /** Embassy airfield: a landing over the high end is cleared or on its final near enough - taxiway «А» waits (EmbassyAtcMath.holdTaxi). */
+    public static boolean taxiHeld(List<Ac> traffic, Rwy w, Params p) {
+        if (!p.taxiHold) {
+            return false;
+        }
+        for (Ac a : traffic) {
+            boolean landing = !a.ground && (a.st == S_LAND || a.req == R_LAND && onFinal(w, a));
+            if (landing && EmbassyAtcMath.holdTaxi(true, final_(w, a)[0], p.taxiHoldWindow)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The decisions of one period (see the class comment); the aircraft's states are updated. */
     public static List<Act> decide(List<Ac> traffic, Rwy w, Mem m, long now, Params p) {
         List<Act> out = new ArrayList<Act>();
@@ -158,7 +195,7 @@ public final class AutoTower {
         }
         // go-arounds first
         for (Ac a : traffic) {
-            if ((a.st == S_LAND || a.req == R_LAND) && onFinal(w, a) && a.y - w.r.elev < p.gaHeight && occupant(w, traffic, a, now) != null) {
+            if ((a.st == S_LAND || a.req == R_LAND) && onFinal(w, a) && a.y - w.r.elev < p.gaHeight && busy(w, traffic, a, now, p)) {
                 a.st = S_GOAROUND;
                 a.stAt = now;
                 a.req = R_NONE;
@@ -184,7 +221,7 @@ public final class AutoTower {
             }
         }
         if (next != null) {
-            if (landing == null && occupant(w, traffic, next, now) == null && intervalOk) {
+            if (landing == null && !busy(w, traffic, next, now, p) && intervalOk) {
                 next.st = S_LAND;
                 next.stAt = now;
                 next.stbyTold = false;
@@ -216,7 +253,7 @@ public final class AutoTower {
             }
         }
         if (dep != null) {
-            if (landing == null && !arrivalNear && occupant(w, traffic, dep, now) == null && intervalOk) {
+            if (landing == null && !arrivalNear && !busy(w, traffic, dep, now, p) && intervalOk) {
                 dep.st = S_TAKEOFF;
                 dep.stAt = now;
                 dep.stbyTold = false;
@@ -228,9 +265,19 @@ public final class AutoTower {
                 out.add(new Act(dep.id, Cpdlc.U_HOLDSHORT, rn));
             }
         }
-        // taxi: at once
+        // taxi: at once (an embassy's taxiway «А» under a landing over the high end: ОЖИДАЙТЕ once, then the clearance - not to one
+        // still on the runway: it vacates it first)
+        boolean taxiHeld = taxiHeld(traffic, w, p);
         for (Ac a : traffic) {
             if (a.req == R_TAXI && a.st != S_TAXI) {
+                if (taxiHeld && !onRunway(w, a)) {
+                    if (!a.stbyTold) {
+                        a.stbyTold = true;
+                        out.add(new Act(a.id, Cpdlc.U_STBY, rn));
+                    }
+                    continue;
+                }
+                a.stbyTold = false;
                 a.st = S_TAXI;
                 a.stAt = now;
                 a.req = R_NONE;

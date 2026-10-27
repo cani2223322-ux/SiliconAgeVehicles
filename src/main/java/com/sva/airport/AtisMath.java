@@ -32,10 +32,20 @@ public final class AtisMath {
     /** Approach kinds. */
     public static final int A_VISUAL = 0, A_LOC = 1, A_ILS = 2;
     /** Remarks (bits): ILS out of service / not calibrated, low visibility procedures, thunderstorm, taxi lights «follow the greens», runway lights off. */
-    public static final int RMK_ILS_OFF = 1, RMK_UNCAL = 2, RMK_LVP = 4, RMK_THUNDER = 8, RMK_FOLLOW = 16, RMK_LIGHTS_OFF = 32, RMK_NO_WX = 64;
-    public static final String[] RMK_KEYS = {"ilsOff", "uncal", "lvp", "thunder", "follow", "lightsOff", "noWx"};
+    public static final int RMK_ILS_OFF = 1, RMK_UNCAL = 2, RMK_LVP = 4, RMK_THUNDER = 8, RMK_FOLLOW = 16, RMK_LIGHTS_OFF = 32, RMK_NO_WX = 64,
+            /**
+             * Embassy airfield (docs/plan-embassy-airfield-addon.md §3.2, §4): ПОСАДКА В КУПОЛЕ ЗАПРЕЩЕНА (every embassy), ЛАЙНЕР НЕ
+             * ПРИНИМАЕТСЯ (SHORT unless airport.embassyLinerShort), the liner's autobrake LO or higher (FULL: 181 from the threshold).
+             */
+            RMK_EMB_DOME = 128, RMK_EMB_SHORT = 256, RMK_EMB_BRAKE = 512;
+    public static final String[] RMK_KEYS = {"ilsOff", "uncal", "lvp", "thunder", "follow", "lightsOff", "noWx", "embDome", "embShort", "embBrake"};
 
     private AtisMath() {
+    }
+
+    /** Embassy airfield: an embassy tower's own remarks - the dome always, no liner on SHORT (unless allowed), the autobrake on FULL. */
+    public static int embassyRemarks(boolean full, boolean shortRunway, boolean linerShortAllowed) {
+        return RMK_EMB_DOME | (shortRunway && !linerShortAllowed ? RMK_EMB_SHORT : 0) | (full ? RMK_EMB_BRAKE : 0);
     }
 
     /** What the ATIS reports (an observation): the runway, the approach, the weather, the remarks. */

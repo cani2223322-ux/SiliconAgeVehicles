@@ -161,6 +161,7 @@ public final class SelfTestSVA {
             SelfTestAdCodeReview2SVA.run();                 // code-only review 2026-10-27, batch 2: stale 7700 answers, cards' order, texts, old cards, hint
             SelfTestAdCodeReview3SVA.run();                 // code-only review 2026-10-27, batch 3: relink, riders' code, 7700 and ПОДБОР, marks, minutes, screens
             SelfTestBookSVA.run();                          // wave C: the handbook - data, glyphs, refs, layout, search, schematics, checklists, tutorial, export
+            SelfTestEmbassySVA.run();                       // embassy airfield: runway surface, compat, embassy AD matrix, airport, ATC, services, lights
         } catch (Throwable t) {
             failed++;
             System.out.println("[SVA-TEST] FAIL exception " + t);
@@ -1757,7 +1758,7 @@ public final class SelfTestSVA {
         check(LangKeysSVA.keyLike("sva.hud.jump.why.1") && !LangKeysSVA.keyLike("sva.hud.jump.why.") && !LangKeysSVA.keyLike("sva.a b")
                 && !LangKeysSVA.keyLike("tile.x"), "lang keys: a key is sva. + letters / digits / dots, not a prefix ending with a dot");
         StringBuilder miss = new StringBuilder();
-        for (int code = com.sva.vehicle.SpaceMath.OK; code <= com.sva.vehicle.SpaceMath.CHUNK; code++) {
+        for (int code = com.sva.vehicle.SpaceMath.OK; code <= com.sva.vehicle.SpaceMath.EMBASSY_AD; code++) {   // embassy airfield: up to 13
             if (code == com.sva.vehicle.SpaceMath.OK || code == com.sva.vehicle.SpaceMath.COOLDOWN) {
                 continue;                                                  // the HUD has own lines for these (ready / cooldown)
             }
@@ -1779,7 +1780,7 @@ public final class SelfTestSVA {
                 miss.append(" sva.cockpit.lamp.").append(k);
             }
         }
-        check(miss.length() == 0, "lang keys: the HUD's jump status for every jump check code (1..11 but the cooldown), its chat messages,"
+        check(miss.length() == 0, "lang keys: the HUD's jump status for every jump check code (1..12 but the cooldown), its chat messages,"
                 + " every dial label / unit and lamp label in ru_RU and en_US" + miss);
     }
 

@@ -1,16 +1,20 @@
 package com.sva.block;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 import com.sva.ConfigSVA;
 import com.sva.airport.ApproachMath;
 import com.sva.airport.AtisMath;
+import com.sva.airport.EmbassyAirportMath;
+import com.sva.airport.EmbassyAirportSVA;
 import com.sva.airport.FlightCheck;
 import com.sva.airport.IlsBeam;
 import com.sva.airport.IlsCat;
@@ -21,12 +25,15 @@ import com.sva.airport.RvrMath;
 import com.sva.airport.TaxiGraph;
 import com.sva.airport.TowerMath;
 import com.sva.airport.WindField;
+import com.sva.compat.EmbassyCompatSVA;
+import com.sva.compat.EmbassyFieldSVA;
 import com.sva.vehicle.AirfieldMath;
 import com.sva.vehicle.LinerIls;
 
 import net.minecraft.block.Block;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.init.Blocks;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.util.AxisAlignedBB;
@@ -65,6 +72,15 @@ import net.minecraft.world.biome.BiomeGenBase;
  * as the shelters do, and its air-traffic services (block.AtcServerSVA) run only while it is ONLINE. rebuild() names the
  * runways within TowerMath.RANGE after their tower (instead of «ZZxx»), the taxi lights («Огонь рулёжки», kinds K_TAXI..
  * K_STAND) are devices of their own.
+ * <p>
+ * «Лётное поле посольства» (docs/plan-embassy-airfield-addon.md §3.3, §3.7): airport.EmbassyAirportSVA puts the Tuners' embassies'
+ * airfields in as VIRTUAL records (its registry: isVirtual / embassyOf) - runway ends, a tower, the ILS antennas, the windsock, the taxi
+ * lights - never saved (writeToNBT, IlsDataSVA.writeToNBT and the inspections' list leave them out). Each embassy's ends and antennas
+ * pair only among themselves (a player's marker never takes an embassy's end), named by the core's painted numbers (the true heading);
+ * an embassy's runway belongs to its tower only and its tower takes no player's runway (TowerMath.assign); its antennas are always
+ * whole, monitored and powered and calibrated at CAT III («облёт Наладчиков» - no flight inspection); the core's own blocks bend no
+ * beam (obstacle). The clients' copy is per player (clientData with the hidden keys: the embassies he does not know left out) and
+ * carries the embassy runways' "Emb" / "Ext" / "Ils" and the root's "EmbSock" / "EmbPapi" for the clients' lights.
  */
 public class AirportDataSVA extends WorldSavedData {
 
@@ -548,6 +564,12 @@ public class AirportDataSVA extends WorldSavedData {
         }
     }
 
+    /** Embassy airfield: any record (an end, an antenna, a device, a tower) holds `key`. */
+    public boolean has(String key) {
+        return key != null && (ends.containsKey(key) || locs.containsKey(key) || gss.containsKey(key) || devices.containsKey(key)
+                || towers.containsKey(key));
+    }
+
     public IlsPairing.End end(String key) {
         return ends.get(key);
     }
@@ -589,12 +611,24 @@ public class AirportDataSVA extends WorldSavedData {
         return results.get(locKey);
     }
 
+    /** The flight inspection of a station (embassy airfield: a virtual one's is always done at CAT III - a fresh copy, never stored). */
     public FlightCheck check(String locKey) {
+        if (EmbassyAirportSVA.isVirtual(locKey)) {
+            return calibrated();
+        }
         FlightCheck c = checks.get(locKey);
         if (c == null) {
             c = new FlightCheck();
             checks.put(locKey, c);
         }
+        return c;
+    }
+
+    /** Embassy airfield: «облёт Наладчиков» - an embassy's station is calibrated at CAT III (no FlightCheck flown, nothing stored). */
+    static FlightCheck calibrated() {
+        FlightCheck c = new FlightCheck();
+        c.state = FlightCheck.DONE;
+        c.result = 3;
         return c;
     }
 
@@ -646,10 +680,40 @@ public class AirportDataSVA extends WorldSavedData {
     public void rebuild(World w) {
         dirty = false;
         IlsPairing.magVar = ConfigSVA.aptMagVar;
-        runways = IlsPairing.runways(new ArrayList<IlsPairing.End>(ends.values()));
+        // embassy airfield: the players' markers and antennas pair among themselves, each embassy's virtual ones among its own (a
+        // player's marker or antenna by an embassy's runway never takes its end); an embassy's ends - the core's painted numbers
+        Map<Integer, List<IlsPairing.End>> endsBy = new TreeMap<Integer, List<IlsPairing.End>>();
+        for (IlsPairing.End e : ends.values()) {
+            group(endsBy, EmbassyAirportSVA.embassyOf(e.key)).add(e);
+        }
+        Map<Integer, List<IlsPairing.LocAnt>> locsBy = new TreeMap<Integer, List<IlsPairing.LocAnt>>();
+        for (IlsPairing.LocAnt l : locs.values()) {
+            group(locsBy, EmbassyAirportSVA.embassyOf(l.key)).add(l);
+        }
+        Map<Integer, List<IlsPairing.GsAnt>> gssBy = new TreeMap<Integer, List<IlsPairing.GsAnt>>();
+        for (IlsPairing.GsAnt g : gss.values()) {
+            group(gssBy, EmbassyAirportSVA.embassyOf(g.key)).add(g);
+        }
+        runways = new ArrayList<IlsPairing.Rwy>();
+        Map<Integer, List<IlsPairing.Rwy>> rwysBy = new TreeMap<Integer, List<IlsPairing.Rwy>>();
+        for (Map.Entry<Integer, List<IlsPairing.End>> g : endsBy.entrySet()) {
+            List<IlsPairing.Rwy> rw = IlsPairing.runways(g.getValue());
+            if (g.getKey().intValue() >= 0) {
+                embassyNames(rw);
+            }
+            rwysBy.put(g.getKey(), rw);
+            runways.addAll(rw);
+        }
         IlsPairing.airports(runways);
         applyTowers();                                              // airport wave B2: the towers name their runways
-        pairs = IlsPairing.pair(runways, new ArrayList<IlsPairing.LocAnt>(locs.values()), new ArrayList<IlsPairing.GsAnt>(gss.values()));
+        pairs = new ArrayList<IlsPairing.Pair>();
+        for (Map.Entry<Integer, List<IlsPairing.Rwy>> g : rwysBy.entrySet()) {
+            List<IlsPairing.LocAnt> ll = locsBy.get(g.getKey());
+            List<IlsPairing.GsAnt> gl = gssBy.get(g.getKey());
+            if (ll != null) {
+                pairs.addAll(IlsPairing.pair(g.getValue(), ll, gl == null ? new ArrayList<IlsPairing.GsAnt>() : gl));
+            }
+        }
         conflicts.clear();
         for (String[] c : IlsPairing.conflicts(pairs)) {
             conflicts.add(c[0]);
@@ -687,6 +751,7 @@ public class AirportDataSVA extends WorldSavedData {
         }
         // the stations
         Map<String, LinerIls.Station> fresh = new LinkedHashMap<String, LinerIls.Station>();
+        List<IlsPairing.Pair> newVirtual = new ArrayList<IlsPairing.Pair>();
         for (IlsPairing.Pair p : pairs) {
             LinerIls.Station s = IlsPairing.station(p);
             for (Device d : devices.values()) {
@@ -695,9 +760,10 @@ public class AirportDataSVA extends WorldSavedData {
                     s.markers[d.type] = (int) Math.round(-l[0]);
                 }
             }
+            boolean virt = EmbassyAirportSVA.isVirtual(p.key());
             int geo = geoHash(p);
             Integer was = checkedGeo.get(p.key());
-            if (was == null || was.intValue() != geo) {
+            if (!virt && (was == null || was.intValue() != geo)) {
                 check(p.key()).reset();                             // a new / changed station: a new flight inspection
                 checkedGeo.put(p.key(), Integer.valueOf(geo));
             }
@@ -710,12 +776,23 @@ public class AirportDataSVA extends WorldSavedData {
             } else {
                 s.cat = 0;
                 s.flags |= LinerIls.F_UNCAL;
+                if (virt) {
+                    newVirtual.add(p);
+                }
             }
-            s.calib = check(p.key()).pack();
+            s.calib = check(p.key()).pack();                        // embassy airfield: a virtual one's - calibrated
             fresh.put(p.key(), s);
         }
         stations.clear();
         stations.putAll(fresh);
+        // embassy airfield: a new virtual station's monitor at once - its category without waiting for STATUS_TICKS
+        if (w != null && w.provider != null) {
+            for (IlsPairing.Pair p : newVirtual) {
+                if (p.loc.dim == w.provider.dimensionId) {
+                    status(w, p, w.getTotalWorldTime());
+                }
+            }
+        }
         // airport wave B2: a tower whose airport changed - its charts' version moves on
         for (Tower t : towers.values()) {
             int sig = chartSig(t);
@@ -730,19 +807,48 @@ public class AirportDataSVA extends WorldSavedData {
         publish(w, true);
     }
 
+    /** The list of `k` in `m` (made when missing). */
+    private static <T> List<T> group(Map<Integer, List<T>> m, int k) {
+        Integer key = Integer.valueOf(k);
+        List<T> l = m.get(key);
+        if (l == null) {
+            l = new ArrayList<T>();
+            m.put(key, l);
+        }
+        return l;
+    }
+
+    /** Embassy airfield: an embassy's runways named by the numbers painted on its ends (the core's: the TRUE heading, no aptMagVar). */
+    private static void embassyNames(List<IlsPairing.Rwy> rws) {
+        for (IlsPairing.Rwy r : rws) {
+            EmbassyFieldSVA f = EmbassyAirportSVA.INSTANCE.fieldOf(null, r.a.key);
+            if (f == null || f.numberLow.length() == 0 || f.numberHigh.length() == 0) {
+                continue;
+            }
+            boolean aLow = r.a.key.equals(EmbassyAirportMath.key(f.dim, f.thresholdKey(true)));
+            r.nameA = aLow ? f.numberLow : f.numberHigh;
+            r.nameB = aLow ? f.numberHigh : f.numberLow;
+        }
+    }
+
     /**
      * Airport wave B2: each runway to its nearest tower within TowerMath.RANGE (TowerMath.assign) - named by the tower's ICAO
-     * code instead of «ZZxx»; the towers' runway lists and elevations.
+     * code instead of «ZZxx»; the towers' runway lists and elevations. Embassy airfield: both ways - an embassy's runway only to its
+     * own virtual tower, a player's runway never to an embassy's tower (Site.emb / rwyEmb: the registry's embassy ids).
      */
     void applyTowers() {
         endTower.clear();
         List<Tower> tl = new ArrayList<Tower>(towers.values());
         List<TowerMath.Site> sites = new ArrayList<TowerMath.Site>();
         for (Tower t : tl) {
-            sites.add(new TowerMath.Site(t.dim, t.x + 0.5, t.z + 0.5));
+            sites.add(new TowerMath.Site(t.dim, t.x + 0.5, t.z + 0.5, EmbassyAirportSVA.embassyOf(t.key)));
             t.rwys = new ArrayList<IlsPairing.Rwy>();
         }
-        int[] owner = TowerMath.assign(sites, runways);
+        int[] rwyEmb = new int[runways.size()];
+        for (int i = 0; i < runways.size(); i++) {
+            rwyEmb[i] = EmbassyAirportSVA.embassyOf(runways.get(i).a.key);
+        }
+        int[] owner = TowerMath.assign(sites, runways, rwyEmb);
         for (int i = 0; i < runways.size(); i++) {
             if (owner[i] < 0) {
                 continue;
@@ -796,7 +902,7 @@ public class AirportDataSVA extends WorldSavedData {
         boolean any = false;
         if (now % STATUS_TICKS == 0) {
             for (IlsPairing.Pair p : pairs) {
-                if (p.loc.dim == dim) {
+                if (p.loc.dim == dim && !embassyAsleep(p, now)) {
                     any |= status(w, p, now);
                 }
             }
@@ -813,6 +919,21 @@ public class AirportDataSVA extends WorldSavedData {
         }
     }
 
+    /**
+     * Review 2026-10-27: an embassy's virtual station whose tower is offline (no player within TowerMath.ATC_RANGE - EmbassyAirportSVA.report)
+     * is not monitored: nobody flies its beams, and every embassy with a field in the world would scan its areas every STATUS_TICKS. Its
+     * status stands as it was; the tower's first report again - the next STATUS_TICKS measures it.
+     */
+    boolean embassyAsleep(IlsPairing.Pair p, long now) {
+        int id = EmbassyAirportSVA.embassyOf(p.loc.key);
+        if (id < 0) {
+            return false;
+        }
+        String tk = EmbassyAirportSVA.INSTANCE.towerKey(id);
+        Tower t = tk == null ? null : towers.get(tk);
+        return t == null || !t.online(now);
+    }
+
     /** The monitor of one station: what it is made of now -> IlsCat -> the station. @return changed */
     boolean status(World w, IlsPairing.Pair p, long now) {
         LinerIls.Station s = stations.get(p.key());
@@ -820,9 +941,14 @@ public class AirportDataSVA extends WorldSavedData {
             return false;
         }
         IlsCat.Setup u = new IlsCat.Setup();
-        // the antennas: intact (the array / the mast whole), their shelters (monitor + power)
-        boolean locLoaded = loaded(w, p.loc.x, p.loc.z);
-        if (locLoaded) {
+        // the antennas: intact (the array / the mast whole), their shelters (monitor + power); embassy airfield: a virtual antenna has
+        // no block - always whole, monitored and powered (the Tuners keep it)
+        boolean virt = EmbassyAirportSVA.isVirtual(p.loc.key);
+        if (virt) {
+            p.loc.intact = true;
+            p.loc.monitor = true;
+            p.loc.power = true;
+        } else if (loaded(w, p.loc.x, p.loc.z)) {
             p.loc.intact = TileEntityIlsAntennaSVA.intact(w, p.loc.key);
             long[] r = reports.get(p.loc.key);
             p.loc.monitor = r != null && now - r[0] <= REPORT_TICKS;
@@ -833,7 +959,11 @@ public class AirportDataSVA extends WorldSavedData {
         boolean powered = !ConfigSVA.aptRequirePower || p.loc.power;
         u.gsPresent = p.gs != null;
         if (p.gs != null) {
-            if (loaded(w, p.gs.x, p.gs.z)) {
+            if (EmbassyAirportSVA.isVirtual(p.gs.key)) {
+                p.gs.intact = true;
+                p.gs.monitor = true;
+                p.gs.power = true;
+            } else if (loaded(w, p.gs.x, p.gs.z)) {
                 p.gs.intact = TileEntityIlsAntennaSVA.intact(w, p.gs.key);
                 long[] r = reports.get(p.gs.key);
                 p.gs.monitor = r != null && now - r[0] <= REPORT_TICKS;
@@ -871,8 +1001,8 @@ public class AirportDataSVA extends WorldSavedData {
         u.gsCrit = o[1];
         u.locSens = o[2];
         u.gsSens = o[3];
-        FlightCheck fc = check(p.key());
-        u.calibCat = ConfigSVA.aptFlightCheck ? fc.calibCat() : 3;
+        FlightCheck fc = check(p.key());                            // embassy airfield: a virtual station's - calibrated
+        u.calibCat = virt || !ConfigSVA.aptFlightCheck ? 3 : fc.calibCat();
         Tower tw = endTower.get(p.r.a.key);
         u.towerOff = tw != null && tw.ilsOff.contains(p.key());     // airport wave B2: ILS ВЫКЛ on the tower's screen
         IlsCat.Result res = IlsCat.compute(u);
@@ -923,11 +1053,26 @@ public class AirportDataSVA extends WorldSavedData {
         return a;
     }
 
-    /** The solid blocks over the surface in the areas (a sensitive count excludes its critical part); null: not loaded. */
+    /**
+     * The solid blocks over the surface in the areas (a sensitive count excludes its critical part); null: not loaded. Embassy airfield
+     * (integration 2026-10-27): a virtual station's areas skip the field's protected zone and the dome - nobody else builds there (the core guards them),
+     * and the Tuners' own decor in it (the windsock's mast, the fence's bars, the lamps - frangible) held both FULL ends at CAT II; nor does
+     * the land's LIP count for it past them (naturalLip: the Tuners' calibration flight was flown over it - a one-block lip of grass where
+     * the core's levelled strip ends, 6 off the runway's edge, held a FULL end at CAT II). Review 2026-10-27: only that lip - the top one or
+     * two blocks of plain ground (naturalGround: grass, dirt, mycelium, sand, gravel, a snow layer) at the runway's level or one over it;
+     * stone, sandstone, clay, terracotta, ice, a hill, what players build there, and the machines, all count. The areas' corners are asked
+     * loaded first (scanEntities' way) - an unloaded station's scan costs nothing.
+     */
     int[] scanBlocks(World w, IlsPairing.Pair p) {
         IlsCat.Area[] a = areas(p);
         int y0 = (int) Math.round(p.r.end(p.dir).elev);
         int[] n = new int[4];
+        for (int i = 0; i < 4; i++) {
+            if (a[i] != null && !cornersLoaded(w, p, a[i], y0)) {
+                return null;
+            }
+        }
+        EmbassyFieldSVA ef = EmbassyAirportSVA.isVirtual(p.loc.key) ? EmbassyAirportSVA.INSTANCE.fieldOf(w, p.loc.key) : null;
         for (int i = 0; i < 4; i++) {
             if (a[i] == null) {
                 continue;
@@ -942,8 +1087,11 @@ public class AirportDataSVA extends WorldSavedData {
                         continue;                                   // the critical part counted already
                     }
                 }
+                if (ef != null && (EmbassyCompatSVA.inZone(ef, c[0], c[1]) || ef.inDome(c[0] + 0.5, c[1] + 0.5))) {
+                    continue;                                       // the embassy's guarded field / its dome: its own (frangible) things only
+                }
                 for (int y = y0; y < y0 + IlsCat.CRIT_HEIGHT && y < 256; y++) {
-                    if (obstacle(w, c[0], y, c[1])) {
+                    if (obstacle(w, c[0], y, c[1]) && (ef == null || !lipAt(w, c[0], y, c[1], y0))) {
                         n[i]++;
                     }
                 }
@@ -955,19 +1103,68 @@ public class AirportDataSVA extends WorldSavedData {
         return n;
     }
 
-    /** A block that bends the beam: solid, not the airport's own (antennas, shelters, devices, runway, markers). */
+    /**
+     * Embassy airfield: plain ground (grass, dirt, mycelium, sand, gravel, a snow layer) - what the lip where the core's levelled strip
+     * ends is made of (review 2026-10-27: not stone, sandstone, clay, terracotta, a snow block or ice - players build with those).
+     */
+    public static boolean naturalGround(Block b) {
+        return b == Blocks.grass || b == Blocks.dirt || b == Blocks.mycelium || b == Blocks.sand || b == Blocks.gravel || b == Blocks.snow_layer;
+    }
+
+    /**
+     * The lip rule (pure - the self-test runs it): a block `dy` over the runway's level (0 / 1 only) of plain ground (`natural`) is the
+     * land's lip when it is its column's top (`aboveClear` - nothing solid over it), or at the level itself under one more block of plain
+     * ground that is the top (`aboveNatural`, `twoAboveClear`).
+     */
+    public static boolean naturalLip(int dy, boolean natural, boolean aboveClear, boolean aboveNatural, boolean twoAboveClear) {
+        return natural && dy >= 0 && dy <= 1 && (aboveClear || dy == 0 && aboveNatural && twoAboveClear);
+    }
+
+    /** naturalLip at block (x, y, z) of a station whose runway's level is y0. */
+    static boolean lipAt(World w, int x, int y, int z, int y0) {
+        int dy = y - y0;
+        if (dy < 0 || dy > 1 || !naturalGround(w.getBlock(x, y, z))) {
+            return false;
+        }
+        boolean up = obstacle(w, x, y + 1, z);
+        return naturalLip(dy, true, !up, up && naturalGround(w.getBlock(x, y + 1, z)), up && !obstacle(w, x, y + 2, z));
+    }
+
+    /** The area's four corners (the runway frame) are in loaded chunks. */
+    static boolean cornersLoaded(World w, IlsPairing.Pair p, IlsCat.Area a, int y0) {
+        double[][] cs = {{a.a0, a.c0}, {a.a1, a.c0}, {a.a0, a.c1}, {a.a1, a.c1}};
+        for (double[] c : cs) {
+            double[] wp = p.r.world(p.dir, c[0], c[1]);
+            if (!w.blockExists((int) Math.floor(wp[0]), y0, (int) Math.floor(wp[1]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * A block that bends the beam: solid, not the airport's own (antennas, shelters, devices, runway, markers). Embassy airfield: nor
+     * an embassy's own block (its paving, lights, fence, buildings - EmbassyCompatSVA.isEmbassyBlock; else they would hold its ILS at
+     * CAT I).
+     */
     public static boolean obstacle(World w, int x, int y, int z) {
         Block b = w.getBlock(x, y, z);
         if (b.isAir(w, x, y, z) || !b.getMaterial().blocksMovement()) {
             return false;
         }
         return !(b instanceof BlockIlsAntennaSVA || b instanceof BlockAptPartSVA || b instanceof BlockIlsShelterSVA || b instanceof BlockAptDeviceSVA
-                || b instanceof BlockRunwayEndSVA || b instanceof BlockRunwaySVA || b instanceof BlockPapiSVA || b instanceof BlockApproachLightSVA);
+                || b instanceof BlockRunwayEndSVA || b instanceof BlockRunwaySVA || b instanceof BlockPapiSVA || b instanceof BlockApproachLightSVA
+                || EmbassyCompatSVA.isEmbassyBlock(b));
     }
 
-    /** The entities in the areas (vehicles IlsCat.OCC_VEHICLE, creatures 1); null: not loaded. */
+    /**
+     * The entities in the areas (vehicles IlsCat.OCC_VEHICLE, creatures 1); null: not loaded. Embassy airfield: a virtual station counts
+     * the machines and the players only - the embassy's own people (the Sentries at their posts by the windsock, its villagers) and the
+     * animals on its kept field do not bend the Tuners' beams.
+     */
     int[] scanEntities(World w, IlsPairing.Pair p) {
         IlsCat.Area[] a = areas(p);
+        boolean virt = EmbassyAirportSVA.isVirtual(p.loc.key);
         int[] n = new int[4];
         double y0 = p.r.end(p.dir).elev;
         for (int i = 0; i < 4; i++) {
@@ -994,7 +1191,7 @@ public class AirportDataSVA extends WorldSavedData {
                 }
                 if (en instanceof com.sva.entity.EntityVehicleSVA) {
                     n[i] += IlsCat.OCC_VEHICLE;
-                } else if (en instanceof EntityLivingBase) {
+                } else if (en instanceof EntityLivingBase && (!virt || en instanceof net.minecraft.entity.player.EntityPlayer)) {
                     n[i]++;
                 }
             }
@@ -1008,8 +1205,8 @@ public class AirportDataSVA extends WorldSavedData {
         int dim = w.provider.dimensionId;
         List<com.sva.entity.EntityVehicleSVA> air = null;
         for (IlsPairing.Pair p : pairs) {
-            if (p.loc.dim != dim) {
-                continue;
+            if (p.loc.dim != dim || EmbassyAirportSVA.isVirtual(p.key())) {
+                continue;                                           // embassy airfield: «облёт Наладчиков» - nothing to fly
             }
             LinerIls.Station s = stations.get(p.key());
             FlightCheck fc = check(p.key());
@@ -1241,8 +1438,25 @@ public class AirportDataSVA extends WorldSavedData {
 
     // ---------------------------------------------------------------- the clients' copy (AirportServerSVA sends it)
 
-    /** The runways (the renderers' paint and lights), the stations' status, the wind's seed - of one dimension. */
+    /** The runways (the renderers' paint and lights), the stations' status, the wind's seed - of one dimension (nothing hidden). */
     public NBTTagCompound clientData(World w, int dim) {
+        return clientData(w, dim, Collections.<String>emptySet());
+    }
+
+    /** A taxi light of an embassy the player does not know: kept in its place in the list (D_TAXI's indices), drawn never, told nothing. */
+    public static final int HIDDEN_Y = -4096;
+
+    /**
+     * Embassy airfield: one player's copy - the records of `hidden` (EmbassyAirportSVA.hiddenKeys: the embassies he does not know) left
+     * out (their taxi lights stay as blind places: the lit set D_TAXI counts by index); an embassy runway carries "Emb" (its id), "Ext"
+     * (the paved blocks past each threshold) and "Ils" (bit 1 - an ILS over its end A, 2 - over B); the root "EmbSock" {x, y, z...} (the
+     * windsocks' mast feet) and "EmbPapi" {x, y, z, heading x 10, angle x 10...} (each runway end's PAPI - EmbassyAirportMath.papi) of
+     * the embassies he knows.
+     */
+    public NBTTagCompound clientData(World w, int dim, Set<String> hidden) {
+        if (hidden == null) {
+            hidden = Collections.<String>emptySet();
+        }
         if (dirty) {
             rebuild(w);
         }
@@ -1250,7 +1464,7 @@ public class AirportDataSVA extends WorldSavedData {
         t.setLong("WindSeed", windSeed(w));
         NBTTagList rl = new NBTTagList();
         for (IlsPairing.Rwy r : runways) {
-            if (r.a.dim != dim) {
+            if (r.a.dim != dim || hidden.contains(r.a.key)) {
                 continue;
             }
             NBTTagCompound e = new NBTTagCompound();
@@ -1274,12 +1488,16 @@ public class AirportDataSVA extends WorldSavedData {
             e.setInteger("Ra", ra[0]);
             e.setInteger("Rb", rb[0]);
             e.setString("Apt", r.apt);
+            int emb = EmbassyAirportSVA.embassyOf(r.a.key);
+            if (emb >= 0) {
+                embassyRunway(e, r, emb);
+            }
             rl.appendTag(e);
         }
         t.setTag("Rwy", rl);
         NBTTagList sl = new NBTTagList();
         for (LinerIls.Station s : stations.values()) {
-            if (s.dim != dim) {
+            if (s.dim != dim || hidden.contains(s.key())) {
                 continue;
             }
             NBTTagCompound e = new NBTTagCompound();
@@ -1295,7 +1513,7 @@ public class AirportDataSVA extends WorldSavedData {
         // taxi lights {x, y, z, kind - K_TAXI} in the graph's stable order (the lit ones come by D_TAXI, by index)
         NBTTagList tw = new NBTTagList();
         for (Tower x : towers.values()) {
-            if (x.dim != dim) {
+            if (x.dim != dim || hidden.contains(x.key)) {
                 continue;
             }
             NBTTagCompound e = new NBTTagCompound();
@@ -1312,6 +1530,11 @@ public class AirportDataSVA extends WorldSavedData {
         int[] ta = new int[tx.size() * 4];
         for (int i = 0; i < tx.size(); i++) {
             Device d = tx.get(i);
+            if (hidden.contains(d.key)) {
+                ta[i * 4 + 1] = HIDDEN_Y;                           // embassy airfield: an unknown embassy's - a blind place (an edge light under the world)
+                ta[i * 4 + 3] = K_EDGE - K_TAXI;
+                continue;
+            }
             ta[i * 4] = (int) Math.floor(d.x);
             ta[i * 4 + 1] = (int) Math.floor(d.y);
             ta[i * 4 + 2] = (int) Math.floor(d.z);
@@ -1319,7 +1542,57 @@ public class AirportDataSVA extends WorldSavedData {
         }
         t.setIntArray("Tx", ta);
         t.setInteger("TxV", taxiVersion);
+        embassyRoot(t, dim, hidden);
         return t;
+    }
+
+    /** Embassy airfield: a virtual runway's words for the clients' lights ("Emb", "Ext", "Ils"). */
+    private static void embassyRunway(NBTTagCompound e, IlsPairing.Rwy r, int emb) {
+        e.setInteger("Emb", emb);
+        EmbassyFieldSVA f = EmbassyAirportSVA.INSTANCE.fieldOf(null, r.a.key);
+        int ext = 0, ils = 0;
+        if (f != null) {
+            boolean aLow = r.a.key.equals(EmbassyAirportMath.key(f.dim, f.thresholdKey(true)));
+            ext = EmbassyAirportMath.ext(f.end(true), f.thresholdKey(true));
+            ils = EmbassyAirportMath.ilsBits(aLow, f.ilsLow, f.ilsHigh);
+        }
+        e.setDouble("Ext", ext);
+        e.setInteger("Ils", ils);
+    }
+
+    /** Embassy airfield: the known embassies' windsocks ("EmbSock") and PAPI points ("EmbPapi") of one dimension. */
+    private static void embassyRoot(NBTTagCompound t, int dim, Set<String> hidden) {
+        List<int[]> sock = new ArrayList<int[]>(), papi = new ArrayList<int[]>();
+        double angle = LinerIls.clampAngle(ConfigSVA.aptEmbassyGlideAngle);
+        for (EmbassyFieldSVA f : EmbassyAirportSVA.INSTANCE.built()) {
+            if (f.dim != dim || EmbassyAirportSVA.INSTANCE.hiddenIn(f.id, hidden)) {
+                continue;
+            }
+            int[] s = f.windsock();
+            if (s != null) {
+                sock.add(s);
+            }
+            if (f.hasRunway()) {
+                for (int e = 0; e < 2; e++) {
+                    boolean low = e == 0;
+                    int[] p = EmbassyAirportMath.papi(f.thresholdKey(low), low ? f.headingLow : f.headingHigh, f.width, angle);
+                    if (p != null) {
+                        papi.add(p);
+                    }
+                }
+            }
+        }
+        t.setIntArray("EmbSock", flat(sock, 3));
+        t.setIntArray("EmbPapi", flat(papi, 5));
+    }
+
+    /** The first `n` ints of each, one after the other. */
+    private static int[] flat(List<int[]> l, int n) {
+        int[] out = new int[l.size() * n];
+        for (int i = 0; i < l.size(); i++) {
+            System.arraycopy(l.get(i), 0, out, i * n, n);
+        }
+        return out;
     }
 
     /** Every taxi light of a dimension in the graph's order (taxi(dim)[2]). */
@@ -1413,10 +1686,14 @@ public class AirportDataSVA extends WorldSavedData {
         dirty = true;
     }
 
+    /** Embassy airfield: the virtual records (EmbassyAirportSVA's) are never saved - in no list, the inspections' neither. */
     @Override
     public void writeToNBT(NBTTagCompound t) {
         NBTTagList l = new NBTTagList();
         for (IlsPairing.End en : ends.values()) {
+            if (EmbassyAirportSVA.isVirtual(en.key)) {
+                continue;
+            }
             NBTTagCompound e = new NBTTagCompound();
             e.setString("K", en.key);
             e.setInteger("Dim", en.dim);
@@ -1432,6 +1709,9 @@ public class AirportDataSVA extends WorldSavedData {
         t.setTag("Ends", l);
         l = new NBTTagList();
         for (IlsPairing.LocAnt a : locs.values()) {
+            if (EmbassyAirportSVA.isVirtual(a.key)) {
+                continue;
+            }
             NBTTagCompound e = new NBTTagCompound();
             e.setString("K", a.key);
             e.setInteger("Dim", a.dim);
@@ -1448,6 +1728,9 @@ public class AirportDataSVA extends WorldSavedData {
         t.setTag("Locs", l);
         l = new NBTTagList();
         for (IlsPairing.GsAnt a : gss.values()) {
+            if (EmbassyAirportSVA.isVirtual(a.key)) {
+                continue;
+            }
             NBTTagCompound e = new NBTTagCompound();
             e.setString("K", a.key);
             e.setInteger("Dim", a.dim);
@@ -1463,6 +1746,9 @@ public class AirportDataSVA extends WorldSavedData {
         t.setTag("Gss", l);
         l = new NBTTagList();
         for (Device d : devices.values()) {
+            if (EmbassyAirportSVA.isVirtual(d.key)) {
+                continue;
+            }
             NBTTagCompound e = new NBTTagCompound();
             e.setString("K", d.key);
             e.setInteger("Dim", d.dim);
@@ -1476,6 +1762,9 @@ public class AirportDataSVA extends WorldSavedData {
         t.setTag("Devs", l);
         l = new NBTTagList();
         for (Map.Entry<String, FlightCheck> c : checks.entrySet()) {
+            if (EmbassyAirportSVA.isVirtual(c.getKey())) {
+                continue;
+            }
             NBTTagCompound e = new NBTTagCompound();
             e.setString("K", c.getKey());
             e.setInteger("W", c.getValue().pack());
@@ -1486,6 +1775,9 @@ public class AirportDataSVA extends WorldSavedData {
         t.setTag("Checks", l);
         l = new NBTTagList();
         for (Tower tw : towers.values()) {
+            if (EmbassyAirportSVA.isVirtual(tw.key)) {
+                continue;
+            }
             NBTTagCompound e = new NBTTagCompound();
             tw.write(e);
             l.appendTag(e);

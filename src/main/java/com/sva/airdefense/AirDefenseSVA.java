@@ -1188,6 +1188,18 @@ public final class AirDefenseSVA {
         return shots;
     }
 
+    /**
+     * Embassy airfield (EmbassyAdSVA): the shells (not the missiles) of the launchers whose key begins with `launcherPrefix` still in the
+     * air at entity `target` go harmless - it landed, is held or left the zone (the embassy never fires at anything on the ground).
+     */
+    public void disarm(int target, String launcherPrefix) {
+        for (Projectile p : shots) {
+            if (!p.missile && p.target == target && p.launcher.startsWith(launcherPrefix)) {
+                p.harmless = true;
+            }
+        }
+    }
+
     /** A projectile's tick: still FLYING, or what ended it. */
     public static final int FLYING = 0, HIT = 1, STOPPED = 2, EXPIRED = 3;
 
@@ -1291,9 +1303,11 @@ public final class AirDefenseSVA {
         } else {
             w.func_147487_a("crit", p.x, p.y, p.z, 6, 0.3, 0.3, 0.3, 0.2);
         }
-        TileEntityLauncherSVA l = launcher(w, p.launcher);
+        TileEntityLauncherSVA l = p.launcher.startsWith(EmbassyAdSVA.LAUNCHER_PREFIX) ? null : launcher(w, p.launcher);
         if (l != null) {
             l.onHit(target, p.missile, dmg);
+        } else if (p.launcher.startsWith(EmbassyAdSVA.LAUNCHER_PREFIX)) {
+            EmbassyAdSVA.INSTANCE.onHit(p.launcher, target, dmg);   // embassy airfield: an embassy post's shell
         }
     }
 
@@ -1341,6 +1355,25 @@ public final class AirDefenseSVA {
         ChatComponentTranslation c = new ChatComponentTranslation(key, chatArgs(args));
         c.getChatStyle().setColor(colour == 0xF05050 ? EnumChatFormatting.RED : colour == 0x62E06A ? EnumChatFormatting.GREEN : EnumChatFormatting.GOLD);
         p.addChatComponentMessage(c);
+        NBTTagCompound t = new NBTTagCompound();
+        t.setString("K", key);
+        NBTTagList a = new NBTTagList();
+        for (Object o : args) {
+            a.appendTag(new net.minecraft.nbt.NBTTagString(hudArg(o)));
+        }
+        t.setTag("A", a);
+        t.setInteger("C", colour);
+        NetADSVA.send(p, NetADSVA.D_MSG, t);
+    }
+
+    /**
+     * Embassy airfield (EmbassyAdSVA): the HUD line alone, as tell() sends it - the chat line of the embassy's air defence is the core's
+     * own (EmbassyCompatSVA.tell). Never a FakePlayer (no connection).
+     */
+    public void hud(EntityPlayerMP p, int colour, String key, Object... args) {
+        if (p == null || p instanceof net.minecraftforge.common.util.FakePlayer) {
+            return;
+        }
         NBTTagCompound t = new NBTTagCompound();
         t.setString("K", key);
         NBTTagList a = new NBTTagList();
@@ -1756,6 +1789,7 @@ public final class AirDefenseSVA {
         ticks++;
         try {
             moveShots();
+            EmbassyAdSVA.INSTANCE.tick(ticks);                      // embassy airfield: the embassies' own air defence
             CoverageSVA.INSTANCE.tick();
             AdTerrainSVA.INSTANCE.tick(ticks);                      // audit 2026-10-22 (bug 10): the terrain memory
             if (ticks % 5 == 0) {

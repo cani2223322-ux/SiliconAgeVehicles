@@ -32,7 +32,13 @@ public final class Cpdlc {
     public static final int U_TAXI = 0, U_LINEUP = 1, U_TAKEOFF = 2, U_LAND = 3, U_GOAROUND = 4, U_CLIMB = 5, U_DESCEND = 6, U_HDG = 7,
             U_REPORT = 8, U_FREE = 9, U_STBY = 10, U_UNABLE = 11, U_HOLDSHORT = 12,
             /** Wave A (plan-next §9 A4 / A10): КОД ОТВЕТЧИКА 41xx (WILCO sets it), ОТВЕТЧИК НЕ ОТВЕЧАЕТ - ОТВЕТЬТЕ (the IFF call). */
-            U_SQUAWK = 13, U_IFF = 14, U_TYPES = 15;
+            U_SQUAWK = 13, U_IFF = 14,
+            /**
+             * Embassy airfield (docs/plan-embassy-airfield-addon.md §3.4, §3.10; no response wanted): ОБСЛУЖИВАНИЕ ЗАПРЕЩЕНО (the embassy's
+             * «Враг»; s - the reason's lang key part), ПОСАДКА В КУПОЛЕ ЗАПРЕЩЕНА, the embassy's air defence on the radio (arg - its line
+             * EmbassyCompatSVA.AD_*, s - the callsign).
+             */
+            U_REFUSED = 15, U_DOME = 16, U_EMB_AD = 17, U_TYPES = 18;
     /** Downlink types (requests; then the pilot's responses). */
     public static final int D_READY = 20, D_LANDING = 21, D_CLIMB = 22, D_TAXI = 23, D_FREE = 24, D_WILCO = 25, D_UNABLE = 26, D_STBY = 27,
             D_FIRST = 20, D_LAST = 27;
@@ -92,7 +98,7 @@ public final class Cpdlc {
 
     /** Does an uplink type want the crew's response (WILCO / UNABLE / STBY)? */
     public static boolean needsResponse(int type) {
-        return type >= U_TAXI && type < U_TYPES && type != U_STBY && type != U_UNABLE;
+        return type >= U_TAXI && type < U_TYPES && type != U_STBY && type != U_UNABLE && type != U_REFUSED && type != U_DOME && type != U_EMB_AD;
     }
 
     public static boolean isRequest(int type) {
@@ -132,6 +138,12 @@ public final class Cpdlc {
             case U_FREE:
             case D_FREE:
                 return new String[] {m.s};
+            case U_REFUSED:
+                // embassy airfield: the reason's key part (EmbassyAtcMath.REFUSE_KEYS: "enemy", "liner")
+                return new String[] {"#sva.cpdlc.refused." + (m.s.length() == 0 ? "enemy" : m.s)};
+            case U_EMB_AD:
+                // embassy airfield: the callsign, the air defence's line (EmbassyCompatSVA.AD_KEYS)
+                return new String[] {m.s, "#sva.cpdlc.embAd." + com.sva.compat.EmbassyCompatSVA.AD_KEYS[Math.max(0, Math.min(5, m.arg))]};
             default:
                 return new String[0];
         }

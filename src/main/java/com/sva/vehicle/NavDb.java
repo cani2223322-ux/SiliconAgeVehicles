@@ -1,7 +1,12 @@
 package com.sva.vehicle;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 import com.sva.airdefense.ZoneMath;
 
@@ -31,9 +36,14 @@ public final class NavDb {
             /** Airport wave B1: a runway of two «Торец полосы» markers (its ICAO placeholder airport). */
             SRC_RWY = 4,
             /** Airport wave B2: an airport named by its «Диспетчерская вышка» (ICAO, approaches, entry fixes). */
-            SRC_TOWER = 5;
+            SRC_TOWER = 5,
+            /**
+             * Embassy airfield (docs/plan-embassy-airfield-addon.md §3.7): a Tuners' embassy's virtual airport - only in the database of a
+             * player who knows that embassy (EmbassyCompatSVA.knows: been there or within 1024); Airport.embassy is its id.
+             */
+            SRC_EMBASSY = 6;
     /** Lang key part per source (sva.mcdu.src.KEY). */
-    public static final String[] SRC_KEYS = {"ils", "zone", "pilot", "base", "rwy", "tower"};
+    public static final String[] SRC_KEYS = {"ils", "zone", "pilot", "base", "rwy", "tower", "embassy"};
     /** Beacons with one ident this close (blocks) are one airport. */
     public static final double SAME_AIRPORT = 3000;
     /** A runway's length when nothing tells it (blocks): the localizer antenna's distance beyond the threshold. */
@@ -74,6 +84,8 @@ public final class NavDb {
         /** Airport wave B2: the tower's name ("" none) and its published approaches (ApproachMath; the MCDU's «ЗАХОД»). */
         public String name = "";
         public final List<com.sva.airport.ApproachMath.Approach> apprs = new ArrayList<com.sva.airport.ApproachMath.Approach>();
+        /** Embassy airfield: the embassy's id of an SRC_EMBASSY airport (its ILS, its entry fixes go with it), -1 otherwise. Never saved. */
+        public int embassy = -1;
 
         /** The approach by its id («ILS27L»), null none. */
         public com.sva.airport.ApproachMath.Approach approach(String id) {
@@ -104,6 +116,7 @@ public final class NavDb {
             a.z = z;
             a.elev = elev;
             a.name = name;
+            a.embassy = embassy;
             for (Rwy r : rwys) {
                 a.rwys.add(r.copy());
             }
@@ -137,6 +150,8 @@ public final class NavDb {
         public String ident = "";
         public int src = SRC_PILOT, dim;
         public double x, z;
+        /** Embassy airfield: the embassy's id of an SRC_EMBASSY entry fix (it goes with its airport), -1 otherwise. Never saved. */
+        public int embassy = -1;
 
         public void write(NBTTagCompound t) {
             t.setString("Id", ident);
@@ -158,6 +173,8 @@ public final class NavDb {
     public final List<Wpt> wpts = new ArrayList<Wpt>();
     /** Every ILS station of the dimension (RAD NAV picks by ident / frequency). */
     public final List<LinerIls.Station> ils = new ArrayList<LinerIls.Station>();
+    /** Embassy airfield: the embassy's id of each embassy's virtual ILS station, by its key (block.NavDataSVA fills it). Never saved. */
+    public final Map<String, Integer> ilsEmbassy = new HashMap<String, Integer>();
 
     public Airport airport(String ident) {
         for (Airport a : airports) {
@@ -410,6 +427,75 @@ public final class NavDb {
                 return p.ident.compareTo(q.ident);
             }
         });
+    }
+
+    // ---------------------------------------------------------------- embassy airfield: what a viewer may know
+
+    /** embassies()' answer, made at its first call (review 2026-10-27: a built database is read-only - the MCDU asks every tick). */
+    private Set<Integer> embassyIds;
+
+    /** The embassies (ids) this database names: its SRC_EMBASSY airports, their entry fixes and ILS stations (made once, then the same set). */
+    public Set<Integer> embassies() {
+        if (embassyIds == null) {
+            embassyIds = java.util.Collections.unmodifiableSet(embassiesNow());
+        }
+        return embassyIds;
+    }
+
+    /** The embassies named now (the lists walked). */
+    private Set<Integer> embassiesNow() {
+        Set<Integer> s = new TreeSet<Integer>();
+        for (Airport a : airports) {
+            if (a.src == SRC_EMBASSY && a.embassy >= 0) {
+                s.add(Integer.valueOf(a.embassy));
+            }
+        }
+        for (Wpt w : wpts) {
+            if (w.embassy >= 0) {
+                s.add(Integer.valueOf(w.embassy));
+            }
+        }
+        s.addAll(ilsEmbassy.values());
+        return s;
+    }
+
+    /**
+     * Embassy airfield (docs/plan-embassy-airfield-addon.md §3.7): a copy without the embassies of `hidden` - their SRC_EMBASSY airports
+     * (and the ILS stations of those airports' runways), their entry fixes, their ILS stations - for viewers who do not know them. The
+     * lists are new, their entries shared (a built database is read-only: block.NavDataSVA's cache hands one to every MCDU).
+     */
+    public NavDb without(Set<Integer> hidden) {
+        NavDb db = new NavDb();
+        Set<String> gone = new HashSet<String>();
+        for (Map.Entry<String, Integer> e : ilsEmbassy.entrySet()) {
+            if (hidden != null && hidden.contains(e.getValue())) {
+                gone.add(e.getKey());
+            } else {
+                db.ilsEmbassy.put(e.getKey(), e.getValue());
+            }
+        }
+        for (Airport a : airports) {
+            if (hidden != null && a.src == SRC_EMBASSY && hidden.contains(Integer.valueOf(a.embassy))) {
+                for (Rwy r : a.rwys) {
+                    if (r.ilsKey.length() > 0) {
+                        gone.add(r.ilsKey);
+                    }
+                }
+                continue;
+            }
+            db.airports.add(a);
+        }
+        for (Wpt w : wpts) {
+            if (hidden == null || w.embassy < 0 || !hidden.contains(Integer.valueOf(w.embassy))) {
+                db.wpts.add(w);
+            }
+        }
+        for (LinerIls.Station s : ils) {
+            if (!gone.contains(s.key())) {
+                db.ils.add(s);
+            }
+        }
+        return db;
     }
 
     /** The «База» waypoint's ident. */

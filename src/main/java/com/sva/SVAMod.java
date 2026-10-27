@@ -63,5 +63,10 @@ public class SVAMod {
         com.sva.net.ServerQueueSVA.INSTANCE.clear();
         com.sva.airdefense.AirDefenseSVA.INSTANCE.clear();          // air-defence wave: nothing kept for the next world
         com.sva.block.AtcServerSVA.INSTANCE.clear();               // airport wave B2: the datalink sessions, the towers' logs
+        // embassy airfield: the virtual airports' registry, the embassy air defence's memory, the services' timers, the API's copies
+        com.sva.airport.EmbassyAirportSVA.INSTANCE.clear();
+        com.sva.airdefense.EmbassyAdSVA.INSTANCE.clear();
+        com.sva.block.EmbassyServicesSVA.INSTANCE.clear();
+        com.sva.compat.EmbassyCompatSVA.clear();
     }
 }

@@ -61,6 +61,10 @@ Everything is in config/SiliconAgeVehicles.cfg, categories vehicles, airdefense,
 @kv noRadioDecisionSeconds, noRadioMemoryMinutes | 7600: the post's time to decide, the episodes' memory
 @kv terrainCache, terrainCacheRadius | the terrain memory of unloaded chunks
 @kv zoneMaxDistance, maxZonesPerPlayer | a zone from its post, zones a player
+@kv embassyAd | the embassy's air defence (on; off - the emplacements are decor)
+@kv embassyWarnPerDay, embassyWarnSeconds | embassy AD: warnings a game day (1; 0 - fire at once), seconds to turn away (10)
+@kv embassyCloseBlocks, embassyMinHeight | embassy AD: fire at once when 32 closer or below 40 over the field during the turn
+@kv embassyUnmanned | embassy AD: a machine in the air with nobody aboard is a target after its owner's warning (on)
 @kv models | 3D models of the structures (client)
 
 # airport and book
@@ -71,6 +75,11 @@ Everything is in config/SiliconAgeVehicles.cfg, categories vehicles, airdefense,
 @kv windPhysics | the wind drifts the liner (off)
 @kv atc, autoTower, autoInterval | the tower's services
 @kv atisChat, taxiAhead | ATIS in the chat, taxi lights
+@kv embassyAirports, embassyServices | embassy airfields as airports, the column's service window (both on)
+@kv embassyTowing, embassyTowMinutes, embassyDomeMinutes, embassyApronMinutes | towing of left machines: runway, taxiway and a stand it does not hold (2 min), under the dome (5 min), the apron off the stands (10 min)
+@kv embassyAtisRange | an embassy's ATIS in the chat nearer than (600 blocks)
+@kv embassyGlideAngle | the embassies' glide slope (3.0; at 3.5 - CAT II only)
+@kv embassyLinerShort | the liner may land on a short embassy runway (off)
 @kv paint, lights, drawDistance | markings and lights (client)
 @kv book.giveOnJoin | give the handbook on the first join
 @kv book.liveChecklists, book.highlight | live checklists, the control outline

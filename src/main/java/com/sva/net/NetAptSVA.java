@@ -31,8 +31,12 @@ public final class NetAptSVA {
 
     public static final SimpleNetworkWrapper CHANNEL = NetworkRegistry.INSTANCE.newSimpleChannel("SAVehiclesApt");
 
-    public static final int SET_ANTENNA = 1, SET_END = 2, TOWER = 3;
-    public static final int D_SYNC = 1, D_TOWER = 2, D_TAXI = 3;
+    public static final int SET_ANTENNA = 1, SET_END = 2, TOWER = 3,
+            /** Embassy airfield: the service window's buttons (x - the embassy's id, y - its column, -1 the Dispatcher's tab; block.EmbassyServicesSVA). */
+            EMB = 4;
+    public static final int D_SYNC = 1, D_TOWER = 2, D_TAXI = 3,
+            /** Embassy airfield: the service window's snapshot ("Open" - open it; client.GuiEmbassyServiceSVA). */
+            D_EMB = 4;
 
     private NetAptSVA() {
     }
@@ -105,6 +109,13 @@ public final class NetAptSVA {
 
     /** Server: a screen's values for the block (only within 8 blocks of it). */
     static void command(EntityPlayerMP p, Cmd m) {
+        if (m.op == EMB) {
+            // embassy airfield: no block of ours - EmbassyServicesSVA checks the player is at that embassy itself
+            if (p != null && p.worldObj != null && m.data != null) {
+                com.sva.block.EmbassyServicesSVA.INSTANCE.command(p, m.x, m.y, m.data);
+            }
+            return;
+        }
         double reach = m.op == TOWER ? 256 : 100;
         if (p == null || p.worldObj == null || p.getDistanceSq(m.x + 0.5, m.y + 0.5, m.z + 0.5) > reach || !p.worldObj.blockExists(m.x, m.y, m.z)) {
             return;

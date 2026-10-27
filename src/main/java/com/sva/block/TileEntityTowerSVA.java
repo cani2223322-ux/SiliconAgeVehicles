@@ -207,7 +207,11 @@ public class TileEntityTowerSVA extends TileEntityEnergyBase {
 
     // ------------------------------------------------------------------ the airport record
 
-    /** The airport list's record of this tower (made when missing: the ICAO code kept, else a free one). */
+    /**
+     * The airport list's record of this tower (made when missing: the ICAO code kept, else a free one). Embassy airfield (the user's
+     * choice 10): a record made now never takes a code on X - the embassies' (EmbassyAirportMath.playerIcaoAllowed); a record already
+     * saved keeps its code, an X one too (an embassy then takes the next free one).
+     */
     public AirportDataSVA.Tower record() {
         if (worldObj == null || worldObj.isRemote) {
             return null;
@@ -225,7 +229,8 @@ public class TileEntityTowerSVA extends TileEntityEnergyBase {
             t.y = yCoord;
             t.z = zCoord;
             List<String> others = d.icaosExcept(t.key);
-            t.icao = icao.length() == 4 && TowerMath.unique(icao, others) ? icao : TowerMath.defaultIcao(xCoord, zCoord, others);
+            t.icao = icao.length() == 4 && com.sva.airport.EmbassyAirportMath.playerIcaoAllowed(icao) && TowerMath.unique(icao, others) ? icao
+                    : TowerMath.defaultIcao(xCoord, zCoord, others);
             t.name = name;
             t.owner = ownerName;
             d.putTower(t);

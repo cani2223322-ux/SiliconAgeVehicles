@@ -43,7 +43,14 @@ public final class SpaceMath {
 
     /** Jump check results. */
     public static final int OK = 0, NO_TARGET = 1, NO_DIM = 2, TOO_NEAR = 3, COOLDOWN = 4, NO_EU = 5, NO_SM = 6, BLOCKED = 7, FIELD = 8,
-            BUSY = 9, NOT_SHIP = 10, CHUNK = 11;
+            BUSY = 9, NOT_SHIP = 10, CHUNK = 11,
+            /** Embassy airfield (docs/plan-embassy-airfield-addon.md §3.8): onto an embassy's field only on its helipad «Н» (SpaceLogicSVA). */
+            EMBASSY = 12,
+            /**
+             * Review 2026-10-27: into an embassy's air defence zone (EmbassyCompatSVA.adZoneAt) only with someone admitted aboard or his 7700
+             * pass running - a jump is an entry by air the guns would never judge (the ship arrives on the ground).
+             */
+            EMBASSY_AD = 13;
 
     private SpaceMath() {
     }

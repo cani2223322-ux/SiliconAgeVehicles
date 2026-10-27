@@ -499,7 +499,10 @@ public final class TowerScreenSVA {
         }
         String icao = TowerMath.cleanIcao(c.getString("Icao"));
         if (icao.length() == 4 && !icao.equals(t.icao)) {
-            if (!TowerMath.unique(icao, d.icaosExcept(t.key)) || icao.startsWith("ZZ")) {
+            if (!com.sva.airport.EmbassyAirportMath.playerIcaoAllowed(icao)) {
+                // embassy airfield (the user's choice 10): X... is the embassies' - a new code on X is refused (a saved one stays)
+                p.addChatComponentMessage(new ChatComponentTranslation("sva.tower.msg.icaoX"));
+            } else if (!TowerMath.unique(icao, d.icaosExcept(t.key)) || icao.startsWith("ZZ")) {
                 p.addChatComponentMessage(new ChatComponentTranslation("sva.tower.msg.icaoTaken", icao));
             } else {
                 t.icao = icao;
@@ -621,8 +624,10 @@ public final class TowerScreenSVA {
         }
         boolean als = rw != null && rw.end(dir).als != 0;
         boolean lights = rw == null || d.rwyMode(rw.end(dir)) != 0;
+        // an embassy runway end has no PAPI block: its PAPI is virtual (the clients draw it at every embassy end - EmbassyRenderSVA)
+        boolean papi = rw != null && com.sva.airport.EmbassyAirportSVA.isVirtual(rw.end(dir).key) || papi(w, ap.tx, ap.elev, ap.tz);
         ChartMath.Chart c = ChartMath.of(t.icao, t.name, ap, rw == null ? 0 : (int) Math.round(rw.len), rw == null ? 5 : rw.width, als,
-                papi(w, ap.tx, ap.elev, ap.tz), lights, t.chartVer);
+                papi, lights, t.chartVer);
         ItemStack s = new ItemStack(ModContentSVA.approachChart);
         NBTTagCompound tag = new NBTTagCompound();
         ChartMath.write(c, tag);

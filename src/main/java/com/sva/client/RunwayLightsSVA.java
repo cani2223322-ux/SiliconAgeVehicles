@@ -32,6 +32,10 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
  * across the near end, red across the far one - flush inlays, full bright with a halo at night / in rain, dim glass by day.</li>
  * </ul>
  * Fixed-function GL in RenderWorldLastEvent with a polygon offset over the blocks' top; a few hundred quads at most.
+ * <p>
+ * «Лётное поле посольства»: the strip is looked for among the add-on's own runway blocks only (AirfieldSVA.ownView - review 2026-10-27:
+ * the shared view, which counts the core's runway too, could pick an embassy's runway near a player's and leave his unlit); an embassy's
+ * marks and lamps are the core's blocks, its lights AirportRenderSVA's.
  */
 public final class RunwayLightsSVA {
 
@@ -59,7 +63,7 @@ public final class RunwayLightsSVA {
         if (w != foundIn || now - foundAt >= FIND_EVERY || now < foundAt) {
             foundIn = w;
             foundAt = now;
-            runway = RunwayMath.find(AirfieldSVA.view(w), px, pz);
+            runway = RunwayMath.find(AirfieldSVA.ownView(w), px, pz);
             lit = runway != null && litEdges(w, runway);
         }
         RunwayMath.Runway r = runway;
@@ -99,7 +103,7 @@ public final class RunwayLightsSVA {
         GL11.glColor4f(1F, 1F, 1F, 1F);
     }
 
-    /** Any lit-edge block along the strip's two edge rows. */
+    /** Any lit-edge block along the strip's two edge rows (the add-on's own «с огнями» blocks only - never an embassy's). */
     private static boolean litEdges(World w, RunwayMath.Runway r) {
         int by = (int) Math.round(r.y) - 1;
         int k0 = (int) Math.floor(r.c - r.width / 2.0 + 0.01), k1 = (int) Math.floor(r.c + r.width / 2.0 - 0.01);

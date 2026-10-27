@@ -18,6 +18,7 @@ import com.sva.airdefense.AirDefenseSVA;
 import com.sva.airdefense.AirportCodeMath;
 import com.sva.airdefense.BallisticsMath;
 import com.sva.airdefense.CodeOnlyMath;
+import com.sva.airdefense.EmbassyAdSVA;
 import com.sva.airdefense.NoRadioMath;
 import com.sva.airdefense.RadarMath;
 import com.sva.airdefense.RoeMath;
@@ -1195,6 +1196,11 @@ public class TileEntityCommandPostSVA extends TileEntityAirDefenseSVA {
             // box over the whole world, or a zone over someone's base far away), not more than the owner may hold
             if (!ZoneMath.withinReach(z, xCoord, zCoord, ConfigSVA.adZoneMaxDistance)) {
                 AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.ad.msg.zoneFar", Integer.valueOf(ConfigSVA.adZoneMaxDistance));
+                return;
+            }
+            // embassy airfield (plan §3.6): no forbidden zone over an embassy's neutral sky (the launchers hold their fire there)
+            if (EmbassyAdSVA.underNeutralSky(worldObj, z)) {
+                AirDefenseSVA.INSTANCE.tell(p, 0xF0B040, "sva.emb.zoneNeutral");
                 return;
             }
             if (!edit && !zoneRoom()) {

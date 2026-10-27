@@ -20,6 +20,7 @@ import com.sva.airdefense.CodeOnlyMath;
 import com.sva.airdefense.RadarMath;
 import com.sva.airdefense.RoeMath;
 import com.sva.airdefense.ZoneMath;
+import com.sva.compat.EmbassyCompatSVA;
 import com.sva.entity.EntityVehicleSVA;
 import com.sva.item.ItemAmmoSVA;
 import com.sva.net.NetADSVA;
@@ -114,6 +115,8 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
     private final List<Integer> coHeld = new ArrayList<Integer>();
     /** World tests (code-only wave): the targets the last round's rule wanted (a gun has one fire channel - the rest wait). */
     private final java.util.Set<Integer> lastWant = new java.util.HashSet<Integer>();
+    /** World tests (embassy airfield): the last round's fire block (RoeMath.OK / B_*) of each wanted target. */
+    private final Map<Integer, Integer> lastBlock = new java.util.HashMap<Integer, Integer>();
     /** World tests: the bursts' aim - {aim x, y, z, flight ticks, live x, y, z, vx, vy, vz, mark age, own sight 1 / 0, tick}. */
     private final List<double[]> aimLog = new ArrayList<double[]>();
     private int hitsTotal;
@@ -337,8 +340,10 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
             // code-only wave (item 2): spared for whose vehicle it is only in the usual mode (fireOnFriends does not apply)
             boolean ownBlocked = RoeMath.ownBlocked(c.codeOnly, c.rel, ConfigSVA.adFireOnFriends);
             boolean special = c.cls == RoeMath.EMERGENCY || c.cls == RoeMath.FRIEND || c.cls == RoeMath.NO_RADIO;
+            // embassy airfield (plan §3.6): an airfield embassy's neutral sky holds the fire too, whatever fireInProtectedRegions says
+            // (B_PROTECTED: the warnings go, no fire; never over a player's base - the core's neutralAt)
             boolean prot = !ConfigSVA.adFireInProtectedRegions && com.sc.tileentity.TileEntityFieldGeneratorSC.privateRefusingName(worldObj, ownerName,
-                    c.v.posX, c.v.posY, c.v.posZ) != null;
+                    c.v.posX, c.v.posY, c.v.posZ) != null || EmbassyCompatSVA.neutralAt(worldObj, c.v.posX, c.v.posY, c.v.posZ);
             int block = RoeMath.fireBlock(ConfigSVA.adEnabled, nearSpawn, prot, ownBlocked, pvpOff, !c.manned && !ConfigSVA.adFireOnUnmanned,
                     special, warnOnly, wants);
             if (wants && RoeMath.warnsAllowed(block)) {
@@ -348,6 +353,8 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
         }
         lastWant.clear();
         lastWant.addAll(want.keySet());
+        lastBlock.clear();
+        lastBlock.putAll(want);
         // review 2026-10-27: everything in the picture by id (a paused engagement's target is not wanted while on 7700)
         Map<Integer, AirDefenseSVA.Contact> all = new java.util.HashMap<Integer, AirDefenseSVA.Contact>();
         for (AirDefenseSVA.Contact c : pic) {
@@ -1121,6 +1128,12 @@ public class TileEntityLauncherSVA extends TileEntityAirDefenseSVA implements II
     /** World tests: the target was at «Огонь» with nothing forbidding the fire at the last round (fireBetween's list). */
     public boolean debugReady(int id) {
         return ready.containsKey(Integer.valueOf(id));
+    }
+
+    /** World tests (embassy airfield): the last round's fire block of a wanted target (RoeMath.BLOCK_KEYS index; -1 not wanted). */
+    public int debugBlock(int id) {
+        Integer b = lastBlock.get(Integer.valueOf(id));
+        return b == null ? -1 : b.intValue();
     }
 
     /** World tests (code-only wave): the last round's rule wanted this target (engaged or waiting for a fire channel). */

@@ -18,6 +18,8 @@ The buggy, the hoverbike, the crawler and the drilling vehicle have a transponde
 ## Liner fixes
 - "AP OFF" no longer flashes forever after landing: the , button or MASTER WARN clears it, "A/THR OFF" - the - button or MASTER CAUT; the keys work with the cockpit cursor too.
 - The liner opens and picks up from any side: clicks are caught on the hull, wings, tail and gear.
+## The embassy airfield
+The Tuners' new embassies (with the add-on) are airports: a 200 x 9 runway (or 90 x 7 and an "H"), a virtual tower coded XTAA and the like, a CAT III ILS on FULL fields, ATIS within 600 blocks, codes 5100-5177, lights over the core's own, stands with towing of abandoned machines, the service column (charging, hydrogen, repair in the hangar, "Electrolyte", approach charts) for the core's chips, the "Logbook" for the first landing. The embassy's own air defence: a 256-block zone, a warning and 10 s to turn away, fire only at machines in the air with nobody admitted aboard ("Acquaintance" and higher), 7700 - a pass once a day. Players' air defence leaves the embassy's sky alone.
 
 # Version 0.1.1
 - The SA-320 liner (7 waves of systems), the cockpit view and quick views.

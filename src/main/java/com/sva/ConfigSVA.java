@@ -371,6 +371,19 @@ public final class ConfigSVA {
     public static String adKeyClock = "total";
     /** The user's decision 3: every vehicle has a transponder, the ground ones too (false: only what flies). */
     public static boolean adAllTransponders = true;
+    // embassy airfield (docs/plan-embassy-airfield-addon.md §2.4): the embassy's own air defence (the user's choice 6, 2026-10-26)
+    /** The Tuners' embassies' air defence fires (off: the core's emplacements stay decorative). */
+    public static boolean adEmbassy = true;
+    /** Warnings a player gets a game day at one embassy before a re-entry is fired on at once (1: the core's ledger; 0: none). TODO(balance) */
+    public static int adEmbassyWarnPerDay = 1;
+    /** The seconds a warned machine has to turn away (the core proposes 10). TODO(balance) */
+    public static int adEmbassyWarnSeconds = 10;
+    /** During the turn-away: closer to the embassy's core by more than this than at the warning - fired on at once (blocks). TODO(balance) */
+    public static int adEmbassyCloseBlocks = 32;
+    /** During the turn-away: below this height over the field and lower than at the warning - fired on at once (blocks). TODO(balance) */
+    public static int adEmbassyMinHeight = 40;
+    /** A machine in the air with nobody aboard is a target too once its owner (not admitted) was warned. */
+    public static boolean adEmbassyUnmanned = true;
     /** A2 (client): the zone frames on the HUD / ND / HSI, the entry prediction and its tones. */
     public static boolean zoneFrames = true;
     /**
@@ -429,6 +442,28 @@ public final class ConfigSVA {
     public static boolean aptAtisChat = true;
     /** The follow-me taxi lights lit ahead of a cleared aircraft (nodes). */
     public static int aptTaxiAhead = 10;
+    // embassy airfield (docs/plan-embassy-airfield-addon.md §2.4): the Tuners' embassies' fields as airports
+    /** The embassies' airfields are airports (virtual runways, ILS, tower, ATIS, taxi lights; never saved). */
+    public static boolean aptEmbassyAirports = true;
+    /** The embassies' «Колонка обслуживания» opens the add-on's service window (off: the core's armour gases only). */
+    public static boolean aptEmbassyServices = true;
+    /** An embassy moves a machine left with nobody aboard on its runway / pads / taxiway / under its dome to a stand. */
+    public static boolean aptEmbassyTowing = true;
+    /** An embassy tower's ATIS reaches the chat only this near (blocks) - or the pilots bound for it. TODO(balance) */
+    public static int aptEmbassyAtisRange = 600;
+    /** Left on the runway / a pad / the taxiway this long (minutes) - towed to a stand. TODO(balance) */
+    public static int aptEmbassyTowMinutes = 2;
+    /** Left under the dome this long (minutes) - towed to «Отстой». TODO(balance) */
+    public static int aptEmbassyDomeMinutes = 5;
+    /**
+     * The virtual glide slopes' angle (deg; 2.5 and 3.0 - CAT III, 3.5 - CAT II: the threshold crossing height 2.05 > 1.9). TODO(balance):
+     * 3.5 if the world test shows trees in the funnels.
+     */
+    public static double aptEmbassyGlideAngle = 3.0;
+    /** The automatic tower clears the liner to land on a SHORT embassy runway (90 blocks: off - the measured fallback of risk 1). */
+    public static boolean aptEmbassyLinerShort = false;
+    /** Review 2026-10-27: left with nobody aboard on an embassy's apron off the stands this long (minutes) - towed to a stand / «Отстой». TODO(balance) */
+    public static int aptEmbassyApronMinutes = 10;
 
     // ---------------------------------------------------------------- wave C: the handbook (category "book")
     /** The handbook is given once on a player's first join (remembered in the player's persisted NBT). */
@@ -883,6 +918,24 @@ public final class ConfigSVA {
                 new String[] {"total", "day"});
         adAllTransponders = c.getBoolean("allTransponders", a, true,
                 "Every vehicle has a transponder, the ground ones too (false - only aircraft) / Ответчик у всей техники, и у наземной (false - только у авиации)");
+        // embassy airfield: the embassy's own air defence
+        adEmbassy = c.getBoolean("embassyAd", a, true,
+                "The Tuners' embassies' air defence fires at machines in the air without an admitted player aboard (false - the emplacements are decor) / "
+                        + "ПВО посольств Наладчиков стреляет по технике в воздухе без допущенного на борту (false - посты только декор)");
+        adEmbassyWarnPerDay = c.getInt("embassyWarnPerDay", a, 1, 0, 10,
+                "Embassy AD: warnings a player gets a game day at one embassy (then a re-entry is fired on at once; 0 - no warning) / "
+                        + "ПВО посольства: предупреждений игроку в сутки у одного посольства (потом повторный вход - огонь сразу; 0 - без предупреждения)");
+        adEmbassyWarnSeconds = c.getInt("embassyWarnSeconds", a, 10, 3, 60,
+                "Embassy AD: seconds to turn away after the warning / ПВО посольства: секунд на разворот после предупреждения");
+        adEmbassyCloseBlocks = c.getInt("embassyCloseBlocks", a, 32, 4, 256,
+                "Embassy AD: a warned machine this much closer to the embassy than at the warning is fired on at once, blocks / "
+                        + "ПВО посольства: предупреждённый борт ближе к посольству на столько блоков - огонь сразу");
+        adEmbassyMinHeight = c.getInt("embassyMinHeight", a, 40, 0, 255,
+                "Embassy AD: a warned machine descending below this height over the field is fired on at once, blocks / "
+                        + "ПВО посольства: предупреждённый борт снижается ниже этой высоты над полем - огонь сразу");
+        adEmbassyUnmanned = c.getBoolean("embassyUnmanned", a, true,
+                "Embassy AD: a machine in the air with nobody aboard is a target after its owner's warning (an admitted owner - never) / "
+                        + "ПВО посольства: борт без экипажа в воздухе - цель после предупреждения владельцу (допущенный владелец - никогда)");
     }
 
     /** Airport wave B1: the "airport" category - every feature switchable. */
@@ -922,6 +975,29 @@ public final class ConfigSVA {
         aptAdZone = c.getBoolean("adZone", a, true, "A tower keeps an air-defence 'aerodrome' zone / Вышка создаёт зону ПВО 'аэродром'");
         aptAtisChat = c.getBoolean("atisChat", a, true, "ATIS in the pilots' chat near an airport / ATIS в чат пилотам у аэродрома");
         aptTaxiAhead = c.getInt("taxiAhead", a, 10, 3, 40, "Follow-me: taxi lights lit ahead of the aircraft / Огни рулёжки впереди самолёта");
+        // embassy airfield: the Tuners' embassies' fields as airports
+        aptEmbassyAirports = c.getBoolean("embassyAirports", a, true,
+                "The Tuners' embassies' airfields are airports: runways, ILS, tower, ATIS, taxi lights (nothing saved) / "
+                        + "Лётные поля посольств - аэропорты: ВПП, ILS, вышка, ATIS, огни рулёжки (ничего не сохраняется)");
+        aptEmbassyServices = c.getBoolean("embassyServices", a, true,
+                "An embassy's service column opens the add-on's services: charging, hydrogen, repair, parking, towing, charts (false - the core's armour gases) / "
+                        + "Колонка посольства открывает услуги аддона: зарядка, водород, ремонт, стоянка, перегон, карты (false - только газы брони ядра)");
+        aptEmbassyTowing = c.getBoolean("embassyTowing", a, true,
+                "An embassy moves machines left with nobody aboard on its runway / pads / taxiway / under the dome to a stand / "
+                        + "Посольство перегоняет брошенную технику с ВПП, площадок, рулёжки и из-под купола на стоянку");
+        aptEmbassyAtisRange = c.getInt("embassyAtisRange", a, 600, 100, 3000,
+                "An embassy tower's ATIS reaches the chat only this near, blocks (or bound for it in the MCDU) / "
+                        + "ATIS вышки посольства в чат только ближе, блоков (или если она - пункт назначения в МФПУ)");
+        aptEmbassyTowMinutes = c.getInt("embassyTowMinutes", a, 2, 1, 60,
+                "Left on an embassy's runway / pad / taxiway this long, min - towed to a stand / Оставлен на ВПП, площадке, рулёжке посольства дольше, мин - перегон на стоянку");
+        aptEmbassyDomeMinutes = c.getInt("embassyDomeMinutes", a, 5, 1, 120,
+                "Left under an embassy's dome this long, min - towed out / Оставлен под куполом посольства дольше, мин - перегон на отстой");
+        aptEmbassyGlideAngle = sanitize((float) c.getFloat("embassyGlideAngle", a, 3F, 2.5F, 3.5F,
+                "The embassies' ILS glide slope angle, deg (3.5 - the stations are CAT II only) / Угол глиссады ILS посольств, град (3,5 - станции только CAT II)"), 3F, 2.5F, 3.5F);
+        aptEmbassyLinerShort = c.getBoolean("embassyLinerShort", a, false,
+                "The automatic tower clears the liner to land on a short (90-block) embassy runway / Авто-вышка разрешает лайнеру посадку на короткую (90 блоков) ВПП посольства");
+        aptEmbassyApronMinutes = c.getInt("embassyApronMinutes", a, 10, 1, 120,
+                "Left on an embassy's apron off the stands this long, min - towed to a stand or the lot / Оставлен на перроне посольства вне МС дольше, мин - перегон на МС или отстой");
     }
 
     /** Wave C: the "book" category - the handbook. */

@@ -32,7 +32,29 @@ public final class AirfieldSVA {
 
             @Override
             public boolean runway(int x, int y, int z) {
-                return ModContentSVA.runway != null && w.blockExists(x, y, z) && w.getBlock(x, y, z) == ModContentSVA.runway;
+                return com.sva.vehicle.RunwaySurfaceSVA.is(w, x, y, z);       // embassy airfield: the core's runway too
+            }
+        };
+    }
+
+    /**
+     * Review 2026-10-27: RunwayMath's view of the add-on's own runway blocks only (the old one) - RunwayLightsSVA draws for them alone, so a
+     * player's strip beside an embassy's runway is always the one it finds.
+     */
+    public static RunwayMath.World ownView(final World w) {
+        return new RunwayMath.World() {
+            @Override
+            public int top(int x, int z) {
+                if (!w.blockExists(x, 64, z)) {
+                    return -1;
+                }
+                int h = w.getHeightValue(x, z);
+                return h <= 0 ? -1 : h - 1;
+            }
+
+            @Override
+            public boolean runway(int x, int y, int z) {
+                return ModContentSVA.runway != null && y >= 0 && y <= 255 && w.blockExists(x, y, z) && w.getBlock(x, y, z) == ModContentSVA.runway;
             }
         };
     }

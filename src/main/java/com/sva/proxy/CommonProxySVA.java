@@ -35,6 +35,10 @@ public class CommonProxySVA {
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(com.sva.airdefense.AdTerrainSVA.INSTANCE);  // audit 2026-10-22: terrain memory
         FMLCommonHandler.instance().bus().register(com.sva.block.AirportServerSVA.INSTANCE);           // airport wave B1
         FMLCommonHandler.instance().bus().register(new com.sva.book.BookGiveSVA());                     // wave C: the handbook on the first join
+        // embassy airfield (docs/plan-embassy-airfield-addon.md): the core's API by name (an older core - the embassies off), its hook;
+        // the services' stands / towing / logbook tick
+        com.sva.compat.EmbassyCompatSVA.init();
+        FMLCommonHandler.instance().bus().register(com.sva.block.EmbassyServicesSVA.INSTANCE);
     }
 
     public void postInit(FMLPostInitializationEvent e) {

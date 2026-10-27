@@ -1102,7 +1102,7 @@ public class GuiMapSVA extends GuiScreen {
         rwyKeyX = x;
         rwyKeyZ = z;
         final World w = mc.theWorld;
-        RunwayMath.Runway r = w == null || ModContentSVA.runway == null ? null : RunwayMath.find(new RunwayMath.World() {
+        RunwayMath.Runway r = w == null ? null : RunwayMath.find(new RunwayMath.World() {
             @Override
             public int top(int bx, int bz) {
                 if (!w.blockExists(bx, 64, bz)) {
@@ -1114,7 +1114,7 @@ public class GuiMapSVA extends GuiScreen {
 
             @Override
             public boolean runway(int bx, int by, int bz) {
-                return w.blockExists(bx, by, bz) && w.getBlock(bx, by, bz) == ModContentSVA.runway;
+                return com.sva.vehicle.RunwaySurfaceSVA.is(w, bx, by, bz);     // embassy airfield: the core's runway too
             }
         }, x + 0.5, z + 0.5);
         rwyByLast = r != null && RouteMath.handOver(true, r.distance(x + 0.5, z + 0.5));

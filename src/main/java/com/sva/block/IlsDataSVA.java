@@ -103,10 +103,14 @@ public class IlsDataSVA extends WorldSavedData {
         }
     }
 
+    /** Embassy airfield: an embassy's virtual station (AirportDataSVA publishes it from EmbassyAirportSVA's records) is never saved. */
     @Override
     public void writeToNBT(NBTTagCompound t) {
         NBTTagList l = new NBTTagList();
         for (LinerIls.Station s : stations.values()) {
+            if (com.sva.airport.EmbassyAirportSVA.isVirtual(s.key())) {
+                continue;
+            }
             NBTTagCompound e = new NBTTagCompound();
             s.write(e);
             l.appendTag(e);

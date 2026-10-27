@@ -2,9 +2,11 @@ package com.sva.block;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
 import com.sva.ConfigSVA;
@@ -16,13 +18,19 @@ import com.sva.airport.AptScale;
 import com.sva.airport.AtisMath;
 import com.sva.airport.AutoTower;
 import com.sva.airport.Cpdlc;
+import com.sva.airport.EmbassyAirportMath;
+import com.sva.airport.EmbassyAirportSVA;
+import com.sva.airport.EmbassyAtcMath;
 import com.sva.airport.IlsPairing;
 import com.sva.airport.RunwayLayout;
 import com.sva.airport.RvrMath;
 import com.sva.airport.TaxiGraph;
 import com.sva.airport.TowerMath;
 import com.sva.airport.WindField;
+import com.sva.compat.EmbassyCompatSVA;
+import com.sva.compat.EmbassyFieldSVA;
 import com.sva.entity.EntityVehicleSVA;
+import com.sva.entity.LinerLogicSVA;
 import com.sva.net.NetADSVA;
 import com.sva.net.NetAptSVA;
 import com.sva.vehicle.AirfieldMath;
@@ -30,15 +38,19 @@ import com.sva.vehicle.LinerIls;
 import com.sva.vehicle.VehicleType;
 
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.monster.IMob;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
+import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.IChatComponent;
 import net.minecraft.world.World;
+import net.minecraft.world.biome.BiomeGenBase;
+import net.minecraftforge.common.util.FakePlayer;
 
 /**
  * Airport wave B2 (plan-next §9, items 27, 29-32): the towers' air-traffic services on the server - run from
@@ -62,6 +74,14 @@ import net.minecraft.world.World;
  * lit, the stop bars burn unless dropped for a line-up / take-off clearance; the clients get the lit set (NetAptSVA D_TAXI)
  * when it changes;</li>
  * <li><b>The air-defence «аэродром» zone</b> of each tower (TowerMath.zone, AirDefenseDataSVA under «twr:» + its key).</li>
+ * <li><b>Embassy airfields</b> (docs/plan-embassy-airfield-addon.md §3.2; the virtual towers of airport.EmbassyAirportSVA): the ATIS in
+ * the chat only near the field or for the pilots bound for it (EmbassyAtcMath.atisToChat), the Tuners' own weather when no station is
+ * near, the remarks (AtisMath.embassyRemarks); the embassy's «Враг» at the controls - ОБСЛУЖИВАНИЕ ЗАПРЕЩЕНО to his landing / taxi /
+ * take-off requests, a landing request over the dome - ПОСАДКА В КУПОЛЕ ЗАПРЕЩЕНА, the liner on a SHORT runway - refused (7700: nothing
+ * refused); the codes 5100..5177 to everybody but the «Враг»; somebody on foot / a hostile mob / a ground vehicle on the physical runway
+ * occupies it, the paving past the displaced thresholds counts (AutoTower.Params.blocked, Rwy.ext); taxiway «А» waits under a landing
+ * over the high end; no air-defence zone published (it would be saved and show every client the embassies he does not know); the dome's
+ * warning to a pilot in the air; the embassy's air defence on the radio (embassyRadio).</li>
  * </ul>
  * Sessions and logs live only in memory (a restart starts them afresh); the ATIS letter and text are the tower's (saved).
  */
@@ -104,6 +124,9 @@ public final class AtcServerSVA {
          */
         public String vid = "";
         public boolean sqKeyWas;
+        /** Embassy airfield: the last refusal told (EmbassyAtcMath.REFUSE_*; -1 none) and when (ticks) - a guessed request is not told twice. */
+        public int embRefused = EmbassyAtcMath.REFUSE_NONE;
+        public long embRefusedAt = -100000;
 
         Session(int id) {
             this.id = id;
@@ -119,6 +142,11 @@ public final class AtcServerSVA {
     private final Map<Integer, String> taxiSent = new HashMap<Integer, String>();
     private final Map<Integer, Long> taxiSentAt = new HashMap<Integer, Long>();
     private final Map<String, ZoneMath.Zone> zonesSent = new HashMap<String, ZoneMath.Zone>();
+    /** Embassy airfield: the virtual towers' Tuners' weather (key -> a K_WX reading), the paving past their runways' ends (key -> blocks). */
+    private final Map<String, AirportDataSVA.Device> embWx = new HashMap<String, AirportDataSVA.Device>();
+    private final Map<String, Double> embExt = new HashMap<String, Double>();
+    /** Embassy airfield: the aircraft in the air over an airfield embassy's dome now (entity id -> the embassy's id). */
+    private final Map<Integer, Integer> domeIn = new HashMap<Integer, Integer>();
 
     private AtcServerSVA() {
     }
@@ -132,6 +160,9 @@ public final class AtcServerSVA {
         taxiSent.clear();
         taxiSentAt.clear();
         zonesSent.clear();
+        embWx.clear();
+        embExt.clear();
+        domeIn.clear();
         IffServerSVA.INSTANCE.clear();
     }
 
@@ -218,6 +249,13 @@ public final class AtcServerSVA {
     private void towers(World w, AirportDataSVA d, long now) {
         int dim = w.provider.dimensionId;
         for (AirportDataSVA.Tower t : towersOf(d, dim)) {
+            if (EmbassyAirportSVA.isVirtual(t.key)) {
+                if (!t.online(now)) {
+                    towerLog(t.key).tick(now);                      // review 2026-10-27: asleep (nobody within ATC_RANGE) - nothing to derive
+                    continue;                                       // for anyone; its first pass online does it all again
+                }
+                embassyDerived(w, d, t, now);                       // embassy airfield: the Tuners' weather, the paving past the ends
+            }
             runwayInUse(d, t);
             if (t.online(now)) {
                 atis(w, d, t, now);
@@ -241,10 +279,11 @@ public final class AtcServerSVA {
         return null;
     }
 
-    /** The weather station of a tower's airport (null none). */
+    /** The weather station of a tower's airport (null none); an embassy's virtual tower without one near - the Tuners' own reading. */
     static AirportDataSVA.Device weather(AirportDataSVA d, AirportDataSVA.Tower t) {
         double[] c = d.centre(t);
-        return d.weatherNear(t.dim, c[0], c[1]);
+        AirportDataSVA.Device wx = d.weatherNear(t.dim, c[0], c[1]);
+        return wx != null || !EmbassyAirportSVA.isVirtual(t.key) ? wx : INSTANCE.embWx.get(t.key);
     }
 
     /** The tower's runway in use now: its choice (an end of its runways), else by the wind. */
@@ -326,13 +365,36 @@ public final class AtcServerSVA {
         if (AtisMath.rvrCat(o.rvr) >= 2 || o.vis < RvrMath.CAT1_RVR) {
             o.rmk |= AtisMath.RMK_LVP;
         }
-        if (!((List<?>) d.taxi(t.dim)[0]).isEmpty()) {
+        if (taxiLightsOf(d, t)) {
             o.rmk |= AtisMath.RMK_FOLLOW;
         }
         if (t.ltRwy == 0 && x.night) {
             o.rmk |= AtisMath.RMK_LIGHTS_OFF;
         }
+        EmbassyFieldSVA f = embassyField(w, t);
+        if (f != null) {
+            o.rmk |= AtisMath.embassyRemarks(f.full(), f.kind == EmbassyCompatSVA.SHORT, ConfigSVA.aptEmbassyLinerShort);
+        }
         return o;
+    }
+
+    /**
+     * The tower's airport has taxi lights of its own (ATIS «РУЛЕНИЕ ПО ЗЕЛЁНЫМ ОГНЯМ») - review 2026-10-27: a node of the dimension's taxi
+     * graph within TowerMath.RANGE of its centre, a player's tower the players' lights only, an embassy's its own embassy's only (before:
+     * any node of the dimension - the first embassy with a field turned the remark on at every player's tower).
+     */
+    @SuppressWarnings("unchecked")
+    static boolean taxiLightsOf(AirportDataSVA d, AirportDataSVA.Tower t) {
+        List<TaxiGraph.Node> nodes = (List<TaxiGraph.Node>) d.taxi(t.dim)[0];
+        int emb = EmbassyAirportSVA.embassyOf(t.key);
+        double[] c = d.centre(t);
+        double r2 = TowerMath.RANGE * TowerMath.RANGE;
+        for (TaxiGraph.Node n : nodes) {
+            if (EmbassyAirportSVA.embassyOf(n.key) == emb && (n.x + 0.5 - c[0]) * (n.x + 0.5 - c[0]) + (n.z + 0.5 - c[1]) * (n.z + 0.5 - c[1]) <= r2) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** A new ATIS when the observation changed beyond the thresholds (the first one: АЛЬФА). */
@@ -390,9 +452,13 @@ public final class AtcServerSVA {
         return new ChatComponentTranslation(key, a);
     }
 
-    /** The «#key» arguments the ATIS (the letter) and the CPDLC (a report) put in - translations without arguments of their own. */
+    /**
+     * The «#key» arguments the ATIS (the letter) and the CPDLC (a report; an embassy's refusal reason and its air defence's line - Cpdlc.args)
+     * put in - translations without arguments of their own.
+     */
     public static boolean keyArg(String a) {
-        return a != null && (a.startsWith("#sva.atis.letter.") || a.startsWith("#sva.cpdlc.rep."));
+        return a != null && (a.startsWith("#sva.atis.letter.") || a.startsWith("#sva.cpdlc.rep.") || a.startsWith("#sva.cpdlc.refused.")
+                || a.startsWith("#sva.cpdlc.embAd."));
     }
 
     /** World tests (audit review 2026-10-22): the ATIS / CPDLC chat line as translated() builds it. */
@@ -405,6 +471,14 @@ public final class AtcServerSVA {
     void zone(World w, AirportDataSVA d, AirportDataSVA.Tower t) {
         AirDefenseDataSVA ad = AirDefenseDataSVA.get(w);
         if (ad == null) {
+            return;
+        }
+        if (EmbassyAirportSVA.isVirtual(t.key)) {
+            // embassy airfield: never published - the air defence's data is saved and synced to every client (the embassies a player does
+            // not know would show); the codes' «Аэродром» is IffServerSVA.zoneOf, the dome's warning a line to the pilot (domeWarn)
+            if (zonesSent.remove(t.key) != null) {
+                ad.removeKp(ZONE_KEY + t.key);
+            }
             return;
         }
         if (!ConfigSVA.aptAdZone || t.icao.length() != 4) {
@@ -431,6 +505,8 @@ public final class AtcServerSVA {
         zonesSent.remove(key);
         towerLogs.remove(key);
         mems.remove(key);
+        embWx.remove(key);
+        embExt.remove(key);
         for (Session s : sessions.values()) {
             if (s.tower.equals(key)) {
                 s.tower = "";
@@ -442,10 +518,23 @@ public final class AtcServerSVA {
 
     /** The online tower nearest (x, z) within ATC_RANGE (null none). */
     static AirportDataSVA.Tower nearestTower(AirportDataSVA d, int dim, double x, double z, long now) {
+        return nearestTower(d, dim, x, z, now, null);
+    }
+
+    /**
+     * The online tower nearest (x, z) within ATC_RANGE for a crew knowing the embassies `knows` (null: every tower) - review 2026-10-27:
+     * an embassy's virtual tower only for a crew that knows that embassy (EmbassyAirportSVA.knownBy - D_SYNC and the MCDU hide it from the
+     * rest; its code would show as the MCDU's ATC unit and take the session of the player's own tower).
+     */
+    static AirportDataSVA.Tower nearestTower(AirportDataSVA d, int dim, double x, double z, long now, Set<Integer> knows) {
         AirportDataSVA.Tower best = null;
         double bd = TowerMath.ATC_RANGE * TowerMath.ATC_RANGE;
         for (AirportDataSVA.Tower t : d.towers()) {
             if (t.dim != dim || !t.online(now)) {
+                continue;
+            }
+            int emb = knows == null ? -1 : EmbassyAirportSVA.embassyOf(t.key);
+            if (emb >= 0 && !knows.contains(Integer.valueOf(emb))) {
                 continue;
             }
             double[] c = d.centre(t);
@@ -456,6 +545,23 @@ public final class AtcServerSVA {
             }
         }
         return best;
+    }
+
+    /**
+     * The embassies (ids) any player aboard `v` knows (EmbassyAirportSVA.knownBy; a FakePlayer is nobody); null - no player aboard (an
+     * unmanned machine on its autopilot: nobody to see its datalink, every tower as before).
+     */
+    static Set<Integer> crewKnows(EntityVehicleSVA v) {
+        Set<Integer> out = null;
+        for (Entity e : v.riders()) {
+            if (e instanceof EntityPlayer && !(e instanceof FakePlayer)) {
+                if (out == null) {
+                    out = new HashSet<Integer>();
+                }
+                out.addAll(EmbassyAirportSVA.INSTANCE.knownBy((EntityPlayer) e));
+            }
+        }
+        return out;
     }
 
     /** The callsign of a vehicle (TowerMath.callsign). */
@@ -471,8 +577,9 @@ public final class AtcServerSVA {
         int dim = w.provider.dimensionId;
         for (EntityVehicleSVA v : AirportDataSVA.aircraft(w)) {
             Integer id = Integer.valueOf(v.getEntityId());
+            domeWarn(w, d, v);                                      // embassy airfield: over a dome in the air - told once per entry
             Session s = sessions.get(id);
-            AirportDataSVA.Tower t = nearestTower(d, dim, v.posX, v.posZ, now);
+            AirportDataSVA.Tower t = nearestTower(d, dim, v.posX, v.posZ, now, crewKnows(v));
             if (s == null) {
                 if (t == null) {
                     continue;
@@ -521,10 +628,10 @@ public final class AtcServerSVA {
                     && ZoneMath.contains2D(IffServerSVA.zoneOf(t), v.posX, v.posZ)) {
                 offerSquawk(w, d, t, s, v, now);
             }
-            // ATIS in the chat: once per letter, not more often than ATIS_GAP
+            // ATIS in the chat: once per letter, not more often than ATIS_GAP (an embassy's: only near its field or bound for it - atisReaches)
             Integer heard = s.atisHeard.get(t.key);
             if (ConfigSVA.aptAtisChat && t.letter >= 0 && t.atisText.length() > 0 && (heard == null || heard.intValue() != t.letter)
-                    && now - s.atisAt >= ATIS_GAP) {
+                    && now - s.atisAt >= ATIS_GAP && atisReaches(d, t, v)) {
                 s.atisHeard.put(t.key, Integer.valueOf(t.letter));
                 s.atisAt = now;
                 tellAtis(v, t);
@@ -553,7 +660,7 @@ public final class AtcServerSVA {
     /** An aircraft without an MCDU can't ask: on the final it wants to land, stopped at a holding point it is ready. */
     void guessRequest(AirportDataSVA d, AirportDataSVA.Tower t, Session s, long now) {
         AutoTower.Ac a = s.ac;
-        AutoTower.Rwy rw = useRwy(t);
+        AutoTower.Rwy rw = useRwyExt(t);
         if (rw == null || a.req != AutoTower.R_NONE || a.st != AutoTower.S_NONE && a.st != AutoTower.S_TAXI) {
             return;
         }
@@ -727,7 +834,14 @@ public final class AtcServerSVA {
         if (!com.sva.airdefense.AirportCodeMath.mayReplace(x0.code, x0.keyLamp(com.sva.airdefense.AirDefenseDataSVA.keyPeriod(w)))) {
             return -1;
         }
-        if (!explicit && !com.sva.airdefense.AirportCodeMath.mayAssign(t.owner, t.access, t.sqTrust, v.getOwnerName())) {
+        int emb = EmbassyAirportSVA.embassyOf(t.key);
+        if (emb >= 0) {
+            // embassy airfield: everybody's but the embassy's «Враг» at the controls - no trust list (the players' air defence does not
+            // take these codes for «свой» anyway: AirportCodeMath.friendOf)
+            if (embassyEnemy(v, emb)) {
+                return -1;
+            }
+        } else if (!explicit && !com.sva.airdefense.AirportCodeMath.mayAssign(t.owner, t.access, t.sqTrust, v.getOwnerName())) {
             return -1;
         }
         java.util.Set<Integer> used = new java.util.HashSet<Integer>();
@@ -743,7 +857,8 @@ public final class AtcServerSVA {
         }
         XpdrMath.Xpdr x = v.state.xpdr;
         int keep = s.sqTower.equals(t.key) ? s.sqCode : x.code;
-        int code = com.sva.airdefense.AirportCodeMath.assign(t.codeLo, t.codeHi, used, keep);
+        int lo = emb >= 0 ? EmbassyAtcMath.CODE_LO : t.codeLo, hi = emb >= 0 ? EmbassyAtcMath.CODE_HI : t.codeHi;
+        int code = com.sva.airdefense.AirportCodeMath.assign(lo, hi, used, keep);
         s.sqTower = t.key;                                          // asked once per tower, even when the range is full
         if (code < 0) {
             return -1;
@@ -934,7 +1049,11 @@ public final class AtcServerSVA {
             if (!t.online(now) || !automatic(t)) {
                 continue;
             }
-            AutoTower.Rwy rw = useRwy(t);
+            EmbassyFieldSVA f = embassyField(w, t);
+            if (f != null) {
+                embassyScreen(w, d, t, f, now);                     // embassy airfield: its refusals before the rules see the requests
+            }
+            AutoTower.Rwy rw = useRwyExt(t);
             if (rw == null) {
                 continue;
             }
@@ -955,6 +1074,10 @@ public final class AtcServerSVA {
             AutoTower.Params p = new AutoTower.Params();
             p.interval = ConfigSVA.aptAutoInterval * 20;
             p.gaHeight = ConfigSVA.aptGoAroundHeight;
+            if (f != null) {
+                p.blocked = embassyBlocked(w, f, rw.r.elev);
+                p.taxiHold = landsOverHigh(f, rw);
+            }
             for (AutoTower.Act act : AutoTower.decide(traffic, rw, mem, now, p)) {
                 Session s = byId.get(Integer.valueOf(act.id));
                 if (s == null) {
@@ -1064,17 +1187,27 @@ public final class AtcServerSVA {
         }
         TreeSet<Integer> lit = new TreeSet<Integer>(), stops = new TreeSet<Integer>();
         boolean follow = false;
-        List<AirportDataSVA.Tower> ts = towersOf(d, dim);
+        // review 2026-10-27: the players' towers own the players' stop bars, an embassy's stop bar is its own tower's (no N x N search)
+        List<AirportDataSVA.Tower> ts = new ArrayList<AirportDataSVA.Tower>();
+        for (AirportDataSVA.Tower t : towersOf(d, dim)) {
+            if (!EmbassyAirportSVA.isVirtual(t.key)) {
+                ts.add(t);
+            }
+        }
+        Map<String, Integer> nodeIx = null;
         for (Session s : sessions.values()) {
             AirportDataSVA.Tower t = s.tower.length() == 0 ? null : d.tower(s.tower);
             if (s.route == null || t == null || t.dim != dim || !t.online(now)) {
                 continue;
             }
+            if (nodeIx == null) {
+                nodeIx = TaxiGraph.indexOf(nodes);
+            }
             List<Integer> r = new ArrayList<Integer>();
             for (String k : s.route) {
-                int i = TaxiGraph.index(nodes, k);
-                if (i >= 0) {
-                    r.add(Integer.valueOf(i));
+                Integer i = nodeIx.get(k);
+                if (i != null) {
+                    r.add(i);
                 }
             }
             s.progress = TaxiGraph.progress(nodes, r, s.progress, s.ac.x, s.ac.z);
@@ -1104,7 +1237,9 @@ public final class AtcServerSVA {
             if (dv.kind != AirportDataSVA.K_STOP) {
                 continue;
             }
-            AirportDataSVA.Tower t = towerOfLight(ts, dv.x, dv.z);
+            int emb = EmbassyAirportSVA.embassyOf(dv.key);
+            String ek = emb < 0 ? null : EmbassyAirportSVA.INSTANCE.towerKey(emb);
+            AirportDataSVA.Tower t = emb < 0 ? towerOfLight(ts, dv.x, dv.z) : ek == null ? null : d.tower(ek);
             long[] dr = stopDropped.get(dv.key);
             if (TaxiGraph.stopLit(t != null && t.online(now), dr == null ? 0 : dr[0], now)) {
                 stops.add(Integer.valueOf(i));
@@ -1185,5 +1320,280 @@ public final class AtcServerSVA {
     /** Night at a world (the airfield's rule). */
     public static boolean night(World w) {
         return AirfieldMath.night(w.getCelestialAngle(1F));
+    }
+
+    // ---------------------------------------------------------------- embassy airfield (docs/plan-embassy-airfield-addon.md §3.2)
+
+    /** The airfield of an embassy's virtual tower (null: a player's tower, the embassies off). */
+    static EmbassyFieldSVA embassyField(World w, AirportDataSVA.Tower t) {
+        int id = EmbassyAirportSVA.embassyOf(t.key);
+        return id < 0 ? null : EmbassyCompatSVA.field(w, id);
+    }
+
+    /** Embassy `id`'s virtual tower (null none). */
+    static AirportDataSVA.Tower towerOfEmbassy(AirportDataSVA d, int id) {
+        if (d == null || id < 0) {
+            return null;
+        }
+        String k = EmbassyAirportSVA.INSTANCE.towerKey(id);
+        AirportDataSVA.Tower t = k == null ? null : d.tower(k);
+        if (t != null) {
+            return t;
+        }
+        for (AirportDataSVA.Tower o : d.towers()) {
+            if (EmbassyAirportSVA.embassyOf(o.key) == id) {
+                return o;
+            }
+        }
+        return null;
+    }
+
+    /** The ICAO embassy `id`'s radio speaks with: its tower's, else the core's proposal ("" none; EmbassyAdSVA's log too). */
+    public static String embassyIcao(World w, AirportDataSVA d, int id) {
+        AirportDataSVA.Tower t = towerOfEmbassy(d, id);
+        if (t != null && t.icao.length() > 0) {
+            return t.icao;
+        }
+        EmbassyFieldSVA f = EmbassyCompatSVA.field(w, id);
+        return f == null ? "" : f.icao;
+    }
+
+    /**
+     * A virtual tower's derived bits (every TOWER_TICKS, before its runway in use is picked): the paving past its runway's ends
+     * (AutoTower.Rwy.ext - FULL 20) and the Tuners' own weather reading (the windsock's wind, the QNH lagged as a station's, the
+     * temperature) - weather() answers it when no player's station is near, so the ATIS and the runway in use go by the wind.
+     */
+    void embassyDerived(World w, AirportDataSVA d, AirportDataSVA.Tower t, long now) {
+        EmbassyFieldSVA f = embassyField(w, t);
+        if (f == null) {
+            embExt.remove(t.key);
+            embWx.remove(t.key);
+            return;
+        }
+        embExt.put(t.key, Double.valueOf(Math.max(EmbassyAtcMath.ext(f.end(true), f.thresholdKey(true)),
+                EmbassyAtcMath.ext(f.end(false), f.thresholdKey(false)))));
+        AirportDataSVA.Device dv = embWx.get(t.key);
+        if (dv == null) {
+            dv = new AirportDataSVA.Device();
+            dv.key = t.key;
+            dv.kind = AirportDataSVA.K_WX;
+            embWx.put(t.key, dv);
+        }
+        double[] c = d.centre(t);
+        dv.dim = t.dim;
+        dv.x = c[0];
+        dv.z = c[1];
+        dv.y = f.floorY + 1;
+        RvrMath.Wx x = AirportDataSVA.wx(w, dv);
+        long seed = AirportDataSVA.windSeed(w);
+        dv.qnh = WindField.lag(dv.qnh, WindField.qnhTarget(seed, now, x.rain, x.thunder), TOWER_TICKS);
+        WindField.Wind wd = WindField.wind(seed, now, x.rain, x.thunder, AirportDataSVA.WX_HEIGHT);
+        dv.windFrom = wd.from;
+        dv.windSpeed = wd.speed;
+        dv.windGust = wd.gust;
+        BiomeGenBase b = w.getBiomeGenForCoords((int) Math.floor(dv.x), (int) Math.floor(dv.z));
+        dv.temp = WindField.temperature(dv.y, b == null ? 0.8 : b.temperature, w.getWorldTime());
+    }
+
+    /** The runway in use with an embassy's paving past its ends (AutoTower.Rwy.ext); a player's - useRwy. */
+    AutoTower.Rwy useRwyExt(AirportDataSVA.Tower t) {
+        AutoTower.Rwy rw = useRwy(t);
+        Double e = rw == null ? null : embExt.get(t.key);
+        return e == null ? rw : new AutoTower.Rwy(rw.r, rw.dir, e.doubleValue());
+    }
+
+    /** An embassy tower's ATIS reaches `v`'s chat (EmbassyAtcMath.atisToChat: near its field or its MCDU's destination); a player's - yes. */
+    static boolean atisReaches(AirportDataSVA d, AirportDataSVA.Tower t, EntityVehicleSVA v) {
+        if (!EmbassyAirportSVA.isVirtual(t.key)) {
+            return true;
+        }
+        double[] c = d.centre(t);
+        com.sva.vehicle.LinerSystems L = v.state.liner();
+        boolean dest = L != null && t.icao.length() > 0 && t.icao.equalsIgnoreCase(L.fms.to);
+        return EmbassyAtcMath.atisToChat(Math.hypot(v.posX - c[0], v.posZ - c[1]), dest, ConfigSVA.aptEmbassyAtisRange);
+    }
+
+    /**
+     * The player at the controls: the driver, the liner's first officer's seat too (null: nobody; never a FakePlayer). Public (review
+     * 2026-10-27): the embassy's air defence (its 7700 pass) and its services (the «Лётная книжка») ask the same seats.
+     */
+    public static EntityPlayer pilotOf(EntityVehicleSVA v) {
+        if (v.riddenByEntity instanceof EntityPlayer && !(v.riddenByEntity instanceof FakePlayer)) {
+            return (EntityPlayer) v.riddenByEntity;
+        }
+        if (v.getVehicleType() == VehicleType.LINER) {
+            for (Entity e : v.riders()) {
+                if (e instanceof EntityPlayer && !(e instanceof FakePlayer) && LinerLogicSVA.pilot(v, (EntityPlayer) e)) {
+                    return (EntityPlayer) e;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The embassy's «Враг» flies it (its pilot's level at embassy `id`; nobody at the controls - no). */
+    static boolean embassyEnemy(EntityVehicleSVA v, int id) {
+        EntityPlayer p = pilotOf(v);
+        return p != null && EmbassyCompatSVA.levelOf(p, id) == EmbassyCompatSVA.ENEMY;
+    }
+
+    /** It squawks 7700 (with power): an embassy refuses it nothing. */
+    static boolean squawksEmergency(EntityVehicleSVA v) {
+        return AirDefenseSVA.xpdrOn(v) && v.state.xpdr.code == XpdrMath.EMERGENCY;
+    }
+
+    /** On the final of either end of the tower's runways (the dome's refusal leaves an approach to the runway alone). */
+    static boolean onAnyFinal(AirportDataSVA.Tower t, AutoTower.Ac a) {
+        for (IlsPairing.Rwy r : t.rwys) {
+            if (AutoTower.onFinal(new AutoTower.Rwy(r, 1), a) || AutoTower.onFinal(new AutoTower.Rwy(r, -1), a)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The embassy's refusals (EmbassyAtcMath.screen) to the requests of the aircraft talking to its tower, before AutoTower sees them:
+     * the «Враг» at the controls - ОБСЛУЖИВАНИЕ ЗАПРЕЩЕНО to a landing, taxi or take-off; a landing asked over the dome - ПОСАДКА В КУПОЛЕ
+     * ЗАПРЕЩЕНА; the liner asking to land on SHORT - refused (airport.embassyLinerShort); 7700 - nothing.
+     */
+    void embassyScreen(World w, AirportDataSVA d, AirportDataSVA.Tower t, EmbassyFieldSVA f, long now) {
+        for (Session s : sessionsOf(t.key)) {
+            AutoTower.Ac a = s.ac;
+            boolean landing = a.req == AutoTower.R_LAND && a.st != AutoTower.S_LAND && a.st != AutoTower.S_GOAROUND;
+            boolean ground = a.req == AutoTower.R_TAXI && a.st != AutoTower.S_TAXI || a.req == AutoTower.R_TAKEOFF && a.st != AutoTower.S_TAKEOFF;
+            if (now - s.seen > SESSION_TICKS * 3 || !landing && !ground) {
+                continue;
+            }
+            Entity e = w.getEntityByID(s.id);
+            if (!(e instanceof EntityVehicleSVA)) {
+                continue;
+            }
+            EntityVehicleSVA v = (EntityVehicleSVA) e;
+            int r = EmbassyAtcMath.screen(landing, embassyEnemy(v, f.id), squawksEmergency(v), v.getVehicleType() == VehicleType.LINER,
+                    f.kind == EmbassyCompatSVA.SHORT, ConfigSVA.aptEmbassyLinerShort, f.inDome(a.x, a.z), landing && onAnyFinal(t, a));
+            if (r != EmbassyAtcMath.REFUSE_NONE) {
+                refuse(w, d, t, s, r, now);
+            }
+        }
+    }
+
+    /**
+     * The request dropped and answered (U_REFUSED with the reason, U_DOME): the MCDU's open request is closed by it; a guessed one (no
+     * MCDU - guessed again every few ticks) is told again only after EmbassyAtcMath.REFUSE_GAP or for another reason.
+     */
+    void refuse(World w, AirportDataSVA d, AirportDataSVA.Tower t, Session s, int reason, long now) {
+        AutoTower.Ac a = s.ac;
+        int kind = a.req == AutoTower.R_LAND ? Cpdlc.D_LANDING : a.req == AutoTower.R_TAKEOFF ? Cpdlc.D_READY : Cpdlc.D_TAXI;
+        Cpdlc.Msg asked = s.log.openRequest(kind);
+        a.req = AutoTower.R_NONE;
+        a.stbyTold = false;
+        if (!EmbassyAtcMath.tellRefusal(asked != null, s.embRefused, s.embRefusedAt, reason, now, EmbassyAtcMath.REFUSE_GAP)) {
+            return;
+        }
+        s.embRefused = reason;
+        s.embRefusedAt = now;
+        int ref = asked == null ? -1 : asked.id;
+        if (reason == EmbassyAtcMath.REFUSE_DOME) {
+            uplink(w, d, t, s, Cpdlc.U_DOME, 0, "", ref, now);
+        } else {
+            uplink(w, d, t, s, Cpdlc.U_REFUSED, 0, EmbassyAtcMath.REFUSE_KEYS[reason], ref, now);
+        }
+    }
+
+    /** It flies and has a transponder: the towers' traffic (AirportDataSVA.aircraft) - on the runway it is AutoTower's own business. */
+    static boolean traffic(EntityVehicleSVA v) {
+        return v.getVehicleType().movement.flies && XpdrMath.fitted(v.getVehicleType());
+    }
+
+    /**
+     * Somebody the traffic does not hold is on the embassy's paved runway (AutoTower.Params.blocked): a player on foot, a hostile mob, a
+     * ground vehicle. Only the loaded chunks are looked at (World.getEntitiesWithinAABB).
+     */
+    static boolean embassyBlocked(World w, EmbassyFieldSVA f, double elev) {
+        int[] b = f.runwayBox();
+        if (b == null || b.length < 4) {
+            return false;
+        }
+        AxisAlignedBB box = AxisAlignedBB.getBoundingBox(b[0], elev - 1, b[1], b[2] + 1, elev + AutoTower.ON_RWY_H, b[3] + 1);
+        for (Object o : w.getEntitiesWithinAABB(Entity.class, box)) {
+            Entity e = (Entity) o;
+            if (e.isDead) {
+                continue;
+            }
+            if (e instanceof EntityPlayer ? e.ridingEntity == null : e instanceof IMob || e instanceof EntityVehicleSVA && !traffic((EntityVehicleSVA) e)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The runway in use lands over the field's HIGH end (FULL: taxiway «А» under its approach - the taxi hold, risk 2 of the core's plan). */
+    static boolean landsOverHigh(EmbassyFieldSVA f, AutoTower.Rwy rw) {
+        if (!f.full() || f.taxiBox() == null) {
+            return false;
+        }
+        String high = EmbassyAirportMath.key(f.dim, f.thresholdKey(false));
+        return high != null && high.equals(rw.r.end(rw.dir).key);
+    }
+
+    /**
+     * An aircraft in the air entering an airfield embassy's dome cylinder: the pilot's line «ПОСАДКА В КУПОЛЕ ЗАПРЕЩЕНА» once per entry
+     * (the same embassy's again not before ATIS_GAP) - no air-defence zone is published for the dome (zone()). Every SESSION_TICKS.
+     */
+    void domeWarn(World w, AirportDataSVA d, EntityVehicleSVA v) {
+        Integer key = Integer.valueOf(v.getEntityId());
+        int id = EmbassyCompatSVA.on() && v.airborneForAtc() ? EmbassyCompatSVA.domeAt(w, v.posX, v.posZ) : -1;
+        if (id < 0) {
+            domeIn.remove(key);
+            return;
+        }
+        if (domeIn.size() > 512) {
+            domeIn.clear();                                         // gone vehicles' entries: a new entry at worst
+        }
+        Integer was = domeIn.put(key, Integer.valueOf(id));
+        EmbassyFieldSVA f = was != null && was.intValue() == id ? null : EmbassyCompatSVA.field(w, id);
+        if (f == null) {
+            return;                                                 // still over it / an embassy without an airfield
+        }
+        AirDefenseSVA.INSTANCE.tellPilot(v, "embDome" + id, ATIS_GAP, 0xF0B040, f.hasRunway() ? "sva.emb.dome.warn" : "sva.emb.dome.warnHeli",
+                embassyIcao(w, d, id));                             // review 2026-10-27: a HELI field has no runway - its line says «Н»
+    }
+
+    /** The virtual tower's ATIS as the chat line (the Dispatcher's tab: IEmbassyAirHookSC.atisLine through EmbassyAtcSVA); null none / off. */
+    public static IChatComponent embassyAtis(World w, int id) {
+        AirportDataSVA d = w == null || w.isRemote ? null : AirportDataSVA.get(w);
+        AirportDataSVA.Tower t = towerOfEmbassy(d, id);
+        if (t == null || t.letter < 0 || t.atisText.length() == 0 || !t.online(w.getTotalWorldTime())) {
+            return null;
+        }
+        return atisChat(t);
+    }
+
+    /**
+     * The embassy's air defence on its tower's radio: Cpdlc.U_EMB_AD (arg - the line EmbassyCompatSVA.AD_*, s - the callsign; no response
+     * wanted) into the vehicle's session log (the liner's MCDU shows it, its chime comes with the unread count) and the tower's. No chat /
+     * HUD here - EmbassyAdSVA's own message brings them. Nothing without a session (no tower in reach).
+     */
+    public void embassyRadio(World w, EntityVehicleSVA v, int embassyId, int adLine, String callsign) {
+        Session s = w == null || v == null ? null : session(v.getEntityId());
+        if (s == null || adLine < 0 || adLine >= EmbassyCompatSVA.AD_KEYS.length) {
+            return;
+        }
+        AirportDataSVA d = AirportDataSVA.get(w);
+        AirportDataSVA.Tower t = towerOfEmbassy(d, embassyId);
+        long now = w.getTotalWorldTime();
+        Cpdlc.Msg m = s.log.make(true, Cpdlc.U_EMB_AD, adLine, callsign == null || callsign.length() == 0 ? s.ac.call : callsign, "", -1, now);
+        m.tower = t != null ? t.icao : embassyIcao(w, d, embassyId);
+        m.call = s.ac.call;
+        m.aircraft = s.id;
+        if (!s.mcdu) {
+            m.read = true;                                          // no MCDU to read it: the chat line came with the air defence's
+        }
+        s.log.add(m);
+        if (t != null) {
+            towerLog(t.key).add(m.copy());
+        }
+        System.out.println("[SVA-ATC] embassy AD " + m.tower + " -> " + m.call + ": " + Cpdlc.key(m) + " " + java.util.Arrays.toString(Cpdlc.args(m)));
     }
 }

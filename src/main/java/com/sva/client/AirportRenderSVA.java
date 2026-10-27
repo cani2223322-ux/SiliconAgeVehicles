@@ -9,6 +9,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 
 import com.sva.ConfigSVA;
+import com.sva.airport.EmbassyLightsMath;
 import com.sva.airport.IlsPairing;
 import com.sva.airport.RunwayLayout;
 import com.sva.init.ModContentSVA;
@@ -49,6 +50,11 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
  * at the taxiways' step (the nearest tower's), the green centre line at that step - or, while a tower leads anybody along a
  * route («следуй за мной»), only the lights lit ahead of the cleared aircraft, brighter; the red stop bars (five lights
  * across the taxiway) while they burn (D_TAXI).
+ * <p>
+ * «Лётное поле посольства» (docs/plan-embassy-airfield-addon.md §3.3): a virtual runway of an embassy (AirportClientSVA.Rwy.emb) has
+ * its paint, edge, threshold and end lamps in the core's blocks - no paint list; its lights are EmbassyLightsMath.lights (the centre
+ * line over the displaced parts too, the touchdown zone, the threshold's wing bars, the ALS with its flasher) at the same steps and
+ * AUTO / «ВЫШКА»; its PAPI and windsock - EmbassyRenderSVA.
  */
 @SideOnly(Side.CLIENT)
 public final class AirportRenderSVA {
@@ -69,7 +75,7 @@ public final class AirportRenderSVA {
             return;
         }
         AirportClientSVA.State st = AirportClientSVA.state;
-        if (st.runways.isEmpty() && AirportClientSVA.taxi.length == 0) {
+        if (st.runways.isEmpty() && AirportClientSVA.taxi.length == 0 && st.embPapi.length == 0 && st.embSock.length == 0) {
             return;
         }
         EntityLivingBase v = mc.renderViewEntity;
@@ -93,7 +99,8 @@ public final class AirportRenderSVA {
             if (dist > ConfigSVA.aptDrawDistance) {
                 continue;
             }
-            if (ConfigSVA.aptPaint && dist < Math.max(200, mc.gameSettings.renderDistanceChunks * 16 + 32)) {
+            // embassy airfield: an embassy's runway has its paint in the core's blocks - no list at all
+            if (ConfigSVA.aptPaint && rw.emb < 0 && dist < Math.max(200, mc.gameSettings.renderDistanceChunks * 16 + 32)) {
                 paint(w, rw, st.version, now, pt);
             }
             if (ConfigSVA.aptLights) {
@@ -108,6 +115,7 @@ public final class AirportRenderSVA {
         if (ConfigSVA.aptLights && AirportClientSVA.taxi.length > 0) {
             taxi(px, py, pz, time, night, rain);                    // airport wave B2: the taxi lights
         }
+        EmbassyRenderSVA.draw(w, st, px, py, pz, time, pt, night, rain);   // embassy airfield: the PAPI, the windsocks
         GL11.glPopAttrib();
         GL11.glPopMatrix();
         GL11.glColor4f(1F, 1F, 1F, 1F);
@@ -179,14 +187,16 @@ public final class AirportRenderSVA {
             if (lightCache.size() > 64) {
                 lightCache.clear();
             }
-            List<RunwayLayout.Light> l = RunwayLayout.lights(r.len, r.width, dir, r.a.als != 0, r.b.als != 0);
+            // embassy airfield: an embassy's runway only what the core has not (no edge lights, no red end bar - its lamps)
+            List<RunwayLayout.Light> l = rw.emb >= 0 ? EmbassyLightsMath.lights(r.len, r.width, dir, r.a.als != 0, r.b.als != 0, rw.ext)
+                    : RunwayLayout.lights(r.len, r.width, dir, r.a.als != 0, r.b.als != 0);
             float[] pos = new float[l.size() * 3];
             int[] col = new int[l.size()];
             float[] run = new float[l.size()];
             boolean[] alsL = new boolean[l.size()];
             for (int i = 0; i < l.size(); i++) {
                 RunwayLayout.Light li = l.get(i);
-                alsL[i] = dir > 0 ? li.v < -0.5 : li.v > r.len + 0.5;   // wave B2: before the landing threshold - the ALS
+                alsL[i] = li.approach;                              // wave B2: the ALS (before the landing threshold) - its own step
                 double[] wp = r.world(1, li.v, li.u);
                 pos[i * 3] = (float) wp[0];
                 pos[i * 3 + 1] = (float) (r.elev + li.h);
@@ -415,5 +425,6 @@ public final class AirportRenderSVA {
         }
         lists.clear();
         lightCache.clear();
+        EmbassyRenderSVA.clear();
     }
 }

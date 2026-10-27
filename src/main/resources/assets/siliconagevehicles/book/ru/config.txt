@@ -61,6 +61,10 @@
 @kv noRadioDecisionSeconds, noRadioMemoryMinutes | 7600: время решения КП, память эпизодов
 @kv terrainCache, terrainCacheRadius | память рельефа выгруженных чанков
 @kv zoneMaxDistance, maxZonesPerPlayer | зона от своего КП, зон на игрока
+@kv embassyAd | ПВО посольства (вкл.; выкл. - посты только декор)
+@kv embassyWarnPerDay, embassyWarnSeconds | ПВО посольства: предупреждений в сутки (1; 0 - сразу огонь), секунд на разворот (10)
+@kv embassyCloseBlocks, embassyMinHeight | ПВО посольства: огонь сразу, если за разворот ближе на 32 или ниже 40 над полем
+@kv embassyUnmanned | ПВО посольства: борт без экипажа в воздухе - цель после предупреждения владельцу (вкл.)
 @kv models | 3D-модели сооружений (клиент)
 
 # airport и book
@@ -71,6 +75,11 @@
 @kv windPhysics | ветер сносит лайнер (выкл.)
 @kv atc, autoTower, autoInterval | службы вышки
 @kv atisChat, taxiAhead | ATIS в чат, огни рулёжки
+@kv embassyAirports, embassyServices | поля посольств - аэропорты, окно обслуживания у колонки (оба вкл.)
+@kv embassyTowing, embassyTowMinutes, embassyDomeMinutes, embassyApronMinutes | перегон брошенной техники: с ВПП, рулёжки и чужого или неподходящего МС (2 мин), из-под купола (5 мин), с перрона вне МС (10 мин)
+@kv embassyAtisRange | ATIS посольства в чат ближе (600 блоков)
+@kv embassyGlideAngle | угол глиссады посольств (3,0; при 3,5 - только CAT II)
+@kv embassyLinerShort | лайнеру посадка на короткую ВПП посольства (выкл.)
 @kv paint, lights, drawDistance | разметка и огни (клиент)
 @kv book.giveOnJoin | выдать справочник при первом входе
 @kv book.liveChecklists, book.highlight | живые чек-листы, подсветка органа

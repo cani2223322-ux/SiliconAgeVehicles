@@ -3,8 +3,10 @@ package com.sva.airport;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -66,12 +68,28 @@ public final class TaxiGraph {
         return (int) Math.floor(((ang + 22.5) % 360 + 360) % 360 / 45) & 7;
     }
 
-    /** The adjacency lists (indices) of the nodes (see the class comment). */
+    /**
+     * The adjacency lists (indices) of the nodes (see the class comment). Review 2026-10-27 (every embassy's field adds ~40 nodes to the
+     * Overworld's graph): the nodes are bucketed in LINK-sized cells and each one asks only its 3 x 3 cells (a node within LINK is in one
+     * of them) - O(n) for a spread-out graph; the same links as the full search (a tie goes to the lower index, as the in-order search
+     * gave); the tower's links found through one key -> index map.
+     */
     public static List<List<Integer>> build(List<Node> nodes, Set<String> extra, Set<String> cut) {
         int n = nodes.size();
         List<List<Integer>> adj = new ArrayList<List<Integer>>();
         for (int i = 0; i < n; i++) {
             adj.add(new ArrayList<Integer>());
+        }
+        Map<Long, List<Integer>> cells = new HashMap<Long, List<Integer>>();
+        for (int i = 0; i < n; i++) {
+            Node a = nodes.get(i);
+            Long c = cell(cellOf(a.x), cellOf(a.z));
+            List<Integer> l = cells.get(c);
+            if (l == null) {
+                l = new ArrayList<Integer>();
+                cells.put(c, l);
+            }
+            l.add(Integer.valueOf(i));                              // ascending: the nodes in order
         }
         int[][] best = new int[n][8];
         for (int i = 0; i < n; i++) {
@@ -79,18 +97,28 @@ public final class TaxiGraph {
             double[] bd = new double[8];
             Arrays.fill(best[i], -1);
             Arrays.fill(bd, Double.MAX_VALUE);
-            for (int j = 0; j < n; j++) {
-                if (j == i || Math.abs(nodes.get(j).y - a.y) > 3) {
-                    continue;
-                }
-                double d = a.dist(nodes.get(j));
-                if (d > LINK) {
-                    continue;
-                }
-                int s = sector(a, nodes.get(j));
-                if (d < bd[s]) {
-                    bd[s] = d;
-                    best[i][s] = j;
+            int cx = cellOf(a.x), cz = cellOf(a.z);
+            for (int gx = cx - 1; gx <= cx + 1; gx++) {
+                for (int gz = cz - 1; gz <= cz + 1; gz++) {
+                    List<Integer> l = cells.get(cell(gx, gz));
+                    if (l == null) {
+                        continue;
+                    }
+                    for (Integer jj : l) {
+                        int j = jj.intValue();
+                        if (j == i || Math.abs(nodes.get(j).y - a.y) > 3) {
+                            continue;
+                        }
+                        double d = a.dist(nodes.get(j));
+                        if (d > LINK) {
+                            continue;
+                        }
+                        int s = sector(a, nodes.get(j));
+                        if (d < bd[s] || d == bd[s] && j < best[i][s]) {
+                            bd[s] = d;
+                            best[i][s] = j;
+                        }
+                    }
                 }
             }
         }
@@ -102,9 +130,10 @@ public final class TaxiGraph {
                 }
             }
         }
+        Map<String, Integer> ix = extra != null && !extra.isEmpty() || cut != null && !cut.isEmpty() ? indexOf(nodes) : null;
         if (extra != null) {
             for (String e : extra) {
-                int[] ij = ends(nodes, e);
+                int[] ij = ends(ix, e);
                 if (ij != null) {
                     connect(adj, ij[0], ij[1]);
                 }
@@ -112,7 +141,7 @@ public final class TaxiGraph {
         }
         if (cut != null) {
             for (String e : cut) {
-                int[] ij = ends(nodes, e);
+                int[] ij = ends(ix, e);
                 if (ij != null) {
                     adj.get(ij[0]).remove(Integer.valueOf(ij[1]));
                     adj.get(ij[1]).remove(Integer.valueOf(ij[0]));
@@ -129,6 +158,34 @@ public final class TaxiGraph {
         if (!adj.get(j).contains(Integer.valueOf(i))) {
             adj.get(j).add(Integer.valueOf(i));
         }
+    }
+
+    /** The LINK-sized grid cell of a block coordinate (build's buckets). */
+    static int cellOf(int c) {
+        return (int) Math.floor(c / LINK);
+    }
+
+    static Long cell(int cx, int cz) {
+        return Long.valueOf((long) cx << 32 ^ cz & 0xFFFFFFFFL);
+    }
+
+    /** Every node's key -> its index (the first of a key, as index() finds it). */
+    public static Map<String, Integer> indexOf(List<Node> nodes) {
+        Map<String, Integer> m = new HashMap<String, Integer>();
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            m.put(nodes.get(i).key, Integer.valueOf(i));
+        }
+        return m;
+    }
+
+    /** A link key's two node indices through the key map (null: a node gone). */
+    static int[] ends(Map<String, Integer> ix, String link) {
+        int bar = link.indexOf('|');
+        if (bar < 0 || ix == null) {
+            return null;
+        }
+        Integer a = ix.get(link.substring(0, bar)), b = ix.get(link.substring(bar + 1));
+        return a == null || b == null || a.intValue() == b.intValue() ? null : new int[] {a.intValue(), b.intValue()};
     }
 
     /** A link key's two node indices (null: a node gone). */

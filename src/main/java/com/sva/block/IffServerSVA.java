@@ -15,6 +15,7 @@ import com.sva.airdefense.IffMath;
 import com.sva.airdefense.XpdrMath;
 import com.sva.airdefense.ZoneMath;
 import com.sva.airport.Cpdlc;
+import com.sva.airport.EmbassyAirportSVA;
 import com.sva.entity.EntityVehicleSVA;
 
 import net.minecraft.world.World;
@@ -97,7 +98,9 @@ public final class IffServerSVA {
         int dim = w.provider.dimensionId;
         Set<String> seenKeys = new HashSet<String>();
         for (AirportDataSVA.Tower t : AtcServerSVA.towersOf(d, dim)) {
-            if (!t.online(now) || t.icao.length() != 4) {
+            // embassy airfield (docs/plan-embassy-airfield-addon.md §3.2): an embassy's virtual tower calls nobody and hands nobody to an
+            // air defence (its owner «[Поселение-N]» has no radars; the embassy's own air defence asks the core's admission, not codes)
+            if (!t.online(now) || t.icao.length() != 4 || EmbassyAirportSVA.isVirtual(t.key)) {
                 continue;
             }
             round(w, t, zoneOf(t), now, seenKeys);

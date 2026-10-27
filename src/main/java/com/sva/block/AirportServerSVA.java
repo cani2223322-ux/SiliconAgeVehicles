@@ -3,7 +3,9 @@ package com.sva.block;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
+import com.sva.airport.EmbassyAirportSVA;
 import com.sva.airport.IlsPairing;
 import com.sva.net.NetAptSVA;
 import com.sva.vehicle.LinerIls;
@@ -12,16 +14,22 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
 import net.minecraftforge.common.DimensionManager;
+import net.minecraftforge.common.util.FakePlayer;
 
 /**
  * Airport wave B1: the server's side of the airport - every tick each loaded dimension's AirportDataSVA.tick (the monitor,
  * the flight inspections, the RVR, the weather); the antennas' tiles told their station's status (their models' lamps,
  * their screens); the clients' copy (NetAptSVA D_SYNC) sent on login, on a dimension change and whenever the data's version
  * moves (at most every SYNC_MIN ticks per dimension). Registered on the FML bus (CommonProxySVA).
+ * <p>
+ * «Лётное поле посольства» (docs/plan-embassy-airfield-addon.md §3.7): the copy is per player - the embassies he does not know
+ * (EmbassyAirportSVA.hiddenKeys) left out; the players of one dimension with the same hidden set share one copy. EmbassyAirportSVA
+ * re-syncs a player whose knowledge changed (resync).
  */
 public final class AirportServerSVA {
 
@@ -30,6 +38,7 @@ public final class AirportServerSVA {
 
     private final Map<Integer, Integer> sentVersion = new HashMap<Integer, Integer>();
     private final Map<Integer, Long> sentAt = new HashMap<Integer, Long>();
+    private int embErrors;
 
     private AirportServerSVA() {
     }
@@ -52,6 +61,14 @@ public final class AirportServerSVA {
                 continue;
             }
             long now = w.getTotalWorldTime();
+            try {
+                com.sva.airport.EmbassyAirportSVA.INSTANCE.tick(w, d, now);   // embassy airfield: the virtual airports (before the data's tick)
+            } catch (RuntimeException x) {
+                if (embErrors++ < 3) {                              // review 2026-10-27: the players' airports go on
+                    System.out.println("[SVA-EMB] virtual airports: " + x);
+                    x.printStackTrace(System.out);
+                }
+            }
             d.tick(w, now);
             AtcServerSVA.INSTANCE.tick(w, d, now);                  // airport wave B2: the towers' services
             if (now % TILE_EVERY == 0) {
@@ -108,27 +125,37 @@ public final class AirportServerSVA {
         }
     }
 
-    /** Every player of the dimension gets the copy. */
+    /** Every player of the dimension gets the copy - embassy airfield: his own (one a hidden set: the same knowledge, the same copy). */
     static void syncDim(World w, AirportDataSVA d) {
-        net.minecraft.nbt.NBTTagCompound t = null;
+        Map<Set<String>, NBTTagCompound> copies = new HashMap<Set<String>, NBTTagCompound>();
         for (Object o : w.playerEntities) {
-            if (o instanceof EntityPlayerMP) {
+            if (o instanceof EntityPlayerMP && !(o instanceof FakePlayer) && ((EntityPlayerMP) o).playerNetServerHandler != null) {
+                EntityPlayerMP p = (EntityPlayerMP) o;
+                Set<String> hidden = EmbassyAirportSVA.INSTANCE.hiddenKeys(p);
+                NBTTagCompound t = copies.get(hidden);
                 if (t == null) {
-                    t = d.clientData(w, w.provider.dimensionId);
+                    t = d.clientData(w, w.provider.dimensionId, hidden);
+                    copies.put(hidden, t);
                 }
-                NetAptSVA.send((EntityPlayerMP) o, NetAptSVA.D_SYNC, t);
+                NetAptSVA.send(p, NetAptSVA.D_SYNC, t);
             }
         }
     }
 
     static void syncPlayer(EntityPlayerMP p) {
-        if (p == null || p.worldObj == null) {
+        if (p == null || p.worldObj == null || p instanceof FakePlayer) {
             return;
         }
         AirportDataSVA d = AirportDataSVA.get(p.worldObj);
         if (d != null) {
-            NetAptSVA.send(p, NetAptSVA.D_SYNC, d.clientData(p.worldObj, p.worldObj.provider.dimensionId));
+            Set<String> hidden = EmbassyAirportSVA.INSTANCE.hiddenKeys(p);
+            NetAptSVA.send(p, NetAptSVA.D_SYNC, d.clientData(p.worldObj, p.worldObj.provider.dimensionId, hidden));
         }
+    }
+
+    /** Embassy airfield: `p`'s own copy again (EmbassyAirportSVA - the embassies he knows changed). */
+    public static void resync(EntityPlayerMP p) {
+        syncPlayer(p);
     }
 
     @SubscribeEvent

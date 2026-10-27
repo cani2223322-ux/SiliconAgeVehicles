@@ -26,6 +26,10 @@ import net.minecraft.nbt.NBTTagList;
  * taxiways' step), the taxi lights {x, y, z, kind} and their lit state (D_TAXI: the follow-me lights ahead of the cleared
  * aircraft, the stop bars burning - by index into the list of the same version), the open tower screen's picture (D_TOWER),
  * each end's approach lights' mode.
+ * <p>
+ * «Лётное поле посольства» (docs/plan-embassy-airfield-addon.md §2.3, §3.3): the server's copy is per player (only the embassies he
+ * knows); an embassy's virtual runway carries "Emb" (its id), "Ext" (the paved blocks past each threshold) and "Ils" (the ILS ends),
+ * the root "EmbSock" (the windsocks' mast feet) and "EmbPapi" (each runway end's PAPI point) - AirportRenderSVA / EmbassyRenderSVA.
  */
 @SideOnly(Side.CLIENT)
 public final class AirportClientSVA {
@@ -36,6 +40,12 @@ public final class AirportClientSVA {
         public final int rvrA, rvrB;
         /** Airport wave B2: the approach lights' mode at each end (the tower's approach step or the end's own). */
         public int alsModeA = RunwayLayout.LIGHTS_AUTO, alsModeB = RunwayLayout.LIGHTS_AUTO;
+        /**
+         * Embassy airfield: the embassy's id (-1: a player's runway) - its paint and edge / end lamps are the core's blocks (AirportRenderSVA
+         * draws only EmbassyLightsMath's); the paved blocks past each threshold (FULL 20, SHORT 1); the ILS ends (EMB_ILS_A / EMB_ILS_B).
+         */
+        public int emb = -1, ils;
+        public double ext;
 
         Rwy(IlsPairing.Rwy r, int rvrA, int rvrB) {
             this.r = r;
@@ -103,22 +113,35 @@ public final class AirportClientSVA {
         return s;
     }
 
+    /** Embassy airfield: the runway's "Ils" bits - an ILS over its A end, over its B end. */
+    public static final int EMB_ILS_A = 1, EMB_ILS_B = 2;
+    /** Embassy airfield: the ints of one windsock {x, y, z} and of one PAPI {x, y, z, heading x 10, angle x 10} in the root's arrays. */
+    public static final int SOCK_INTS = 3, PAPI_INTS = 5;
+
     public static final class State {
         public final List<Rwy> runways;
         /** Per localizer key: {cat, flags}; its runway designator. */
         public final Map<String, int[]> stations;
         public final long windSeed;
         public final int version;
+        /**
+         * Embassy airfield (the embassies this player knows - the server cuts the rest): the windsocks' mast feet {x, y, z} x n (the
+         * core's mast and cone; the add-on draws the moving sock), the PAPI points {x, y, z, true heading of the landing x 10, glide angle
+         * x 10} x n (the inner box of each runway end's PAPI - EmbassyRenderSVA).
+         */
+        public final int[] embSock, embPapi;
 
-        State(List<Rwy> runways, Map<String, int[]> stations, long windSeed, int version) {
+        State(List<Rwy> runways, Map<String, int[]> stations, long windSeed, int version, int[] embSock, int[] embPapi) {
             this.runways = runways;
             this.stations = stations;
             this.windSeed = windSeed;
             this.version = version;
+            this.embSock = embSock;
+            this.embPapi = embPapi;
         }
     }
 
-    public static volatile State state = new State(Collections.<Rwy>emptyList(), Collections.<String, int[]>emptyMap(), 0, 0);
+    public static volatile State state = new State(Collections.<Rwy>emptyList(), Collections.<String, int[]>emptyMap(), 0, 0, new int[0], new int[0]);
     private static int versions;
 
     private AirportClientSVA() {
@@ -136,6 +159,10 @@ public final class AirportClientSVA {
         }
         if (kind == NetAptSVA.D_TAXI) {
             lit = new Lit(t.getInteger("V"), t.getBoolean("F"), set(t.getIntArray("L")), set(t.getIntArray("S")));
+            return;
+        }
+        if (kind == NetAptSVA.D_EMB) {
+            GuiEmbassyServiceSVA.receive(t);                        // embassy airfield: the service window's snapshot
             return;
         }
         if (kind != NetAptSVA.D_SYNC) {
@@ -164,6 +191,11 @@ public final class AirportClientSVA {
             Rwy rw = new Rwy(r, e.getInteger("Ra"), e.getInteger("Rb"));
             rw.alsModeA = e.hasKey("Pa") ? e.getInteger("Pa") : a.lights;
             rw.alsModeB = e.hasKey("Pb") ? e.getInteger("Pb") : b.lights;
+            if (e.hasKey("Emb")) {                                  // embassy airfield: a virtual runway on the core's paving
+                rw.emb = e.getInteger("Emb");
+                rw.ext = Math.max(0, Math.min(com.sva.airport.EmbassyLightsMath.EXT_MAX, e.getDouble("Ext")));
+                rw.ils = e.getInteger("Ils") & (EMB_ILS_A | EMB_ILS_B);
+            }
             rws.add(rw);
         }
         Map<String, int[]> st = new HashMap<String, int[]>();
@@ -186,7 +218,22 @@ public final class AirportClientSVA {
         towers = Collections.unmodifiableList(tw);
         taxi = t.getIntArray("Tx");
         taxiVersion = t.getInteger("TxV");
-        state = new State(Collections.unmodifiableList(rws), Collections.unmodifiableMap(st), t.getLong("WindSeed"), ++versions);
+        // embassy airfield: the windsocks and the PAPI of the embassies this player knows
+        int[] sock = whole(t.getIntArray("EmbSock"), SOCK_INTS), papi = whole(t.getIntArray("EmbPapi"), PAPI_INTS);
+        state = new State(Collections.unmodifiableList(rws), Collections.unmodifiableMap(st), t.getLong("WindSeed"), ++versions, sock, papi);
+    }
+
+    /** Embassy airfield: an array cut to whole records of `n` ints (a short tail dropped). */
+    static int[] whole(int[] a, int n) {
+        if (a == null) {
+            return new int[0];
+        }
+        if (a.length % n == 0) {
+            return a;
+        }
+        int[] c = new int[a.length - a.length % n];
+        System.arraycopy(a, 0, c, 0, c.length);
+        return c;
     }
 
     /** The runway an end marker key belongs to ({runway, dir}) or null. */

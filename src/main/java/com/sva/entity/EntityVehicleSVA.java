@@ -1440,7 +1440,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
         long now = worldObj.getTotalWorldTime();
         if (now - runwayAt >= (runway == null ? RUNWAY_RETRY : RUNWAY_EVERY) || now < runwayAt) {
             runwayAt = now;
-            runway = ModContentSVA.runway == null ? null : RunwayMath.find(new RunwayMath.World() {
+            runway = RunwayMath.find(new RunwayMath.World() {
                 @Override
                 public int top(int x, int z) {
                     int h = worldObj.getHeightValue(x, z);
@@ -1449,7 +1449,7 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
 
                 @Override
                 public boolean runway(int x, int y, int z) {
-                    return worldObj.blockExists(x, y, z) && worldObj.getBlock(x, y, z) == ModContentSVA.runway;
+                    return com.sva.vehicle.RunwaySurfaceSVA.is(worldObj, x, y, z);   // embassy airfield: the core's runway too
                 }
             }, posX, posZ);
             if (runway != null) {
@@ -2627,10 +2627,10 @@ public class EntityVehicleSVA extends Entity implements ISidedInventory {
                 : ConfigSVA.regen ? (int) Math.round(com.sva.vehicle.RegenMath.eff(ConfigSVA.regenEfficiency) * 100) : 0;
     }
 
-    /** Is the block under the centre a Runway block (plane: x0.5 take-off run, soft brakes)? */
+    /** Is the block under the centre a Runway block (plane: x0.5 take-off run, soft brakes)? Embassy airfield: the core's runway too. */
     public boolean onRunway() {
         int x = MathHelper.floor_double(posX), y = MathHelper.floor_double(posY - 0.2), z = MathHelper.floor_double(posZ);
-        return ModContentSVA.runway != null && worldObj.getBlock(x, y, z) == ModContentSVA.runway;
+        return com.sva.vehicle.RunwaySurfaceSVA.is(worldObj, x, y, z);
     }
 
     /** No block within FlightMath.AIRBORNE under the collision box at (x, y, z) - in the air. */

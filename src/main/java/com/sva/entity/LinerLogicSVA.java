@@ -325,7 +325,14 @@ public final class LinerLogicSVA {
         final int dim = v.worldObj.provider.dimensionId;
         final com.sva.block.NavDataSVA nd = com.sva.block.NavDataSVA.get(v.worldObj);
         if (nd != null) {
-            e.db = nd.db(v.worldObj, dim, v.basePoint());
+            // embassy airfield: an embassy's airport only when one of the riders knows it (NavDataSVA's copy for them)
+            java.util.List<EntityPlayer> viewers = new java.util.ArrayList<EntityPlayer>();
+            for (Entity r : v.riders()) {
+                if (r instanceof EntityPlayer) {
+                    viewers.add((EntityPlayer) r);
+                }
+            }
+            e.db = nd.db(v.worldObj, dim, v.basePoint(), viewers);
             e.store = new LinerMcdu.Store() {
                 @Override
                 public String putWpt(NavDb.Wpt w) {

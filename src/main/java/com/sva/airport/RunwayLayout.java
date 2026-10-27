@@ -188,13 +188,23 @@ public final class RunwayLayout {
         public final int colour;
         /** ALS flashers: their place in the run (0 outer .. 1 inner), else -1. */
         public final double run;
+        /**
+         * Embassy airfield: a light of the approach lights (als(); they burn at the approach step) - the renderer's kind, as an embassy
+         * runway's centre line runs on before its displaced threshold where only the ALS stood before.
+         */
+        public final boolean approach;
 
         Light(double u, double v, double h, int colour, double run) {
+            this(u, v, h, colour, run, false);
+        }
+
+        Light(double u, double v, double h, int colour, double run, boolean approach) {
             this.u = u;
             this.v = v;
             this.h = h;
             this.colour = colour;
             this.run = run;
+            this.approach = approach;
         }
     }
 
@@ -257,7 +267,7 @@ public final class RunwayLayout {
         // the approach lights of his landing end
         if (dir > 0 ? alsA : alsB) {
             for (Light a : als()) {
-                l.add(dir > 0 ? new Light(a.u, -a.v, a.h, a.colour, a.run) : new Light(-a.u, len + a.v, a.h, a.colour, a.run));
+                l.add(dir > 0 ? new Light(a.u, -a.v, a.h, a.colour, a.run, true) : new Light(-a.u, len + a.v, a.h, a.colour, a.run, true));
             }
         }
         return l;
@@ -269,17 +279,17 @@ public final class RunwayLayout {
         for (double d = ALS_STEP; d <= ALS_LEN + 1e-6; d += ALS_STEP) {
             double h = 0.3 + d * 0.01;
             for (int k = -2; k <= 2; k++) {
-                l.add(new Light(k * 0.2, d, h, WHITE, -1));
+                l.add(new Light(k * 0.2, d, h, WHITE, -1, true));
             }
             if (d >= ALS_FLASH_END - 1e-6) {
-                l.add(new Light(0, d, h + 0.25, FLASH, (ALS_LEN - d) / (ALS_LEN - ALS_FLASH_END)));
+                l.add(new Light(0, d, h + 0.25, FLASH, (ALS_LEN - d) / (ALS_LEN - ALS_FLASH_END), true));
             }
         }
         for (double[] b : ALS_BARS) {
             double h = 0.3 + b[0] * 0.01;
             for (double u = 0.6; u <= b[1] + 1e-6; u += 0.6) {
-                l.add(new Light(u, b[0], h, WHITE, -1));
-                l.add(new Light(-u, b[0], h, WHITE, -1));
+                l.add(new Light(u, b[0], h, WHITE, -1, true));
+                l.add(new Light(-u, b[0], h, WHITE, -1, true));
             }
         }
         return l;

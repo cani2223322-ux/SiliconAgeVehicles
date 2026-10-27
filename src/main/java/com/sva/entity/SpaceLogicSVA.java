@@ -410,6 +410,18 @@ public final class SpaceLogicSVA {
         }, x, y, z);
     }
 
+    /** Someone aboard (a player, never a FakePlayer) is admitted by embassy `id`'s air defence, or his 7700 pass runs there. */
+    static boolean admittedAboard(EntityVehicleSVA v, int id) {
+        long now = v.worldObj.getTotalWorldTime();
+        for (net.minecraft.entity.Entity e : v.riders()) {
+            if (e instanceof EntityPlayer && !(e instanceof net.minecraftforge.common.util.FakePlayer)
+                    && (com.sva.compat.EmbassyCompatSVA.admitted((EntityPlayer) e, id) || com.sva.compat.EmbassyCompatSVA.passUntil((EntityPlayer) e, id) > now)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The destination as it must be for the jump: {code, y}. Loads its chunks. */
     static int[] destination(EntityVehicleSVA v, Target tg) {
         WorldServer to = VehicleTransferSVA.world(v.worldObj, tg.dim);
@@ -418,6 +430,17 @@ public final class SpaceLogicSVA {
         }
         VehicleTransferSVA.loadAround(to, tg.x + 0.5, tg.z + 0.5, 1);
         int y = arrivalY(to, tg);
+        // embassy airfield (docs/plan-embassy-airfield-addon.md §3.8): onto an embassy's field only on its helipad «Н», never the runway
+        com.sva.compat.EmbassyFieldSVA ef = com.sva.compat.EmbassyCompatSVA.fieldAt(to, tg.x, tg.z);
+        if (ef != null && !com.sva.compat.EmbassyFieldSVA.in(ef.helipadBox(), tg.x + 0.5, tg.z + 0.5)) {
+            return new int[] {SpaceMath.EMBASSY, y};
+        }
+        // review 2026-10-27: a jump is an entry by air - into an embassy's air defence zone only with someone admitted aboard (or his 7700
+        // pass running there); the guns never judge a ship that arrives on the ground, so the jump itself is refused
+        int adId = com.sva.airdefense.EmbassyAdSVA.active() ? com.sva.compat.EmbassyCompatSVA.adZoneAt(to, tg.x + 0.5, tg.z + 0.5) : -1;
+        if (adId >= 0 && !admittedAboard(v, adId)) {
+            return new int[] {SpaceMath.EMBASSY_AD, y};
+        }
         if (!freeAt(to, tg.x, y, tg.z)) {
             return new int[] {SpaceMath.BLOCKED, y};
         }
