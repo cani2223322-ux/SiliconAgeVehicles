@@ -132,7 +132,7 @@ final class SelfTestEmbassySVA {
                 && "repair".equals(EmbassyCompatSVA.SERVICE_KEYS[EmbassyCompatSVA.S_REPAIR])
                 && "electrolyte".equals(EmbassyCompatSVA.SERVICE_KEYS[EmbassyCompatSVA.S_ELECTROLYTE])
                 && "tow".equals(EmbassyCompatSVA.SERVICE_KEYS[EmbassyCompatSVA.S_TOW]) && "chart".equals(EmbassyCompatSVA.SERVICE_KEYS[EmbassyCompatSVA.S_CHART])
-                && EmbassyCompatSVA.PAY_KEYS.length == EmbassyCompatSVA.PAY_UNKNOWN + 1 && EmbassyCompatSVA.AD_KEYS.length == EmbassyCompatSVA.AD_LEFT + 1
+                && EmbassyCompatSVA.PAY_KEYS.length == EmbassyCompatSVA.PAY_UNKNOWN + 1 && EmbassyCompatSVA.AD_KEYS.length == EmbassyCompatSVA.AD_NEAR + 1
                 && EmbassyCompatSVA.LEVEL_KEYS.length == EmbassyCompatSVA.HONOURED + 1 && EmbassyCompatSVA.KIND_KEYS.length == EmbassyCompatSVA.FULL + 1
                 && "acquaintance".equals(EmbassyCompatSVA.LEVEL_KEYS[EmbassyCompatSVA.ACQUAINTANCE])
                 && "stranger".equals(EmbassyCompatSVA.LEVEL_KEYS[EmbassyCompatSVA.STRANGER]) && "enemy".equals(EmbassyCompatSVA.LEVEL_KEYS[EmbassyCompatSVA.ENEMY])
@@ -520,7 +520,7 @@ final class SelfTestEmbassySVA {
         dome.type = Cpdlc.U_DOME;
         String[] d = Cpdlc.args(dome);
         boolean args = a.length == 2 && "SVA-12".equals(a[0]) && "#sva.cpdlc.embAd.fire".equals(a[1]) && a2.length == 2
-                && ("#sva.cpdlc.embAd." + EmbassyCompatSVA.AD_KEYS[EmbassyCompatSVA.AD_LEFT]).equals(a2[1]) && r.length == 1
+                && ("#sva.cpdlc.embAd." + EmbassyCompatSVA.AD_KEYS[EmbassyCompatSVA.AD_KEYS.length - 1]).equals(a2[1]) && r.length == 1
                 && "#sva.cpdlc.refused.liner".equals(r[0]) && r2.length == 1 && "#sva.cpdlc.refused.enemy".equals(r2[0]) && d.length == 0;
         check(noResp && args, "embassy CPDLC: ОБСЛУЖИВАНИЕ ЗАПРЕЩЕНО / ПОСАДКА В КУПОЛЕ ЗАПРЕЩЕНА / the embassy's air defence want no response (a landing"
                 + " clearance still does) " + noResp + "; args - U_EMB_AD {callsign, #sva.cpdlc.embAd.<line>} " + Arrays.toString(a) + ", U_REFUSED"
@@ -676,7 +676,7 @@ final class SelfTestEmbassySVA {
         boolean cp = Cpdlc.U_REFUSED == 15 && Cpdlc.U_DOME == 16 && Cpdlc.U_EMB_AD == 17 && Cpdlc.U_TYPES == 18 && Cpdlc.U_IFF == 14 && Cpdlc.U_SQUAWK == 13;
         boolean jump = SpaceMath.EMBASSY == 12 && SpaceMath.CHUNK == 11 && SpaceMath.EMBASSY_AD == 13;
         boolean ad = EmbassyAdMath.A_KEYS.length == EmbassyAdMath.A_FIRE + 1 && EmbassyAdMath.WHY_KEYS.length == EmbassyAdMath.WHY_REENTRY + 1
-                && EmbassyAdMath.A_NONE == 0 && EmbassyAdMath.TICKS == 20 && EmbassyCompatSVA.AD_KEYS.length == 6 && "left".equals(EmbassyCompatSVA.AD_KEYS[5]);
+                && EmbassyAdMath.A_NONE == 0 && EmbassyAdMath.TICKS == 20 && EmbassyCompatSVA.AD_KEYS.length == 7 && "left".equals(EmbassyCompatSVA.AD_KEYS[5]) && "near".equals(EmbassyCompatSVA.AD_KEYS[6]);
         check(src && cp && jump && ad, "embassy enums (§6.1.8): NavDb.SRC_EMBASSY 6 appended («embassy», SRC_KEYS " + NavDb.SRC_KEYS.length + ") " + src
                 + "; Cpdlc U_REFUSED 15 / U_DOME 16 / U_EMB_AD 17, U_TYPES 18 " + cp + "; SpaceMath.EMBASSY 12 after CHUNK 11, EMBASSY_AD 13 " + jump + "; the AD's verdicts"
                 + " / reasons / lines " + ad);

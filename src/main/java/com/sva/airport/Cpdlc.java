@@ -143,7 +143,7 @@ public final class Cpdlc {
                 return new String[] {"#sva.cpdlc.refused." + (m.s.length() == 0 ? "enemy" : m.s)};
             case U_EMB_AD:
                 // embassy airfield: the callsign, the air defence's line (EmbassyCompatSVA.AD_KEYS)
-                return new String[] {m.s, "#sva.cpdlc.embAd." + com.sva.compat.EmbassyCompatSVA.AD_KEYS[Math.max(0, Math.min(5, m.arg))]};
+                return new String[] {m.s, "#sva.cpdlc.embAd." + com.sva.compat.EmbassyCompatSVA.AD_KEYS[Math.max(0, Math.min(com.sva.compat.EmbassyCompatSVA.AD_KEYS.length - 1, m.arg))]};
             default:
                 return new String[0];
         }

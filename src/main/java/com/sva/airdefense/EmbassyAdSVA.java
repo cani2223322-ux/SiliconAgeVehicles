@@ -136,6 +136,8 @@ public final class EmbassyAdSVA {
 
     /** vehKey -> its memory. */
     private final Map<String, Track> tracks = new HashMap<String, Track>();
+    /** vehKey -> the embassy whose AD_NEAR it heard on this approach (ЛП-1; forgotten out of every circle). */
+    private final Map<String, Integer> nearSaid = new HashMap<String, Integer>();
     /**
      * The add-on's warnings per player beyond the core's ledger (airdefense.embassyWarnPerDay, the seconds of the last one): "<uuid>|<id>"
      * -> {extra warnings given that day, the add-on's end of the last, the game day}. RAM only.
@@ -230,6 +232,7 @@ public final class EmbassyAdSVA {
                 }
                 EmbassyFieldSVA f = circleOf(all, v.posX, v.posZ);
                 if (f == null) {
+                    nearSaid.remove(key);                           // the next approach is warned again (ЛП-1)
                     if (t != null) {
                         left(w, v, t, now);                         // out of every embassy's circle
                     }
@@ -239,6 +242,32 @@ public final class EmbassyAdSVA {
             }
         }
         prune(now, day(w));
+    }
+
+    /**
+     * ЛП-1 of the core audit 2026-11-04: a machine in the air in embassy `f`'s warning circle (adWarnZoneAt) but not where its guns fire
+     * (adZoneAt) with nobody admitted aboard hears AD_NEAR once per approach (chat, HUD, radio) - no clock, no fire. An older core
+     * without adWarnZoneAt: never (its zone is the whole circle).
+     */
+    private void near(World w, EmbassyFieldSVA f, EntityVehicleSVA v, String key) {
+        if (EmbassyCompatSVA.adWarnZoneAt(w, v.posX, v.posZ) != f.id) {
+            return;
+        }
+        Integer was = nearSaid.get(key);
+        if (was != null && was.intValue() == f.id) {
+            return;                                                 // said on this approach already
+        }
+        List<EntityPlayer> aboard = aboard(v);
+        if (aboard.isEmpty()) {
+            return;
+        }
+        for (EntityPlayer p : aboard) {
+            if (EmbassyCompatSVA.admitted(p, f.id)) {
+                return;
+            }
+        }
+        nearSaid.put(key, Integer.valueOf(f.id));
+        say(w, f.id, v, aboard, EmbassyCompatSVA.AD_NEAR, AMBER, "sva.emb.ad.hud.near");
     }
 
     /** One machine in field `f`'s circle (t: its memory, null none). */
@@ -251,6 +280,9 @@ public final class EmbassyAdSVA {
         k.now = now;
         k.airborne = v.getVehicleType().movement.flies && !v.isWrecked() && v.airborneForAtc();
         k.inZone = (k.airborne || t != null) && EmbassyCompatSVA.adZoneAt(w, v.posX, v.posZ) == f.id;
+        if (t == null && k.airborne && !k.inZone) {
+            near(w, f, v, key);                                     // ЛП-1: the circle beyond the guns - only «approaching»
+        }
         if (t == null && !(k.airborne && k.inZone)) {
             return;                                                 // nothing to judge, nothing to remember
         }

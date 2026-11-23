@@ -801,6 +801,10 @@ final class WorldTestEmbassySVA {
             double dx = post[0] + 0.5 - f.coreX, dz = post[2] + 0.5 - f.coreZ, dl = Math.max(1, Math.hypot(dx, dz));
             ux = new double[] {dx / dl, dz / dl};
             double out = dl + 50;
+            // ЛП-1 of the core audit 2026-11-04: the guns fire only over the embassy's square and the approaches - Q back inside it
+            while (out > 10 && EmbassyCompatSVA.adZoneAt(w, f.coreX + ux[0] * out, f.coreZ + ux[1] * out) != id) {
+                out -= 5;
+            }
             q = new double[] {f.coreX + ux[0] * out, f.floorY + 60, f.coreZ + ux[1] * out};
             qOut = new double[] {f.coreX + ux[0] * 300, f.floorY + 60, f.coreZ + ux[1] * 300};
             anchor(q[0], q[2], 2);
@@ -878,7 +882,10 @@ final class WorldTestEmbassySVA {
                 }
             }
             StringBuilder ils = new StringBuilder();
-            boolean cat3 = f.ilsLow || f.ilsHigh;
+            boolean cat3 = true;                                    // no ILS end (a hill over the plane, ЛП-2): nothing to check
+            if (!f.ilsLow && !f.ilsHigh) {
+                ils.append(" - none on this field");
+            }
             for (int e = 0; e < 2; e++) {
                 boolean low = e == 0;
                 if (low ? !f.ilsLow : !f.ilsHigh) {

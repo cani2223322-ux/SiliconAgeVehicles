@@ -54,8 +54,8 @@ public final class EmbassyCompatSVA {
     /** requestPass (EmbassyAirApiSC.PASS_*). */
     public static final int PASS_GRANTED = 0, PASS_RUNNING = 1, PASS_USED = 2, PASS_NO_FIELD = 3, PASS_ADMITTED = 4;
     /** adLine / tell (EmbassyAirApiSC.AD_*; the core's lines sc.airfield.ad.<AD_KEYS[line]>). */
-    public static final int AD_WARN = 0, AD_FIRE = 1, AD_PASS = 2, AD_PASS_USED = 3, AD_PASS_OVER = 4, AD_LEFT = 5;
-    public static final String[] AD_KEYS = {"warn", "fire", "pass", "passUsed", "passOver", "left"};
+    public static final int AD_WARN = 0, AD_FIRE = 1, AD_PASS = 2, AD_PASS_USED = 3, AD_PASS_OVER = 4, AD_LEFT = 5, AD_NEAR = 6;
+    public static final String[] AD_KEYS = {"warn", "fire", "pass", "passUsed", "passOver", "left", "near"};
     /** The services (the core's EmbassyAirRulesSC.SERVICE_KEYS, in its order; the core's names sc.airfield.service.<key>). */
     public static final int S_PARK = 0, S_EMERGENCY = 1, S_CHARGE = 2, S_HYDROGEN = 3, S_ARMOUR_GAS = 4, S_REPAIR = 5, S_ELECTROLYTE = 6,
             S_TOW = 7, S_CHART = 8;
@@ -398,6 +398,24 @@ public final class EmbassyCompatSVA {
             return EmbassyAirApiSC.adZoneAt(w, x, z);
         } catch (LinkageError e) {
             off("adZoneAt: " + e);
+            return -1;
+        }
+    }
+
+    /**
+     * The embassy (id) whose air defence warning circle holds (x, z) - the guns fire only in adZoneAt (ЛП-1 of the core audit
+     * 2026-11-04); -1 none or over a player's base. An older core without it: adZoneAt (its zone was the whole circle).
+     */
+    public static int adWarnZoneAt(World w, double x, double z) {
+        if (!on || w == null || w.isRemote) {
+            return -1;
+        }
+        try {
+            return EmbassyAirApiSC.adWarnZoneAt(w, x, z);
+        } catch (NoSuchMethodError e) {
+            return adZoneAt(w, x, z);
+        } catch (LinkageError e) {
+            off("adWarnZoneAt: " + e);
             return -1;
         }
     }
