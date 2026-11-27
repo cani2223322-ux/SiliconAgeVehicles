@@ -12,6 +12,7 @@ import cpw.mods.fml.relauncher.Side;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraftforge.common.util.FakePlayer;
 
 /**
  * Air-defence wave: channel "SAVehiclesAD" - two messages carrying a small NBT payload each, so the air defence's
@@ -52,7 +53,7 @@ public final class NetADSVA {
     }
 
     public static void send(EntityPlayerMP p, int kind, NBTTagCompound t) {
-        if (p != null && p.playerNetServerHandler != null) {
+        if (p != null && !(p instanceof FakePlayer) && p.playerNetServerHandler != null) {
             CHANNEL.sendTo(new Data(kind, t), p);
         }
     }

@@ -15,6 +15,7 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraftforge.common.util.FakePlayer;
 
 /**
  * Airport wave B1: channel "SAVehiclesApt" - as NetADSVA, two messages with a small NBT payload each.
@@ -47,7 +48,7 @@ public final class NetAptSVA {
     }
 
     public static void send(EntityPlayerMP p, int kind, NBTTagCompound t) {
-        if (p != null && p.playerNetServerHandler != null) {
+        if (p != null && !(p instanceof FakePlayer) && p.playerNetServerHandler != null) {
             CHANNEL.sendTo(new Data(kind, t), p);
         }
     }

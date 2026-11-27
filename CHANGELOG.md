@@ -102,8 +102,10 @@ Changes not yet released collect under "Unreleased"; at the next release it beco
   - *Исправлено*: клик ловится по корпусу (фюзеляж, крылья, мотогондолы, шасси, стабилизатор, киль), сервер меряет досягаемость до корпуса. Shift + ПКМ в любом месте - обычный багажник с кнопкой «Убрать в инвентарь», гаечный ключ - сразу в инвентарь. Двери L1 / R1 и открытый грузовой люк работают как раньше. Подсказки (закрытый люк, «через дверь L1») - не чаще раза в 3 с.
   - Убрать лайнер можно только на земле, стоя, с выключенными двигателями и без людей внутри.
   - Самотесты: клики слева / справа / спереди / сзади / с конца крыла / с хвоста / из-под крыла, досягаемость, подсказка раз в 3 с, правила подъёма; мировой тест: те же стороны, двери, подсказка, отказ при работающих двигателях и с пассажиром, подъём с конца крыла.
+- Пакеты аэропорта и ПВО больше не отправляются ненастоящим игрокам (FakePlayer): раньше в мировых тестах ядра это давало ошибку NPE в логе.
 
 ### English
+- Airport and air-defence packets are no longer sent to fake players (FakePlayer): it logged an NPE in the core's world tests.
 - **Embassy air defence (with the new core):** fire only over the embassy's square and its approach corridors (the core's ЛП-1); in the rest of the 256-block circle an aircraft without clearance hears "you are approaching the air defence zone" once per approach (chat, HUD, radio), with no countdown and no fire. With an older core - as before.
 - **The embassy airfield (with a Silicon Age core that has the airfield API).** The Tuners' new embassies built with the add-on installed get an airfield from the core (FULL: a 200 x 9 runway along the main street; SHORT: 90 x 7 and an “H” helipad; HELI: the “H” alone), and the add-on makes an airport of it. The add-on places no block of its own there: everything is virtual, made from the core's data, never saved; old embassies are left as they are; an older core without the API - the embassy features are simply off.
   - *The runway*: the core's runway paving is a runway for every machine (LOC capture, the HSI, the x0.5 take-off run, the soft brakes, the vehicle map).
